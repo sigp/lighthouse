@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{PublicKey, Signature};
+use bls::{Hash256, PublicKey, Signature};
 use serde_derive::Deserialize;
 use ssz::Decode;
 use std::borrow::Cow;
@@ -31,15 +31,12 @@ impl Case for BlsAggregateVerify {
         let pubkey_msgs = self
             .input
             .pairs
-            .into_iter()
+            .iter()
             .map(|pair| {
                 let bytes = hex::decode(&pair.message[2..])
                     .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-                let mut array = [0; 32];
-                array[..].copy_from_slice(&bytes);
-
-                Ok((Cow::Owned(pair.pubkey), array))
+                Ok((Cow::Borrowed(&pair.pubkey), Hash256::from_slice(&bytes)))
             })
             .collect::<Result<Vec<_>, _>>()?;
 

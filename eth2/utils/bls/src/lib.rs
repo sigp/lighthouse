@@ -14,7 +14,9 @@ pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use impls::*;
 pub use public_key::PUBLIC_KEY_BYTES_LEN;
 pub use secret_key::SECRET_KEY_BYTES_LEN;
-pub use signature::{MSG_SIZE, SIGNATURE_BYTES_LEN};
+pub use signature::SIGNATURE_BYTES_LEN;
+
+pub type Hash256 = ethereum_types::H256;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

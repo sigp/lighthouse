@@ -1,10 +1,9 @@
 use crate::{
     public_key::{PublicKey, TPublicKey},
     signature::{Signature, TSignature},
+    Hash256,
 };
 use std::borrow::Cow;
-
-type Message = [u8; 32];
 
 #[derive(Clone, Debug)]
 pub struct SignedMessage<'a, Pub>
@@ -12,14 +11,14 @@ where
     Pub: TPublicKey + Clone,
 {
     pub(crate) signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
-    pub(crate) message: Message,
+    pub(crate) message: Hash256,
 }
 
 impl<'a, Pub> SignedMessage<'a, Pub>
 where
     Pub: TPublicKey + Clone,
 {
-    pub fn new(signing_keys: Vec<Cow<'a, PublicKey<Pub>>>, message: Message) -> Self {
+    pub fn new(signing_keys: Vec<Cow<'a, PublicKey<Pub>>>, message: Hash256) -> Self {
         Self {
             signing_keys,
             message,
@@ -44,7 +43,7 @@ where
     pub fn single(
         signature: &'a Signature<Pub, Sig>,
         signing_key: Cow<'a, PublicKey<Pub>>,
-        message: Message,
+        message: Hash256,
     ) -> Self {
         Self {
             signature,

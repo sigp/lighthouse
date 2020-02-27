@@ -90,7 +90,7 @@ where
     Ok(SignatureSet::single(
         &signed_block.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
-        message.to_fixed_bytes(),
+        message,
     ))
 }
 
@@ -118,7 +118,7 @@ where
     Ok(SignatureSet::single(
         &block.body.randao_reveal,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
-        message.to_fixed_bytes(),
+        message,
     ))
 }
 
@@ -171,7 +171,7 @@ fn block_header_signature_set<'a, T: EthSpec>(
     Ok(SignatureSet::single(
         &signed_header.signature,
         pubkey,
-        message.to_fixed_bytes(),
+        message,
     ))
 }
 
@@ -203,7 +203,7 @@ where
     );
 
     let message = indexed_attestation.data.signing_root(domain);
-    let signed_message = SignedMessage::new(pubkeys, message.to_fixed_bytes());
+    let signed_message = SignedMessage::new(pubkeys, message);
 
     Ok(SignatureSet::new(signature, vec![signed_message]))
 }
@@ -238,7 +238,7 @@ where
     );
 
     let message = indexed_attestation.data.signing_root(domain);
-    let signed_message = SignedMessage::new(pubkeys, message.to_fixed_bytes());
+    let signed_message = SignedMessage::new(pubkeys, message);
 
     Ok(SignatureSet::new(signature, vec![signed_message]))
 }
@@ -295,7 +295,7 @@ pub fn deposit_signature_set<'a>(
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fork zeroed.
-    SignatureSet::single(signature, Cow::Borrowed(pubkey), message.to_fixed_bytes())
+    SignatureSet::single(signature, Cow::Borrowed(pubkey), *message)
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
@@ -320,7 +320,7 @@ where
     Ok(SignatureSet::single(
         &signed_exit.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
-        message.to_fixed_bytes(),
+        message,
     ))
 }
 

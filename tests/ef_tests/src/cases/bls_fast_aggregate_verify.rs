@@ -1,10 +1,9 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{PublicKey, PublicKeyBytes, Signature};
+use bls::{Hash256, PublicKey, PublicKeyBytes, Signature};
 use serde_derive::Deserialize;
 use ssz::Decode;
-use std::convert::TryInto;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsFastAggregateVerifyInput {
@@ -39,7 +38,9 @@ impl Case for BlsFastAggregateVerify {
                 hex::decode(&self.input.signature[2..])
                     .ok()
                     .and_then(|bytes: Vec<u8>| Signature::from_ssz_bytes(&bytes).ok())
-                    .map(|signature| signature.verify(&message, &aggregate_pubkey))
+                    .map(|signature| {
+                        signature.verify(&aggregate_pubkey, Hash256::from_slice(&message))
+                    })
             })
             .unwrap_or(false);
 

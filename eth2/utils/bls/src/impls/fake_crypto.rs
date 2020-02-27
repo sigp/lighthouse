@@ -2,7 +2,7 @@ use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, MSG_SIZE,
+    Error, Hash256,
 };
 
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
@@ -67,11 +67,11 @@ impl TSignature<PublicKey> for Signature {
         Ok(signature)
     }
 
-    fn verify(&self, _pubkey: &PublicKey, _msg: &[u8]) -> bool {
+    fn verify(&self, _pubkey: &PublicKey, _msg: Hash256) -> bool {
         true
     }
 
-    fn fast_aggregate_verify(&self, _pubkeys: &[PublicKey], _msgs: &[[u8; MSG_SIZE]]) -> bool {
+    fn fast_aggregate_verify(&self, _pubkeys: &[PublicKey], _msgs: &[Hash256]) -> bool {
         true
     }
 }

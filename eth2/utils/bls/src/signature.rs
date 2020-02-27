@@ -1,6 +1,6 @@
 use crate::{
     public_key::{PublicKey, TPublicKey},
-    Error,
+    Error, Hash256,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -12,7 +12,6 @@ use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
 pub const SIGNATURE_BYTES_LEN: usize = 96;
-pub const MSG_SIZE: usize = 32;
 
 pub trait TSignature<PublicKey>: Sized {
     fn zero() -> Self;
@@ -23,9 +22,9 @@ pub trait TSignature<PublicKey>: Sized {
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 
-    fn verify(&self, pubkey: &PublicKey, msg: &[u8]) -> bool;
+    fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool;
 
-    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[[u8; MSG_SIZE]]) -> bool;
+    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[Hash256]) -> bool;
 }
 
 #[derive(Clone, PartialEq)]
@@ -77,13 +76,13 @@ where
     Sig: TSignature<Pub>,
     Pub: TPublicKey + Clone,
 {
-    pub fn verify(&self, pubkey: &PublicKey<Pub>, msg: &[u8]) -> bool {
+    pub fn verify(&self, pubkey: &PublicKey<Pub>, msg: Hash256) -> bool {
         self.point.verify(pubkey.point(), msg)
     }
 
     pub fn fast_aggregate_verify<'a>(
         &'a self,
-        signed_messages: impl Iterator<Item = (Cow<'a, PublicKey<Pub>>, [u8; MSG_SIZE])>,
+        signed_messages: impl Iterator<Item = (Cow<'a, PublicKey<Pub>>, Hash256)>,
     ) -> bool {
         let (pubkeys, msgs): (Vec<_>, Vec<_>) = signed_messages
             .into_iter()

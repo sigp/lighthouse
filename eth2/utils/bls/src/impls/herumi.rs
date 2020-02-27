@@ -2,7 +2,7 @@ use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, MSG_SIZE,
+    Error, Hash256,
 };
 pub use bls_eth_rust::{PublicKey, SecretKey, Signature};
 
@@ -74,14 +74,14 @@ impl TSignature<PublicKey> for Signature {
         Self::from_serialized(bytes).map_err(Into::into)
     }
 
-    fn verify(&self, pubkey: &PublicKey, msg: &[u8]) -> bool {
-        self.verify(pubkey, msg)
+    fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool {
+        self.verify(pubkey, msg.as_bytes())
     }
 
-    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[[u8; MSG_SIZE]]) -> bool {
+    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[Hash256]) -> bool {
         let msg = msgs
             .iter()
-            .map(|a| a.to_vec())
+            .map(|a| a.as_bytes().to_vec())
             .flatten()
             .collect::<Vec<_>>();
 

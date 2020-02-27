@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{SecretKey, Signature};
+use bls::SecretKey;
 use serde_derive::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,17 +24,17 @@ impl Case for BlsSign {
         let mut sk = hex::decode(&self.input.privkey[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
         pad_to_48(&mut sk);
-        let sk = SecretKey::from_bytes(&sk).unwrap();
+        let sk = SecretKey::deserialize(&sk).unwrap();
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-        let signature = Signature::new(&msg, &sk);
+        let signature = sk.sign(&msg);
 
         // Convert the output to one set of bytes
         let decoded = hex::decode(&self.output[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.as_bytes()), &Some(decoded))
+        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.serialize().to_vec()), &Some(decoded))
     }
 }
 
