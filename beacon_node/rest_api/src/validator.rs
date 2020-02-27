@@ -604,8 +604,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                 Ok(signed_proofs)
             })
             .and_then(move |signed_proofs| {
-                let attestations = signed_proofs.into_iter().map(|sp| sp.message.aggregate).collect::<Vec<_>>();
-                   publish_aggregate_attestations_to_network::<T>(network_chan, attestations)
+                   publish_aggregate_attestations_to_network::<T>(network_chan, signed_proofs)
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )

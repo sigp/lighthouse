@@ -30,17 +30,24 @@ pub struct GossipTopic {
 /// Enum that brings these topics into the rust type system.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GossipKind {
+    /// Topic for publishing beacon blocks.
     BeaconBlock,
+    /// Topic for publishing aggregate attestations and proofs.    
     BeaconAggregateAndProof,
+    /// Topic for publishing raw attestations on a particular subnet.
     CommitteeIndex(SubnetId),
+    /// Topic for publishing voluntary exits.
     VoluntaryExit,
+    /// Topic for publishing block proposer slashings.
     ProposerSlashing,
+    /// Topic for publishing attester slashings.
     AttesterSlashing,
 }
 
 /// The known encoding types for gossipsub messages.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GossipEncoding {
+    /// Messages are encoded with SSZ.
     SSZ,
 }
 

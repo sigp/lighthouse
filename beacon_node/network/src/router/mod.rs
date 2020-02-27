@@ -11,7 +11,7 @@ use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
-    MessageId, PeerId, PubsubMessage, RPCEvent,
+    MessageId, PeerId, PubsubData, PubsubMessage, RPCEvent,
 };
 use futures::future::Future;
 use futures::stream::Stream;
@@ -217,39 +217,39 @@ impl<T: BeaconChainTypes> Router<T> {
         peer_id: PeerId,
         gossip_message: PubsubMessage<T::EthSpec>,
     ) {
-        match gossip_message {
-            PubsubMessage::BeaconBlock(block) => {
+        match gossip_message.data {
+            PubsubData::BeaconBlock(block) => {
                 if self.processor.should_forward_block(&block) {
                     self.propagate_message(id, peer_id.clone());
                 }
                 self.processor.on_block_gossip(peer_id, &block);
             }
-            PubsubMessage::AggregateAndProofAttestation(_agg_attestation) => {
+            PubsubData::AggregateAndProofAttestation(_agg_attestation) => {
                 // TODO: Handle propagation conditions
                 self.propagate_message(id, peer_id);
                 // TODO Handle aggregate attestion
                 // self.processor
                 //    .on_attestation_gossip(peer_id.clone(), &agg_attestation);
             }
-            PubsubMessage::Attestation(boxed_shard_attestation) => {
+            PubsubData::Attestation(boxed_shard_attestation) => {
                 // TODO: Handle propagation conditions
                 self.propagate_message(id, peer_id.clone());
                 self.processor
                     .on_attestation_gossip(peer_id, boxed_shard_attestation.1);
             }
-            PubsubMessage::VoluntaryExit(_exit) => {
+            PubsubData::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle exits
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id) );
             }
-            PubsubMessage::ProposerSlashing(_proposer_slashing) => {
+            PubsubData::ProposerSlashing(_proposer_slashing) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle proposer slashings
                 debug!(self.log, "Received a proposer slashing"; "peer_id" => format!("{}", peer_id) );
             }
-            PubsubMessage::AttesterSlashing(_attester_slashing) => {
+            PubsubData::AttesterSlashing(_attester_slashing) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle attester slashings

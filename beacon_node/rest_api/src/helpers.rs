@@ -1,8 +1,8 @@
 use crate::{ApiError, ApiResult, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bls::PublicKeyBytes;
-use eth2_libp2p::types::{GossipEncoding, GossipKind, GossipTopic};
-use eth2_libp2p::{GossipMessage, PubsubMessage};
+use eth2_libp2p::types::GossipEncoding;
+use eth2_libp2p::{PubsubData, PubsubMessage};
 use hex;
 use http::header;
 use hyper::{Body, Request};
@@ -11,7 +11,7 @@ use ssz::Decode;
 use store::{iter::AncestorIter, Store};
 use types::{
     Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, Slot,
+    Signature, SignedAggregateAndProof, Slot,
 };
 
 /// Parse a slot.
@@ -46,7 +46,7 @@ pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
 /// Checks the provided request to ensure that the `content-type` header.
 ///
 /// The content-type header should either be omitted, in which case JSON is assumed, or it should
-/// explicity specify `application/json`. If anything else is provided, an error is returned.
+/// explicitly specify `application/json`. If anything else is provided, an error is returned.
 pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
     match req.headers().get(header::CONTENT_TYPE) {
         Some(h) if h == "application/json" => Ok(()),
@@ -58,7 +58,7 @@ pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> 
     }
 }
 
-/// Parse a signature from a `0x` preixed string.
+/// Parse a signature from a `0x` prefixed string.
 pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
     const PREFIX: &str = "0x";
 
@@ -75,7 +75,7 @@ pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
     }
 }
 
-/// Parse a root from a `0x` preixed string.
+/// Parse a root from a `0x` prefixed string.
 ///
 /// E.g., `"0x0000000000000000000000000000000000000000000000000000000000000000"`
 pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
@@ -226,10 +226,11 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     mut chan: NetworkChannel<T::EthSpec>,
     block: BeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic = GossipTopic::new(GossipKind::BeaconBlock, GossipEncoding::SSZ);
-    let message = PubsubMessage::BeaconBlock(Box::new(block));
-    let messages = vec![GossipMessage::new(vec![topic], message).expect("topics exist")];
+    // send the block via SSZ encoding
+    let messages = vec![PubsubMessage::new(
+        GossipEncoding::SSZ,
+        PubsubData::BeaconBlock(Box::new(block)),
+    )];
 
     // Publish the block to the p2p network via gossipsub.
     if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
@@ -252,10 +253,10 @@ pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
         .map(|attestation| {
             // create the gossip message to send to the network
             let subnet_id = attestation.subnet_id();
-            let topics =
-                GossipTopic::new(GossipKind::CommitteeIndex(subnet_id), GossipEncoding::SSZ);
-            let message = PubsubMessage::Attestation(Box::new((subnet_id, attestation)));
-            GossipMessage::new(vec![topics], message).expect("topics exist")
+            PubsubMessage::new(
+                GossipEncoding::SSZ,
+                PubsubData::Attestation(Box::new((subnet_id, attestation))),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -273,17 +274,15 @@ pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
 /// Publishes an aggregated attestation to the network.
 pub fn publish_aggregate_attestations_to_network<T: BeaconChainTypes + 'static>(
     mut chan: NetworkChannel<T::EthSpec>,
-    attestations: Vec<Attestation<T::EthSpec>>,
+    signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>,
 ) -> Result<(), ApiError> {
-    let messages = attestations
+    let messages = signed_proofs
         .into_iter()
-        .map(|attestation| {
-            // create the gossip message to send to the network
-            let subnet_id = attestation.subnet_id();
-            let topics =
-                GossipTopic::new(GossipKind::CommitteeIndex(subnet_id), GossipEncoding::SSZ);
-            let message = PubsubMessage::Attestation(Box::new((subnet_id, attestation)));
-            GossipMessage::new(vec![topics], message).expect("topics exist")
+        .map(|signed_proof| {
+            PubsubMessage::new(
+                GossipEncoding::SSZ,
+                PubsubData::AggregateAndProofAttestation(Box::new(signed_proof)),
+            )
         })
         .collect::<Vec<_>>();
 

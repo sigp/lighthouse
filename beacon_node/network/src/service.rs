@@ -8,7 +8,7 @@ use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
     rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, NetworkGlobals, PeerId, Swarm,
 };
-use eth2_libp2p::{RPCEvent, GossipMessage};
+use eth2_libp2p::{RPCEvent, PubsubMessage};
 use rest_types::ValidatorSubscriptions;
 use futures::prelude::*;
 use futures::Stream;
@@ -329,7 +329,7 @@ pub enum NetworkMessage<T: EthSpec> {
     RPC(PeerId, RPCEvent<T>),
     /// Publish a list of messages to the gossipsub protocol.
     Publish {
-        messages: Vec<GossipMessage<T>>
+        messages: Vec<PubsubMessage<T>>
     },
     /// Propagate a received gossipsub message.
     Propagate {

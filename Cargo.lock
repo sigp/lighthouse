@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "account_manager 0.0.1",
  "beacon_node 0.2.0",

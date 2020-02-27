@@ -1,6 +1,6 @@
 pub mod error;
-pub mod gossip_message;
-pub mod topics;
+mod pubsub;
+mod topics;
 
-pub use gossip_message::GossipMessage;
+pub use pubsub::{PubsubData, PubsubMessage};
 pub use topics::{GossipEncoding, GossipKind, GossipTopic};

@@ -1,8 +1,6 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
-use crate::{
-    error, GossipMessage, GossipTopic, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash,
-};
+use crate::{error, GossipTopic, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
@@ -206,12 +204,11 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         self.gossipsub.unsubscribe(topic.into())
     }
 
-    /// Publishes a list of messages on the pubsub (gossipsub) behaviour.
-    pub fn publish(&mut self, messages: Vec<GossipMessage<TSpec>>) {
+    /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
+    pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
         for message in messages {
-            let (topics, message) = message.into_topic_message();
-            for topic in topics {
-                let message_data = message.encode(&topic.encoding());
+            for topic in message.topics() {
+                let message_data = message.encode();
                 self.gossipsub.publish(&topic.into(), message_data);
             }
         }
