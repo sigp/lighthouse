@@ -10,6 +10,8 @@ pub use milagro_bls::{
 };
 use rand::thread_rng;
 
+pub const MILAGRO_SECRET_KEY_LEN: usize = 48;
+
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
 pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, PublicKey>;
 
@@ -130,11 +132,24 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
 
     fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
         let mut bytes = [0; SECRET_KEY_BYTES_LEN];
-        bytes[..].copy_from_slice(&self.as_bytes());
+
+        // Takes the right-hand 32 bytes from the secret key.
+        bytes[..]
+            .copy_from_slice(&self.as_bytes()[MILAGRO_SECRET_KEY_LEN - SECRET_KEY_BYTES_LEN..]);
+
         bytes
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
+        if bytes.len() != SECRET_KEY_BYTES_LEN {
+            Err(Error::InvalidSecretKeyLength {
+                got: bytes.len(),
+                expected: SECRET_KEY_BYTES_LEN,
+            })
+        } else {
+            let mut padded = [0; MILAGRO_SECRET_KEY_LEN];
+            padded[MILAGRO_SECRET_KEY_LEN - SECRET_KEY_BYTES_LEN..].copy_from_slice(bytes);
+            Self::from_bytes(&padded).map_err(Into::into)
+        }
     }
 }

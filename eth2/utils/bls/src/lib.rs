@@ -23,6 +23,7 @@ pub enum Error {
     HerumiError(bls_eth_rust::BlsError),
     MilagroError(milagro_bls::DecodeError),
     InvalidByteLength { got: usize, expected: usize },
+    InvalidSecretKeyLength { got: usize, expected: usize },
 }
 
 impl From<bls_eth_rust::BlsError> for Error {

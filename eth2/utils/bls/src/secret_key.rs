@@ -7,7 +7,7 @@ use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
-pub const SECRET_KEY_BYTES_LEN: usize = 48;
+pub const SECRET_KEY_BYTES_LEN: usize = 32;
 
 pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
     fn random() -> Self;
