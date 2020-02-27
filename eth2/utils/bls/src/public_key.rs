@@ -41,10 +41,6 @@ where
         &self.point
     }
 
-    pub(crate) fn into_point(self) -> Pub {
-        self.point
-    }
-
     pub fn add_assign(&mut self, other: &Self) {
         self.point.add_assign(&other.point)
     }

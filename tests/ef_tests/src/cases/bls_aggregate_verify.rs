@@ -1,12 +1,14 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{AggregatePublicKey, AggregateSignature};
+use bls::{PublicKey, Signature};
 use serde_derive::Deserialize;
+use ssz::Decode;
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsAggregatePair {
-    pub pubkey: AggregatePublicKey,
+    pub pubkey: PublicKey,
     pub message: String,
 }
 
@@ -26,32 +28,25 @@ impl BlsCase for BlsAggregateVerify {}
 
 impl Case for BlsAggregateVerify {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
-        let messages = self
+        let pubkey_msgs = self
             .input
             .pairs
-            .iter()
+            .into_iter()
             .map(|pair| {
-                hex::decode(&pair.message[2..])
-                    .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+                let bytes = hex::decode(&pair.message[2..])
+                    .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+
+                let mut array = [0; 32];
+                array[..].copy_from_slice(&bytes);
+
+                Ok((Cow::Owned(pair.pubkey), array))
             })
-            .collect::<Result<Vec<Vec<_>>, _>>()?;
-
-        let message_refs = messages
-            .iter()
-            .map(|x| x.as_slice())
-            .collect::<Vec<&[u8]>>();
-
-        let pubkey_refs = self
-            .input
-            .pairs
-            .iter()
-            .map(|p| &p.pubkey)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let signature_ok = hex::decode(&self.input.signature[2..])
             .ok()
-            .and_then(|bytes: Vec<u8>| AggregateSignature::from_bytes(&bytes).ok())
-            .map(|signature| signature.verify_multiple(&message_refs, &pubkey_refs))
+            .and_then(|bytes: Vec<u8>| Signature::from_ssz_bytes(&bytes).ok())
+            .map(|signature| signature.fast_aggregate_verify(pubkey_msgs.into_iter()))
             .unwrap_or(false);
 
         compare_result::<bool, ()>(&Ok(signature_ok), &Some(self.output))

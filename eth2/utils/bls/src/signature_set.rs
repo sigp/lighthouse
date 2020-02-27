@@ -62,65 +62,25 @@ where
         }
     }
 
-    pub fn is_valid(&self) -> bool {
-        let mut messages: Vec<Message> = vec![];
-        let mut pubkeys = vec![];
-
-        self.signed_messages.iter().for_each(|signed_message| {
-            messages.push(signed_message.message.clone());
-
+    pub fn is_valid(self) -> bool {
+        let iter = self.signed_messages.into_iter().map(|mut signed_message| {
             let pubkey = if signed_message.signing_keys.len() == 1 {
-                signed_message.signing_keys[0]
-                    .clone()
-                    .into_owned()
-                    .into_point()
+                signed_message
+                    .signing_keys
+                    .pop()
+                    .expect("Pop must succeed if len == 1")
             } else {
                 let mut aggregate = PublicKey::zero();
                 aggregate.add_assign_multiple(
                     signed_message.signing_keys.iter().map(|cow| cow.as_ref()),
                 );
-                aggregate.into_point()
+
+                Cow::Owned(aggregate)
             };
 
-            pubkeys.push(pubkey);
+            (pubkey, signed_message.message)
         });
 
-        self.signature
-            .fast_aggregate_verify(&pubkeys[..], &messages)
+        self.signature.fast_aggregate_verify(iter)
     }
 }
-
-/*
-type VerifySet<'a> = (Signature, Vec<PublicKey>, Vec<Message>);
-
-impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
-    fn into(self) -> VerifySet<'a> {
-        let signature = self.signature.clone();
-
-        let (pubkeys, messages): (Vec<PublicKey>, Vec<Message>) = self
-            .signed_messages
-            .into_iter()
-            .map(|signed_message| {
-                let key = if signed_message.signing_keys.len() == 1 {
-                    signed_message.signing_keys[0].clone().into_owned()
-                } else {
-                    aggregate_public_keys(&signed_message.signing_keys)
-                };
-
-                (key, signed_message.message)
-            })
-            .unzip();
-
-        (signature, pubkeys, messages)
-    }
-}
-
-/// Create an aggregate public key for a list of validators, failing if any key can't be found.
-fn aggregate_public_keys<'a>(public_keys: &'a [Cow<'a, PublicKey>]) -> PublicKey {
-    let mut aggregate = PublicKey::zero();
-
-    aggregate.add_assign_multiple(public_keys.iter().map(|cow| cow.as_ref()));
-
-    aggregate
-}
-*/
