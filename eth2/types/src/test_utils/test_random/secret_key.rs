@@ -1,9 +1,9 @@
 use super::*;
-use bls::SecretKey;
+use bls::{SecretKey, SECRET_KEY_BYTES_LEN};
 
 impl TestRandom for SecretKey {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let mut key_bytes = vec![0; 48];
+        let mut key_bytes = vec![0; SECRET_KEY_BYTES_LEN];
         rng.fill_bytes(&mut key_bytes);
         /*
          * An `unreachable!` is used here as there's no reason why you cannot construct a key from a
@@ -12,7 +12,7 @@ impl TestRandom for SecretKey {
          */
         match SecretKey::deserialize(&key_bytes) {
             Ok(key) => key,
-            Err(_) => unreachable!(),
+            Err(_) => unreachable!("should generate secret key from bytes"),
         }
     }
 }
