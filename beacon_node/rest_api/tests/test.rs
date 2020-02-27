@@ -351,7 +351,7 @@ fn validator_block_post() {
     // Try publishing the block without a signature, ensure it is flagged as invalid.
     let empty_sig_block = SignedBeaconBlock {
         message: block.clone(),
-        signature: Signature::empty_signature(),
+        signature: Signature::zero(),
     };
     let publish_status = env
         .runtime()

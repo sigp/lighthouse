@@ -32,7 +32,7 @@ pub fn interop_genesis_state<T: EthSpec>(
                 withdrawal_credentials: withdrawal_credentials(&keypair.pk),
                 pubkey: keypair.pk.clone().into(),
                 amount,
-                signature: Signature::empty_signature().into(),
+                signature: Signature::zero().into(),
             };
 
             data.signature = data.create_signature(&keypair.sk, spec);

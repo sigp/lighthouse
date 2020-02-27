@@ -39,6 +39,8 @@ impl TPublicKey for PublicKey {
     }
 }
 
+impl Eq for PublicKey {}
+
 impl PartialEq for PublicKey {
     fn eq(&self, other: &Self) -> bool {
         &self.0[..] == &other.0[..]
@@ -94,7 +96,7 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
         PublicKey::zero()
     }
 
-    fn sign(&self, _msg: &[u8]) -> Signature {
+    fn sign(&self, _msg: Hash256) -> Signature {
         Signature::zero()
     }
 

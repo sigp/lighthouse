@@ -1,7 +1,6 @@
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::fork_choice::Error as ForkChoiceError;
 use operation_pool::OpPoolError;
-use ssz::DecodeError;
 use ssz_types::Error as SszTypesError;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::BlockProcessingError;
@@ -54,7 +53,7 @@ pub enum BeaconChainError {
     AttestationCacheLockTimeout,
     ValidatorPubkeyCacheLockTimeout,
     IncorrectStateForAttestation(RelativeEpochError),
-    InvalidValidatorPubkeyBytes(DecodeError),
+    InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(state_processing::signature_sets::Error),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),

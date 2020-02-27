@@ -68,8 +68,7 @@ impl<T: EthSpec> Attestation<T> {
             let domain = spec.get_domain(self.data.target.epoch, Domain::BeaconAttester, fork);
             let message = self.data.signing_root(domain);
 
-            self.signature
-                .add_assign(&secret_key.sign(message.as_bytes()));
+            self.signature.add_assign(&secret_key.sign(message));
 
             Ok(())
         }

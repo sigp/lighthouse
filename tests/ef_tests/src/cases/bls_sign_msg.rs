@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::SecretKey;
+use bls::{Hash256, SecretKey};
 use serde_derive::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,7 +28,7 @@ impl Case for BlsSign {
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-        let signature = sk.sign(&msg);
+        let signature = sk.sign(Hash256::from_slice(&msg));
 
         // Convert the output to one set of bytes
         let decoded = hex::decode(&self.output[2..])

@@ -657,7 +657,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Attestation {
             aggregation_bits: BitList::with_capacity(committee_len)?,
             data,
-            signature: AggregateSignature::new(),
+            signature: Signature::zero(),
         })
     }
 
@@ -1001,11 +1001,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|head| head.beacon_state.fork.clone())?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
-            |validator_index| {
-                pubkey_cache
-                    .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
-            },
+            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &attestation.signature,
             &indexed_attestation,
             &fork,
@@ -1319,7 +1315,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if validator_index < state.validators.len() {
                     validator_pubkey_cache
                         .get(validator_index)
-                        .map(|pk| Cow::Borrowed(pk.as_point()))
+                        .map(Cow::Borrowed)
                 } else {
                     None
                 }
@@ -1545,7 +1541,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
             },
             // The block is not signed here, that is the task of a validator client.
-            signature: Signature::empty_signature(),
+            signature: Signature::zero(),
         };
 
         per_block_processing(

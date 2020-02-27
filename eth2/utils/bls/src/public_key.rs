@@ -4,6 +4,7 @@ use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use tree_hash::TreeHash;
 
 pub const PUBLIC_KEY_BYTES_LEN: usize = 48;
@@ -57,6 +58,14 @@ where
         Ok(Self {
             point: Pub::deserialize(bytes)?,
         })
+    }
+}
+
+impl<Pub: Eq> Eq for PublicKey<Pub> {}
+
+impl<Pub: TPublicKey> Hash for PublicKey<Pub> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.serialize()[..].hash(state);
     }
 }
 

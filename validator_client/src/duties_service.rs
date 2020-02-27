@@ -42,8 +42,9 @@ impl TryInto<ValidatorDuty> for remote_beacon_node::ValidatorDuty {
 
     fn try_into(self) -> Result<ValidatorDuty, Self::Error> {
         Ok(ValidatorDuty {
-            validator_pubkey: (&self.validator_pubkey)
-                .try_into()
+            validator_pubkey: self
+                .validator_pubkey
+                .decompress()
                 .map_err(|e| format!("Invalid pubkey bytes from server: {:?}", e))?,
             attestation_slot: self.attestation_slot,
             attestation_committee_index: self.attestation_committee_index,

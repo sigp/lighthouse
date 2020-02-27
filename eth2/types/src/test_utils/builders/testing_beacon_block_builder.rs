@@ -104,7 +104,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         let epoch = self.block.slot.epoch(T::slots_per_epoch());
         let domain = spec.get_domain(epoch, Domain::Randao, fork);
         let message = epoch.signing_root(domain);
-        self.block.body.randao_reveal = sk.sign(message.as_bytes());
+        self.block.body.randao_reveal = sk.sign(message);
     }
 
     /// Has the randao reveal been set?
@@ -403,7 +403,7 @@ pub fn build_double_vote_attester_slashing<T: EthSpec>(
     fork: &Fork,
     spec: &ChainSpec,
 ) -> AttesterSlashing<T> {
-    let signer = |validator_index: u64, message: &[u8]| {
+    let signer = |validator_index: u64, message: Hash256| {
         let key_index = validator_indices
             .iter()
             .position(|&i| i == validator_index)

@@ -5,6 +5,7 @@ use crate::{
     Error,
 };
 use ssz::{Decode, Encode};
+use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
@@ -88,4 +89,14 @@ where
     Sig: TSignature<Pub>,
 {
     impl_tree_hash!(KEYPAIR_BYTES_LEN);
+}
+
+impl<Pub, Sec, Sig> fmt::Debug for Keypair<Pub, Sec, Sig>
+where
+    Pub: TPublicKey,
+{
+    /// Defers to `self.pk` to avoid leaking the secret key.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.pk.fmt(f)
+    }
 }

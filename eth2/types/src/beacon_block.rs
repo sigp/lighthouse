@@ -96,7 +96,7 @@ impl<T: EthSpec> BeaconBlock<T> {
     ) -> SignedBeaconBlock<T> {
         let domain = spec.get_domain(self.epoch(), Domain::BeaconProposer, fork);
         let message = self.signing_root(domain);
-        let signature = secret_key.sign(message.as_bytes());
+        let signature = secret_key.sign(message);
         SignedBeaconBlock {
             message: self,
             signature,

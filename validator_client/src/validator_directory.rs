@@ -114,10 +114,7 @@ struct SszEncodableKeypair {
 
 impl Into<Keypair> for SszEncodableKeypair {
     fn into(self) -> Keypair {
-        Keypair {
-            sk: self.sk,
-            pk: self.pk,
-        }
+        Keypair::from_components(self.pk, self.sk)
     }
 }
 
@@ -270,7 +267,7 @@ impl ValidatorDirectoryBuilder {
                 pubkey: voting_keypair.pk.clone().into(),
                 withdrawal_credentials,
                 amount,
-                signature: Signature::empty_signature().into(),
+                signature: Signature::zero().into(),
             };
 
             deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);

@@ -25,7 +25,7 @@ impl TestingAttesterSlashingBuilder {
         spec: &ChainSpec,
     ) -> AttesterSlashing<T>
     where
-        F: Fn(u64, &[u8]) -> Signature,
+        F: Fn(u64, Hash256) -> Signature,
     {
         let slot = Slot::new(1);
         let index = 0;
@@ -88,7 +88,7 @@ impl TestingAttesterSlashingBuilder {
             let message = attestation.data.signing_root(domain);
 
             for validator_index in validator_indices {
-                let signature = signer(*validator_index, message.as_bytes());
+                let signature = signer(*validator_index, message);
                 attestation.signature.add_assign(&signature);
             }
         };

@@ -37,7 +37,7 @@ impl DepositData {
         let domain = spec.get_deposit_domain();
         let msg = self.as_deposit_message().signing_root(domain);
 
-        let sig: crate::Signature = secret_key.sign(msg.as_bytes());
+        let sig: crate::Signature = secret_key.sign(msg);
         <SignatureBytes as From<Signature>>::from(sig)
     }
 }

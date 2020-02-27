@@ -6,7 +6,7 @@ use crate::{
 };
 pub use milagro_bls::{
     AggregatePublicKey as PublicKey, AggregateSignature, G1Point, PublicKey as SinglePublicKey,
-    SecretKey,
+    SecretKey, Signature as SingleSignature,
 };
 use rand::thread_rng;
 
@@ -154,14 +154,16 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
     }
 
     fn public_key(&self) -> PublicKey {
-        // This is a bit of a type-level hack since `AggregatePublicKey` doesn't have the method to
-        // instantiate from a secret key.
         let point = SinglePublicKey::from_secret_key(self).point;
         PublicKey { point }
     }
 
-    fn sign(&self, _msg: &[u8]) -> Signature {
-        Signature::zero()
+    fn sign(&self, msg: Hash256) -> Signature {
+        let point = SingleSignature::new(msg.as_bytes(), self).point;
+        Signature {
+            signature: AggregateSignature { point },
+            is_empty: false,
+        }
     }
 
     fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {

@@ -17,8 +17,8 @@ use store::{
     DiskStore, MemoryStore, Migrate, Store,
 };
 use types::{
-    AggregateSignature, Attestation, BeaconState, BitList, ChainSpec, Domain, EthSpec, Hash256,
-    Keypair, SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
+    Attestation, BeaconState, BitList, ChainSpec, Domain, EthSpec, Hash256, Keypair, SecretKey,
+    Signature, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
@@ -309,7 +309,7 @@ where
             let epoch = slot.epoch(E::slots_per_epoch());
             let domain = self.spec.get_domain(epoch, Domain::Randao, fork);
             let message = epoch.signing_root(domain);
-            Signature::new(message.as_bytes(), sk)
+            sk.sign(message)
         };
 
         let (block, state) = self
@@ -409,12 +409,9 @@ where
 
                                 let message = data.signing_root(domain);
 
-                                let mut agg_sig = AggregateSignature::new();
+                                let mut agg_sig = Signature::zero();
 
-                                agg_sig.add(&Signature::new(
-                                    message.as_bytes(),
-                                    self.get_sk(*validator_index),
-                                ));
+                                agg_sig.add_assign(&self.get_sk(*validator_index).sign(message));
 
                                 agg_sig
                             };

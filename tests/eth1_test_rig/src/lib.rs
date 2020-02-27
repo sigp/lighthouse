@@ -123,7 +123,7 @@ impl DepositContract {
             pubkey: keypair.pk.into(),
             withdrawal_credentials,
             amount,
-            signature: Signature::empty_signature().into(),
+            signature: Signature::zero().into(),
         };
 
         deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
@@ -141,7 +141,7 @@ impl DepositContract {
             pubkey: keypair.pk.into(),
             withdrawal_credentials: Hash256::zero(),
             amount: 32_000_000_000,
-            signature: Signature::empty_signature().into(),
+            signature: Signature::zero().into(),
         };
 
         deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
@@ -167,7 +167,7 @@ impl DepositContract {
             pubkey: keypair.pk.into(),
             withdrawal_credentials: Hash256::zero(),
             amount,
-            signature: Signature::empty_signature().into(),
+            signature: Signature::zero().into(),
         };
 
         deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());

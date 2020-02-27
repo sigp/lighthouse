@@ -147,7 +147,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
                 let message = epoch.signing_root(domain);
 
-                Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
+                Some(voting_keypair.sk.sign(message))
             })
     }
 

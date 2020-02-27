@@ -1,6 +1,5 @@
 use crate::errors::BeaconChainError;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes, Validator};
 
 pub struct ValidatorPubkeyCache {
@@ -38,8 +37,8 @@ impl ValidatorPubkeyCache {
         for v in validators.iter() {
             let i = self.pubkeys.len();
             self.pubkeys.push(
-                (&v.pubkey)
-                    .try_into()
+                v.pubkey
+                    .decompress()
                     .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
             );
             self.indices.insert(v.pubkey.clone(), i);

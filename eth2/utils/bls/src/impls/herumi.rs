@@ -100,8 +100,8 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
         self.get_publickey()
     }
 
-    fn sign(&self, msg: &[u8]) -> Signature {
-        SecretKey::sign(self, msg)
+    fn sign(&self, msg: Hash256) -> Signature {
+        SecretKey::sign(self, msg.as_bytes())
     }
 
     fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {

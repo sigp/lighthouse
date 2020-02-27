@@ -205,6 +205,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "beacon_chain"
 version = "0.1.0"
 dependencies = [
+ "bls 0.1.0",
  "environment 0.1.0",
  "eth1 0.1.0",
  "eth2_config 0.1.0",
