@@ -4,7 +4,7 @@ use state_processing::{
     per_block_processing, test_utils::BlockBuilder, BlockProcessingError, BlockSignatureStrategy,
 };
 use types::{
-    AggregateSignature, BeaconState, ChainSpec, EthSpec, Keypair, MinimalEthSpec, Signature,
+    BeaconState, ChainSpec, EthSpec, Hash256, Keypair, MinimalEthSpec, Signature,
     SignedBeaconBlock, Slot,
 };
 
@@ -91,16 +91,16 @@ where
 }
 
 // TODO: use lazy static
-fn agg_sig() -> AggregateSignature {
-    let mut agg_sig = AggregateSignature::new();
-    agg_sig.add(&sig());
+fn agg_sig() -> Signature {
+    let mut agg_sig = Signature::zero();
+    agg_sig.add_assign(&sig());
     agg_sig
 }
 
 // TODO: use lazy static
 fn sig() -> Signature {
     let keypair = Keypair::random();
-    Signature::new(&[42, 42], &keypair.sk)
+    keypair.sk.sign(Hash256::from_slice(&[42, 42]))
 }
 
 type TestEthSpec = MinimalEthSpec;

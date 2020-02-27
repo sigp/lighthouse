@@ -9,7 +9,6 @@ use remote_beacon_node::{
     Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorDuty,
     ValidatorResponse,
 };
-use std::convert::TryInto;
 use std::sync::Arc;
 use types::{
     test_utils::{
@@ -59,7 +58,7 @@ fn get_randao_reveal<T: BeaconChainTypes>(
     let epoch = slot.epoch(E::slots_per_epoch());
     let domain = spec.get_domain(epoch, Domain::Randao, &fork);
     let message = epoch.signing_root(domain);
-    Signature::new(message.as_bytes(), &keypair.sk)
+    keypair.sk.sign(message)
 }
 
 /// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).
@@ -198,7 +197,7 @@ fn validator_duties() {
         .beacon_state
         .validators
         .iter()
-        .map(|v| (&v.pubkey).try_into().expect("pubkey should be valid"))
+        .map(|v| v.pubkey.decompress().expect("pubkey should be valid"))
         .collect::<Vec<_>>();
 
     let duties = env
@@ -253,8 +252,8 @@ fn check_duties<T: BeaconChainTypes>(
         .for_each(|(validator, duty)| {
             assert_eq!(
                 *validator,
-                (&duty.validator_pubkey)
-                    .try_into()
+                duty.validator_pubkey
+                    .decompress()
                     .expect("should be valid pubkey"),
                 "pubkey should match"
             );
@@ -694,7 +693,7 @@ fn get_validators() {
     let validators = state.validators.iter().take(2).collect::<Vec<_>>();
     let pubkeys = validators
         .iter()
-        .map(|v| (&v.pubkey).try_into().expect("should decode pubkey bytes"))
+        .map(|v| v.pubkey.decompress().expect("should decode pubkey bytes"))
         .collect();
 
     let result = env
