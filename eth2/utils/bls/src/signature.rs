@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
 pub const SIGNATURE_BYTES_LEN: usize = 96;
+pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
 pub trait TSignature<PublicKey>: Sized {
     fn zero() -> Self;
@@ -29,7 +30,7 @@ pub trait TSignature<PublicKey>: Sized {
 
 #[derive(Clone, PartialEq)]
 pub struct Signature<Pub, Sig> {
-    point: Sig,
+    point: Option<Sig>,
     _phantom: PhantomData<Pub>,
 }
 
@@ -39,33 +40,53 @@ where
 {
     pub fn zero() -> Self {
         Self {
-            point: Sig::zero(),
+            point: Some(Sig::zero()),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn none() -> Self {
+        Self {
+            point: None,
             _phantom: PhantomData,
         }
     }
 
     pub(crate) fn from_point(point: Sig) -> Self {
         Self {
-            point,
+            point: Some(point),
             _phantom: PhantomData,
         }
     }
 
-    pub(crate) fn point(&self) -> &Sig {
-        &self.point
+    pub(crate) fn point(&self) -> Option<&Sig> {
+        self.point.as_ref()
     }
 
     pub fn add_assign(&mut self, other: &Self) {
-        self.point.add_assign(&other.point)
+        match (&mut self.point, &other.point) {
+            (Some(a), Some(b)) => a.add_assign(b),
+            _ => {}
+        }
     }
 
     pub fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
-        self.point.serialize()
+        if let Some(point) = &self.point {
+            point.serialize()
+        } else {
+            NONE_SIGNATURE
+        }
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        let point = if bytes == &NONE_SIGNATURE[..] {
+            None
+        } else {
+            Some(Sig::deserialize(bytes)?)
+        };
+
         Ok(Self {
-            point: Sig::deserialize(bytes)?,
+            point,
             _phantom: PhantomData,
         })
     }
@@ -77,19 +98,27 @@ where
     Pub: TPublicKey + Clone,
 {
     pub fn verify(&self, pubkey: &PublicKey<Pub>, msg: Hash256) -> bool {
-        self.point.verify(pubkey.point(), msg)
+        if let Some(point) = &self.point {
+            point.verify(pubkey.point(), msg)
+        } else {
+            false
+        }
     }
 
     pub fn fast_aggregate_verify<'a>(
         &'a self,
         signed_messages: impl Iterator<Item = (Cow<'a, PublicKey<Pub>>, Hash256)>,
     ) -> bool {
-        let (pubkeys, msgs): (Vec<_>, Vec<_>) = signed_messages
-            .into_iter()
-            .map(|(pubkey, msg)| (pubkey.point().clone(), msg))
-            .unzip();
+        if let Some(point) = &self.point {
+            let (pubkeys, msgs): (Vec<_>, Vec<_>) = signed_messages
+                .into_iter()
+                .map(|(pubkey, msg)| (pubkey.point().clone(), msg))
+                .unzip();
 
-        self.point.fast_aggregate_verify(&pubkeys[..], &msgs)
+            point.fast_aggregate_verify(&pubkeys[..], &msgs)
+        } else {
+            false
+        }
     }
 }
 

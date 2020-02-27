@@ -17,10 +17,12 @@ pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureS
                 .into_iter()
                 .map(|pubkey| pubkey.point().clone())
                 .collect::<Vec<_>>();
-            let is_valid = set
-                .signature
-                .point()
-                .fast_aggregate_verify(&pubkeys[..], &signed_message.message[..]);
+
+            let message = &signed_message.message[..];
+
+            let is_valid = set.signature.point().map_or(false, |point| {
+                point.fast_aggregate_verify(&pubkeys[..], message)
+            });
 
             if !is_valid {
                 return false;

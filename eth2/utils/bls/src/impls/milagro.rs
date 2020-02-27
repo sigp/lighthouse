@@ -5,8 +5,8 @@ use crate::{
     Error, Hash256,
 };
 pub use milagro_bls::{
-    AggregatePublicKey as PublicKey, AggregateSignature, G1Point, PublicKey as SinglePublicKey,
-    SecretKey, Signature as SingleSignature,
+    AggregatePublicKey as PublicKey, AggregateSignature as Signature, G1Point,
+    PublicKey as SinglePublicKey, SecretKey, Signature as SingleSignature,
 };
 use rand::thread_rng;
 
@@ -35,14 +35,17 @@ pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureS
             })
             .unzip();
 
-        (
-            set.signature.point().signature.point.clone(),
-            pubkeys,
-            messages,
-        )
+        // If the given signature does not have a point, that means it's empty. In this case, we'll
+        // provide the zero signature.
+        let signature_point = set.signature.point().map_or_else(
+            || Signature::new().point,
+            |signature| signature.point.clone(),
+        );
+
+        (signature_point, pubkeys, messages)
     });
 
-    AggregateSignature::verify_multiple_signatures(&mut rand::thread_rng(), signatures_iter)
+    Signature::verify_multiple_signatures(&mut rand::thread_rng(), signatures_iter)
 }
 
 impl TPublicKey for PublicKey {
@@ -74,77 +77,39 @@ impl TPublicKey for PublicKey {
     }
 }
 
-#[derive(Clone, PartialEq)]
-pub struct Signature {
-    signature: AggregateSignature,
-    // TODO: make this an option.
-    is_empty: bool,
-}
-
 impl TSignature<PublicKey> for Signature {
     fn zero() -> Self {
-        Self {
-            signature: AggregateSignature::new(),
-            // The `zero()` function creates a signature at the zero point, _not_ from all zero
-            // bytes. Only a signature with all zero bytes is considered "empty".
-            is_empty: false,
-        }
+        Signature::new()
     }
 
     fn add_assign(&mut self, other: &Self) {
-        if !self.is_empty {
-            self.signature.add_aggregate(&other.signature)
-        }
+        self.add_aggregate(&other)
     }
 
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
         let mut bytes = [0; SIGNATURE_BYTES_LEN];
 
-        if !self.is_empty {
-            bytes[..].copy_from_slice(&self.signature.as_bytes());
-        }
+        bytes[..].copy_from_slice(&self.as_bytes());
 
         bytes
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        for byte in bytes {
-            if *byte != 0 || bytes.len() != SIGNATURE_BYTES_LEN {
-                return Ok(Self {
-                    signature: AggregateSignature::from_bytes(&bytes)
-                        .map_err(|e| Error::MilagroError(e))?,
-                    is_empty: false,
-                });
-            }
-        }
-
-        Ok(Self {
-            signature: AggregateSignature::new(),
-            is_empty: true,
-        })
+        Signature::from_bytes(&bytes).map_err(|e| Error::MilagroError(e))
     }
 
     fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool {
-        if self.is_empty {
-            false
-        } else {
-            self.signature.verify(msg.as_bytes(), pubkey)
-        }
+        self.verify(msg.as_bytes(), pubkey)
     }
 
     fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[Hash256]) -> bool {
-        if self.is_empty {
-            false
-        } else {
-            let msg_slices = msgs
-                .iter()
-                .map(|msg| msg.as_bytes().to_vec())
-                .collect::<Vec<Vec<u8>>>();
-            let pubkey_refs = pubkeys.iter().collect::<Vec<&PublicKey>>();
+        let msg_slices = msgs
+            .iter()
+            .map(|msg| msg.as_bytes().to_vec())
+            .collect::<Vec<Vec<u8>>>();
+        let pubkey_refs = pubkeys.iter().collect::<Vec<&PublicKey>>();
 
-            self.signature
-                .verify_multiple(&msg_slices[..], &pubkey_refs[..])
-        }
+        self.verify_multiple(&msg_slices[..], &pubkey_refs[..])
     }
 }
 
@@ -160,10 +125,7 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
 
     fn sign(&self, msg: Hash256) -> Signature {
         let point = SingleSignature::new(msg.as_bytes(), self).point;
-        Signature {
-            signature: AggregateSignature { point },
-            is_empty: false,
-        }
+        Signature { point }
     }
 
     fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {

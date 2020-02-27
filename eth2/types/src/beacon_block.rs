@@ -32,7 +32,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
             body: BeaconBlockBody {
-                randao_reveal: Signature::zero(),
+                randao_reveal: Signature::none(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
@@ -73,7 +73,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             slot: self.slot,
             parent_root: self.parent_root,
             state_root: self.state_root,
-            body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
+            body_root: self.body.tree_hash_root(),
         }
     }
 
