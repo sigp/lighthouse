@@ -19,7 +19,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-use bls::{Keypair, PublicKey, SecretKey};
+use bls::{Keypair, PublicKey, SecretKey, PUBLIC_KEY_BYTES_LEN, SECRET_KEY_BYTES_LEN};
 use eth2_hashing::hash;
 use num_bigint::BigUint;
 use serde_derive::{Deserialize, Serialize};
@@ -27,8 +27,6 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::path::PathBuf;
 
-pub const PRIVATE_KEY_BYTES: usize = 48;
-pub const PUBLIC_KEY_BYTES: usize = 48;
 pub const HASH_BYTES: usize = 32;
 
 lazy_static! {
@@ -40,7 +38,7 @@ lazy_static! {
 
 /// Return a G1 point for the given `validator_index`, encoded as a compressed point in
 /// big-endian byte-ordering.
-pub fn be_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
+pub fn be_private_key(validator_index: usize) -> [u8; SECRET_KEY_BYTES_LEN] {
     let preimage = {
         let mut bytes = [0; HASH_BYTES];
         let index = validator_index.to_le_bytes();
@@ -50,9 +48,9 @@ pub fn be_private_key(validator_index: usize) -> [u8; PRIVATE_KEY_BYTES] {
 
     let privkey = BigUint::from_bytes_le(&hash(&preimage)) % &*CURVE_ORDER;
 
-    let mut bytes = [0; PRIVATE_KEY_BYTES];
+    let mut bytes = [0; SECRET_KEY_BYTES_LEN];
     let privkey_bytes = privkey.to_bytes_be();
-    bytes[PRIVATE_KEY_BYTES - privkey_bytes.len()..].copy_from_slice(&privkey_bytes);
+    bytes[SECRET_KEY_BYTES_LEN - privkey_bytes.len()..].copy_from_slice(&privkey_bytes);
     bytes
 }
 
@@ -83,19 +81,19 @@ impl TryInto<Keypair> for YamlKeypair {
         let privkey = string_to_bytes(&self.privkey)?;
         let pubkey = string_to_bytes(&self.pubkey)?;
 
-        if (privkey.len() > PRIVATE_KEY_BYTES) || (pubkey.len() > PUBLIC_KEY_BYTES) {
+        if (privkey.len() > SECRET_KEY_BYTES_LEN) || (pubkey.len() > PUBLIC_KEY_BYTES_LEN) {
             return Err("Public or private key is too long".into());
         }
 
         let sk = {
-            let mut bytes = vec![0; PRIVATE_KEY_BYTES - privkey.len()];
+            let mut bytes = vec![0; SECRET_KEY_BYTES_LEN - privkey.len()];
             bytes.extend_from_slice(&privkey);
             SecretKey::deserialize(&bytes)
                 .map_err(|e| format!("Failed to decode bytes into secret key: {:?}", e))?
         };
 
         let pk = {
-            let mut bytes = vec![0; PUBLIC_KEY_BYTES - pubkey.len()];
+            let mut bytes = vec![0; PUBLIC_KEY_BYTES_LEN - pubkey.len()];
             bytes.extend_from_slice(&pubkey);
             PublicKey::deserialize(&bytes)
                 .map_err(|e| format!("Failed to decode bytes into public key: {:?}", e))?
