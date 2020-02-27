@@ -100,7 +100,7 @@ fn agg_sig() -> Signature {
 // TODO: use lazy static
 fn sig() -> Signature {
     let keypair = Keypair::random();
-    keypair.sk.sign(Hash256::from_slice(&[42, 42]))
+    keypair.sk.sign(Hash256::from_slice(&[42; 32]))
 }
 
 type TestEthSpec = MinimalEthSpec;
