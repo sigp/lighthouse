@@ -21,7 +21,8 @@ mod common;
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
 
-fn build_secio_service(
+/// Build and return a eth2_libp2p Swarm with only secio support.
+fn build_secio_swarm(
     config: &NetworkConfig,
     log: slog::Logger,
 ) -> error::Result<Swarm<Libp2pStream, Libp2pBehaviour>> {
@@ -32,7 +33,7 @@ fn build_secio_service(
 
     let mut swarm = {
         // Set up the transport - tcp/ws with secio and mplex/yamux
-        let transport = build_transport(local_keypair.clone());
+        let transport = build_secio_transport(local_keypair.clone());
         // Lighthouse network behaviour
         let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
         Swarm::new(transport, behaviour, local_peer_id.clone())
@@ -87,7 +88,8 @@ fn build_secio_service(
     Ok(swarm)
 }
 
-fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
+/// Build a simple TCP transport with secio, mplex/yamux.
+fn build_secio_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     let transport = libp2p::tcp::TcpConfig::new().nodelay(true);
     transport
         .upgrade(core::upgrade::Version::V1)
@@ -120,10 +122,10 @@ fn test_secio_noise_fallback() {
     let secio_config = common::build_config(56011, vec![common::get_enr(&noisy_node)], None);
 
     // Building a custom Libp2pService from outside the crate isn't possible because of
-    // some private fields in the Libp2pService struct. A swarm is good enough for testing
+    // private fields in the Libp2pService struct. A swarm is good enough for testing
     // compatibility with secio.
     let mut secio_swarm =
-        build_secio_service(&secio_config, log.clone()).expect("should build a secio swarm");
+        build_secio_swarm(&secio_config, log.clone()).expect("should build a secio swarm");
 
     let secio_log = log.clone();
 

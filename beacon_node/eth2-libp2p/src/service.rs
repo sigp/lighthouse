@@ -73,7 +73,7 @@ impl Service {
         let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
 
         let mut swarm = {
-            // Set up the transport - tcp/ws with secio and mplex/yamux
+            // Set up the transport - tcp/ws with noise/secio and mplex/yamux
             let transport = build_transport(local_keypair.clone());
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
