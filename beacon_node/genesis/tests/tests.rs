@@ -5,7 +5,7 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
-use futures::Future;
+use futures::compat::Future01CompatExt;
 use genesis::{Eth1Config, Eth1GenesisService};
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
@@ -21,21 +21,24 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
         .expect("should build env")
 }
 
-#[test]
-fn basic() {
+#[tokio::test]
+async fn basic() {
     let mut env = new_env();
     let log = env.core_context().log;
     let mut spec = env.eth2_config().spec.clone();
-    let runtime = env.runtime();
 
-    let eth1 = runtime
-        .block_on(GanacheEth1Instance::new())
+    let eth1 = GanacheEth1Instance::new()
+        .await
         .expect("should start eth1 environment");
     let deposit_contract = &eth1.deposit_contract;
     let web3 = eth1.web3();
 
-    let now = runtime
-        .block_on(web3.eth().block_number().map(|v| v.as_u64()))
+    let now = web3
+        .eth()
+        .block_number()
+        .compat()
+        .await
+        .map(|v| v.as_u64())
         .expect("should get block number");
 
     let service = Eth1GenesisService::new(
@@ -77,8 +80,7 @@ fn basic() {
     let wait_future =
         service.wait_for_genesis_state::<MinimalEthSpec>(update_interval, spec.clone());
 
-    let state = runtime
-        .block_on(deposit_future.join(wait_future))
+    let state = futures::try_join!(deposit_future, wait_future)
         .map(|(_, state)| state)
         .expect("should finish waiting for genesis");
 
