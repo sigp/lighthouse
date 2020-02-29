@@ -11,8 +11,8 @@ toml = "^0.5"
 web3 = "0.8.0"
 
 [dependencies]
-reqwest = "0.9"
-futures = "0.1.25"
+reqwest = "0.10"
+futures = "0.3"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 hex = "0.3"
@@ -24,7 +24,7 @@ tree_hash = { path = "../../eth2/utils/tree_hash"}
 eth2_hashing = { path = "../../eth2/utils/eth2_hashing"}
 parking_lot = "0.7"
 slog = "^2.2.3"
-tokio = "0.1.22"
+tokio = { version = "0.2", features = ["full"] }
 state_processing = { path = "../../eth2/state_processing" }
 libflate = "0.1"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics"}
