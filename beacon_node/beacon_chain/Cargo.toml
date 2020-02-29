@@ -35,7 +35,7 @@ types = { path = "../../eth2/types" }
 tokio = "0.1.22"
 eth1 = { path = "../eth1" }
 websocket_server = { path = "../websocket_server" }
-futures = "0.1.25"
+futures = "0.3"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1"
 rand = "0.7.2"
