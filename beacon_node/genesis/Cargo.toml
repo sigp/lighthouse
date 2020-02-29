@@ -6,10 +6,9 @@ edition = "2018"
 
 [dev-dependencies]
 eth1_test_rig = { path = "../../tests/eth1_test_rig" }
-futures = "0.1.25"
 
 [dependencies]
-futures = "0.1.25"
+futures = "0.3"
 types = { path = "../../eth2/types"}
 environment = { path = "../../lighthouse/environment"}
 eth1 = { path = "../eth1"}
@@ -19,10 +18,10 @@ merkle_proof = { path = "../../eth2/utils/merkle_proof" }
 eth2_ssz = "0.1"
 eth2_hashing = { path = "../../eth2/utils/eth2_hashing" }
 tree_hash = "0.1"
-tokio = "0.1.22"
+tokio = {version = "0.2", features = ["full"]}
 parking_lot = "0.7"
 slog = "^2.2.3"
-exit-future = "0.1.4"
+exit-future = "0.2"
 serde = "1.0"
 serde_derive = "1.0"
 int_to_bytes = { path = "../../eth2/utils/int_to_bytes" }
