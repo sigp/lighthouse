@@ -22,7 +22,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     simple_logger::init_with_level(Level::Info).expect("logger should initialize");
 
     let matches = App::new("Lighthouse CLI Tool")
@@ -393,9 +394,9 @@ fn main() {
     }
 
     match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
+        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()).await,
+        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()).await,
+        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()).await,
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);
@@ -403,7 +404,7 @@ fn main() {
     }
 }
 
-fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
+async fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches<'_>) {
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
@@ -456,13 +457,16 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
             .unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e)),
         ("deploy-deposit-contract", Some(matches)) => {
             deploy_deposit_contract::run::<T>(env, matches)
+                .await
                 .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract command: {}", e))
         }
         ("refund-deposit-contract", Some(matches)) => {
             refund_deposit_contract::run::<T>(env, matches)
+                .await
                 .unwrap_or_else(|e| error!("Failed to run refund-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
+            .await
             .unwrap_or_else(|e| error!("Failed to run eth1-genesis command: {}", e)),
         ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(env, matches)
             .unwrap_or_else(|e| error!("Failed to run interop-genesis command: {}", e)),
