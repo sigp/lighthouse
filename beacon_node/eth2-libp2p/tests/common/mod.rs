@@ -5,6 +5,7 @@ use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
 use slog::{debug, error, o, Drain};
 use std::time::Duration;
+use tempdir::TempDir;
 
 pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     let decorator = slog_term::TermDecorator::new().build();
@@ -24,11 +25,13 @@ pub fn build_config(
     secret_key: Option<String>,
 ) -> NetworkConfig {
     let mut config = NetworkConfig::default();
+    let path = TempDir::new(&format!("libp2p_test{}", port)).unwrap();
+
     config.libp2p_port = port; // tcp port
     config.discovery_port = port; // udp port
     config.boot_nodes.append(&mut boot_nodes);
     config.secret_key_hex = secret_key;
-    config.network_dir.push(port.to_string());
+    config.network_dir = path.into_path();
     // Reduce gossipsub heartbeat parameters
     config.gs_config.heartbeat_initial_delay = Duration::from_millis(500);
     config.gs_config.heartbeat_interval = Duration::from_millis(500);
@@ -43,7 +46,9 @@ pub fn build_libp2p_instance(
 ) -> LibP2PService {
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
-    LibP2PService::new(&config, log.clone()).unwrap().1
+    LibP2PService::new(&config, log.clone())
+        .expect("should build libp2p instance")
+        .1
 }
 
 #[allow(dead_code)]
