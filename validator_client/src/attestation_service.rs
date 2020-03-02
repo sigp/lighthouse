@@ -281,7 +281,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// slot allowing the beacon node to connect to the required subnet and determine
     /// if attestations need to be aggregated.
     fn send_subscriptions(&self, duties: Vec<ValidatorDuty>) -> impl Future<Item = (), Error = ()> {
-        let mut validator_subscriptions = ValidatorSubscriptions::new();
+        let mut validator_subscriptions = Vec::new();
         let mut successful_duties = Vec::new();
 
         let service_1 = self.clone();
@@ -305,11 +305,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     None
                 };
 
-                validator_subscriptions
-                    .pubkeys
-                    .push(duty.validator_pubkey.clone().into());
-                validator_subscriptions.slots.push(slot);
-                validator_subscriptions.slot_signatures.push(slot_signature);
+                let subscription = ValidatorSubscription::new(
+                    duty.validator_pubkey.clone().into(),
+                    slot,
+                    slot_signature,
+                );
+                validator_subscriptions.push(subscription);
 
                 // add successful duties to the list, along with whether they are aggregation
                 // duties or not

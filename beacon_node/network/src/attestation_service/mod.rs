@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use std::collections::VecDeque;
 use types::{Attestation};
+use rest_types::ValidatorSubscriptions;
 
 /// The number of epochs in advance we try to discover peers for a shard subnet.
 const EPOCHS_TO_DISCOVER_PEERS: u8 = 1;
@@ -87,7 +88,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
 
-    fn handle_validator_subscription(&mut self) {}
+    pub fn handle_validator_subscriptions(&mut self, subscriptions: ValidatorSubscriptions) {
+
+
+
+    }
 }
 
 impl<T: BeaconChainTypes> Stream for AttestationService<T> {

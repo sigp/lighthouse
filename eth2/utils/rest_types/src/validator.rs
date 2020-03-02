@@ -57,21 +57,39 @@ pub struct ValidatorDutiesRequest {
     pub pubkeys: Vec<PublicKeyBytes>,
 }
 
-/// The container sent when a validator subscribes to a slot to perform optional aggregation
+/// A validator subscription, created when a validator subscribes to a slot to perform optional aggregation
 /// duties.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct ValidatorSubscriptions {
-    pub pubkeys: Vec<PublicKeyBytes>,
-    pub slots: Vec<Slot>,
-    pub slot_signatures: Vec<Signature>,
+pub struct ValidatorSubscription {
+    /// The validators index.
+    pub validator_index: u64,
+    /// The slot the validator is signing.
+    pub slot: Slot,
+    /// The signature of the slot by the validator.
+    pub slot_signature: Signature,
 }
 
-impl ValidatorSubscriptions {
-    pub fn new() -> Self {
-        ValidatorSubscriptions {
-            pubkeys: Vec::new(),
-            slots: Vec::new(),
-            slot_signatures: Vec::new(),
+impl ValidatorSubscription {
+    pub fn new(validator_index: u64, slot: Slot, slot_signature: Signature) -> Self {
+        ValidatorSubscription {
+            validator_index,
+            slot,
+            slot_signatures,
+        }
+    }
+
+    /// Returns true if this subscription implies the validator is an aggregator.
+    pub fn is_aggregator(&self) -> bool {
+        if let Some(modulo) = self.aggregator_modulo {
+            let signature_hash = hash(&slot_signature.as_bytes());
+            let signature_hash_int = u64::from_le_bytes(
+                signature_hash[0..8]
+                    .try_into()
+                    .expect("first 8 bytes of signature should always convert to fixed array"),
+            );
+            signature_hash_int % modulo == 0
+        } else {
+            false
         }
     }
 
