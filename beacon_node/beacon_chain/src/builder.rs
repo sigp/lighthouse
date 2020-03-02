@@ -529,6 +529,7 @@ fn genesis_block<T: EthSpec>(
     Ok(genesis_block)
 }
 
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
     use super::*;

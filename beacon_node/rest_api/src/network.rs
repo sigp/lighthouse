@@ -42,7 +42,12 @@ pub fn get_enr<T: BeaconChainTypes>(
 ) -> ApiResult {
     let network = network_opt.ok_or_else(|| ApiError::NotFound(NETWORK_ERROR_MSG.to_string()))?;
 
-    ResponseBuilder::new(&req)?.body_no_ssz(&network.local_enr().to_base64())
+    ResponseBuilder::new(&req)?.body_no_ssz(
+        &network
+            .local_enr()
+            .map(|enr| enr.to_base64())
+            .unwrap_or_else(|| "".into()),
+    )
 }
 
 /// HTTP handler to return the `PeerId` from the client's libp2p service.
