@@ -10,7 +10,7 @@ use bls::PublicKeyBytes;
 use futures::{Future, Stream};
 use hyper::{Body, Request};
 use network::NetworkMessage;
-use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscriptions};
+use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscription};
 use slog::{error, info, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
@@ -70,7 +70,7 @@ pub fn post_validator_subscriptions<T: BeaconChainTypes>(
                     ApiError::BadRequest(format!("Unable to parse JSON into ValidatorSubscriptions: {:?}", e))
                 })
             })
-            .and_then(move |subscriptions: ValidatorSubscriptions| {
+            .and_then(move |subscriptions: Vec<ValidatorSubscription>| {
                 let fork = beacon_chain
                     .wall_clock_state()
                     .map(|state| state.fork.clone())
@@ -79,18 +79,26 @@ pub fn post_validator_subscriptions<T: BeaconChainTypes>(
                         ApiError::ServerError(format!("Error getting current beacon state {:?}", e))
                     })?;
 
-                // verify the signatures in parallel
-                subscriptions
-                    .verify(&beacon_chain.spec, &fork, T::EthSpec::slots_per_epoch())
-                    .map_err(|e| {
-                        error!(log, "HTTP RPC sent invalid signatures");
-                        ApiError::ProcessingError(format!("Error verifying signatures {:?}", e))
-                    })?;
-                // subscriptions are verified, send them to the network thread
+                // NOTE: Currently using validator indexes in subscriptions. We could use the
+                // public key to avoid a state lookup, however the subscriptions eventually hit
+                // the network service, which would then have to the state lookup to find the
+                // index. Potentially we could use send both.
+                let state = beacon_chain.head()?.beacon_state;
 
+                // verify the signatures in parallel
+                subscriptions.par_iter().try_for_each(|subscription| {
+                    let pubkey = &state.get_validator_pubkey(subscription.validator_index)?;
+                    if subscription.verify(pubkey, &beacon_chain.spec, &fork, T::EthSpec::slots_per_epoch()) {
+                        Ok(())
+                    } else {
+                        error!(log, "HTTP RPC sent invalid signatures");
+                        Err(ApiError::ProcessingError(format!("Could not verify signatures"))) }
+                        })?;
+
+                // subscriptions are verified, send them to the network thread
                 network_chan
                     .try_send(NetworkMessage::Subscribe {
-                        subscriptions: Box::new(subscriptions),
+                        subscriptions,
                     })
                     .map_err(|e| {
                         ApiError::ServerError(format!(
@@ -232,6 +240,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
+                // Obtain the aggregator modulo 
                 let aggregator_modulo = duties.map(|d| {
                     std::cmp::max(
                         1,

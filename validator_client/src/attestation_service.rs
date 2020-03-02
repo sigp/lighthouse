@@ -6,7 +6,7 @@ use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use rest_types::{ValidatorDuty, ValidatorSubscriptions};
+use rest_types::{ValidatorDuty, ValidatorSubscription};
 use slog::{crit, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -290,31 +290,28 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
 
-        // builds a single subscriptions objects
+        // builds a list of subscriptions
         for duty in duties {
-            let slot = duty
-                .attestation_slot
-                .expect("Subscription duty must have an attestation slot");
+            if let Some((slot, _, _, validator_index)) = attestation_duties(&duty) {
+                if let Some(slot_signature) =
+                    self.validator_store.sign_slot(&duty.validator_pubkey, slot)
+                {
+                    let is_aggregator_proof = if duty.is_aggregator(&slot_signature) {
+                        Some(slot_signature.clone())
+                    } else {
+                        None
+                    };
 
-            if let Some(slot_signature) =
-                self.validator_store.sign_slot(&duty.validator_pubkey, slot)
-            {
-                let is_aggregator_proof = if duty.is_aggregator(&slot_signature) {
-                    Some(slot_signature.clone())
-                } else {
-                    None
-                };
+                    let subscription =
+                        ValidatorSubscription::new(validator_index, slot, slot_signature);
+                    validator_subscriptions.push(subscription);
 
-                let subscription = ValidatorSubscription::new(
-                    duty.validator_pubkey.clone().into(),
-                    slot,
-                    slot_signature,
-                );
-                validator_subscriptions.push(subscription);
-
-                // add successful duties to the list, along with whether they are aggregation
-                // duties or not
-                successful_duties.push((duty, is_aggregator_proof));
+                    // add successful duties to the list, along with whether they are aggregation
+                    // duties or not
+                    successful_duties.push((duty, is_aggregator_proof));
+                }
+            } else {
+                crit!(log_2, "Validator duty doesn't have required fields");
             }
         }
 

@@ -1,6 +1,5 @@
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2_hashing::hash;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
@@ -74,64 +73,28 @@ impl ValidatorSubscription {
         ValidatorSubscription {
             validator_index,
             slot,
-            slot_signatures,
+            slot_signature,
         }
     }
 
-    /// Returns true if this subscription implies the validator is an aggregator.
-    pub fn is_aggregator(&self) -> bool {
-        if let Some(modulo) = self.aggregator_modulo {
-            let signature_hash = hash(&slot_signature.as_bytes());
-            let signature_hash_int = u64::from_le_bytes(
-                signature_hash[0..8]
-                    .try_into()
-                    .expect("first 8 bytes of signature should always convert to fixed array"),
-            );
-            signature_hash_int % modulo == 0
-        } else {
-            false
-        }
-    }
-
-    /// Verifies the list of subscriptions in parallel.
+    /// Verifies the subscription signature.
     pub fn verify(
         &self,
+        pubkey: &PublicKey,
         spec: &ChainSpec,
         fork: &Fork,
         slots_per_epoch: u64,
-    ) -> Result<(), &'static str> {
-        // invalid lengths
-        if self.pubkeys.len() != self.slots.len()
-            || self.pubkeys.len() != self.slot_signatures.len()
-        {
-            return Err("The lengths of public keys, signatures and slots are not equal");
-        }
-
-        if (0..self.pubkeys.len())
-            .into_par_iter()
-            .try_for_each(|index| {
-                let domain = spec.get_domain(
-                    self.slots[index].epoch(slots_per_epoch),
-                    Domain::SelectionProof,
-                    &fork,
-                );
-                let message = self.slots[index].as_u64().tree_hash_root();
-
-                let pubkey: PublicKey = (&self.pubkeys[index])
-                    .try_into()
-                    .map_err(|_| "could not decode signature")?;
-
-                if self.slot_signatures[index].verify(&message, domain, &pubkey) {
-                    Ok(())
-                } else {
-                    Err("Invalid Sig")
-                }
-            })
-            .is_ok()
-        {
-            Ok(())
+    ) -> bool {
+        let domain = spec.get_domain(
+            self.slot.epoch(slots_per_epoch),
+            Domain::SelectionProof,
+            &fork,
+        );
+        let message = self.slot.as_u64().tree_hash_root();
+        if self.slot_signature.verify(&message, domain, pubkey) {
+            true
         } else {
-            Err("There was an invalid signature")
+            false
         }
     }
 }

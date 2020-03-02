@@ -9,7 +9,7 @@ use eth2_libp2p::{
     rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, NetworkGlobals, PeerId, Swarm,
 };
 use eth2_libp2p::{RPCEvent, PubsubMessage};
-use rest_types::ValidatorSubscriptions;
+use rest_types::ValidatorSubscription;
 use futures::prelude::*;
 use futures::Stream;
 use slog::{debug, error, info, trace};
@@ -323,7 +323,7 @@ fn spawn_service<T: BeaconChainTypes>(
 pub enum NetworkMessage<T: EthSpec> {
     /// Subscribes a list of validators to specific slots for attestation duties.
     Subscribe {
-        subscriptions: Box<ValidatorSubscriptions>
+        subscriptions: Vec<ValidatorSubscription>
     },
     /// Send an RPC message to the libp2p service.
     RPC(PeerId, RPCEvent<T>),

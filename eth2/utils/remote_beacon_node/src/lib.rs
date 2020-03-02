@@ -23,7 +23,7 @@ pub use operation_pool::PersistedOperationPool;
 pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_types::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDutyBytes,
-    ValidatorRequest, ValidatorResponse, ValidatorSubscriptions,
+    ValidatorRequest, ValidatorResponse, ValidatorSubscription,
 };
 
 // Setting a long timeout for debug ensures that crypto-heavy operations can still succeed.
@@ -345,7 +345,7 @@ impl<E: EthSpec> Validator<E> {
     /// Subscribes a list of validators to particular slots for attestation production/publication.
     pub fn subscribe(
         &self,
-        subscriptions: ValidatorSubscriptions,
+        subscriptions: Vec<ValidatorSubscription>,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("subscribe")
