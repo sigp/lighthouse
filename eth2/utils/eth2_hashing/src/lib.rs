@@ -5,7 +5,7 @@
 //! defining it once in this crate makes it easy to replace.
 
 #[cfg(not(target_arch = "wasm32"))]
-use ring::digest::{digest, Context, SHA256};
+pub use ring::digest::{digest, Context, SHA256};
 
 #[cfg(target_arch = "wasm32")]
 use sha2::{Digest, Sha256};

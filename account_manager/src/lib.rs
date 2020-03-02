@@ -87,8 +87,52 @@ fn run_new_validator_subcommand<T: EthSpec>(
     datadir: PathBuf,
     mut env: Environment<T>,
 ) -> Result<(), String> {
-    let context = env.core_context();
+    let mut context = env.core_context();
     let log = context.log.clone();
+
+    // Load the testnet configuration from disk, or use the default testnet.
+    let eth2_testnet_config: Eth2TestnetConfig<T> =
+        if let Some(testnet_dir_str) = matches.value_of("testnet-dir") {
+            let testnet_dir = testnet_dir_str
+                .parse::<PathBuf>()
+                .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
+
+            if !testnet_dir.exists() {
+                return Err(format!(
+                    "Testnet directory at {:?} does not exist",
+                    testnet_dir
+                ));
+            }
+
+            info!(
+                log,
+                "Loading deposit contract address";
+                "testnet_dir" => format!("{:?}", &testnet_dir)
+            );
+
+            Eth2TestnetConfig::load(testnet_dir.clone())
+                .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
+        } else {
+            info!(
+                log,
+                "Using Lighthouse testnet deposit contract";
+            );
+
+            Eth2TestnetConfig::hard_coded()
+                .map_err(|e| format!("Failed to load hard_coded testnet dir: {}", e))?
+        };
+
+    context.eth2_config.spec = eth2_testnet_config
+        .yaml_config
+        .as_ref()
+        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+        .apply_to_chain_spec::<T>(&context.eth2_config.spec)
+        .ok_or_else(|| {
+            format!(
+                "The loaded config is not compatible with the {} spec",
+                &context.eth2_config.spec_constants
+            )
+        })?;
 
     let methods: Vec<KeygenMethod> = match matches.subcommand() {
         ("insecure", Some(matches)) => {
@@ -130,7 +174,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
         &methods,
         deposit_value,
         &context.eth2_config.spec,
-        &env.core_context().log,
+        &log,
     )?;
 
     if matches.is_present("send-deposits") {
@@ -172,39 +216,6 @@ fn run_new_validator_subcommand<T: EthSpec>(
             "Submitting validator deposits";
             "eth1_node_http_endpoint" => eth1_endpoint
         );
-
-        // Load the testnet configuration from disk, or use the default testnet.
-        let eth2_testnet_config: Eth2TestnetConfig<T> = if let Some(testnet_dir_str) =
-            matches.value_of("testnet-dir")
-        {
-            let testnet_dir = testnet_dir_str
-                .parse::<PathBuf>()
-                .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
-
-            if !testnet_dir.exists() {
-                return Err(format!(
-                    "Testnet directory at {:?} does not exist",
-                    testnet_dir
-                ));
-            }
-
-            info!(
-                log,
-                "Loading deposit contract address";
-                "testnet_dir" => format!("{:?}", &testnet_dir)
-            );
-
-            Eth2TestnetConfig::load(testnet_dir.clone())
-                .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
-        } else {
-            info!(
-                log,
-                "Using Lighthouse testnet deposit contract";
-            );
-
-            Eth2TestnetConfig::hard_coded()
-                .map_err(|e| format!("Failed to load hard_coded testnet dir: {}", e))?
-        };
 
         // Convert from `types::Address` to `web3::types::Address`.
         let deposit_contract = Address::from_slice(
