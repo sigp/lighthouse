@@ -6,16 +6,38 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes};
 
+/// Provides a mapping of `validator_index -> validator_publickey`.
+///
+/// This cache exists for two reasons:
+///
+/// 1. To avoid reading a `BeaconState` from disk each time we need a public key.
+/// 2. To reduce the amount of public key _decompression_ required. A `BeaconState` stores public
+///    keys in compressed form and they are needed in decompressed form for signature verification.
+///    Decompression is expensive when may keys are involved.
+///
+/// The cache has a `persistence_file` that it uses to maintain a persistent, on-disk copy of
+/// itself. This allows it to be restored between process invocations.
 pub struct ValidatorPubkeyCache {
     pubkeys: Vec<PublicKey>,
     persitence_file: ValidatorPubkeyCacheFile,
 }
 
 impl ValidatorPubkeyCache {
+    /// Create a new public key cache using the keys in `state.validators`.
+    ///
+    /// Also creates a new persistence file, returning an error if there is already a file at
+    /// `persistence_path`.
     pub fn new<T: EthSpec, P: AsRef<Path>>(
         state: &BeaconState<T>,
         persistence_path: P,
     ) -> Result<Self, BeaconChainError> {
+        if persistence_path.as_ref().exists() {
+            return Err(BeaconChainError::ValidatorPubkeyCacheFileError(format!(
+                "Persistence file already exists: {:?}",
+                persistence_path.as_ref()
+            )));
+        }
+
         Ok(Self {
             persitence_file: ValidatorPubkeyCacheFile::load(persistence_path)
                 .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
@@ -32,6 +54,9 @@ impl ValidatorPubkeyCache {
         })
     }
 
+    /// Scan the given `state` and add any new validator public keys.
+    ///
+    /// Does not delete any keys from `self` if they don't appear in `state`.
     pub fn import_new_pubkeys<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -67,6 +92,7 @@ impl ValidatorPubkeyCache {
             })
     }
 
+    /// Get the public key for a validator with index `i`.
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
         self.pubkeys.get(i)
     }
