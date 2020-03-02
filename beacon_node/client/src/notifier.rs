@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
+use eth2_libp2p::NetworkGlobals;
 use futures::{Future, Stream};
-use network::Service as NetworkService;
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -28,7 +28,7 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 pub fn spawn_notifier<T: BeaconChainTypes>(
     context: RuntimeContext<T::EthSpec>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals>,
     milliseconds_per_slot: u64,
 ) -> Result<tokio::sync::oneshot::Sender<()>, String> {
     let log_1 = context.log.clone();

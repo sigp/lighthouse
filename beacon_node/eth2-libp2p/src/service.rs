@@ -66,7 +66,11 @@ impl<TSpec: EthSpec> Service<TSpec> {
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
         // set up a collection of variables accessible outside of the network crate
-        let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
+        let network_globals = Arc::new(NetworkGlobals::new(
+            local_peer_id.clone(),
+            config.libp2p_port,
+            config.discovery_port,
+        ));
 
         let mut swarm = {
             // Set up the transport - tcp/ws with secio and mplex/yamux

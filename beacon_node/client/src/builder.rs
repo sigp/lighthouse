@@ -14,12 +14,13 @@ use beacon_chain::{
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
+use eth2_libp2p::NetworkGlobals;
 use futures::{future, Future, IntoFuture};
 use genesis::{
     generate_deterministic_keypairs, interop_genesis_state, state_from_ssz_file, Eth1GenesisService,
 };
 use lighthouse_bootstrap::Bootstrapper;
-use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
+use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slog::info;
 use ssz::Decode;
 use std::net::SocketAddr;
@@ -57,8 +58,8 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth1_service: Option<Eth1Service>,
     exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
     event_handler: Option<T::EventHandler>,
-    libp2p_network: Option<Arc<NetworkService<T>>>,
-    libp2p_network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
+    network_globals: Option<Arc<NetworkGlobals>>,
+    network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
     eth_spec_instance: T::EthSpec,
@@ -91,8 +92,8 @@ where
             eth1_service: None,
             exit_channels: vec![],
             event_handler: None,
-            libp2p_network: None,
-            libp2p_network_send: None,
+            network_globals: None,
+            network_send: None,
             http_listen_addr: None,
             websocket_listen_addr: None,
             eth_spec_instance,
@@ -249,24 +250,25 @@ where
             .and_then(|builder| builder.timer())
     }
 
-    /// Immediately starts the libp2p networking stack.
-    pub fn libp2p_network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    /// Immediately starts the networking stack.
+    pub fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
-            .ok_or_else(|| "libp2p_network requires a beacon chain")?;
+            .ok_or_else(|| "network requires a beacon chain")?;
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "libp2p_network requires a runtime_context")?
+            .ok_or_else(|| "network requires a runtime_context")?
             .service_context("network".into());
 
-        let (network, network_send) =
-            NetworkService::new(beacon_chain, config, &context.executor, context.log)
-                .map_err(|e| format!("Failed to start libp2p network: {:?}", e))?;
+        let (network_globals, network_send, network_exit) =
+            NetworkService::start(beacon_chain, config, &context.executor, context.log)
+                .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
-        self.libp2p_network = Some(network);
-        self.libp2p_network_send = Some(network_send);
+        self.network_globals = Some(network_globals);
+        self.network_send = Some(network_send);
+        self.exit_channels.push(network_exit);
 
         Ok(self)
     }
@@ -316,17 +318,17 @@ where
             .as_ref()
             .ok_or_else(|| "http_server requires a runtime_context")?
             .service_context("http".into());
-        let network = self
-            .libp2p_network
+        let network_globals = self
+            .network_globals
             .clone()
             .ok_or_else(|| "http_server requires a libp2p network")?;
         let network_send = self
-            .libp2p_network_send
+            .network_send
             .clone()
             .ok_or_else(|| "http_server requires a libp2p network sender")?;
 
         let network_info = rest_api::NetworkInfo {
-            network_service: network,
+            network_globals,
             network_chan: network_send,
         };
 
@@ -363,8 +365,8 @@ where
             .beacon_chain
             .clone()
             .ok_or_else(|| "slot_notifier requires a beacon chain")?;
-        let network = self
-            .libp2p_network
+        let network_globals = self
+            .network_globals
             .clone()
             .ok_or_else(|| "slot_notifier requires a libp2p network")?;
         let milliseconds_per_slot = self
@@ -373,8 +375,13 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let exit_channel = spawn_notifier(context, beacon_chain, network, milliseconds_per_slot)
-            .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
+        let exit_channel = spawn_notifier(
+            context,
+            beacon_chain,
+            network_globals,
+            milliseconds_per_slot,
+        )
+        .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
         self.exit_channels.push(exit_channel);
 
@@ -391,7 +398,7 @@ where
     {
         Client {
             beacon_chain: self.beacon_chain,
-            libp2p_network: self.libp2p_network,
+            network_globals: self.network_globals,
             http_listen_addr: self.http_listen_addr,
             websocket_listen_addr: self.websocket_listen_addr,
             _exit_channels: self.exit_channels,

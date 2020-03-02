@@ -3,8 +3,8 @@ use crate::{
     BoxFut, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use client_network::Service as NetworkService;
 use eth2_config::Eth2Config;
+use eth2_libp2p::NetworkGlobals;
 use futures::{Future, IntoFuture};
 use hyper::{Body, Error, Method, Request, Response};
 use slog::debug;
@@ -24,7 +24,7 @@ where
 pub fn route<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_service: Arc<NetworkService<T>>,
+    network_globals: Arc<NetworkGlobals>,
     network_channel: NetworkChannel<T::EthSpec>,
     eth2_config: Arc<Eth2Config>,
     local_log: slog::Logger,
@@ -47,22 +47,22 @@ pub fn route<T: BeaconChainTypes>(
 
             // Methods for Network
             (&Method::GET, "/network/enr") => {
-                into_boxfut(network::get_enr::<T>(req, network_service))
+                into_boxfut(network::get_enr::<T>(req, network_globals))
             }
             (&Method::GET, "/network/peer_count") => {
-                into_boxfut(network::get_peer_count::<T>(req, network_service))
+                into_boxfut(network::get_peer_count::<T>(req, network_globals))
             }
             (&Method::GET, "/network/peer_id") => {
-                into_boxfut(network::get_peer_id::<T>(req, network_service))
+                into_boxfut(network::get_peer_id::<T>(req, network_globals))
             }
             (&Method::GET, "/network/peers") => {
-                into_boxfut(network::get_peer_list::<T>(req, network_service))
+                into_boxfut(network::get_peer_list::<T>(req, network_globals))
             }
             (&Method::GET, "/network/listen_port") => {
-                into_boxfut(network::get_listen_port::<T>(req, network_service))
+                into_boxfut(network::get_listen_port::<T>(req, network_globals))
             }
             (&Method::GET, "/network/listen_addresses") => {
-                into_boxfut(network::get_listen_addresses::<T>(req, network_service))
+                into_boxfut(network::get_listen_addresses::<T>(req, network_globals))
             }
 
             // Methods for Beacon Node

@@ -1,20 +1,18 @@
 use crate::error;
 use crate::router::{Router, RouterMessage};
 use crate::persisted_dht::{load_dht, persist_dht};
-use crate::NetworkConfig;
+use crate::{attestation_service::AttestationService,NetworkConfig};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use core::marker::PhantomData;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
-    rpc::RPCRequest, Enr, Libp2pEvent, MessageId, Multiaddr, NetworkGlobals, PeerId, Swarm,
+    rpc::RPCRequest, Enr, Libp2pEvent, MessageId, NetworkGlobals, PeerId, Swarm,
 };
 use eth2_libp2p::{RPCEvent, PubsubMessage};
 use rest_types::ValidatorSubscription;
 use futures::prelude::*;
 use futures::Stream;
 use slog::{debug, error, info, trace};
-use std::collections::HashSet;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{Arc};
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
@@ -27,27 +25,42 @@ mod tests;
 const BAN_PEER_TIMEOUT: u64 = 30;
 
 /// Service that handles communication between internal services and the `eth2_libp2p` network service.
-pub struct Service<T: BeaconChainTypes> {
-    libp2p_port: u16,
+pub struct NetworkService<T: BeaconChainTypes> {
+    /// The underlying libp2p service that drives all the network interactions.
+    libp2p: LibP2PService<T::EthSpec>,
+    /// An attestation and subnet manager service.
+    attestation_service: AttestationService<T>,
+    /// The receiver channel for lighthouse to communicate with the network service.
+    network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
+    /// The sending channel for the network service to send messages to be routed throughout
+    /// lighthouse.
+    router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+    /// A reference to lighthouse's database to persist the DHT.
+    store: Arc<T::Store>,
+    /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals>,
-    _libp2p_exit: oneshot::Sender<()>,
-    _phantom: PhantomData<T>,
+    /// An initial delay to update variables after the libp2p service has started. 
+    initial_delay: Delay,
+    /// The logger for the network service.
+    log: slog::Logger,
+    /// A probability of propagation.
+    propagation_percentage: Option<u8>,
 }
 
-impl<T: BeaconChainTypes> Service<T> {
-    pub fn new(
+impl<T: BeaconChainTypes> NetworkService<T> {
+    pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
-    ) -> error::Result<(Arc<Self>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>)> {
+    ) -> error::Result<(Arc<NetworkGlobals>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>, oneshot::Sender<()>)> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
         // Get a reference to the beacon chain store
         let store = beacon_chain.store.clone();
         // launch the router task 
         let router_send = Router::spawn(
-            beacon_chain,
+            beacon_chain.clone(),
             network_send.clone(),
             executor,
             network_log.clone(),
@@ -55,81 +68,43 @@ impl<T: BeaconChainTypes> Service<T> {
 
         let propagation_percentage = config.propagation_percentage;
         // launch libp2p service
-        let (network_globals, mut libp2p_service) =
+        let (network_globals, mut libp2p) =
             LibP2PService::new(config, network_log.clone())?;
 
         for enr in load_dht::<T>(store.clone()) {
-            libp2p_service.swarm.add_enr(enr);
+            libp2p.swarm.add_enr(enr);
         }
 
         // A delay used to initialise code after the network has started
         // This is currently used to obtain the listening addresses from the libp2p service.
         let initial_delay = Delay::new(Instant::now() + Duration::from_secs(1));
 
-        let libp2p_exit = spawn_service::<T>(
-            libp2p_service,
+
+        // create the attestation service
+        let attestation_service = AttestationService::new(beacon_chain, network_globals.clone(), &network_log);
+
+        // create the network service and spawn the task
+        let network_service = NetworkService {
+            libp2p,
+            attestation_service,
             network_recv,
             router_send,
-            executor,
             store,
-            network_globals.clone(),
+            network_globals: network_globals.clone(),
             initial_delay,
-            network_log.clone(),
-            propagation_percentage,
-        )?;
-
-        let network_service = Service {
-            libp2p_port: config.libp2p_port,
-            network_globals,
-            _libp2p_exit: libp2p_exit,
-            _phantom: PhantomData,
+            log: network_log,
+            propagation_percentage
         };
 
-        Ok((Arc::new(network_service), network_send))
-    }
+        let network_exit = spawn_service(network_service, &executor)?;
 
-    /// Returns the local ENR from the underlying Discv5 behaviour that external peers may connect
-    /// to.
-    pub fn local_enr(&self) -> Option<Enr> {
-        self.network_globals.local_enr.read().clone()
-    }
-
-    /// Returns the local libp2p PeerID.
-    pub fn local_peer_id(&self) -> PeerId {
-        self.network_globals.peer_id.read().clone()
-    }
-
-    /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.
-    pub fn listen_multiaddrs(&self) -> Vec<Multiaddr> {
-        self.network_globals.listen_multiaddrs.read().clone()
-    }
-
-    /// Returns the libp2p port that this node has been configured to listen using.
-    pub fn listen_port(&self) -> u16 {
-        self.libp2p_port
-    }
-
-    /// Returns the number of libp2p connected peers.
-    pub fn connected_peers(&self) -> usize {
-        self.network_globals.connected_peers.load(Ordering::Relaxed)
-    }
-
-    /// Returns the set of `PeerId` that are connected via libp2p.
-    pub fn connected_peer_set(&self) -> HashSet<PeerId> {
-        self.network_globals.connected_peer_set.read().clone()
+        Ok((network_globals, network_send, network_exit))
     }
 }
 
 fn spawn_service<T: BeaconChainTypes>(
-    mut libp2p_service: LibP2PService<T::EthSpec>,
-    mut network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
-    mut router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+    mut service: NetworkService<T>,
     executor: &TaskExecutor,
-    store: Arc<T::Store>,
-    network_globals: Arc<NetworkGlobals>,
-    mut initial_delay: Delay,
-    log: slog::Logger,
-    propagation_percentage: Option<u8>,
 ) -> error::Result<tokio::sync::oneshot::Sender<()>> {
     let (network_exit, mut exit_rx) = tokio::sync::oneshot::channel();
 
@@ -137,24 +112,26 @@ fn spawn_service<T: BeaconChainTypes>(
     executor.spawn(
     futures::future::poll_fn(move || -> Result<_, ()> {
 
-        if !initial_delay.is_elapsed() {
-            if let Ok(Async::Ready(_)) = initial_delay.poll() {
-                        let multi_addrs = Swarm::listeners(&libp2p_service.swarm).cloned().collect();
-                        *network_globals.listen_multiaddrs.write() = multi_addrs;
+        let log = &service.log;
+
+        if !service.initial_delay.is_elapsed() {
+            if let Ok(Async::Ready(_)) = service.initial_delay.poll() {
+                        let multi_addrs = Swarm::listeners(&service.libp2p.swarm).cloned().collect();
+                        *service.network_globals.listen_multiaddrs.write() = multi_addrs;
             }
         }
 
         // perform termination tasks when the network is being shutdown
         if let Ok(Async::Ready(_)) | Err(_) = exit_rx.poll() {
                     // network thread is terminating
-                    let enrs: Vec<Enr> = libp2p_service.swarm.enr_entries().cloned().collect();
+                    let enrs: Vec<Enr> = service.libp2p.swarm.enr_entries().cloned().collect();
                     debug!(
                         log,
                         "Persisting DHT to store";
                         "Number of peers" => format!("{}", enrs.len()),
                     );
 
-                    match persist_dht::<T>(store.clone(), enrs) {
+                    match persist_dht::<T>(service.store.clone(), enrs) {
                         Err(e) => error!(
                             log,
                             "Failed to persist DHT on drop";
@@ -173,11 +150,11 @@ fn spawn_service<T: BeaconChainTypes>(
         // processes the network channel before processing the libp2p swarm
         loop {
             // poll the network channel
-            match network_recv.poll() {
+            match service.network_recv.poll() {
                 Ok(Async::Ready(Some(message))) => match message {
                     NetworkMessage::RPC(peer_id, rpc_event) => {
                         trace!(log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
-                        libp2p_service.swarm.send_rpc(peer_id, rpc_event);
+                        service.libp2p.swarm.send_rpc(peer_id, rpc_event);
                     }
                     NetworkMessage::Propagate {
                         propagation_source,
@@ -186,7 +163,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         // TODO: Remove this for mainnet
                         // randomly prevents propagation
                         let mut should_send = true;
-                        if let Some(percentage) = propagation_percentage {
+                        if let Some(percentage) = service.propagation_percentage {
                             // not exact percentage but close enough
                             let rand = rand::random::<u8>() % 100;
                             if rand > percentage {
@@ -201,7 +178,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             "propagation_peer" => format!("{:?}", propagation_source),
                             "message_id" => message_id.to_string(),
                             );
-                            libp2p_service
+                            service.libp2p
                                 .swarm
                                 .propagate_message(&propagation_source, message_id);
                         }
@@ -210,7 +187,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         // TODO: Remove this for mainnet
                         // randomly prevents propagation
                         let mut should_send = true;
-                        if let Some(percentage) = propagation_percentage {
+                        if let Some(percentage) = service.propagation_percentage {
                             // not exact percentage but close enough
                             let rand = rand::random::<u8>() % 100;
                             if rand > percentage {
@@ -230,11 +207,11 @@ fn spawn_service<T: BeaconChainTypes>(
                                 }
                             }
                             debug!(log, "Sending pubsub messages"; "count" => messages.len(), "topics" => format!("{:?}", unique_topics));
-                            libp2p_service.swarm.publish(messages);
+                            service.libp2p.swarm.publish(messages);
                         }
                     }
                     NetworkMessage::Disconnect { peer_id } => {
-                        libp2p_service.disconnect_and_ban_peer(
+                        service.libp2p.disconnect_and_ban_peer(
                             peer_id,
                             std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
                         );
@@ -259,7 +236,7 @@ fn spawn_service<T: BeaconChainTypes>(
         let mut peers_to_ban = Vec::new();
         // poll the swarm
         loop {
-            match libp2p_service.poll() {
+            match service.libp2p.poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
                         // trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
@@ -268,19 +245,19 @@ fn spawn_service<T: BeaconChainTypes>(
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
                             peers_to_ban.push(peer_id.clone());
                         };
-                        router_send
+                        service.router_send
                             .try_send(RouterMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| { debug!(log, "Failed to send RPC to router");} )?;
                     }
                     Libp2pEvent::PeerDialed(peer_id) => {
                         debug!(log, "Peer Dialed"; "peer_id" => format!("{:?}", peer_id));
-                        router_send
+                        service.router_send
                             .try_send(RouterMessage::PeerDialed(peer_id))
                             .map_err(|_| { debug!(log, "Failed to send peer dialed to router");})?;
                     }
                     Libp2pEvent::PeerDisconnected(peer_id) => {
                         debug!(log, "Peer Disconnected";  "peer_id" => format!("{:?}", peer_id));
-                        router_send
+                        service.router_send
                             .try_send(RouterMessage::PeerDisconnected(peer_id))
                             .map_err(|_| { debug!(log, "Failed to send peer disconnect to router");})?;
                     }
@@ -290,7 +267,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         message,
                         ..
                     } => {
-                       router_send 
+                       service.router_send 
                             .try_send(RouterMessage::PubsubMessage(id, source, message))
                             .map_err(|_| { debug!(log, "Failed to send pubsub message to router");})?;
                     }
@@ -304,7 +281,7 @@ fn spawn_service<T: BeaconChainTypes>(
 
         // ban and disconnect any peers that sent Goodbye requests
         while let Some(peer_id) = peers_to_ban.pop() {
-            libp2p_service.disconnect_and_ban_peer(
+            service.libp2p.disconnect_and_ban_peer(
                 peer_id.clone(),
                 std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
             );

@@ -21,10 +21,10 @@ mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::NetworkMessage;
-use client_network::Service as NetworkService;
 pub use config::ApiEncodingFormat;
 use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
+use eth2_libp2p::NetworkGlobals;
 use hyper::rt::Future;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
@@ -45,7 +45,7 @@ pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send
 pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
 pub struct NetworkInfo<T: BeaconChainTypes> {
-    pub network_service: Arc<NetworkService<T>>,
+    pub network_globals: Arc<NetworkGlobals>,
     pub network_chan: NetworkChannel<T::EthSpec>,
 }
 
@@ -69,7 +69,7 @@ pub fn start_server<T: BeaconChainTypes>(
         let beacon_chain = beacon_chain.clone();
         let log = inner_log.clone();
         let eth2_config = eth2_config.clone();
-        let network_service = network_info.network_service.clone();
+        let network_globals = network_info.network_globals.clone();
         let network_channel = network_info.network_chan.clone();
         let db_path = db_path.clone();
         let freezer_db_path = freezer_db_path.clone();
@@ -78,7 +78,7 @@ pub fn start_server<T: BeaconChainTypes>(
             router::route(
                 req,
                 beacon_chain.clone(),
-                network_service.clone(),
+                network_globals.clone(),
                 network_channel.clone(),
                 eth2_config.clone(),
                 log.clone(),

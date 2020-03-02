@@ -2,7 +2,7 @@
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 
 pub struct NetworkGlobals {
     /// The current local ENR.
@@ -11,6 +11,10 @@ pub struct NetworkGlobals {
     pub peer_id: RwLock<PeerId>,
     /// Listening multiaddrs.
     pub listen_multiaddrs: RwLock<Vec<Multiaddr>>,
+    /// The tcp port that the libp2p service is listening on
+    pub listen_port_tcp: AtomicU16,
+    /// The udp port that the discovery service is listening on
+    pub listen_port_udp: AtomicU16,
     /// Current number of connected libp2p peers.
     pub connected_peers: AtomicUsize,
     /// The collection of currently connected peers.
@@ -20,14 +24,52 @@ pub struct NetworkGlobals {
 }
 
 impl NetworkGlobals {
-    pub fn new(peer_id: PeerId) -> Self {
+    pub fn new(peer_id: PeerId, tcp_port: u16, udp_port: u16) -> Self {
         NetworkGlobals {
             local_enr: RwLock::new(None),
             peer_id: RwLock::new(peer_id),
             listen_multiaddrs: RwLock::new(Vec::new()),
+            listen_port_tcp: AtomicU16::new(tcp_port),
+            listen_port_udp: AtomicU16::new(udp_port),
             connected_peers: AtomicUsize::new(0),
             connected_peer_set: RwLock::new(HashSet::new()),
             gossipsub_subscriptions: RwLock::new(Vec::new()),
         }
+    }
+
+    /// Returns the local ENR from the underlying Discv5 behaviour that external peers may connect
+    /// to.
+    pub fn local_enr(&self) -> Option<Enr> {
+        self.local_enr.read().clone()
+    }
+
+    /// Returns the local libp2p PeerID.
+    pub fn local_peer_id(&self) -> PeerId {
+        self.peer_id.read().clone()
+    }
+
+    /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.
+    pub fn listen_multiaddrs(&self) -> Vec<Multiaddr> {
+        self.listen_multiaddrs.read().clone()
+    }
+
+    /// Returns the libp2p TCP port that this node has been configured to listen on.
+    pub fn listen_port_tcp(&self) -> u16 {
+        self.listen_port_tcp.load(Ordering::Relaxed)
+    }
+
+    /// Returns the UDP discovery port that this node has been configured to listen on.
+    pub fn listen_port_udp(&self) -> u16 {
+        self.listen_port_udp.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of libp2p connected peers.
+    pub fn connected_peers(&self) -> usize {
+        self.connected_peers.load(Ordering::Relaxed)
+    }
+
+    /// Returns the set of `PeerId` that are connected via libp2p.
+    pub fn connected_peer_set(&self) -> HashSet<PeerId> {
+        self.connected_peer_set.read().clone()
     }
 }
