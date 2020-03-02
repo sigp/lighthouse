@@ -88,6 +88,11 @@ where
         self.entries.contains_key(key)
     }
 
+    /// Returns the length of the mapping.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
     /// Updates the timeout for a given key. Returns true if the key existed, false otherwise.
     ///
     /// Panics if the duration is too far in the future.

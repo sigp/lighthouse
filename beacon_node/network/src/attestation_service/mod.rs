@@ -5,8 +5,6 @@
 use crate::error;
 use crate::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::topics::ATTESTATION_SUBNET_COUNT;
-use eth2_libp2p::SubnetId;
 use futures::prelude::*;
 use hashmap_delay::HashMapDelay;
 use slog::{debug, error, o, trace};
@@ -15,8 +13,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use std::collections::VecDeque;
-use types::{Attestation};
-use rest_types::ValidatorSubscriptions;
+use types::{Attestation, SubnetId};
+use rest_types::ValidatorSubscription;
+use rand::seq::SliceRandom;
+use eth2_libp2p::{NetworkGlobals, types::GossipKind};
+use types::EthSpec;
 
 /// The number of epochs in advance we try to discover peers for a shard subnet.
 const EPOCHS_TO_DISCOVER_PEERS: u8 = 1;
@@ -24,6 +25,12 @@ const EPOCHS_TO_DISCOVER_PEERS: u8 = 1;
 const RANDOM_SUBNETS_PER_VALIDATOR: u8 = 1;
 /// The minimum number of epochs to remain subscribed to a random subnet.
 const EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION: u16 = 256;
+/// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
+/// slot is less than this number, skip the peer discovery process.
+const PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 5;
+/// The time (in seconds) before a last seen validator is considered absent and we unsubscribe from the random
+/// gossip topics that we subscribed to due to the validator connection.
+const LAST_SEEN_VALIDATOR_TIMEOUT: u64 = 1800; // 30 mins
 
 pub enum AttServiceMessage {
     /// Subscribe to the specified subnet id.
@@ -36,7 +43,10 @@ pub enum AttServiceMessage {
 
 pub struct AttestationService<T: BeaconChainTypes> {
     /// Queued events to return to the driving service.
-    queued_events: VecDeque<AttServiceMessage>,
+    events: VecDeque<AttServiceMessage>,
+
+    /// A collection of public network variables.
+    network_globals: Arc<NetworkGlobals>,
 
     /// A reference to the beacon chain to process received attestations.
     beacon_chain: Arc<BeaconChain<T>>,
@@ -53,22 +63,34 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// A collection of timeouts for when to unsubscribe from a shard subnet.
     unsubscriptions: HashMapDelay<SubnetId, Instant>,
 
+    /// A collection of seen validators. These dictate how many random subnets we should be
+    /// subscribed to. As these time out, we unsubscribe for the required random subnets and update
+    /// our ENR.
+    /// This is a set of validator indices.
+    known_validators: HashMapDelay<u64, ()>, 
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> AttestationService<T> {
-    pub fn new( beacon_chain: Arc<BeaconChain<T>>, log: &slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, network_globals: Arc<NetworkGlobals>, log: &slog::Logger) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
 
-        // generate the Message handler
+        // calculate the random subnet duration from the spec constants
+        let spec = &beacon_chain.spec;
+        let random_subnet_duration_millis = spec.epochs_per_random_subnet_subscription.saturating_mul(T::EthSpec::slots_per_epoch()).saturating_mul(spec.milliseconds_per_slot);
+
+        // generate the AttestationService
         AttestationService {
-            queued_events: VecDeque::with_capacity(10),
+            events: VecDeque::with_capacity(10),
+            network_globals,
             beacon_chain,
-            random_subnets: HashMapDelay::default(),
+            random_subnets: HashMapDelay::new(Duration::from_millis(random_subnet_duration_millis)),
             discover_peers: HashMapDelay::default(),
             subscriptions: HashMapDelay::default(),
             unsubscriptions: HashMapDelay::default(),
+            known_validators: HashMapDelay::new(Duration::from_secs(LAST_SEEN_VALIDATOR_TIMEOUT)),
             log,
         }
     }
@@ -76,24 +98,95 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// It is time to run a discovery query to find peers for a particular subnet.
     fn handle_discover_peer(&mut self, subnet_id: SubnetId) {
         debug!(self.log, "Searching for peers for subnet"; "subnet" => *subnet_id);
-        self.queued_events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
+        self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
     }
 
     fn handle_subscriptions(&mut self, subnet_id: SubnetId) {
         debug!(self.log, "Subscribing to subnet"; "subnet" => *subnet_id);
-        self.queued_events.push_back(AttServiceMessage::Subscribe(subnet_id));
+        self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
     }
 
     fn handle_persistant_subnets(&mut self, _subnet: (SubnetId, ())) {}
 
     fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
 
-    pub fn handle_validator_subscriptions(&mut self, subscriptions: ValidatorSubscriptions) {
+    pub fn handle_validator_subscriptions(&mut self, subscriptions: Vec<ValidatorSubscription>) -> Result<(),()> {
+
+        let current_state = self.beacon_chain.head().map_err(|e| ())?.beacon_state;
+
+        for subscription in subscriptions {
+            if let Ok(pubkey) = current_state.get_validator_pubkey(subscription.validator_index) {
+
+                self.add_validator(subscription.validator_index)
 
 
+                //if subscription.slot 
+            }
 
+
+        }
+
+        Ok(())
+    }
+
+    /// Updates the known_validators mapping and subscribes to a set of random subnets if required. 
+    /// 
+    /// This also updates the ENR to indicate our long-lived subscription to 
+    fn add_validator(&mut self, validator_index: u64) {
+        if self.known_validators.get(&validator_index).is_none() {
+            // New validator has subscribed
+            // Subscribe to random topics and update the ENR if needed.
+           
+            let spec = &self.beacon_chain.spec;
+
+            if self.random_subnets.len() < spec.attestation_subnet_count as usize {
+                // Still room for subscriptions
+                self.subscribe_to_random_subnets(self.beacon_chain.spec.random_subnets_per_validator as usize);
+            }
+        }
+        // add the new validator or update the current timeout for a known validator
+        self.known_validators.insert(validator_index, ());
+    }
+
+    /// Subscribe to long-lived random subnets and update the local ENR bitfield.
+    fn subscribe_to_random_subnets(&mut self, mut no_subnets_to_subscribe: usize) {
+        let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
+
+        // Build a list of random subnets that we are not currently subscribed to.
+        let available_subnets = (0..subnet_count).map(SubnetId::new).filter(|subnet_id| self.random_subnets.get(subnet_id).is_none()).collect::<Vec<_>>();
+
+        let to_subscribe_subnets = {
+        if available_subnets.len() < no_subnets_to_subscribe  {
+            debug!(self.log, "Reached maximum random subnet subscriptions");
+            no_subnets_to_subscribe = available_subnets.len();
+            available_subnets
+        } else {
+        // select a random sample of available subnets
+        available_subnets.choose_multiple(&mut rand::thread_rng(), no_subnets_to_subscribe).cloned().collect::<Vec<_>>()
+        }
+        };
+
+        for subnet_id in to_subscribe_subnets {
+            // remove this subnet from any immediate subscription/un-subscription events
+            self.subscriptions.remove(&subnet_id);
+            self.unsubscriptions.remove(&subnet_id);
+
+            // This inserts a new random subnet
+            self.random_subnets.insert(subnet_id, ());
+
+            // if we are not already subscribed, then subscribe
+            let topic_kind = &GossipKind::CommitteeIndex(subnet_id); 
+
+            if let None = self.network_globals.gossipsub_subscriptions.read().iter().find(|topic| topic.kind() == topic_kind) {
+                // Not already subscribed to the topic
+                self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
+            }
+        }
     }
 }
+
+
+
 
 impl<T: BeaconChainTypes> Stream for AttestationService<T> {
     type Item = AttServiceMessage;
@@ -125,7 +218,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
                 }
 
                 // process any generated events
-                if let Some(event) = self.queued_events.pop_front() {
+                if let Some(event) = self.events.pop_front() {
                     return Ok(Async::Ready(Some(event)));
                 }
 

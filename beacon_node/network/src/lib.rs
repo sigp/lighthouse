@@ -2,7 +2,7 @@
 pub mod error;
 pub mod service;
 
-// mod attestation_service;
+mod attestation_service;
 mod persisted_dht;
 mod router;
 mod sync;

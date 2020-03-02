@@ -3,8 +3,7 @@ use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::types::error;
 use crate::NetworkConfig;
-use crate::PubsubMessage;
-use crate::{NetworkGlobals, TopicHash};
+use crate::{NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
