@@ -977,8 +977,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Provide the valid attestation to op pool, which may choose to retain the
             // attestation for inclusion in a future block.
-            self.op_pool
-                .insert_attestation(attestation, state, &self.spec)?;
+            if self.eth1_chain.is_some() {
+                self.op_pool
+                    .insert_attestation(attestation, state, &self.spec)?;
+            };
 
             // Update the metrics.
             metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_SUCCESSES);
@@ -993,7 +995,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         exit: SignedVoluntaryExit,
     ) -> Result<(), ExitValidationError> {
         match self.wall_clock_state() {
-            Ok(state) => self.op_pool.insert_voluntary_exit(exit, &state, &self.spec),
+            Ok(state) => {
+                if self.eth1_chain.is_some() {
+                    self.op_pool.insert_voluntary_exit(exit, &state, &self.spec)
+                } else {
+                    Ok(())
+                }
+            }
             Err(e) => {
                 error!(
                     &self.log,
@@ -1013,8 +1021,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), ProposerSlashingValidationError> {
         match self.wall_clock_state() {
             Ok(state) => {
-                self.op_pool
-                    .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
+                if self.eth1_chain.is_some() {
+                    self.op_pool
+                        .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
+                } else {
+                    Ok(())
+                }
             }
             Err(e) => {
                 error!(
@@ -1035,8 +1047,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), AttesterSlashingValidationError> {
         match self.wall_clock_state() {
             Ok(state) => {
-                self.op_pool
-                    .insert_attester_slashing(attester_slashing, &state, &self.spec)
+                if self.eth1_chain.is_some() {
+                    self.op_pool
+                        .insert_attester_slashing(attester_slashing, &state, &self.spec)
+                } else {
+                    Ok(())
+                }
             }
             Err(e) => {
                 error!(
