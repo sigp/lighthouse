@@ -1,7 +1,7 @@
 use crate::error;
 use crate::router::{Router, RouterMessage};
 use crate::persisted_dht::{load_dht, persist_dht};
-use crate::{attestation_service::AttestationService,NetworkConfig};
+use crate::{attestation_service::{AttestationService,AttServiceMessage},NetworkConfig};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
@@ -216,9 +216,10 @@ fn spawn_service<T: BeaconChainTypes>(
                             std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
                         );
                     }
-                    NetworkMessage::Subscribe { subscriptions: _ } => 
+                    NetworkMessage::Subscribe { subscriptions } => 
                     {
-                        // TODO: Implement
+                       // the result is dropped as it used solely for ergonomics
+                       let _ = service.attestation_service.validator_subscriptions(subscriptions);
                     }
                 },
                 Ok(Async::NotReady) => break,
@@ -230,6 +231,20 @@ fn spawn_service<T: BeaconChainTypes>(
                     debug!(log, "Network channel error"; "error" => format!("{}", e));
                     return Err(());
                 }
+            }
+        }
+
+        // process any attestation service events
+        // NOTE: This must come after the network message processing as that may trigger events in
+        // the attestation service.
+        while let Ok(Async::Ready(Some(attestation_service_message))) = service.attestation_service.poll() {
+            match attestation_service_message {
+                // TODO: Implement
+                AttServiceMessage::Subscribe(_subnet) => { },
+                AttServiceMessage::Unsubscribe(_subnet) => { },
+                AttServiceMessage::EnrAdd(_subnet) => { },
+                AttServiceMessage::EnrRemove(_subnet) => { },
+                AttServiceMessage::DiscoverPeers(_subnet) => { },
             }
         }
 

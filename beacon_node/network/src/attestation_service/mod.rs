@@ -35,12 +35,12 @@ const ADVANCE_SUBSCRIBE_SECS: u64 = 3;
 pub enum AttServiceMessage {
     /// Subscribe to the specified subnet id.
     Subscribe(SubnetId),
-    /// Add the `SubnetId` to the ENR bitfield.
-    ENRAdd(SubnetId),
-    /// Remove the `SubnetId` from the ENR bitfield.
-    ENRRemove(SubnetId),
     /// Unsubscribe to the specified subnet id.
     Unsubscribe(SubnetId),
+    /// Add the `SubnetId` to the ENR bitfield.
+    EnrAdd(SubnetId),
+    /// Remove the `SubnetId` from the ENR bitfield.
+    EnrRemove(SubnetId),
     /// Discover peers for a particular subnet.
     DiscoverPeers(SubnetId),
 }
@@ -254,7 +254,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Subscribe to long-lived random subnets and update the local ENR bitfield.
-    fn subscribe_to_random_subnets(&mut self, mut no_subnets_to_subscribe: usize) {
+    fn subscribe_to_random_subnets(&mut self, no_subnets_to_subscribe: usize) {
         let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
 
         // Build a list of random subnets that we are not currently subscribed to.
@@ -263,11 +263,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let to_subscribe_subnets = {
         if available_subnets.len() < no_subnets_to_subscribe  {
             debug!(self.log, "Reached maximum random subnet subscriptions");
-            no_subnets_to_subscribe = available_subnets.len();
             available_subnets
         } else {
         // select a random sample of available subnets
-        available_subnets.choose_multiple(&mut rand::thread_rng(), no_subnets_to_subscribe).cloned().collect::<Vec<_>>()
+            available_subnets.choose_multiple(&mut rand::thread_rng(), no_subnets_to_subscribe).cloned().collect::<Vec<_>>()
         }
         };
 
@@ -287,7 +286,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
             }
             // add the subnet to the ENR bitfield
-            self.events.push_back(AttServiceMessage::ENRAdd(subnet_id));
+            self.events.push_back(AttServiceMessage::EnrAdd(subnet_id));
         }
     }
 
@@ -295,17 +294,17 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /* A collection of functions that handle the assorted timeouts */
 
     /// It is time to run a discovery query to find peers for a particular subnet.
-    fn handle_discover_peer(&mut self, subnet_id: SubnetId) {
+    fn handle_discover_peer(&mut self, subnet_id: SubnetId, target_slot: Slot) {
         debug!(self.log, "Searching for peers for subnet"; "subnet" => *subnet_id);
         self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
     }
 
-    fn handle_subscriptions(&mut self, subnet_id: SubnetId) {
-        debug!(self.log, "Subscribing to subnet"; "subnet" => *subnet_id);
+    fn handle_subscriptions(&mut self, subnet_id: SubnetId, target_slot: Slot) {
+        debug!(self.log, "Subscribing to subnet"; "subnet" => *subnet_id, "target_slot" => target_slot.as_u64());
         self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
     }
 
-    fn handle_persistant_subnets(&mut self, _subnet: SubnetId) {}
+    fn handle_random_subnet_expiry(&mut self, _subnet: SubnetId) {}
 
     fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
 
@@ -320,26 +319,26 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
 
                 // handle any discovery events
-                while let Async::Ready(Some((subnet_id, _slot))) =
+                while let Async::Ready(Some((subnet_id, target_slot))) =
                     self.discover_peers.poll().map_err(|e| {
                         error!(self.log, "Failed to check for peer discovery requests"; "error"=> format!("{}", e));
                     })?
                 {
-                    self.handle_discover_peer(subnet_id);
+                    self.handle_discover_peer(subnet_id, target_slot);
                 }
 
-                while let Async::Ready(Some((subnet_id, _slot))) = self.subscriptions.poll().map_err(|e| {
+                while let Async::Ready(Some((subnet_id, target_slot))) = self.subscriptions.poll().map_err(|e| {
                         error!(self.log, "Failed to check for subnet subscription times"; "error"=> format!("{}", e));
                     })?
                 {
-                    self.handle_subscriptions(subnet_id);
+                    self.handle_subscriptions(subnet_id, target_slot);
                 }
 
                 while let Async::Ready(Some(subnet)) = self.random_subnets.poll().map_err(|e| { 
                         error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{}", e));
                     })?
                 {
-                    self.handle_persistant_subnets(subnet);
+                    self.handle_random_subnet_expiry(subnet);
                 }
 
                 // process any generated events
