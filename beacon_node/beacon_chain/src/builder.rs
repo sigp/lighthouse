@@ -23,6 +23,8 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
+pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
+
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
 pub struct Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>(
@@ -76,8 +78,9 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
     head_tracker: Option<HeadTracker>,
-    pubkey_cache_file: Option<PathBuf>,
-    pubkey_cache: Option<ValidatorPubkeyCache>,
+    datadir: Option<PathBuf>,
+    pubkey_cache_path: Option<PathBuf>,
+    validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
     log: Option<Logger>,
 }
@@ -111,8 +114,9 @@ where
             slot_clock: None,
             persisted_beacon_chain: None,
             head_tracker: None,
-            pubkey_cache_file: None,
-            pubkey_cache: None,
+            pubkey_cache_path: None,
+            datadir: None,
+            validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             log: None,
         }
@@ -152,8 +156,9 @@ where
     /// Sets the location to the pubkey cache file.
     ///
     /// Should generally be called early in the build chain.
-    pub fn pubkey_cache_file(mut self, path: PathBuf) -> Self {
-        self.pubkey_cache_file = Some(path);
+    pub fn datadir(mut self, path: PathBuf) -> Self {
+        self.pubkey_cache_path = Some(path.join(PUBKEY_CACHE_FILENAME));
+        self.datadir = Some(path);
         self
     }
 
@@ -167,9 +172,9 @@ where
             .ok_or_else(|| "resume_from_db requires a log".to_string())?;
 
         let pubkey_cache_path = self
-            .pubkey_cache_file
+            .pubkey_cache_path
             .as_ref()
-            .ok_or_else(|| "resume_from_db requires a pubkey cache file".to_string())?;
+            .ok_or_else(|| "resume_from_db requires a datadir".to_string())?;
 
         info!(
             log,
@@ -221,7 +226,7 @@ where
                     .map_err(|e| format!("Unable to parse persisted pubkey cache: {:?}", e))
             })?;
 
-        self.pubkey_cache = Some(pubkey_cache);
+        self.validator_pubkey_cache = Some(pubkey_cache);
 
         Ok(self)
     }
@@ -319,11 +324,6 @@ where
             .log
             .ok_or_else(|| "Cannot build without a logger".to_string())?;
 
-        let pubkey_cache_path = self
-            .pubkey_cache_file
-            .as_ref()
-            .ok_or_else(|| "cannot build without a pubkey cache file".to_string())?;
-
         // If this beacon chain is being loaded from disk, use the stored head. Otherwise, just use
         // the finalized checkpoint (which is probably genesis).
         let mut canonical_head = if let Some(persisted_beacon_chain) = self.persisted_beacon_chain {
@@ -342,10 +342,14 @@ where
             return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
-        let validator_pubkey_cache = TimeoutRwLock::new(
-            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))?,
-        );
+        let pubkey_cache_path = self.pubkey_cache_path;
+        let validator_pubkey_cache = self
+            .validator_pubkey_cache
+            .map(|cache| Ok(cache))
+            .unwrap_or_else(|| {
+                ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
+                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+            })?;
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -374,7 +378,7 @@ where
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
-            validator_pubkey_cache,
+            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             log: log.clone(),
         };
 

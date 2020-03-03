@@ -124,7 +124,7 @@ where
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
-        let pubkey_cache_file = config.pubkey_cache_file.clone();
+        let datadir = config.data_dir.clone();
 
         future::ok(())
             .and_then(move |()| {
@@ -143,7 +143,7 @@ where
                     .logger(context.log.clone())
                     .store(store)
                     .store_migrator(store_migrator)
-                    .pubkey_cache_file(pubkey_cache_file)
+                    .datadir(datadir)
                     .custom_spec(spec.clone());
 
                 Ok((builder, spec, context))

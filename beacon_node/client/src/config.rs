@@ -4,7 +4,6 @@ use std::fs;
 use std::path::PathBuf;
 
 pub const DEFAULT_DATADIR: &str = ".lighthouse";
-pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
@@ -52,8 +51,6 @@ pub struct Config {
     /// Path where the freezer database will be located.
     pub freezer_db_path: Option<PathBuf>,
     pub testnet_dir: Option<PathBuf>,
-    /// The file that persists the pubkey cache.
-    pub pubkey_cache_file: PathBuf,
     pub log_file: PathBuf,
     pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
@@ -79,7 +76,6 @@ impl Default for Config {
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
             testnet_dir: None,
-            pubkey_cache_file: PathBuf::from(DEFAULT_DATADIR).join(PUBKEY_CACHE_FILENAME),
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
             store: <_>::default(),

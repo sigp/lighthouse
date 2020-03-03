@@ -15,11 +15,11 @@ use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes};
 ///    keys in compressed form and they are needed in decompressed form for signature verification.
 ///    Decompression is expensive when may keys are involved.
 ///
-/// The cache has a `persistence_file` that it uses to maintain a persistent, on-disk copy of
-/// itself. This allows it to be restored between process invocations.
+/// The cache has an optional `persistence_file` that it uses to maintain a persistent, on-disk
+/// copy of itself. This allows it to be restored between process invocations.
 pub struct ValidatorPubkeyCache {
     pubkeys: Vec<PublicKey>,
-    persitence_file: ValidatorPubkeyCacheFile,
+    persitence_file: Option<ValidatorPubkeyCacheFile>,
 }
 
 impl ValidatorPubkeyCache {
@@ -29,19 +29,25 @@ impl ValidatorPubkeyCache {
     /// `persistence_path`.
     pub fn new<T: EthSpec, P: AsRef<Path>>(
         state: &BeaconState<T>,
-        persistence_path: P,
+        persistence_path: Option<P>,
     ) -> Result<Self, BeaconChainError> {
-        if persistence_path.as_ref().exists() {
-            return Err(BeaconChainError::ValidatorPubkeyCacheFileError(format!(
-                "Persistence file already exists: {:?}",
-                persistence_path.as_ref()
-            )));
+        if let Some(path) = &persistence_path {
+            if path.as_ref().exists() {
+                return Err(BeaconChainError::ValidatorPubkeyCacheFileError(format!(
+                    "Persistence file already exists: {:?}",
+                    path.as_ref()
+                )));
+            }
         }
 
         let mut cache = Self {
-            persitence_file: ValidatorPubkeyCacheFile::load(persistence_path)
-                .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
-                .map_err(BeaconChainError::ValidatorPubkeyCacheFileError)?,
+            persitence_file: persistence_path
+                .map(|path| {
+                    ValidatorPubkeyCacheFile::load(path)
+                        .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
+                        .map_err(BeaconChainError::ValidatorPubkeyCacheFileError)
+                })
+                .transpose()?,
             pubkeys: vec![],
         };
 
@@ -73,10 +79,11 @@ impl ValidatorPubkeyCache {
                 // The motivation behind this ordering is that we do not want to have states that
                 // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
                 // that are never referenced in a state.
-                self.persitence_file
-                    .append(i, &v.pubkey)
-                    .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
-                    .map_err(BeaconChainError::ValidatorPubkeyCacheFileError)?;
+                if let Some(file) = &mut self.persitence_file {
+                    file.append(i, &v.pubkey)
+                        .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
+                        .map_err(BeaconChainError::ValidatorPubkeyCacheFileError)?;
+                }
 
                 self.pubkeys.push(
                     (&v.pubkey)
@@ -169,7 +176,7 @@ impl ValidatorPubkeyCacheFile {
 
         Ok(ValidatorPubkeyCache {
             pubkeys,
-            persitence_file: self,
+            persitence_file: Some(self),
         })
     }
 }
@@ -223,7 +230,7 @@ mod test {
         let dir = tempdir().expect("should create tempdir");
         let path = dir.path().join("cache.ssz");
 
-        let mut cache = ValidatorPubkeyCache::new(&state, path).expect("should create cache");
+        let mut cache = ValidatorPubkeyCache::new(&state, Some(path)).expect("should create cache");
 
         check_cache_get(&cache, &keypairs[..]);
 
@@ -257,7 +264,7 @@ mod test {
         let path = dir.path().join("cache.ssz");
 
         // Create a new cache.
-        let cache = ValidatorPubkeyCache::new(&state, &path).expect("should create cache");
+        let cache = ValidatorPubkeyCache::new(&state, Some(&path)).expect("should create cache");
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

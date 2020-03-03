@@ -1,8 +1,5 @@
 use clap::ArgMatches;
-use client::{
-    config::{DEFAULT_DATADIR, PUBKEY_CACHE_FILENAME},
-    ClientConfig, ClientGenesis, Eth2Config,
-};
+use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -52,8 +49,6 @@ pub fn get_configs<E: EthSpec>(
         .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
         .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
         .unwrap_or_else(|| PathBuf::from("."));
-
-    client_config.pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
 
     // Load the client config, if it exists .
     let path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
