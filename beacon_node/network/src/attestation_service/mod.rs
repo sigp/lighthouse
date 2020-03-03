@@ -18,17 +18,20 @@ use eth2_libp2p::{NetworkGlobals, types::GossipKind};
 use types::{EthSpec, Slot};
 use slot_clock::SlotClock;
 
-/// The number of random subnets to be connected to per validator.
-const RANDOM_SUBNETS_PER_VALIDATOR: u8 = 1;
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
 /// slot is less than this number, skip the peer discovery process.
-const PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 5;
+const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 1;
+/// The number of slots ahead that we attempt to discover peers for a subscription. If the slot to
+/// attest to is greater than this, we queue a discovery request for this many slots prior to
+/// subscribing.
+const TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 6;
 /// The time (in seconds) before a last seen validator is considered absent and we unsubscribe from the random
 /// gossip topics that we subscribed to due to the validator connection.
 const LAST_SEEN_VALIDATOR_TIMEOUT: u64 = 1800; // 30 mins
 /// The number of seconds in advance that we subscribe to a subnet before the required slot.
 const ADVANCE_SUBSCRIBE_SECS: u64 = 3;
 
+#[derive(Debug, PartialEq)]
 pub enum AttServiceMessage {
     /// Subscribe to the specified subnet id.
     Subscribe(SubnetId),
@@ -56,7 +59,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     random_subnets: HashSetDelay<SubnetId>,
 
     /// A collection of timeouts for when to start searching for peers for a particular shard.
-    discover_peers: HashSetDelay<SubnetId>,
+    discover_peers: HashSetDelay<(SubnetId, Slot)>,
 
     /// A collection of timeouts for when to subscribe to a shard subnet.
     subscriptions: HashSetDelay<(SubnetId, Slot)>,
@@ -125,25 +128,70 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// safely dropped.
     pub fn handle_validator_subscriptions(&mut self, subscriptions: Vec<ValidatorSubscription>) -> Result<(),()> {
 
-        let current_slot = self.beacon_chain.slot_clock.now().ok_or_else(|| { warn!(self.log, "Could not get the current slot");})?;
-
         for subscription in subscriptions {
-            //NOTE: We assume all subscriptions have been verified before reaching this service
+                //NOTE: We assume all subscriptions have been verified before reaching this service
 
                 // Registers the validator with the attestation service.
                 // This will subscribe to long-lived random subnets if required.
                 self.add_known_validator(subscription.validator_index);
 
                 let subnet_id =  SubnetId::new(subscription.attestation_committee_index % self.beacon_chain.spec.attestation_subnet_count);
-                // determine if we should run a discovery lookup request
-                if subscription.slot >= current_slot.saturating_add(PEER_DISCOVERY_SLOT_LOOK_AHEAD) {
-                    // start searching for peers for the subnet
-                    self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
-                }
+                // determine if we should run a discovery lookup request and request it if required
+                self.discover_peers_request(subnet_id, subscription.slot);
 
                 // set the subscription timer to subscribe to the next subnet if required 
                 self.subscribe_to_subnet(subnet_id, subscription.slot);
         }
+        Ok(())
+    }
+
+
+    /// Checks if there are currently queued discovery requests and the time required to make the
+    /// request. 
+    ///
+    /// If there is sufficient time and no other request exists, queues a peer discovery request
+    /// for the required subnet.
+    fn discover_peers_request(&mut self, subnet_id: SubnetId, subscription_slot: Slot) -> Result<(),()> {
+
+        let current_slot = self.beacon_chain.slot_clock.now().ok_or_else(|| { warn!(self.log, "Could not get the current slot");})?;
+        let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+
+                // if there is enough time to perform a discovery lookup
+                if subscription_slot >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD) {
+
+                    // check if a discovery request already exists
+                    if self.discover_peers.get(&(subnet_id, subscription_slot)).is_some() { 
+                        // already a request queued, end
+                        return Ok(());
+                    }
+
+                    // check current event log to see if there is a discovery event queued
+                    if self.events.iter().find(|event| event == &&AttServiceMessage::DiscoverPeers(subnet_id)).is_some() {
+                        // already queued a discovery event
+                        return Ok(());
+                    }
+
+                    // if the slot is more than epoch away, add an event to start looking for peers
+                    if subscription_slot < current_slot.saturating_add(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD)  {
+                        // then instantly add a discovery request
+                        self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
+                    }
+                    else {
+                            // Queue the discovery event to be executed for
+                            // TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD
+                            
+                            let duration_to_discover = {
+                                let duration_to_next_slot = self.beacon_chain.slot_clock.duration_to_next_slot().ok_or_else(|| { warn!(self.log, "Unable to determine duration to next slot");})?;
+                            // The -1 is done here to exclude the current slot duration, as we will use
+                            // `duration_to_next_slot`.
+                            let slots_until_discover = subscription_slot.saturating_sub(current_slot).saturating_sub(1u64).saturating_sub(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD);
+
+                            duration_to_next_slot + slot_duration * (slots_until_discover.as_u64() as u32)
+                            };
+                            
+                            self.discover_peers.insert_at((subnet_id, subscription_slot), duration_to_discover);
+                    }
+                }
         Ok(())
     }
 
@@ -263,7 +311,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
 
                 // handle any discovery events
-                while let Async::Ready(Some(subnet_id)) =
+                while let Async::Ready(Some((subnet_id, _slot))) =
                     self.discover_peers.poll().map_err(|e| {
                         error!(self.log, "Failed to check for peer discovery requests"; "error"=> format!("{}", e));
                     })?
