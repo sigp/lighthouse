@@ -342,7 +342,10 @@ where
             return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
-        let pubkey_cache_path = self.pubkey_cache_path;
+        let pubkey_cache_path = self
+            .pubkey_cache_path
+            .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
+
         let validator_pubkey_cache = self
             .validator_pubkey_cache
             .map(|cache| Ok(cache))
@@ -584,6 +587,7 @@ mod test {
     use ssz::Encode;
     use std::time::Duration;
     use store::{migrate::NullMigrator, MemoryStore};
+    use tempfile::tempdir;
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
@@ -601,6 +605,7 @@ mod test {
         let log = get_logger();
         let store = Arc::new(MemoryStore::open());
         let spec = MinimalEthSpec::default_spec();
+        let data_dir = tempdir().expect("should create temporary datadir");
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -613,6 +618,7 @@ mod test {
             .logger(log.clone())
             .store(store)
             .store_migrator(NullMigrator)
+            .datadir(data_dir.path().to_path_buf())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
