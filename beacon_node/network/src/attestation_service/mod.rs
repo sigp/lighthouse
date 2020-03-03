@@ -5,11 +5,10 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
 use hashmap_delay::HashSetDelay;
-use slog::{debug, error, o, warn, trace};
+use slog::{debug, error, o, warn, crit};
 use std::boxed::Box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 use std::collections::VecDeque;
 use types::{Attestation, SubnetId};
 use rest_types::ValidatorSubscription;
@@ -124,14 +123,15 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
                 let subnet_id =  SubnetId::new(subscription.attestation_committee_index % self.beacon_chain.spec.attestation_subnet_count);
                 // determine if we should run a discovery lookup request and request it if required
-                self.discover_peers_request(subnet_id, subscription.slot);
+                let _ = self.discover_peers_request(subnet_id, subscription.slot);
 
                 // set the subscription timer to subscribe to the next subnet if required 
-                self.subscribe_to_subnet(subnet_id, subscription.slot);
+                let _ = self.subscribe_to_subnet(subnet_id, subscription.slot);
         }
         Ok(())
     }
 
+    pub fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
 
     /* Internal private functions */
 
@@ -145,42 +145,42 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let current_slot = self.beacon_chain.slot_clock.now().ok_or_else(|| { warn!(self.log, "Could not get the current slot");})?;
         let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
 
-                // if there is enough time to perform a discovery lookup
-                if subscription_slot >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD) {
+        // if there is enough time to perform a discovery lookup
+        if subscription_slot >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD) {
 
-                    // check if a discovery request already exists
-                    if self.discover_peers.get(&(subnet_id, subscription_slot)).is_some() { 
-                        // already a request queued, end
-                        return Ok(());
-                    }
+            // check if a discovery request already exists
+            if self.discover_peers.get(&(subnet_id, subscription_slot)).is_some() { 
+                // already a request queued, end
+                return Ok(());
+            }
 
-                    // check current event log to see if there is a discovery event queued
-                    if self.events.iter().find(|event| event == &&AttServiceMessage::DiscoverPeers(subnet_id)).is_some() {
-                        // already queued a discovery event
-                        return Ok(());
-                    }
+            // check current event log to see if there is a discovery event queued
+            if self.events.iter().find(|event| event == &&AttServiceMessage::DiscoverPeers(subnet_id)).is_some() {
+                // already queued a discovery event
+                return Ok(());
+            }
 
-                    // if the slot is more than epoch away, add an event to start looking for peers
-                    if subscription_slot < current_slot.saturating_add(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD)  {
-                        // then instantly add a discovery request
-                        self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
-                    }
-                    else {
-                            // Queue the discovery event to be executed for
-                            // TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD
-                            
-                            let duration_to_discover = {
-                                let duration_to_next_slot = self.beacon_chain.slot_clock.duration_to_next_slot().ok_or_else(|| { warn!(self.log, "Unable to determine duration to next slot");})?;
-                            // The -1 is done here to exclude the current slot duration, as we will use
-                            // `duration_to_next_slot`.
-                            let slots_until_discover = subscription_slot.saturating_sub(current_slot).saturating_sub(1u64).saturating_sub(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD);
+            // if the slot is more than epoch away, add an event to start looking for peers
+            if subscription_slot < current_slot.saturating_add(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD)  {
+                // then instantly add a discovery request
+                self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
+            }
+            else {
+                    // Queue the discovery event to be executed for
+                    // TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD
+                    
+                    let duration_to_discover = {
+                        let duration_to_next_slot = self.beacon_chain.slot_clock.duration_to_next_slot().ok_or_else(|| { warn!(self.log, "Unable to determine duration to next slot");})?;
+                    // The -1 is done here to exclude the current slot duration, as we will use
+                    // `duration_to_next_slot`.
+                    let slots_until_discover = subscription_slot.saturating_sub(current_slot).saturating_sub(1u64).saturating_sub(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD);
 
-                            duration_to_next_slot + slot_duration * (slots_until_discover.as_u64() as u32)
-                            };
-                            
-                            self.discover_peers.insert_at((subnet_id, subscription_slot), duration_to_discover);
-                    }
-                }
+                    duration_to_next_slot + slot_duration * (slots_until_discover.as_u64() as u32)
+                    };
+                    
+                    self.discover_peers.insert_at((subnet_id, subscription_slot), duration_to_discover);
+            }
+        }
         Ok(())
     }
 
@@ -210,25 +210,23 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let expected_end_subscription_duration = duration_to_subscribe + slot_duration + advance_subscription_duration;
 
         // Checks on current subscriptions
-
-        // first check if the subnet exists as a long-lasting random subnet
-        if let Some(expiry) =  self.random_subnets.get(&subnet_id) {
-            // we are subscribed via a random subnet, if this is to expire during the time we need
-            // to be subscribed, just extend the expiry
-            if expiry < &(Instant::now() + expected_end_subscription_duration)  {
-                self.random_subnets.update_timeout(&subnet_id, expected_end_subscription_duration);
-            }
-            // we are already subscribed, end
-            return Ok(());
-        }
+        // Note: We may be connected to a long-lived random subnet. In this case we still add the
+        // subscription timeout and check this case when the timeout fires. This is because a
+        // long-lived random subnet can be unsubscribed at any time when a validator becomes
+        // in-active. This case is checked on the subscription event (see `handle_subscriptions`).
 
         // Return if we already have a subscription for this subnet_id and slot
-        if self.subscriptions.contains_key(&(subnet_id, subscription_slot)) {
+        if self.subscriptions.contains(&(subnet_id, subscription_slot)) {
             return Ok(());
         }
 
         // We are not currently subscribed and have no waiting subscription, create one
         self.subscriptions.insert_at((subnet_id, subscription_slot), duration_to_subscribe); 
+
+        // if there is an unsubscription event for the slot prior, we remove it to prevent
+        // unsubscriptions immediately after the subscription. We also want to minimize
+        // subscription churn and maintain a consecutive subnet subscriptions.
+        self.unsubscriptions.remove(&(subnet_id, subscription_slot.saturating_sub(1u64))); 
         // add an unsubscription event to remove ourselves from the subnet once completed
         self.unsubscriptions.insert_at((subnet_id, subscription_slot), expected_end_subscription_duration);
         Ok(())
@@ -275,14 +273,14 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.subscriptions.retain(|(map_subnet_id, _)|  map_subnet_id != &subnet_id);
             self.unsubscriptions.retain(|(map_subnet_id, _)|  map_subnet_id != &subnet_id);
 
-            // This inserts a new random subnet
+            // insert a new random subnet
             self.random_subnets.insert(subnet_id);
 
             // if we are not already subscribed, then subscribe
             let topic_kind = &GossipKind::CommitteeIndex(subnet_id); 
 
             if let None = self.network_globals.gossipsub_subscriptions.read().iter().find(|topic| topic.kind() == topic_kind) {
-                // Not already subscribed to the topic
+                // not already subscribed to the topic
                 self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
             }
             // add the subnet to the ENR bitfield
@@ -291,24 +289,131 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
 
-    /* A collection of functions that handle the assorted timeouts */
+    /* A collection of functions that handle the various timeouts */
 
-    /// It is time to run a discovery query to find peers for a particular subnet.
-    fn handle_discover_peer(&mut self, subnet_id: SubnetId, target_slot: Slot) {
-        debug!(self.log, "Searching for peers for subnet"; "subnet" => *subnet_id);
+    /// Request a discovery query to find peers for a particular subnet.
+    fn handle_discover_peers(&mut self, subnet_id: SubnetId, target_slot: Slot) {
+        debug!(self.log, "Searching for peers for subnet"; "subnet" => *subnet_id, "target_slot" => target_slot);
         self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
     }
 
+    /// A queued subscription is ready. 
+    ///
+    /// We add subscriptions events even if we are already subscribed to a random subnet (as these
+    /// can be unsubscribed at any time by inactive validators). If we are
+    /// still subscribed at the time the event fires, we don't re-subscribe.
     fn handle_subscriptions(&mut self, subnet_id: SubnetId, target_slot: Slot) {
-        debug!(self.log, "Subscribing to subnet"; "subnet" => *subnet_id, "target_slot" => target_slot.as_u64());
-        self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
+
+        // Check if the subnet currently exists as a long-lasting random subnet
+        if let Some(expiry) =  self.random_subnets.get(&subnet_id) {
+            // we are subscribed via a random subnet, if this is to expire during the time we need
+            // to be subscribed, just extend the expiry
+            let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+            let advance_subscription_duration = Duration::from_secs(ADVANCE_SUBSCRIBE_SECS);
+            // we require the subnet subscription for at least a slot on top of the initial
+            // subscription time
+            let expected_end_subscription_duration = slot_duration + advance_subscription_duration;
+
+            if expiry < &(Instant::now() + expected_end_subscription_duration)  {
+                self.random_subnets.update_timeout(&subnet_id, expected_end_subscription_duration);
+            }
+        } else {
+
+            // we are also not un-subscribing from a subnet if the next slot requires us to be
+            // subscribed. Therefore there could be the case that we are already still subscribed
+            // to the required subnet. In which case we do not issue another subscription request.
+            let topic_kind = &GossipKind::CommitteeIndex(subnet_id); 
+            if  self.network_globals.gossipsub_subscriptions.read().iter().find(|topic| topic.kind() == topic_kind).is_none() { 
+                // we are not already subscribed
+                debug!(self.log, "Subscribing to subnet"; "subnet" => *subnet_id, "target_slot" => target_slot.as_u64());
+                self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
+            }
+        }
     }
 
-    fn handle_random_subnet_expiry(&mut self, _subnet: SubnetId) {}
+    /// A queued unsubscription is ready. 
+    ///
+    /// Unsubscription events are added, even if we are subscribed to long-lived random subnets. If
+    /// a random subnet is present, we do not unsubscribe from it.
+    fn handle_unsubscriptions(&mut self, subnet_id: SubnetId, target_slot: Slot) {
 
-    fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
+        // Check if the subnet currently exists as a long-lasting random subnet
+        if self.random_subnets.contains(&subnet_id) {
+            return;
+        }
 
+        debug!(self.log, "Unsubscribing from subnet"; "subnet" => *subnet_id, "processed_slot" => target_slot.as_u64());
 
+        // various logic checks
+        if self.subscriptions.contains(&(subnet_id, target_slot)) {
+            crit!(self.log, "Unsubscribing from a subnet in subscriptions");
+        }
+        self.events.push_back(AttServiceMessage::Unsubscribe(subnet_id));
+    }
+
+    /// A random_subnet has expired.
+    ///
+    /// This function selects a new subnet to join, or extends the expiry if there are no more
+    /// available subnets to choose from.
+    fn handle_random_subnet_expiry(&mut self, subnet_id: SubnetId) {
+        let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
+        if self.random_subnets.len() == (subnet_count - 1) as usize {
+            // We are at capacity, simply increase the timeout of the current subnet
+            self.random_subnets.insert(subnet_id);
+            return;
+        }
+
+        // we are not at capacity, unsubscribe from the current subnet, remove the ENR bitfield bit and choose a new random one
+        // from the available subnets
+        // Note: This should not occur during a required subnet as subscriptions update the timeout
+        // to last as long as they are needed.
+        
+        debug!(self.log, "Unsubscribing from random subnet"; "subnet_id" => *subnet_id);
+        self.events.push_back(AttServiceMessage::Unsubscribe(subnet_id));
+        self.events.push_back(AttServiceMessage::EnrRemove(subnet_id));
+        self.subscribe_to_random_subnets(1);
+    }
+
+    /// A known validator has not sent a subscription in a while. They are considered offline and the
+    /// beacon node no longer needs to be subscribed to the allocated random subnets.
+    ///
+    /// We don't keep track of a specific validator to random subnet, rather the ratio of active
+    /// validators to random subnets. So when a validator goes offline, we can simply remove the
+    /// allocated amount of random subnets.
+    fn handle_known_validator_expiry(&mut self) -> Result<(),()> {
+        let spec = &self.beacon_chain.spec;
+        let subnet_count = spec.attestation_subnet_count;
+        let random_subnets_per_validator = spec.random_subnets_per_validator;
+        if self.known_validators.len() as u64 * random_subnets_per_validator >= subnet_count {
+            // have too many validators, ignore
+            return Ok(());
+        }
+
+        let subscribed_subnets = self.random_subnets.keys_vec();
+        let to_remove_subnets = subscribed_subnets.choose_multiple(&mut rand::thread_rng(), random_subnets_per_validator as usize); 
+        let current_slot = self.beacon_chain.slot_clock.now().ok_or_else(|| { warn!(self.log, "Could not get the current slot");})?;
+
+        for subnet_id in to_remove_subnets {
+
+            // If a subscription is queued for two slots in the future, it's associated unsubscription
+            // will unsubscribe from the expired subnet.
+            // If there is no subscription for this subnet,slot it is safe to add one, without
+            // unsubscribing early from a required subnet
+            if self.subscriptions.get(&(**subnet_id, current_slot + 2)).is_none() {
+                // set an unsubscribe event
+                let duration_to_next_slot = self.beacon_chain.slot_clock.duration_to_next_slot().ok_or_else(|| { warn!(self.log, "Unable to determine duration to next slot");})?;
+                let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+                // Set the unsubscription timeout 
+                let unsubscription_duration = duration_to_next_slot + slot_duration*2;
+                self.unsubscriptions.insert_at((**subnet_id, current_slot + 2), unsubscription_duration);
+            }
+
+            // as the long lasting subnet subscription is being removed, remove the subnet_id from
+            // the ENR bitfield
+            self.events.push_back(AttServiceMessage::EnrRemove(**subnet_id));
+        }
+        Ok(())
+    }
 }
 
 
@@ -318,15 +423,16 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
 
-                // handle any discovery events
+                // process any peer discovery events
                 while let Async::Ready(Some((subnet_id, target_slot))) =
                     self.discover_peers.poll().map_err(|e| {
                         error!(self.log, "Failed to check for peer discovery requests"; "error"=> format!("{}", e));
                     })?
                 {
-                    self.handle_discover_peer(subnet_id, target_slot);
+                    self.handle_discover_peers(subnet_id, target_slot);
                 }
 
+                // process any subscription events
                 while let Async::Ready(Some((subnet_id, target_slot))) = self.subscriptions.poll().map_err(|e| {
                         error!(self.log, "Failed to check for subnet subscription times"; "error"=> format!("{}", e));
                     })?
@@ -334,11 +440,28 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
                     self.handle_subscriptions(subnet_id, target_slot);
                 }
 
+                // process any un-subscription events
+                while let Async::Ready(Some((subnet_id, target_slot))) = self.unsubscriptions.poll().map_err(|e| {
+                        error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> format!("{}", e));
+                    })?
+                {
+                    self.handle_unsubscriptions(subnet_id, target_slot);
+                }
+
+                // process any random subnet expiries
                 while let Async::Ready(Some(subnet)) = self.random_subnets.poll().map_err(|e| { 
                         error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{}", e));
                     })?
                 {
                     self.handle_random_subnet_expiry(subnet);
+                }
+
+                // process any known validator expiries
+                while let Async::Ready(Some(_validator_index)) = self.known_validators.poll().map_err(|e| { 
+                        error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{}", e));
+                    })?
+                {
+                    let _ = self.handle_known_validator_expiry();
                 }
 
                 // process any generated events

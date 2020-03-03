@@ -75,7 +75,7 @@ where
     }
 
     /// Returns true if the key exists, false otherwise.
-    pub fn contains_key(&self, key: &K) -> bool {
+    pub fn contains(&self, key: &K) -> bool {
         self.entries.contains_key(key)
     }
 
@@ -125,6 +125,11 @@ where
     pub fn clear(&mut self) {
         self.entries.clear();
         self.expirations.clear();
+    }
+
+    /// Returns a vector of referencing all keys in the map.
+    pub fn keys_vec(&self) -> Vec<&K> {
+        self.entries.keys().collect()
     }
 }
 
