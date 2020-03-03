@@ -612,7 +612,7 @@ impl YamlConfig {
             domain_deposit: self.domain_deposit,
             domain_voluntary_exit: self.domain_voluntary_exit,
             boot_nodes: chain_spec.boot_nodes.clone(),
-            genesis_fork_version: chain_spec.genesis_fork_version.clone(),
+            genesis_fork_version: self.genesis_fork_version.clone(),
             eth1_follow_distance: self.eth1_follow_distance,
             ..*chain_spec
         })
