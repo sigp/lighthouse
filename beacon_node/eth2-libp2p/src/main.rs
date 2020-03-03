@@ -142,6 +142,6 @@ fn main() {
         }
     });
 
-    let future = service_future.map_err(move |_| println!("Bakchodi"));
-    tokio::run(future.map(|b| println!("{}", b)));
+    let future = service_future.map_err(move |_| ());
+    tokio::run(future.map(|_| ()));
 }

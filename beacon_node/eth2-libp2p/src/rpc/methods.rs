@@ -125,9 +125,6 @@ pub struct BlocksByRootRequest {
     pub block_roots: Vec<Hash256>,
 }
 
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct TestingRequest;
-
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
