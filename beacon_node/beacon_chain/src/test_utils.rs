@@ -81,7 +81,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
-        let data_dir = tempdir().expect("should create temporary datadir");
+        let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = E::default_spec();
 
         let log = TerminalLoggerBuilder::new()
@@ -94,7 +94,7 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             .custom_spec(spec.clone())
             .store(Arc::new(MemoryStore::open()))
             .store_migrator(NullMigrator)
-            .datadir(data_dir.path().to_path_buf())
+            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
                     .expect("should generate interop state"),
@@ -126,7 +126,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         store: Arc<DiskStore<E>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
-        let data_dir = tempdir().expect("should create temporary datadir");
+        let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = E::default_spec();
 
         let log = TerminalLoggerBuilder::new()
@@ -139,7 +139,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .custom_spec(spec.clone())
             .store(store.clone())
             .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
-            .datadir(data_dir.path().to_path_buf())
+            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
                     .expect("should generate interop state"),
@@ -169,7 +169,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         store: Arc<DiskStore<E>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
-        let data_dir = tempdir().expect("should create temporary datadir");
+        let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = E::default_spec();
 
         let log = TerminalLoggerBuilder::new()
@@ -182,7 +182,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .custom_spec(spec)
             .store(store.clone())
             .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
-            .datadir(data_dir.path().to_path_buf())
+            .data_dir(data_dir.path().to_path_buf())
             .resume_from_db(Eth1Config::default())
             .expect("should resume beacon chain from db")
             .dummy_eth1_backend()

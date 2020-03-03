@@ -78,7 +78,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
     head_tracker: Option<HeadTracker>,
-    datadir: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
     pubkey_cache_path: Option<PathBuf>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
@@ -115,7 +115,7 @@ where
             persisted_beacon_chain: None,
             head_tracker: None,
             pubkey_cache_path: None,
-            datadir: None,
+            data_dir: None,
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             log: None,
@@ -156,9 +156,9 @@ where
     /// Sets the location to the pubkey cache file.
     ///
     /// Should generally be called early in the build chain.
-    pub fn datadir(mut self, path: PathBuf) -> Self {
+    pub fn data_dir(mut self, path: PathBuf) -> Self {
         self.pubkey_cache_path = Some(path.join(PUBKEY_CACHE_FILENAME));
-        self.datadir = Some(path);
+        self.data_dir = Some(path);
         self
     }
 
@@ -174,7 +174,7 @@ where
         let pubkey_cache_path = self
             .pubkey_cache_path
             .as_ref()
-            .ok_or_else(|| "resume_from_db requires a datadir".to_string())?;
+            .ok_or_else(|| "resume_from_db requires a data_dir".to_string())?;
 
         info!(
             log,
@@ -605,7 +605,7 @@ mod test {
         let log = get_logger();
         let store = Arc::new(MemoryStore::open());
         let spec = MinimalEthSpec::default_spec();
-        let data_dir = tempdir().expect("should create temporary datadir");
+        let data_dir = tempdir().expect("should create temporary data_dir");
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -618,7 +618,7 @@ mod test {
             .logger(log.clone())
             .store(store)
             .store_migrator(NullMigrator)
-            .datadir(data_dir.path().to_path_buf())
+            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
