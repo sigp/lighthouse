@@ -78,6 +78,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> AttestationService<T> {
+
+    /* Public functions */
+
     pub fn new(beacon_chain: Arc<BeaconChain<T>>, network_globals: Arc<NetworkGlobals>, log: &slog::Logger) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
 
@@ -85,7 +88,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let spec = &beacon_chain.spec;
         let random_subnet_duration_millis = spec.epochs_per_random_subnet_subscription.saturating_mul(T::EthSpec::slots_per_epoch()).saturating_mul(spec.milliseconds_per_slot);
 
-        // generate the AttestationService
         AttestationService {
             events: VecDeque::with_capacity(10),
             network_globals,
@@ -99,21 +101,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
     }
 
-    /// It is time to run a discovery query to find peers for a particular subnet.
-    fn handle_discover_peer(&mut self, subnet_id: SubnetId) {
-        debug!(self.log, "Searching for peers for subnet"; "subnet" => *subnet_id);
-        self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
-    }
-
-    fn handle_subscriptions(&mut self, subnet_id: SubnetId) {
-        debug!(self.log, "Subscribing to subnet"; "subnet" => *subnet_id);
-        self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
-    }
-
-    fn handle_persistant_subnets(&mut self, _subnet: SubnetId) {}
-
-    fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
-
     /// Processes a list of validator subscriptions.
     ///
     /// This will:
@@ -126,7 +113,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// This returns a result simply for the ergonomics of using ?. The result can be
     /// safely dropped.
-    pub fn handle_validator_subscriptions(&mut self, subscriptions: Vec<ValidatorSubscription>) -> Result<(),()> {
+    pub fn validator_subscriptions(&mut self, subscriptions: Vec<ValidatorSubscription>) -> Result<(),()> {
 
         for subscription in subscriptions {
                 //NOTE: We assume all subscriptions have been verified before reaching this service
@@ -145,6 +132,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(())
     }
 
+
+    /* Internal private functions */
 
     /// Checks if there are currently queued discovery requests and the time required to make the
     /// request. 
@@ -301,6 +290,26 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.events.push_back(AttServiceMessage::ENRAdd(subnet_id));
         }
     }
+
+
+    /* A collection of functions that handle the assorted timeouts */
+
+    /// It is time to run a discovery query to find peers for a particular subnet.
+    fn handle_discover_peer(&mut self, subnet_id: SubnetId) {
+        debug!(self.log, "Searching for peers for subnet"; "subnet" => *subnet_id);
+        self.events.push_back(AttServiceMessage::DiscoverPeers(subnet_id));
+    }
+
+    fn handle_subscriptions(&mut self, subnet_id: SubnetId) {
+        debug!(self.log, "Subscribing to subnet"; "subnet" => *subnet_id);
+        self.events.push_back(AttServiceMessage::Subscribe(subnet_id));
+    }
+
+    fn handle_persistant_subnets(&mut self, _subnet: SubnetId) {}
+
+    fn handle_attestation(&mut self, subnet: SubnetId, attestation: Box<Attestation<T::EthSpec>>) {}
+
+
 }
 
 
