@@ -232,7 +232,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(())
     }
 
-    /// Updates the known_validators mapping and subscribes to a set of random subnets if required. 
+    /// Updates the `known_validators` mapping and subscribes to a set of random subnets if required. 
     /// 
     /// This also updates the ENR to indicate our long-lived subscription to the subnet
     fn add_known_validator(&mut self, validator_index: u64) {
@@ -351,7 +351,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         self.events.push_back(AttServiceMessage::Unsubscribe(subnet_id));
     }
 
-    /// A random_subnet has expired.
+    /// A random subnet has expired.
     ///
     /// This function selects a new subnet to join, or extends the expiry if there are no more
     /// available subnets to choose from.
