@@ -117,13 +117,14 @@ where
     pub fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
-        config: Eth1Config,
+        config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
         let store = self.store.clone();
         let store_migrator = self.store_migrator.take();
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
+        let pubkey_cache_file = config.pubkey_cache_file.clone();
 
         future::ok(())
             .and_then(move |()| {
@@ -142,6 +143,7 @@ where
                     .logger(context.log.clone())
                     .store(store)
                     .store_migrator(store_migrator)
+                    .pubkey_cache_file(pubkey_cache_file)
                     .custom_spec(spec.clone());
 
                 Ok((builder, spec, context))
@@ -195,11 +197,11 @@ where
                             info!(
                                 context.log,
                                 "Waiting for eth2 genesis from eth1";
-                                "eth1_node" => &config.endpoint
+                                "eth1_node" => &config.eth1.endpoint
                             );
 
                             let genesis_service =
-                                Eth1GenesisService::new(config, context.log.clone());
+                                Eth1GenesisService::new(config.eth1, context.log.clone());
 
                             let future = genesis_service
                                 .wait_for_genesis_state(
@@ -231,7 +233,7 @@ where
                         }
                         ClientGenesis::Resume => {
                             let future = builder
-                                .resume_from_db(config)
+                                .resume_from_db(config.eth1)
                                 .into_future()
                                 .map(|v| (v, None));
 

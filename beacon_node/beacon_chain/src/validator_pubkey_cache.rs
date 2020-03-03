@@ -38,20 +38,16 @@ impl ValidatorPubkeyCache {
             )));
         }
 
-        Ok(Self {
+        let mut cache = Self {
             persitence_file: ValidatorPubkeyCacheFile::load(persistence_path)
                 .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
                 .map_err(BeaconChainError::ValidatorPubkeyCacheFileError)?,
-            pubkeys: state
-                .validators
-                .iter()
-                .map(|v| {
-                    (&v.pubkey)
-                        .try_into()
-                        .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)
-                })
-                .collect::<Result<Vec<_>, BeaconChainError>>()?,
-        })
+            pubkeys: vec![],
+        };
+
+        cache.import_new_pubkeys(state)?;
+
+        Ok(cache)
     }
 
     /// Scan the given `state` and add any new validator public keys.
@@ -127,7 +123,11 @@ pub enum Error {
 impl ValidatorPubkeyCacheFile {
     /// Open the underlying file for reading and writing.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        File::open(path).map(Self).map_err(Error::IoError)
+        if path.as_ref().exists() {
+            File::open(path).map(Self).map_err(Error::IoError)
+        } else {
+            File::create(path).map(Self).map_err(Error::IoError)
+        }
     }
 
     /// Append a public key to file.
@@ -168,5 +168,77 @@ impl ValidatorPubkeyCacheFile {
             pubkeys,
             persitence_file: self,
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::NamedTempFile;
+    use types::{
+        test_utils::TestingBeaconStateBuilder, BeaconState, EthSpec, Keypair, MainnetEthSpec,
+    };
+
+    fn get_state(validator_count: usize) -> (BeaconState<MainnetEthSpec>, Vec<Keypair>) {
+        let spec = MainnetEthSpec::default_spec();
+        let builder =
+            TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, &spec);
+        builder.build()
+    }
+
+    fn check_cache_get(cache: &ValidatorPubkeyCache, keypairs: &[Keypair]) {
+        let validator_count = keypairs.len();
+
+        for i in 0..validator_count + 1 {
+            if i < validator_count {
+                let pubkey = cache.get(i).expect("pubkey should be present");
+                assert_eq!(pubkey, &keypairs[i].pk, "pubkey should match cache");
+            } else {
+                assert_eq!(
+                    cache.get(i),
+                    None,
+                    "should not get pubkey for out of bounds index",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn basic() {
+        let (state, keypairs) = get_state(8);
+
+        // We're doing this extra `PathBuf` call here so that the file that is created is dropped.
+        // This is a sneaky method of obtaining a temp path that does not have a file at it.
+        let path = PathBuf::from(
+            &NamedTempFile::new()
+                .expect("should generate temp file")
+                .into_temp_path(),
+        );
+
+        let mut cache = ValidatorPubkeyCache::new(&state, path).expect("should create cache");
+
+        check_cache_get(&cache, &keypairs[..]);
+
+        // Try adding a state with the same number of keypairs.
+        let (state, keypairs) = get_state(8);
+        cache
+            .import_new_pubkeys(&state)
+            .expect("should import pubkeys");
+        check_cache_get(&cache, &keypairs[..]);
+
+        // Try adding a state with less keypairs.
+        let (state, _) = get_state(1);
+        cache
+            .import_new_pubkeys(&state)
+            .expect("should import pubkeys");
+        check_cache_get(&cache, &keypairs[..]);
+
+        // Try adding a state with more keypairs.
+        let (state, keypairs) = get_state(12);
+        cache
+            .import_new_pubkeys(&state)
+            .expect("should import pubkeys");
+        check_cache_get(&cache, &keypairs[..]);
     }
 }

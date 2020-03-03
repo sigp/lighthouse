@@ -4,7 +4,7 @@ use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::{ValidatorPubkeyCache, ValidatorPubkeyCacheFile};
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
@@ -15,6 +15,7 @@ use proto_array_fork_choice::ProtoArrayForkChoice;
 use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Store;
@@ -75,6 +76,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
     head_tracker: Option<HeadTracker>,
+    pubkey_cache_file: Option<PathBuf>,
+    pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
     log: Option<Logger>,
 }
@@ -108,6 +111,8 @@ where
             slot_clock: None,
             persisted_beacon_chain: None,
             head_tracker: None,
+            pubkey_cache_file: None,
+            pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             log: None,
         }
@@ -144,6 +149,14 @@ where
         self
     }
 
+    /// Sets the location to the pubkey cache file.
+    ///
+    /// Should generally be called early in the build chain.
+    pub fn pubkey_cache_file(mut self, path: PathBuf) -> Self {
+        self.pubkey_cache_file = Some(path);
+        self
+    }
+
     /// Attempt to load an existing chain from the builder's `Store`.
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
@@ -152,6 +165,11 @@ where
             .log
             .as_ref()
             .ok_or_else(|| "resume_from_db requires a log".to_string())?;
+
+        let pubkey_cache_path = self
+            .pubkey_cache_file
+            .as_ref()
+            .ok_or_else(|| "resume_from_db requires a pubkey cache file".to_string())?;
 
         info!(
             log,
@@ -195,6 +213,15 @@ where
             None => None,
         };
         self.persisted_beacon_chain = Some(p);
+
+        let pubkey_cache = ValidatorPubkeyCacheFile::load(pubkey_cache_path)
+            .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))
+            .and_then(|file| {
+                file.into_cache()
+                    .map_err(|e| format!("Unable to parse persisted pubkey cache: {:?}", e))
+            })?;
+
+        self.pubkey_cache = Some(pubkey_cache);
 
         Ok(self)
     }
@@ -292,6 +319,11 @@ where
             .log
             .ok_or_else(|| "Cannot build without a logger".to_string())?;
 
+        let pubkey_cache_path = self
+            .pubkey_cache_file
+            .as_ref()
+            .ok_or_else(|| "cannot build without a pubkey cache file".to_string())?;
+
         // If this beacon chain is being loaded from disk, use the stored head. Otherwise, just use
         // the finalized checkpoint (which is probably genesis).
         let mut canonical_head = if let Some(persisted_beacon_chain) = self.persisted_beacon_chain {
@@ -311,7 +343,7 @@ where
         }
 
         let validator_pubkey_cache = TimeoutRwLock::new(
-            ValidatorPubkeyCache::new(&canonical_head.beacon_state)
+            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
                 .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))?,
         );
 
