@@ -20,11 +20,11 @@ pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const YAML_CONFIG_FILE: &str = "config.yaml";
 
-pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../testnet/config.yaml");
-pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../testnet/deploy_block.txt");
-pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../testnet/deposit_contract.txt");
-pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../testnet/genesis.ssz");
-pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../testnet/boot_enr.yaml");
+pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../testnet5/config.yaml");
+pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../testnet5/deploy_block.txt");
+pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../testnet5/deposit_contract.txt");
+pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../testnet5/genesis.ssz");
+pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../testnet5/boot_enr.yaml");
 
 /// Specifies an Eth2 testnet.
 ///
@@ -202,7 +202,6 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    /* FIXME: add new testnet config and re-enable this test
     #[test]
     fn hard_coded_works() {
         let dir: Eth2TestnetConfig<E> =
@@ -212,7 +211,6 @@ mod tests {
         assert!(dir.genesis_state.is_some());
         assert!(dir.yaml_config.is_some());
     }
-    */
 
     #[test]
     fn round_trip() {

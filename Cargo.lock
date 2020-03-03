@@ -1212,6 +1212,7 @@ version = "0.1.0"
 dependencies = [
  "eth2-libp2p 0.1.0",
  "eth2_ssz 0.1.2",
+ "reqwest 0.9.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_yaml 0.8.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
