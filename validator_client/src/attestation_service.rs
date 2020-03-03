@@ -292,7 +292,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         // builds a list of subscriptions
         for duty in duties {
-            if let Some((slot, _, _, validator_index)) = attestation_duties(&duty) {
+            if let Some((slot, attestation_committee_index, _, validator_index)) =
+                attestation_duties(&duty)
+            {
                 if let Some(slot_signature) =
                     self.validator_store.sign_slot(&duty.validator_pubkey, slot)
                 {
@@ -302,8 +304,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         None
                     };
 
-                    let subscription =
-                        ValidatorSubscription::new(validator_index, slot, slot_signature);
+                    let subscription = ValidatorSubscription::new(
+                        validator_index,
+                        attestation_committee_index,
+                        slot,
+                        slot_signature,
+                    );
                     validator_subscriptions.push(subscription);
 
                     // add successful duties to the list, along with whether they are aggregation

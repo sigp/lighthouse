@@ -62,6 +62,9 @@ pub struct ValidatorDutiesRequest {
 pub struct ValidatorSubscription {
     /// The validators index.
     pub validator_index: u64,
+    /// The index of the committee within `slot` of which the validator is a member. Used by the
+    /// beacon node to quickly evaluate the associated `SubnetId`.
+    pub attestation_committee_index: CommitteeIndex,
     /// The slot the validator is signing.
     pub slot: Slot,
     /// The signature of the slot by the validator.
@@ -69,9 +72,15 @@ pub struct ValidatorSubscription {
 }
 
 impl ValidatorSubscription {
-    pub fn new(validator_index: u64, slot: Slot, slot_signature: Signature) -> Self {
+    pub fn new(
+        validator_index: u64,
+        attestation_committee_index: CommitteeIndex,
+        slot: Slot,
+        slot_signature: Signature,
+    ) -> Self {
         ValidatorSubscription {
             validator_index,
+            attestation_committee_index,
             slot,
             slot_signature,
         }
