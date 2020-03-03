@@ -1,7 +1,7 @@
 use crate::errors::BeaconChainError;
 use ssz::{Decode, DecodeError, Encode};
 use std::convert::TryInto;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes};
@@ -73,7 +73,6 @@ impl ValidatorPubkeyCache {
                 // The motivation behind this ordering is that we do not want to have states that
                 // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
                 // that are never referenced in a state.
-
                 self.persitence_file
                     .append(i, &v.pubkey)
                     .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
@@ -84,6 +83,7 @@ impl ValidatorPubkeyCache {
                         .try_into()
                         .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
                 );
+
                 Ok(())
             })
     }
@@ -122,12 +122,17 @@ pub enum Error {
 
 impl ValidatorPubkeyCacheFile {
     /// Open the underlying file for reading and writing.
+    ///
+    /// If the file does not exist, an empty file is created.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        if path.as_ref().exists() {
-            File::open(path).map(Self).map_err(Error::IoError)
-        } else {
-            File::create(path).map(Self).map_err(Error::IoError)
-        }
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .append(true)
+            .open(path)
+            .map(Self)
+            .map_err(Error::IoError)
     }
 
     /// Append a public key to file.
@@ -135,8 +140,7 @@ impl ValidatorPubkeyCacheFile {
     /// The provided `index` should each be one greater than the previous and start at 0.
     /// Otherwise, the file will become corrupted and unable to be converted into a cache .
     pub fn append(&mut self, index: usize, pubkey: &PublicKeyBytes) -> Result<(), Error> {
-        let mut line = (index, pubkey.as_bytes()).as_ssz_bytes();
-        self.0.write_all(&mut line).map_err(Error::IoError)
+        append_to_file(&mut self.0, index, pubkey)
     }
 
     /// Creates a `ValidatorPubkeyCache` by reading and parsing the underlying file.
@@ -152,7 +156,6 @@ impl ValidatorPubkeyCacheFile {
 
         for (index, pubkey) in list {
             let expected = last.map(|n| n + 1);
-
             if expected.map_or(true, |expected| index == expected) {
                 last = Some(index);
                 pubkeys.push((&pubkey).try_into().map_err(Error::SszError)?);
@@ -171,13 +174,22 @@ impl ValidatorPubkeyCacheFile {
     }
 }
 
+fn append_to_file(file: &mut File, index: usize, pubkey: &PublicKeyBytes) -> Result<(), Error> {
+    let mut line = Vec::with_capacity(index.ssz_bytes_len() + pubkey.ssz_bytes_len());
+
+    index.ssz_append(&mut line);
+    pubkey.ssz_append(&mut line);
+
+    file.write_all(&mut line).map_err(Error::IoError)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::path::PathBuf;
-    use tempfile::NamedTempFile;
+    use tempfile::tempdir;
     use types::{
-        test_utils::TestingBeaconStateBuilder, BeaconState, EthSpec, Keypair, MainnetEthSpec,
+        test_utils::{generate_deterministic_keypair, TestingBeaconStateBuilder},
+        BeaconState, EthSpec, Keypair, MainnetEthSpec,
     };
 
     fn get_state(validator_count: usize) -> (BeaconState<MainnetEthSpec>, Vec<Keypair>) {
@@ -205,16 +217,11 @@ mod test {
     }
 
     #[test]
-    fn basic() {
+    fn basic_operation() {
         let (state, keypairs) = get_state(8);
 
-        // We're doing this extra `PathBuf` call here so that the file that is created is dropped.
-        // This is a sneaky method of obtaining a temp path that does not have a file at it.
-        let path = PathBuf::from(
-            &NamedTempFile::new()
-                .expect("should generate temp file")
-                .into_temp_path(),
-        );
+        let dir = tempdir().expect("should create tempdir");
+        let path = dir.path().join("cache.ssz");
 
         let mut cache = ValidatorPubkeyCache::new(&state, path).expect("should create cache");
 
@@ -240,5 +247,74 @@ mod test {
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
         check_cache_get(&cache, &keypairs[..]);
+    }
+
+    #[test]
+    fn persistence() {
+        let (state, keypairs) = get_state(8);
+
+        let dir = tempdir().expect("should create tempdir");
+        let path = dir.path().join("cache.ssz");
+
+        // Create a new cache.
+        let cache = ValidatorPubkeyCache::new(&state, &path).expect("should create cache");
+        check_cache_get(&cache, &keypairs[..]);
+        drop(cache);
+
+        // Re-init the cache from the file.
+        let mut cache = ValidatorPubkeyCacheFile::load(&path)
+            .expect("should open file")
+            .into_cache()
+            .expect("should convert into cache");
+        check_cache_get(&cache, &keypairs[..]);
+
+        // Add some more keypairs.
+        let (state, keypairs) = get_state(12);
+        cache
+            .import_new_pubkeys(&state)
+            .expect("should import pubkeys");
+        check_cache_get(&cache, &keypairs[..]);
+        drop(cache);
+
+        // Re-init the cache from the file.
+        let cache = ValidatorPubkeyCacheFile::load(&path)
+            .expect("should open file")
+            .into_cache()
+            .expect("should convert into cache");
+        check_cache_get(&cache, &keypairs[..]);
+    }
+
+    #[test]
+    fn invalid_persisted_file() {
+        let dir = tempdir().expect("should create tempdir");
+        let path = dir.path().join("cache.ssz");
+        let pubkey = generate_deterministic_keypair(0).pk.into();
+
+        let mut file = File::create(&path).expect("should create file");
+        append_to_file(&mut file, 0, &pubkey).expect("should write to file");
+        drop(file);
+
+        let cache = ValidatorPubkeyCacheFile::load(&path)
+            .expect("should open file")
+            .into_cache()
+            .expect("should parse valid file");
+        drop(cache);
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&path)
+            .expect("should open file");
+
+        append_to_file(&mut file, 42, &pubkey).expect("should write bad data to file");
+        drop(file);
+
+        assert!(
+            ValidatorPubkeyCacheFile::load(&path)
+                .expect("should open file")
+                .into_cache()
+                .is_err(),
+            "should not parse invalid file"
+        );
     }
 }
