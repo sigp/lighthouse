@@ -116,6 +116,20 @@ where
         return None;
     }
 
+    /// Retains only the elements specified by the predicate.
+    ///
+    /// In other words, remove all pairs `(k, v)` such that `f(&k,&mut v)` returns false.
+    pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, mut f: F) {
+        let expiration = &mut self.expirations;
+        self.entries.retain(|key, entry| {
+            let result = f(key, &mut entry.value);
+            if !result {
+                expiration.remove(&entry.key);
+            }
+            result
+        })
+    }
+
     /// Removes all entries from the map.
     pub fn clear(&mut self) {
         self.entries.clear();
