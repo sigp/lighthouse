@@ -590,6 +590,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Into::into)
     }
 
+    /// Produce an `Attestation` that is valid for the given `slot` and `index`.
+    ///
+    /// Always attests to the canonical chain.
     pub fn produce_attestation(
         &self,
         slot: Slot,
