@@ -878,7 +878,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         };
 
-        // TODO: check FFG stuff?
+        // TODO: currently we do not check the FFG source/target. This is what the spec dictates
+        // but it seems wrong.
+        //
+        // I have opened an issue on the specs repo for this:
+        //
+        // https://github.com/ethereum/eth2.0-specs/issues/1636
+        //
+        // We should revisit this code once that issue has been resolved.
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
