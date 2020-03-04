@@ -23,6 +23,12 @@ pub struct ValidatorPubkeyCache {
 }
 
 impl ValidatorPubkeyCache {
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, BeaconChainError> {
+        ValidatorPubkeyCacheFile::open(&path)
+            .and_then(ValidatorPubkeyCacheFile::into_cache)
+            .map_err(Into::into)
+    }
+
     /// Create a new public key cache using the keys in `state.validators`.
     ///
     /// Also creates a new persistence file, returning an error if there is already a file at
@@ -39,10 +45,7 @@ impl ValidatorPubkeyCache {
         }
 
         let mut cache = Self {
-            persitence_file: ValidatorPubkeyCacheFile::load(persistence_path)
-                .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
-                .map_err(BeaconChainError::ValidatorPubkeyCacheFileError)?,
-
+            persitence_file: ValidatorPubkeyCacheFile::create(persistence_path)?,
             pubkeys: vec![],
         };
 
@@ -74,10 +77,7 @@ impl ValidatorPubkeyCache {
                 // The motivation behind this ordering is that we do not want to have states that
                 // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
                 // that are never referenced in a state.
-                self.persitence_file
-                    .append(i, &v.pubkey)
-                    .map_err(|e| format!("PubkeyCacheFileError: {:?}", e))
-                    .map_err(BeaconChainError::ValidatorPubkeyCacheFileError)?;
+                self.persitence_file.append(i, &v.pubkey)?;
 
                 self.pubkeys.push(
                     (&v.pubkey)
@@ -106,13 +106,14 @@ impl ValidatorPubkeyCache {
 ///
 /// The whole file is parsed as an SSZ "variable list" of objects.
 ///
-/// This parsing method is possible because the items in the list are fixed-length SSZ objects).
-pub struct ValidatorPubkeyCacheFile(File);
+/// This parsing method is possible because the items in the list are fixed-length SSZ objects.
+struct ValidatorPubkeyCacheFile(File);
 
 #[derive(Debug)]
-pub enum Error {
+enum Error {
     IoError(io::Error),
     SszError(DecodeError),
+    FileExists,
     /// The file read from disk does not have a contiguous list of validator public keys. The file
     /// has become corrupted.
     InconsistentIndex {
@@ -121,15 +122,28 @@ pub enum Error {
     },
 }
 
+impl From<Error> for BeaconChainError {
+    fn from(e: Error) -> BeaconChainError {
+        BeaconChainError::ValidatorPubkeyCacheFileError(format!("{:?}", e))
+    }
+}
+
 impl ValidatorPubkeyCacheFile {
-    /// Open the underlying file for reading and writing.
-    ///
-    /// If the file does not exist, an empty file is created.
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+    /// Creates a file for reading and writing.
+    pub fn create<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        if path.as_ref().exists() {
+            Err(Error::FileExists)
+        } else {
+            File::create(path).map(Self).map_err(Error::IoError)
+        }
+    }
+
+    /// Opens an existing file for reading and writing.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         OpenOptions::new()
             .read(true)
             .write(true)
-            .create(true)
+            .create(false)
             .append(true)
             .open(path)
             .map(Self)
@@ -263,10 +277,7 @@ mod test {
         drop(cache);
 
         // Re-init the cache from the file.
-        let mut cache = ValidatorPubkeyCacheFile::load(&path)
-            .expect("should open file")
-            .into_cache()
-            .expect("should convert into cache");
+        let mut cache = ValidatorPubkeyCache::load_from_file(&path).expect("should open cache");
         check_cache_get(&cache, &keypairs[..]);
 
         // Add some more keypairs.
@@ -278,10 +289,7 @@ mod test {
         drop(cache);
 
         // Re-init the cache from the file.
-        let cache = ValidatorPubkeyCacheFile::load(&path)
-            .expect("should open file")
-            .into_cache()
-            .expect("should convert into cache");
+        let cache = ValidatorPubkeyCache::load_from_file(&path).expect("should open cache");
         check_cache_get(&cache, &keypairs[..]);
     }
 
@@ -295,10 +303,7 @@ mod test {
         append_to_file(&mut file, 0, &pubkey).expect("should write to file");
         drop(file);
 
-        let cache = ValidatorPubkeyCacheFile::load(&path)
-            .expect("should open file")
-            .into_cache()
-            .expect("should parse valid file");
+        let cache = ValidatorPubkeyCache::load_from_file(&path).expect("should open cache");
         drop(cache);
 
         let mut file = OpenOptions::new()
@@ -311,10 +316,7 @@ mod test {
         drop(file);
 
         assert!(
-            ValidatorPubkeyCacheFile::load(&path)
-                .expect("should open file")
-                .into_cache()
-                .is_err(),
+            ValidatorPubkeyCache::load_from_file(&path).is_err(),
             "should not parse invalid file"
         );
     }

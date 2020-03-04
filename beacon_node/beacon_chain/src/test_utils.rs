@@ -168,8 +168,8 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         eth_spec_instance: E,
         store: Arc<DiskStore<E>>,
         keypairs: Vec<Keypair>,
+        data_dir: TempDir,
     ) -> Self {
-        let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = E::default_spec();
 
         let log = TerminalLoggerBuilder::new()

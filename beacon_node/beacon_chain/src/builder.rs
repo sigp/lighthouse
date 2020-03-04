@@ -4,7 +4,7 @@ use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
-use crate::validator_pubkey_cache::{ValidatorPubkeyCache, ValidatorPubkeyCacheFile};
+use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
@@ -219,12 +219,8 @@ where
         };
         self.persisted_beacon_chain = Some(p);
 
-        let pubkey_cache = ValidatorPubkeyCacheFile::load(pubkey_cache_path)
-            .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))
-            .and_then(|file| {
-                file.into_cache()
-                    .map_err(|e| format!("Unable to parse persisted pubkey cache: {:?}", e))
-            })?;
+        let pubkey_cache = ValidatorPubkeyCache::load_from_file(pubkey_cache_path)
+            .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.validator_pubkey_cache = Some(pubkey_cache);
 
