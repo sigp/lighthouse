@@ -590,48 +590,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Into::into)
     }
 
-    /// Returns the attestation slot and committee index for a given validator index.
-    ///
-    /// Information is read from the current state, so only information from the present and prior
-    /// epoch is available.
-    pub fn validator_attestation_slot_and_index(
-        &self,
-        validator_index: usize,
-        epoch: Epoch,
-    ) -> Result<Option<(Slot, u64)>, Error> {
-        let as_epoch = |slot: Slot| slot.epoch(T::EthSpec::slots_per_epoch());
-        let head_state = &self.head()?.beacon_state;
-
-        let mut state = if epoch == as_epoch(head_state.slot) {
-            self.head()?.beacon_state
-        } else {
-            // The validator shuffling is not affected by the state roots, so we don't need to
-            // calculate them.
-            self.state_at_slot(
-                epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                StateSkipConfig::WithoutStateRoots,
-            )?
-        };
-
-        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-        if as_epoch(state.slot) != epoch {
-            return Err(Error::InvariantViolated(format!(
-                "Epochs in consistent in attestation duties lookup: state: {}, requested: {}",
-                as_epoch(state.slot),
-                epoch
-            )));
-        }
-
-        if let Some(attestation_duty) =
-            state.get_attestation_duties(validator_index, RelativeEpoch::Current)?
-        {
-            Ok(Some((attestation_duty.slot, attestation_duty.index)))
-        } else {
-            Ok(None)
-        }
-    }
-
     pub fn produce_attestation(
         &self,
         slot: Slot,
