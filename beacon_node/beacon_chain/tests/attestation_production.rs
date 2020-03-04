@@ -8,7 +8,7 @@ use beacon_chain::{
     StateSkipConfig,
 };
 use tree_hash::TreeHash;
-use types::{AggregateSignature, EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
+use types::{AggregateSignature, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
 
 pub const VALIDATOR_COUNT: usize = 16;
 
@@ -63,7 +63,7 @@ fn produces_attestations() {
             .block_at_slot(block_slot)
             .expect("should get block")
             .expect("block should not be skipped");
-        let block_root = Hash256::from_slice(&block.message.tree_hash_root());
+        let block_root = block.message.tree_hash_root();
 
         let epoch_boundary_slot = state
             .current_epoch()
