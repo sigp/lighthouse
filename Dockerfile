@@ -1,6 +1,6 @@
 FROM rust:1.41.0 AS builder
 COPY . lighthouse
-RUN cd lighthouse && make && cargo clean
+RUN cd lighthouse && make
 RUN cd lighthouse && cargo install --path lcli
 
 FROM debian:buster-slim
