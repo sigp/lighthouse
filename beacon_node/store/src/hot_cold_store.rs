@@ -202,9 +202,6 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
                 .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
         }
 
-        // Delete from the cache.
-        self.state_cache.lock().pop(state_root);
-
         Ok(())
     }
 
