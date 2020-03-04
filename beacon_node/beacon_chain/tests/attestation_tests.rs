@@ -7,6 +7,7 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType,
 };
 use beacon_chain::AttestationProcessingOutcome;
+use state_processing::per_slot_processing;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, BitList, EthSpec, Hash256,
     Keypair, MinimalEthSpec, Signature,
@@ -202,5 +203,53 @@ fn attestation_validity() {
             .process_attestation(empty_bitfield_attestation),
         Ok(AttestationProcessingOutcome::EmptyAggregationBitfield),
         "should not accept empty_bitfield attestation"
+    );
+}
+
+#[test]
+fn attestation_that_skips_epochs() {
+    let harness = get_harness(VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.extend_chain(
+        MinimalEthSpec::slots_per_epoch() as usize * 3 + 1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let current_slot = chain.slot().expect("should get slot");
+    let current_epoch = chain.epoch().expect("should get epoch");
+
+    let earlier_slot = (current_epoch - 2).start_slot(MinimalEthSpec::slots_per_epoch());
+    let earlier_block = chain
+        .block_at_slot(earlier_slot)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+
+    let mut state = chain
+        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .expect("should not error getting state")
+        .expect("should find state");
+
+    while state.slot < current_slot {
+        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+    }
+
+    let attestation = harness
+        .get_free_attestations(
+            &AttestationStrategy::AllValidators,
+            &state,
+            earlier_block.canonical_root(),
+            current_slot,
+        )
+        .first()
+        .cloned()
+        .expect("should get at least one attestation");
+
+    assert_eq!(
+        harness.chain.process_attestation(attestation),
+        Ok(AttestationProcessingOutcome::Processed),
+        "should process attestation that skips slots"
     );
 }
