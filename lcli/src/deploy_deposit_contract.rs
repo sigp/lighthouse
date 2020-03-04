@@ -1,43 +1,17 @@
 use clap::ArgMatches;
 use environment::Environment;
 use eth1_test_rig::DepositContract;
-use eth2_testnet_config::Eth2TestnetConfig;
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
-use types::{ChainSpec, EthSpec, YamlConfig};
+use types::EthSpec;
 use web3::{transports::Http, Web3};
 
-pub const SECONDS_PER_ETH1_BLOCK: u64 = 15;
-
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let min_genesis_time = matches
-        .value_of("min-genesis-time")
-        .ok_or_else(|| "min_genesis_time not specified")?
-        .parse::<u64>()
-        .map_err(|e| format!("Failed to parse min_genesis_time: {}", e))?;
-
-    let min_genesis_active_validator_count = matches
-        .value_of("min-genesis-active-validator-count")
-        .ok_or_else(|| "min-genesis-active-validator-count not specified")?
-        .parse::<u64>()
-        .map_err(|e| format!("Failed to parse min-genesis-active-validator-count: {}", e))?;
-
     let confirmations = matches
         .value_of("confirmations")
         .ok_or_else(|| "Confirmations not specified")?
         .parse::<usize>()
         .map_err(|e| format!("Failed to parse confirmations: {}", e))?;
-
-    let output_dir = matches
-        .value_of("output")
-        .ok_or_else(|| ())
-        .and_then(|output| output.parse::<PathBuf>().map_err(|_| ()))
-        .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .map(|home| home.join(".lighthouse").join("testnet"))
-                .expect("should locate home directory")
-        });
 
     let password = parse_password(matches)?;
 
@@ -52,10 +26,6 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         )
     })?;
     let web3 = Web3::new(transport);
-
-    if output_dir.exists() {
-        return Err("Output directory already exists".to_string());
-    }
 
     // It's unlikely that this will be the _actual_ deployment block, however it'll be close
     // enough to serve our purposes.
@@ -86,53 +56,12 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .map_err(|e| format!("Failed to deploy contract: {}", e))?;
 
     info!(
-        "Deposit contract deployed. address: {}, min_genesis_time: {}, deploy_block: {}",
+        "Deposit contract deployed. address: {}, deploy_block: {}",
         deposit_contract.address(),
-        min_genesis_time,
         deploy_block
     );
 
-    info!("Writing config to {:?}", output_dir);
-
-    let mut spec = lighthouse_testnet_spec(env.core_context().eth2_config.spec);
-    spec.min_genesis_time = min_genesis_time;
-    spec.min_genesis_active_validator_count = min_genesis_active_validator_count;
-
-    let testnet_config: Eth2TestnetConfig<T> = Eth2TestnetConfig {
-        deposit_contract_address: deposit_contract.address(),
-        deposit_contract_deploy_block: deploy_block.as_u64(),
-        boot_enr: None,
-        genesis_state: None,
-        yaml_config: Some(YamlConfig::from_spec::<T>(&spec)),
-    };
-
-    testnet_config.write_to_file(output_dir)?;
-
     Ok(())
-}
-
-/// Modfies the specification to better suit present-capacity testnets.
-pub fn lighthouse_testnet_spec(mut spec: ChainSpec) -> ChainSpec {
-    spec.min_deposit_amount = 100;
-    spec.max_effective_balance = 3_200_000_000;
-    spec.ejection_balance = 1_600_000_000;
-    spec.effective_balance_increment = 100_000_000;
-
-    spec.eth1_follow_distance = 16;
-
-    // This value must be at least 2x the `ETH1_FOLLOW_DISTANCE` otherwise `all_eth1_data` can
-    // become a subset of `new_eth1_data` which may result in an Exception in the spec
-    // implementation.
-    //
-    // This value determines the delay between the eth1 block that triggers genesis and the first
-    // slot of that new chain.
-    //
-    // With a follow distance of 16, this is 40mins.
-    spec.min_genesis_delay = SECONDS_PER_ETH1_BLOCK * spec.eth1_follow_distance * 2 * 5;
-
-    spec.genesis_fork_version = [1, 3, 3, 7];
-
-    spec
 }
 
 pub fn parse_password(matches: &ArgMatches) -> Result<Option<String>, String> {
