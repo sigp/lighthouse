@@ -1,6 +1,7 @@
 use super::*;
 use core::num::NonZeroUsize;
 use ethereum_types::{H256, U128, U256};
+use smallvec::SmallVec;
 
 macro_rules! impl_encodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -230,39 +231,53 @@ impl<T: Encode> Encode for Option<T> {
     }
 }
 
-impl<T: Encode> Encode for Vec<T> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        if <T as Encode>::is_ssz_fixed_len() {
-            <T as Encode>::ssz_fixed_len() * self.len()
-        } else {
-            let mut len = self.iter().map(|item| item.ssz_bytes_len()).sum();
-            len += BYTES_PER_LENGTH_OFFSET * self.len();
-            len
-        }
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        if T::is_ssz_fixed_len() {
-            buf.reserve(T::ssz_fixed_len() * self.len());
-
-            for item in self {
-                item.ssz_append(buf);
-            }
-        } else {
-            let mut encoder = SszEncoder::list(buf, self.len() * BYTES_PER_LENGTH_OFFSET);
-
-            for item in self {
-                encoder.append(item);
+macro_rules! impl_for_vec {
+    ($type: ty) => {
+        impl<T: Encode> Encode for $type {
+            fn is_ssz_fixed_len() -> bool {
+                false
             }
 
-            encoder.finalize();
+            fn ssz_bytes_len(&self) -> usize {
+                if <T as Encode>::is_ssz_fixed_len() {
+                    <T as Encode>::ssz_fixed_len() * self.len()
+                } else {
+                    let mut len = self.iter().map(|item| item.ssz_bytes_len()).sum();
+                    len += BYTES_PER_LENGTH_OFFSET * self.len();
+                    len
+                }
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                if T::is_ssz_fixed_len() {
+                    buf.reserve(T::ssz_fixed_len() * self.len());
+
+                    for item in self {
+                        item.ssz_append(buf);
+                    }
+                } else {
+                    let mut encoder = SszEncoder::list(buf, self.len() * BYTES_PER_LENGTH_OFFSET);
+
+                    for item in self {
+                        encoder.append(item);
+                    }
+
+                    encoder.finalize();
+                }
+            }
         }
-    }
+    };
 }
+
+impl_for_vec!(Vec<T>);
+impl_for_vec!(SmallVec<[T; 1]>);
+impl_for_vec!(SmallVec<[T; 2]>);
+impl_for_vec!(SmallVec<[T; 3]>);
+impl_for_vec!(SmallVec<[T; 4]>);
+impl_for_vec!(SmallVec<[T; 5]>);
+impl_for_vec!(SmallVec<[T; 6]>);
+impl_for_vec!(SmallVec<[T; 7]>);
+impl_for_vec!(SmallVec<[T; 8]>);
 
 impl Encode for bool {
     fn is_ssz_fixed_len() -> bool {

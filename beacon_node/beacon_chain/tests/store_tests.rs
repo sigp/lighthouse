@@ -474,7 +474,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
         // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root,
-            Hash256::from_slice(&checkpoint.beacon_state.tree_hash_root()),
+            checkpoint.beacon_state.tree_hash_root(),
             "tree hash of stored state is incorrect"
         );
 
