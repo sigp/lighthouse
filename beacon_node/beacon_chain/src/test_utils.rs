@@ -3,13 +3,15 @@ use crate::{
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+    StateSkipConfig,
 };
 use eth1::Config as Eth1Config;
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
-use sloggers::{terminal::TerminalLoggerBuilder, types::Severity, Build};
+use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
@@ -17,8 +19,8 @@ use store::{
     DiskStore, MemoryStore, Migrate, Store,
 };
 use types::{
-    AggregateSignature, Attestation, BeaconState, BitList, ChainSpec, Domain, EthSpec, Hash256,
-    Keypair, SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
+    AggregateSignature, Attestation, BeaconState, ChainSpec, Domain, EthSpec, Hash256, Keypair,
+    SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 pub use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
@@ -81,10 +83,7 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
         let spec = E::default_spec();
 
-        let log = TerminalLoggerBuilder::new()
-            .level(Severity::Warning)
-            .build()
-            .expect("logger should build");
+        let log = NullLoggerBuilder.build().expect("logger should build");
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -123,10 +122,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     ) -> Self {
         let spec = E::default_spec();
 
-        let log = TerminalLoggerBuilder::new()
-            .level(Severity::Warning)
-            .build()
-            .expect("logger should build");
+        let log = NullLoggerBuilder.build().expect("logger should build");
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -163,10 +159,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     ) -> Self {
         let spec = E::default_spec();
 
-        let log = TerminalLoggerBuilder::new()
-            .level(Severity::Warning)
-            .build()
-            .expect("logger should build");
+        let log = NullLoggerBuilder.build().expect("logger should build");
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -231,7 +224,7 @@ where
             };
 
             self.chain
-                .state_at_slot(state_slot)
+                .state_at_slot(state_slot, StateSkipConfig::WithStateRoots)
                 .expect("should find state for slot")
         };
 
@@ -374,8 +367,6 @@ where
             .expect("should get committees")
             .iter()
             .for_each(|bc| {
-                let committee_size = bc.committee.len();
-
                 let mut local_attestations: Vec<Attestation<E>> = bc
                     .committee
                     .par_iter()
@@ -384,30 +375,29 @@ where
                         // Note: searching this array is worst-case `O(n)`. A hashset could be a better
                         // alternative.
                         if attesting_validators.contains(validator_index) {
-                            let data = self
+                            let mut attestation = self
                                 .chain
-                                .produce_attestation_data_for_block(
+                                .produce_attestation_for_block(
+                                    head_block_slot,
                                     bc.index,
                                     head_block_root,
-                                    head_block_slot,
-                                    state,
+                                    Cow::Borrowed(state),
                                 )
-                                .expect("should produce attestation data");
+                                .expect("should produce attestation");
 
-                            let mut aggregation_bits = BitList::with_capacity(committee_size)
-                                .expect("should make aggregation bits");
-                            aggregation_bits
+                            attestation
+                                .aggregation_bits
                                 .set(i, true)
                                 .expect("should be able to set aggregation bits");
 
-                            let signature = {
+                            attestation.signature = {
                                 let domain = spec.get_domain(
-                                    data.target.epoch,
+                                    attestation.data.target.epoch,
                                     Domain::BeaconAttester,
                                     fork,
                                 );
 
-                                let message = data.signing_root(domain);
+                                let message = attestation.data.signing_root(domain);
 
                                 let mut agg_sig = AggregateSignature::new();
                                 agg_sig.add(&Signature::new(
@@ -416,12 +406,6 @@ where
                                 ));
 
                                 agg_sig
-                            };
-
-                            let attestation = Attestation {
-                                aggregation_bits,
-                                data,
-                                signature,
                             };
 
                             Some(attestation)

@@ -57,7 +57,7 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
 
     verify!(
         verify_merkle_proof(
-            Hash256::from_slice(&leaf),
+            leaf,
             &deposit.proof[..],
             spec.deposit_contract_tree_depth as usize + 1,
             deposit_index as usize,

@@ -5,6 +5,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use tree_hash::Hash256;
 use typenum::Unsigned;
 
 /// A marker trait applied to `Variable` and `Fixed` that defines the behaviour of a `Bitfield`.
@@ -590,7 +591,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Variable<N>> {
         unreachable!("List should never be packed.")
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
+    fn tree_hash_root(&self) -> Hash256 {
         // Note: we use `as_slice` because it does _not_ have the length-delimiting bit set (or
         // present).
         let root = bitfield_bytes_tree_hash_root::<N>(self.as_slice());
@@ -611,7 +612,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
         unreachable!("Vector should never be packed.")
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
+    fn tree_hash_root(&self) -> Hash256 {
         bitfield_bytes_tree_hash_root::<N>(self.as_slice())
     }
 }

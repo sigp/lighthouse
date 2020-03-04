@@ -133,7 +133,9 @@ where
                     "beacon_chain_start_method requires a store migrator".to_string()
                 })?;
                 let context = runtime_context
-                    .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
+                    .ok_or_else(|| {
+                        "beacon_chain_start_method requires a runtime context".to_string()
+                    })?
                     .service_context("beacon".into());
                 let spec = chain_spec
                     .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;

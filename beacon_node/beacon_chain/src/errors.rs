@@ -40,6 +40,7 @@ pub enum BeaconChainError {
     NoStateForAttestation {
         beacon_block_root: Hash256,
     },
+    CannotAttestToFutureState,
     AttestationValidationError(AttestationValidationError),
     StateSkipTooLarge {
         start_slot: Slot,
