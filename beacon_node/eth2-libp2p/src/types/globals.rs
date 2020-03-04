@@ -1,10 +1,11 @@
 //! A collection of variables that are accessible outside of the network thread itself.
-use crate::{Enr, GossipTopic, Multiaddr, PeerId};
+use crate::{Enr, GossipTopic, Multiaddr, PeerId, PeerInfo};
 use parking_lot::RwLock;
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU16, Ordering};
+use types::EthSpec;
 
-pub struct NetworkGlobals {
+pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.
     pub local_enr: RwLock<Option<Enr>>,
     /// The local peer_id.
@@ -15,15 +16,13 @@ pub struct NetworkGlobals {
     pub listen_port_tcp: AtomicU16,
     /// The udp port that the discovery service is listening on
     pub listen_port_udp: AtomicU16,
-    /// Current number of connected libp2p peers.
-    pub connected_peers: AtomicUsize,
     /// The collection of currently connected peers.
-    pub connected_peer_set: RwLock<HashSet<PeerId>>,
+    pub connected_peer_set: RwLock<HashMap<PeerId, PeerInfo<TSpec>>>,
     /// The current gossipsub topic subscriptions.
     pub gossipsub_subscriptions: RwLock<Vec<GossipTopic>>,
 }
 
-impl NetworkGlobals {
+impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     pub fn new(peer_id: PeerId, tcp_port: u16, udp_port: u16) -> Self {
         NetworkGlobals {
             local_enr: RwLock::new(None),
@@ -31,8 +30,7 @@ impl NetworkGlobals {
             listen_multiaddrs: RwLock::new(Vec::new()),
             listen_port_tcp: AtomicU16::new(tcp_port),
             listen_port_udp: AtomicU16::new(udp_port),
-            connected_peers: AtomicUsize::new(0),
-            connected_peer_set: RwLock::new(HashSet::new()),
+            connected_peer_set: RwLock::new(HashMap::new()),
             gossipsub_subscriptions: RwLock::new(Vec::new()),
         }
     }
@@ -65,11 +63,6 @@ impl NetworkGlobals {
 
     /// Returns the number of libp2p connected peers.
     pub fn connected_peers(&self) -> usize {
-        self.connected_peers.load(Ordering::Relaxed)
-    }
-
-    /// Returns the set of `PeerId` that are connected via libp2p.
-    pub fn connected_peer_set(&self) -> HashSet<PeerId> {
-        self.connected_peer_set.read().clone()
+        self.connected_peer_set.read().len()
     }
 }

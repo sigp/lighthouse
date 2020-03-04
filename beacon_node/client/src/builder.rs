@@ -58,7 +58,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth1_service: Option<Eth1Service>,
     exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
     event_handler: Option<T::EventHandler>,
-    network_globals: Option<Arc<NetworkGlobals>>,
+    network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,

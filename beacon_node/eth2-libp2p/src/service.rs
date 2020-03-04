@@ -52,7 +52,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
         config: &NetworkConfig,
         log: slog::Logger,
-    ) -> error::Result<(Arc<NetworkGlobals>, Self)> {
+    ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         trace!(log, "Libp2p Service starting");
 
         let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {

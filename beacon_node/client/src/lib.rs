@@ -21,7 +21,7 @@ pub use eth2_config::Eth2Config;
 /// Holds references to running services, cleanly shutting them down when dropped.
 pub struct Client<T: BeaconChainTypes> {
     beacon_chain: Option<Arc<BeaconChain<T>>>,
-    network_globals: Option<Arc<NetworkGlobals>>,
+    network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
     /// Exit channels will complete/error when dropped, causing each service to exit gracefully.

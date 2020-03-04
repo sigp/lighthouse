@@ -49,7 +49,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     events: VecDeque<AttServiceMessage>,
 
     /// A collection of public network variables.
-    network_globals: Arc<NetworkGlobals>,
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 
     /// A reference to the beacon chain to process received attestations.
     beacon_chain: Arc<BeaconChain<T>>,
@@ -80,7 +80,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     /* Public functions */
 
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, network_globals: Arc<NetworkGlobals>, log: &slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, network_globals: Arc<NetworkGlobals<T::EthSpec>>, log: &slog::Logger) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
 
         // calculate the random subnet duration from the spec constants

@@ -38,7 +38,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<T::Store>,
     /// A collection of global variables, accessible outside of the network service.
-    network_globals: Arc<NetworkGlobals>,
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// An initial delay to update variables after the libp2p service has started. 
     initial_delay: Delay,
     /// The logger for the network service.
@@ -53,7 +53,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         config: &NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
-    ) -> error::Result<(Arc<NetworkGlobals>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>, oneshot::Sender<()>)> {
+    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>, oneshot::Sender<()>)> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
         // Get a reference to the beacon chain store

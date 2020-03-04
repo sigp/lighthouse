@@ -28,7 +28,7 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 pub fn spawn_notifier<T: BeaconChainTypes>(
     context: RuntimeContext<T::EthSpec>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network: Arc<NetworkGlobals>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
 ) -> Result<tokio::sync::oneshot::Sender<()>, String> {
     let log_1 = context.log.clone();

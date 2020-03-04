@@ -45,7 +45,7 @@ pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send
 pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
 pub struct NetworkInfo<T: BeaconChainTypes> {
-    pub network_globals: Arc<NetworkGlobals>,
+    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub network_chan: NetworkChannel<T::EthSpec>,
 }
 
