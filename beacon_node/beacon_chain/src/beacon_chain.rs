@@ -848,15 +848,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Attestation target must be for a known block.
         //
+        // We use fork choice to find the target root, which means that we reject any attestation
+        // that has a `target.root` earlier than our latest finalized root. There's no point in
+        // processing an attestation that does not include our latest finalized block in its chain.
+        //
         // We do not delay consideration for later, we simply drop the attestation.
         let (target_block_slot, target_block_state_root) = if let Some((slot, state_root)) =
             self.fork_choice.block_slot_and_state_root(&target.root)
         {
             (slot, state_root)
         } else {
-            return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
-                beacon_block_root: attestation.data.beacon_block_root,
-            });
+            return Ok(AttestationProcessingOutcome::UnknownTargetRoot(target.root));
         };
 
         // Load the slot and state root for `attestation.data.beacon_block_root`.
