@@ -12,9 +12,12 @@ use remote_beacon_node::{
 use std::convert::TryInto;
 use std::sync::Arc;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch,
-    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot,
-    Slot, Validator,
+    test_utils::{
+        build_double_vote_attester_slashing, build_proposer_slashing,
+        generate_deterministic_keypair, AttesterSlashingTestTask, ProposerSlashingTestTask,
+    },
+    BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
+    RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot, Slot, Validator,
 };
 use version;
 
@@ -861,4 +864,159 @@ fn compare_validator_response<T: EthSpec>(
     assert_eq!(response_validator, *validator, "validator");
     assert_eq!(state.balances[i], balance, "balances");
     assert_eq!(state.validators[i], *validator, "validator index");
+}
+
+#[test]
+fn proposer_slashing() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let state = chain
+        .head()
+        .expect("should have retrieved state")
+        .beacon_state;
+
+    let spec = &chain.spec;
+
+    // Check that there are no proposer slashings before insertion
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 0);
+
+    let slot = state.slot;
+    let proposer_index = chain
+        .block_proposer(slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+    let key = &keypair.sk;
+    let fork = &state.fork;
+    let proposer_slashing = build_proposer_slashing::<E>(
+        ProposerSlashingTestTask::Valid,
+        proposer_index as u64,
+        &key,
+        fork,
+        spec,
+    );
+
+    let result = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .beacon()
+                .proposer_slashing(proposer_slashing.clone()),
+        )
+        .expect("should fetch from http api");
+    assert!(result, true);
+
+    // Length should be just one as we've inserted only one proposer slashing
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 1);
+    assert_eq!(proposer_slashing.clone(), proposer_slashings[0]);
+
+    let mut invalid_proposer_slashing = build_proposer_slashing::<E>(
+        ProposerSlashingTestTask::Valid,
+        proposer_index as u64,
+        &key,
+        fork,
+        spec,
+    );
+    invalid_proposer_slashing.signed_header_2 = invalid_proposer_slashing.signed_header_1.clone();
+
+    let result = env.runtime().block_on(
+        remote_node
+            .http
+            .beacon()
+            .proposer_slashing(invalid_proposer_slashing),
+    );
+    assert!(result.is_err());
+
+    // Length should still be one as we've inserted nothing since last time.
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 1);
+    assert_eq!(proposer_slashing, proposer_slashings[0]);
+}
+
+#[test]
+fn attester_slashing() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let state = chain
+        .head()
+        .expect("should have retrieved state")
+        .beacon_state;
+    let slot = state.slot;
+    let spec = &chain.spec;
+
+    let proposer_index = chain
+        .block_proposer(slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+
+    let secret_keys = vec![&keypair.sk];
+    let validator_indices = vec![proposer_index as u64];
+    let fork = &state.fork;
+
+    // Checking there are no attester slashings before insertion
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 0);
+
+    let attester_slashing = build_double_vote_attester_slashing(
+        AttesterSlashingTestTask::Valid,
+        &validator_indices[..],
+        &secret_keys[..],
+        fork,
+        spec,
+    );
+
+    let result = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .beacon()
+                .attester_slashing(attester_slashing.clone()),
+        )
+        .expect("should fetch from http api");
+    assert!(result, true);
+
+    // Length should be just one as we've inserted only one attester slashing
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 1);
+    assert_eq!(attester_slashing, attester_slashings[0]);
+
+    // Building an invalid attester slashing
+    let mut invalid_attester_slashing = build_double_vote_attester_slashing(
+        AttesterSlashingTestTask::Valid,
+        &validator_indices[..],
+        &secret_keys[..],
+        fork,
+        spec,
+    );
+    invalid_attester_slashing.attestation_2 = invalid_attester_slashing.attestation_1.clone();
+
+    let result = env.runtime().block_on(
+        remote_node
+            .http
+            .beacon()
+            .attester_slashing(invalid_attester_slashing),
+    );
+    assert!(result.is_err());
+
+    // Length should still be one as we've failed to insert the attester slashing.
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 1);
+    assert_eq!(attester_slashing, attester_slashings[0]);
 }

@@ -1,11 +1,35 @@
 use eth2_libp2p::Enr;
 use rlp;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
+use std::sync::Arc;
+use store::{DBColumn, Error as StoreError, SimpleStoreItem, Store};
+use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`.
 pub const DHT_DB_KEY: &str = "PERSISTEDDHTPERSISTEDDHTPERSISTE";
 
-/// Wrapper around dht for persistence to disk.
+pub fn load_dht<T: Store<E>, E: EthSpec>(store: Arc<T>) -> Vec<Enr> {
+    // Load DHT from store
+    let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
+    match store.get(&key) {
+        Ok(Some(p)) => {
+            let p: PersistedDht = p;
+            p.enrs
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Attempt to persist the ENR's in the DHT to `self.store`.
+pub fn persist_dht<T: Store<E>, E: EthSpec>(
+    store: Arc<T>,
+    enrs: Vec<Enr>,
+) -> Result<(), store::Error> {
+    let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
+    store.put(&key, &PersistedDht { enrs })?;
+    Ok(())
+}
+
+/// Wrapper around DHT for persistence to disk.
 pub struct PersistedDht {
     pub enrs: Vec<Enr>,
 }

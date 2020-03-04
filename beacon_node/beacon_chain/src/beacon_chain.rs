@@ -178,8 +178,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: T::EventHandler,
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
-    /// Provides a small cache of `BeaconState` and `BeaconBlock`.
+    /// Caches the shuffling for a given epoch and state root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
@@ -855,14 +856,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Attestation target must be for a known block.
         //
         // We do not delay consideration for later, we simply drop the attestation.
-        let (target_block_slot, target_block_state_root) =
-            if let Some(tuple) = self.fork_choice.block_slot_and_state_root(&target.root) {
-                tuple
-            } else {
-                return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
-                    beacon_block_root: attestation.data.beacon_block_root,
-                });
-            };
+        let (target_block_slot, target_block_state_root) = if let Some((slot, state_root)) =
+            self.fork_choice.block_slot_and_state_root(&target.root)
+        {
+            (slot, state_root)
+        } else {
+            return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
+                beacon_block_root: attestation.data.beacon_block_root,
+            });
+        };
 
         // Load the slot and state root for `attestation.data.beacon_block_root`.
         //
@@ -872,18 +874,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let (block_slot, _block_state_root) = if let Some(tuple) = self
+        let block_slot = if let Some((slot, _state_root)) = self
             .fork_choice
             .block_slot_and_state_root(&attestation.data.beacon_block_root)
         {
-            tuple
+            slot
         } else {
             return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
                 beacon_block_root: attestation.data.beacon_block_root,
             });
         };
 
-        // TODO: check FFG stuff?
+        // TODO: currently we do not check the FFG source/target. This is what the spec dictates
+        // but it seems wrong.
+        //
+        // I have opened an issue on the specs repo for this:
+        //
+        // https://github.com/ethereum/eth2.0-specs/issues/1636
+        //
+        // We should revisit this code once that issue has been resolved.
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
@@ -952,6 +961,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
                 while state.current_epoch() + 1 < attestation_epoch {
+                    // Here we tell `per_slot_processing` to skip hashing the state and just
+                    // use the zero hash instead.
+                    //
+                    // The state roots are not useful for the shuffling, so there's no need to
+                    // compute them.
                     per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)?
                 }
 
@@ -1040,9 +1054,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(e.into());
             }
 
-            // Insert the attestation in the op pool.
-            self.op_pool
-                .insert_attestation(attestation, &fork, &self.spec)?;
+            // Provide the valid attestation to op pool, which may choose to retain the
+            // attestation for inclusion in a future block.
+            if self.eth1_chain.is_some() {
+                self.op_pool
+                    .insert_attestation(attestation, &fork, &self.spec)?;
+            };
+
             Ok(AttestationProcessingOutcome::Processed)
         } else {
             Ok(AttestationProcessingOutcome::InvalidSignature)
@@ -1055,7 +1073,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         exit: SignedVoluntaryExit,
     ) -> Result<(), ExitValidationError> {
         match self.wall_clock_state() {
-            Ok(state) => self.op_pool.insert_voluntary_exit(exit, &state, &self.spec),
+            Ok(state) => {
+                if self.eth1_chain.is_some() {
+                    self.op_pool.insert_voluntary_exit(exit, &state, &self.spec)
+                } else {
+                    Ok(())
+                }
+            }
             Err(e) => {
                 error!(
                     &self.log,
@@ -1075,8 +1099,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), ProposerSlashingValidationError> {
         match self.wall_clock_state() {
             Ok(state) => {
-                self.op_pool
-                    .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
+                if self.eth1_chain.is_some() {
+                    self.op_pool
+                        .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
+                } else {
+                    Ok(())
+                }
             }
             Err(e) => {
                 error!(
@@ -1097,8 +1125,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), AttesterSlashingValidationError> {
         match self.wall_clock_state() {
             Ok(state) => {
-                self.op_pool
-                    .insert_attester_slashing(attester_slashing, &state, &self.spec)
+                if self.eth1_chain.is_some() {
+                    self.op_pool
+                        .insert_attester_slashing(attester_slashing, &state, &self.spec)
+                } else {
+                    Ok(())
+                }
             }
             Err(e) => {
                 error!(

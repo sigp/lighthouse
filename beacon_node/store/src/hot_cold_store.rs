@@ -575,9 +575,9 @@ impl<E: EthSpec> HotColdDB<E> {
             // Include the block at the end slot (if any), it needs to be
             // replayed in order to construct the canonical state at `end_slot`.
             .filter(|block| block.message.slot <= end_slot)
-            // Exclude the block at the start slot (if any), because it has already
-            // been applied to the starting state.
-            .take_while(|block| block.message.slot > start_slot)
+            // Include the block at the start slot (if any). Whilst it doesn't need to be applied
+            // to the state, it contains a potentially useful state root.
+            .take_while(|block| block.message.slot >= start_slot)
             .collect::<Vec<_>>();
         blocks.reverse();
         Ok(blocks)
@@ -607,6 +607,10 @@ impl<E: EthSpec> HotColdDB<E> {
         };
 
         for (i, block) in blocks.iter().enumerate() {
+            if block.message.slot <= state.slot {
+                continue;
+            }
+
             while state.slot < block.message.slot {
                 let state_root = state_root_from_prev_block(i, &state);
                 per_slot_processing(&mut state, state_root, &self.spec)

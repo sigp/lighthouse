@@ -74,19 +74,17 @@ fn finalizes_after_resuming_from_db() {
 
     harness.chain.persist().expect("should persist the chain");
 
+    let data_dir = harness.data_dir;
+    let original_chain = harness.chain;
+
     let resumed_harness = BeaconChainHarness::resume_from_disk_store(
         MinimalEthSpec,
         store,
         KEYPAIRS[0..validator_count].to_vec(),
+        data_dir,
     );
 
-    assert_chains_pretty_much_the_same(&harness.chain, &resumed_harness.chain);
-
-    // Ensures we don't accidentally use it again.
-    //
-    // Note: this will persist the chain again, but that shouldn't matter since nothing has
-    // changed.
-    drop(harness);
+    assert_chains_pretty_much_the_same(&original_chain, &resumed_harness.chain);
 
     // Set the slot clock of the resumed harness to be in the slot following the previous harness.
     //
