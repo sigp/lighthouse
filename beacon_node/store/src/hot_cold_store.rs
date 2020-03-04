@@ -138,6 +138,12 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         }
     }
 
+    /// Delete a block from the store and the block cache.
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
+        self.block_cache.lock().pop(block_root);
+        self.delete::<SignedBeaconBlock<E>>(block_root)
+    }
+
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
@@ -179,6 +185,29 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
                 None => self.load_cold_state(state_root),
             }
         }
+    }
+
+    /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
+    ///
+    /// It is assumed that all states being deleted reside in the hot DB, even if their slot is less
+    /// than the split point. You shouldn't delete states from the finalized portion of the chain
+    /// (which are frozen, and won't be deleted), or valid descendents of the finalized checkpoint
+    /// (which will be deleted by this function but shouldn't be).
+    fn delete_state(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
+        // Delete the state summary.
+        self.hot_db
+            .key_delete(DBColumn::BeaconStateSummary.into(), state_root.as_bytes())?;
+
+        // Delete the full state if it lies on an epoch boundary.
+        if slot % E::slots_per_epoch() == 0 {
+            self.hot_db
+                .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
+        }
+
+        // Delete from the cache.
+        self.state_cache.lock().pop(state_root);
+
+        Ok(())
     }
 
     /// Advance the split point of the store, moving new finalized states to the freezer.
@@ -232,10 +261,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
             store.store_cold_state_slot(&state_root, slot)?;
 
             // Delete the old summary, and the full state if we lie on an epoch boundary.
-            to_delete.push((DBColumn::BeaconStateSummary, state_root));
-            if slot % E::slots_per_epoch() == 0 {
-                to_delete.push((DBColumn::BeaconState, state_root));
-            }
+            to_delete.push((state_root, slot));
         }
 
         // 2. Update the split slot
@@ -246,10 +272,8 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         store.store_split()?;
 
         // 3. Delete from the hot DB
-        for (column, state_root) in to_delete {
-            store
-                .hot_db
-                .key_delete(column.into(), state_root.as_bytes())?;
+        for (state_root, slot) in to_delete {
+            store.delete_state(&state_root, slot)?;
         }
 
         debug!(
