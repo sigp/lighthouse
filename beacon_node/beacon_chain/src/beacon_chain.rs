@@ -196,8 +196,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: T::EventHandler,
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
-    /// Provides a small cache of `BeaconState` and `BeaconBlock`.
+    /// Caches the shuffling for a given epoch and state root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
@@ -873,15 +874,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Attestation target must be for a known block.
         //
+        // We use fork choice to find the target root, which means that we reject any attestation
+        // that has a `target.root` earlier than our latest finalized root. There's no point in
+        // processing an attestation that does not include our latest finalized block in its chain.
+        //
         // We do not delay consideration for later, we simply drop the attestation.
-        let (target_block_slot, target_block_state_root) =
-            if let Some(tuple) = self.fork_choice.block_slot_and_state_root(&target.root) {
-                tuple
-            } else {
-                return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
-                    beacon_block_root: attestation.data.beacon_block_root,
-                });
-            };
+        let (target_block_slot, target_block_state_root) = if let Some((slot, state_root)) =
+            self.fork_choice.block_slot_and_state_root(&target.root)
+        {
+            (slot, state_root)
+        } else {
+            return Ok(AttestationProcessingOutcome::UnknownTargetRoot(target.root));
+        };
 
         // Load the slot and state root for `attestation.data.beacon_block_root`.
         //
@@ -891,18 +895,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let (block_slot, _block_state_root) = if let Some(tuple) = self
+        let block_slot = if let Some((slot, _state_root)) = self
             .fork_choice
             .block_slot_and_state_root(&attestation.data.beacon_block_root)
         {
-            tuple
+            slot
         } else {
             return Ok(AttestationProcessingOutcome::UnknownHeadBlock {
                 beacon_block_root: attestation.data.beacon_block_root,
             });
         };
 
-        // TODO: check FFG stuff?
+        // TODO: currently we do not check the FFG source/target. This is what the spec dictates
+        // but it seems wrong.
+        //
+        // I have opened an issue on the specs repo for this:
+        //
+        // https://github.com/ethereum/eth2.0-specs/issues/1636
+        //
+        // We should revisit this code once that issue has been resolved.
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
@@ -971,6 +982,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
                 while state.current_epoch() + 1 < attestation_epoch {
+                    // Here we tell `per_slot_processing` to skip hashing the state and just
+                    // use the zero hash instead.
+                    //
+                    // The state roots are not useful for the shuffling, so there's no need to
+                    // compute them.
                     per_slot_processing(&mut state, Some(Hash256::zero()), &self.spec)?
                 }
 

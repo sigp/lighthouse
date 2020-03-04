@@ -1,15 +1,13 @@
-use beacon_chain::BeaconChainTypes;
 use eth2_libp2p::Enr;
 use rlp;
 use std::sync::Arc;
-use store::Store;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
-use types::Hash256;
+use store::{DBColumn, Error as StoreError, SimpleStoreItem, Store};
+use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`.
 pub const DHT_DB_KEY: &str = "PERSISTEDDHTPERSISTEDDHTPERSISTE";
 
-pub fn load_dht<T: BeaconChainTypes>(store: Arc<T::Store>) -> Vec<Enr> {
+pub fn load_dht<T: Store<E>, E: EthSpec>(store: Arc<T>) -> Vec<Enr> {
     // Load DHT from store
     let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
     match store.get(&key) {
@@ -22,8 +20,8 @@ pub fn load_dht<T: BeaconChainTypes>(store: Arc<T::Store>) -> Vec<Enr> {
 }
 
 /// Attempt to persist the ENR's in the DHT to `self.store`.
-pub fn persist_dht<T: BeaconChainTypes>(
-    store: Arc<T::Store>,
+pub fn persist_dht<T: Store<E>, E: EthSpec>(
+    store: Arc<T>,
     enrs: Vec<Enr>,
 ) -> Result<(), store::Error> {
     let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());

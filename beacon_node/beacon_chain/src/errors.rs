@@ -59,6 +59,7 @@ pub enum BeaconChainError {
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(state_processing::signature_sets::Error),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
+    ValidatorPubkeyCacheFileError(String),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

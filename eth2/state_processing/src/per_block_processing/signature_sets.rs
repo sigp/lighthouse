@@ -214,7 +214,6 @@ where
     Ok(SignatureSet::new(signature, vec![signed_message]))
 }
 
-// TODO: try and combine this and the above function into one.
 /// Returns the signature set for the given `indexed_attestation` but pubkeys are supplied directly
 /// instead of from the state.
 pub fn indexed_attestation_signature_set_from_pubkeys<'a, 'b, T, F>(

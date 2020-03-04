@@ -1,6 +1,6 @@
 extern crate slog;
 
-mod config;
+pub mod config;
 mod notifier;
 
 pub mod builder;
