@@ -246,6 +246,16 @@ mod test {
             if i < validator_count {
                 let pubkey = cache.get(i).expect("pubkey should be present");
                 assert_eq!(pubkey, &keypairs[i].pk, "pubkey should match cache");
+
+                let pubkey_bytes: PublicKeyBytes = pubkey.clone().into();
+
+                assert_eq!(
+                    i,
+                    cache
+                        .get_index(&pubkey_bytes)
+                        .expect("should resolve index"),
+                    "index should match cache"
+                );
             } else {
                 assert_eq!(
                     cache.get(i),
