@@ -1,11 +1,4 @@
-# Become an Ethereum 2.0 Validator*
-
-_* Testnet validator_
-
-
-**Note: the current testnet is dedicated to ETHDenver. You read about it
-[here](./ethdenver.md). Please use the `ethdenver` branch of Lighthouse for
-this testnet.**
+# Become an Ethereum 2.0 Testnet Validator
 
 Running Lighthouse validator is easy if you're familiar with the terminal. It
 runs on Linux, MacOS and Windows and we have a Docker work-flow.
