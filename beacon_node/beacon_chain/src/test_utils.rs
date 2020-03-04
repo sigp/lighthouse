@@ -178,7 +178,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .store(store.clone())
             .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
             .data_dir(data_dir.path().to_path_buf())
-            .resume_from_db(Eth1Config::default())
+            .resume_from_db()
             .expect("should resume beacon chain from db")
             .dummy_eth1_backend()
             .expect("should build dummy backend")

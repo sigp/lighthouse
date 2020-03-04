@@ -234,10 +234,7 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::Resume => {
-                            let future = builder
-                                .resume_from_db(config.eth1)
-                                .into_future()
-                                .map(|v| (v, None));
+                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
 
                             Box::new(future)
                         }
