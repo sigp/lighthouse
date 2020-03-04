@@ -1,6 +1,8 @@
 use crate::cache_arena;
+use crate::SmallVec8;
 use crate::{Error, Hash256};
 use eth2_hashing::{hash32_concat, ZERO_HASHES};
+use smallvec::smallvec;
 use ssz_derive::{Decode, Encode};
 use tree_hash::BYTES_PER_CHUNK;
 
@@ -17,28 +19,25 @@ pub struct TreeHashCache {
     ///
     /// The leaves are contained in `self.layers[self.depth]`, and each other layer `i`
     /// contains the parents of the nodes in layer `i + 1`.
-    layers: Vec<CacheArenaAllocation>,
+    layers: SmallVec8<CacheArenaAllocation>,
 }
 
 impl TreeHashCache {
     /// Create a new cache with the given `depth` with enough nodes allocated to suit `leaves`. All
     /// leaves are set to `Hash256::zero()`.
     pub fn new(arena: &mut CacheArena, depth: usize, leaves: usize) -> Self {
-        // TODO: what about when leaves is zero?
-        let layers = (0..=depth)
-            .map(|i| {
-                let vec = arena.alloc();
-                vec.extend_with_vec(
-                    arena,
-                    vec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],
-                )
-                .expect(
-                    "A newly allocated sub-arena cannot fail unless it has reached max capacity",
-                );
+        let mut layers = SmallVec8::with_capacity(depth + 1);
 
-                vec
-            })
-            .collect();
+        for i in 0..=depth {
+            let vec = arena.alloc();
+            vec.extend_with_vec(
+                arena,
+                smallvec![Hash256::zero(); nodes_per_layer(i, depth, leaves)],
+            )
+            .expect("A newly allocated sub-arena cannot fail unless it has reached max capacity");
+
+            layers.push(vec)
+        }
 
         TreeHashCache {
             initialized: false,
@@ -62,7 +61,7 @@ impl TreeHashCache {
         &mut self,
         arena: &mut CacheArena,
         mut leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
-    ) -> Result<Vec<usize>, Error> {
+    ) -> Result<SmallVec8<usize>, Error> {
         let new_leaf_count = leaves.len();
 
         if new_leaf_count < self.leaves().len(arena)? {
@@ -71,21 +70,19 @@ impl TreeHashCache {
             return Err(Error::TooManyLeaves);
         }
 
+        let mut dirty = SmallVec8::new();
+
         // Update the existing leaves
-        let mut dirty = self
-            .leaves()
+        self.leaves()
             .iter_mut(arena)?
             .enumerate()
             .zip(&mut leaves)
-            .flat_map(|((i, leaf), new_leaf)| {
+            .for_each(|((i, leaf), new_leaf)| {
                 if !self.initialized || leaf.as_bytes() != new_leaf {
                     leaf.assign_from_slice(&new_leaf);
-                    Some(i)
-                } else {
-                    None
+                    dirty.push(i);
                 }
-            })
-            .collect::<Vec<_>>();
+            });
 
         // Push the rest of the new leaves (if any)
         dirty.extend(self.leaves().len(arena)?..new_leaf_count);
@@ -101,7 +98,7 @@ impl TreeHashCache {
     pub fn update_merkle_root(
         &mut self,
         arena: &mut CacheArena,
-        mut dirty_indices: Vec<usize>,
+        mut dirty_indices: SmallVec8<usize>,
     ) -> Result<Hash256, Error> {
         if dirty_indices.is_empty() {
             return Ok(self.root(arena));
@@ -164,8 +161,13 @@ impl TreeHashCache {
 }
 
 /// Compute the dirty indices for one layer up.
-fn lift_dirty(dirty_indices: &[usize]) -> Vec<usize> {
-    let mut new_dirty = dirty_indices.iter().map(|i| *i / 2).collect::<Vec<_>>();
+fn lift_dirty(dirty_indices: &[usize]) -> SmallVec8<usize> {
+    let mut new_dirty = SmallVec8::with_capacity(dirty_indices.len());
+
+    for i in 0..dirty_indices.len() {
+        new_dirty.push(dirty_indices[i] / 2)
+    }
+
     new_dirty.dedup();
     new_dirty
 }
@@ -201,6 +203,21 @@ fn nodes_per_layer(layer: usize, depth: usize, leaves: usize) -> usize {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn zero_leaves() {
+        let arena = &mut CacheArena::default();
+
+        let depth = 3;
+        let num_leaves = 0;
+
+        let mut cache = TreeHashCache::new(arena, depth, num_leaves);
+        let leaves: Vec<[u8; BYTES_PER_CHUNK]> = vec![];
+
+        cache
+            .recalculate_merkle_root(arena, leaves.into_iter())
+            .expect("should calculate root");
+    }
 
     #[test]
     fn test_node_per_layer_unbalanced_tree() {

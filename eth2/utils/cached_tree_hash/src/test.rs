@@ -76,7 +76,7 @@ fn fixed_vector_hash256() {
     let mut cache = vec.new_tree_hash_cache(arena);
 
     assert_eq!(
-        Hash256::from_slice(&vec.tree_hash_root()),
+        vec.tree_hash_root(),
         vec.recalculate_tree_hash_root(arena, &mut cache).unwrap()
     );
 }
@@ -90,7 +90,7 @@ fn fixed_vector_u64() {
     let mut cache = vec.new_tree_hash_cache(arena);
 
     assert_eq!(
-        Hash256::from_slice(&vec.tree_hash_root()),
+        vec.tree_hash_root(),
         vec.recalculate_tree_hash_root(arena, &mut cache).unwrap()
     );
 }
@@ -104,7 +104,7 @@ fn variable_list_hash256() {
     let mut cache = list.new_tree_hash_cache(arena);
 
     assert_eq!(
-        Hash256::from_slice(&list.tree_hash_root()),
+        list.tree_hash_root(),
         list.recalculate_tree_hash_root(arena, &mut cache).unwrap()
     );
 }

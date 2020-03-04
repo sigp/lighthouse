@@ -3,7 +3,9 @@ mod cache_arena;
 mod impls;
 #[cfg(test)]
 mod test;
+use smallvec::SmallVec;
 
+type SmallVec8<T> = SmallVec<[T; 8]>;
 pub type CacheArena = cache_arena::CacheArena<Hash256>;
 
 pub use crate::cache::TreeHashCache;

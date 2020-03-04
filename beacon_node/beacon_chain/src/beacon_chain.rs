@@ -1705,7 +1705,7 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
 
 fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
-        let root = Hash256::from_slice(&state.tree_hash_root());
+        let root = state.tree_hash_root();
         let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
         let mut path = std::env::temp_dir().join("lighthouse");
         let _ = fs::create_dir_all(path.clone());
