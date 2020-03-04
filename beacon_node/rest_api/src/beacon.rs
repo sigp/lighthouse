@@ -518,15 +518,21 @@ pub fn proposer_slashing<T: BeaconChainTypes>(
         .and_then(move |proposer_slashing| {
             let spec = &beacon_chain.spec;
             let state = &beacon_chain.head().unwrap().beacon_state;
-            beacon_chain
-                .op_pool
-                .insert_proposer_slashing(proposer_slashing, state, spec)
-                .map_err(|e| {
-                    ApiError::BadRequest(format!(
-                        "Error while inserting proposer slashing: {:?}",
-                        e
-                    ))
-                })
+            if beacon_chain.eth1_chain.is_some() {
+                beacon_chain
+                    .op_pool
+                    .insert_proposer_slashing(proposer_slashing, state, spec)
+                    .map_err(|e| {
+                        ApiError::BadRequest(format!(
+                            "Error while inserting proposer slashing: {:?}",
+                            e
+                        ))
+                    })
+            } else {
+                Err(ApiError::BadRequest(
+                    "Cannot insert proposer slashing on node without Eth1 connection.".to_string(),
+                ))
+            }
         })
         .and_then(|_| response_builder?.body(&true));
 
@@ -554,15 +560,21 @@ pub fn attester_slashing<T: BeaconChainTypes>(
         .and_then(move |attester_slashing| {
             let spec = &beacon_chain.spec;
             let state = &beacon_chain.head().unwrap().beacon_state;
-            beacon_chain
-                .op_pool
-                .insert_attester_slashing(attester_slashing, state, spec)
-                .map_err(|e| {
-                    ApiError::BadRequest(format!(
-                        "Error while inserting attester slashing: {:?}",
-                        e
-                    ))
-                })
+            if beacon_chain.eth1_chain.is_some() {
+                beacon_chain
+                    .op_pool
+                    .insert_attester_slashing(attester_slashing, state, spec)
+                    .map_err(|e| {
+                        ApiError::BadRequest(format!(
+                            "Error while inserting attester slashing: {:?}",
+                            e
+                        ))
+                    })
+            } else {
+                Err(ApiError::BadRequest(
+                    "Cannot insert attester slashing on node without Eth1 connection.".to_string(),
+                ))
+            }
         })
         .and_then(|_| response_builder?.body(&true));
 
