@@ -2,7 +2,7 @@ use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
 use crate::validator::get_state_for_epoch;
 use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use futures::{Future, Stream};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
@@ -381,7 +381,7 @@ pub fn get_committees<T: BeaconChainTypes>(
 
     let epoch = query.epoch()?;
 
-    let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let mut state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|e| {
         ApiError::ServerError(format!("Failed to get state suitable for epoch: {:?}", e))
@@ -471,7 +471,7 @@ pub fn get_state_root<T: BeaconChainTypes>(
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let slot = parse_slot(&slot_string)?;
 
-    let root = state_root_at_slot(&beacon_chain, slot)?;
+    let root = state_root_at_slot(&beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
 
     ResponseBuilder::new(&req)?.body(&root)
 }

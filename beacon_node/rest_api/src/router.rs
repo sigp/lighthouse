@@ -10,6 +10,7 @@ use hyper::{Body, Error, Method, Request, Response};
 use slog::debug;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 fn into_boxfut<F: IntoFuture + 'static>(item: F) -> BoxFut
 where
@@ -33,6 +34,7 @@ pub fn route<T: BeaconChainTypes>(
 ) -> impl Future<Item = Response<Body>, Error = Error> {
     metrics::inc_counter(&metrics::REQUEST_COUNT);
     let timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
+    let received_instant = Instant::now();
 
     let path = req.uri().path().to_string();
 
@@ -113,7 +115,11 @@ pub fn route<T: BeaconChainTypes>(
 
             // Methods for Validator
             (&Method::POST, "/validator/duties") => {
-                validator::post_validator_duties::<T>(req, beacon_chain)
+                let timer =
+                    metrics::start_timer(&metrics::VALIDATOR_GET_DUTIES_REQUEST_RESPONSE_TIME);
+                let response = validator::post_validator_duties::<T>(req, beacon_chain);
+                drop(timer);
+                into_boxfut(response)
             }
             (&Method::GET, "/validator/duties/all") => {
                 into_boxfut(validator::get_all_validator_duties::<T>(req, beacon_chain))
@@ -122,13 +128,21 @@ pub fn route<T: BeaconChainTypes>(
                 validator::get_active_validator_duties::<T>(req, beacon_chain),
             ),
             (&Method::GET, "/validator/block") => {
-                into_boxfut(validator::get_new_beacon_block::<T>(req, beacon_chain, log))
+                let timer =
+                    metrics::start_timer(&metrics::VALIDATOR_GET_BLOCK_REQUEST_RESPONSE_TIME);
+                let response = validator::get_new_beacon_block::<T>(req, beacon_chain, log);
+                drop(timer);
+                into_boxfut(response)
             }
             (&Method::POST, "/validator/block") => {
                 validator::publish_beacon_block::<T>(req, beacon_chain, network_channel, log)
             }
             (&Method::GET, "/validator/attestation") => {
-                into_boxfut(validator::get_new_attestation::<T>(req, beacon_chain))
+                let timer =
+                    metrics::start_timer(&metrics::VALIDATOR_GET_ATTESTATION_REQUEST_RESPONSE_TIME);
+                let response = validator::get_new_attestation::<T>(req, beacon_chain);
+                drop(timer);
+                into_boxfut(response)
             }
             (&Method::POST, "/validator/attestation") => {
                 validator::publish_attestation::<T>(req, beacon_chain, network_channel, log)
@@ -176,21 +190,34 @@ pub fn route<T: BeaconChainTypes>(
     // Map the Rust-friendly `Result` in to a http-friendly response. In effect, this ensures that
     // any `Err` returned from our response handlers becomes a valid http response to the client
     // (e.g., a response with a 404 or 500 status).
-    request_result.then(move |result| match result {
-        Ok(response) => {
-            debug!(local_log, "HTTP API request successful"; "path" => path);
-            metrics::inc_counter(&metrics::SUCCESS_COUNT);
-            metrics::stop_timer(timer);
+    request_result.then(move |result| {
+        let duration = Instant::now().duration_since(received_instant);
+        match result {
+            Ok(response) => {
+                debug!(
+                    local_log,
+                    "HTTP API request successful";
+                    "path" => path,
+                    "duration_ms" => duration.as_millis()
+                );
+                metrics::inc_counter(&metrics::SUCCESS_COUNT);
+                metrics::stop_timer(timer);
 
-            Ok(response)
-        }
-        Err(e) => {
-            let error_response = e.into();
+                Ok(response)
+            }
+            Err(e) => {
+                let error_response = e.into();
 
-            debug!(local_log, "HTTP API request failure"; "path" => path);
-            metrics::stop_timer(timer);
+                debug!(
+                    local_log,
+                    "HTTP API request failure";
+                    "path" => path,
+                    "duration_ms" => duration.as_millis()
+                );
+                metrics::stop_timer(timer);
 
-            Ok(error_response)
+                Ok(error_response)
+            }
         }
     })
 }

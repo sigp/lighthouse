@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use beacon_chain::StateSkipConfig;
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, LocalBeaconNode,
@@ -42,7 +43,7 @@ fn http_server_genesis_state() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain")
-        .state_at_slot(Slot::new(0))
+        .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
         .expect("should find state");
     db_state.drop_all_caches();
 
