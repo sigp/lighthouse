@@ -1,7 +1,6 @@
 # Summary
 
 * [Introduction](./intro.md)
-* [ETHDenver 2020](./ethdenver.md)
 * [Become a Validator](./become-a-validator.md)
     * [Using Docker](./become-a-validator-docker.md)
     * [Building from Source](./become-a-validator-source.md)
