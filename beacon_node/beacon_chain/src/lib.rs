@@ -13,6 +13,7 @@ mod head_tracker;
 mod metrics;
 mod persisted_beacon_chain;
 mod shuffling_cache;
+mod state_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
 mod validator_pubkey_cache;

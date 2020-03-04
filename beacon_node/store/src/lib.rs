@@ -97,7 +97,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error>;
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
     /// Store a state summary in the store.
     // NOTE: this is a hack for the HotColdDb, we could consider splitting this

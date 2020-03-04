@@ -7,6 +7,7 @@ use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
+use crate::state_cache::StateCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -295,7 +296,7 @@ where
         self.genesis_block_root = Some(beacon_block_root);
 
         store
-            .put_state(&beacon_state_root, beacon_state.clone())
+            .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
             .put(&beacon_block_root, &beacon_block)
@@ -411,7 +412,7 @@ where
                 .op_pool
                 .ok_or_else(|| "Cannot build without op pool".to_string())?,
             eth1_chain: self.eth1_chain,
-            canonical_head: TimeoutRwLock::new(canonical_head),
+            canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root: self
                 .genesis_block_root
                 .ok_or_else(|| "Cannot build without a genesis block root".to_string())?,
@@ -424,6 +425,7 @@ where
             head_tracker: self.head_tracker.unwrap_or_default(),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            block_processing_cache: TimeoutRwLock::new(StateCache::new(canonical_head)),
             log: log.clone(),
         };
 

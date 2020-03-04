@@ -47,8 +47,6 @@ pub struct HotColdDB<E: EthSpec> {
     pub(crate) hot_db: LevelDB<E>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
-    /// LRU cache of deserialized states. Updated whenever a state is loaded.
-    state_cache: Mutex<LruCache<Hash256, BeaconState<E>>>,
     /// Chain spec.
     spec: ChainSpec,
     /// Logger.
@@ -145,7 +143,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error> {
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
             self.store_cold_state(state_root, &state)
         } else {
@@ -203,9 +201,6 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
             self.hot_db
                 .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
         }
-
-        // Delete from the cache.
-        self.state_cache.lock().pop(state_root);
 
         Ok(())
     }
@@ -349,7 +344,6 @@ impl<E: EthSpec> HotColdDB<E> {
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            state_cache: Mutex::new(LruCache::new(config.state_cache_size)),
             config,
             spec,
             log,
@@ -371,7 +365,7 @@ impl<E: EthSpec> HotColdDB<E> {
     pub fn store_hot_state(
         &self,
         state_root: &Hash256,
-        state: BeaconState<E>,
+        state: &BeaconState<E>,
     ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
         if state.slot % E::slots_per_epoch() == 0 {
@@ -387,10 +381,7 @@ impl<E: EthSpec> HotColdDB<E> {
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
-        self.put_state_summary(state_root, HotStateSummary::new(state_root, &state)?)?;
-
-        // Store the state in the cache.
-        self.state_cache.lock().put(*state_root, state);
+        self.put_state_summary(state_root, HotStateSummary::new(state_root, state)?)?;
 
         Ok(())
     }
@@ -404,17 +395,6 @@ impl<E: EthSpec> HotColdDB<E> {
         clone_config: CloneConfig,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
-
-        // Check the cache.
-        if let Some(state) = self.state_cache.lock().get(state_root) {
-            metrics::inc_counter(&metrics::BEACON_STATE_CACHE_HIT_COUNT);
-
-            let timer = metrics::start_timer(&metrics::BEACON_STATE_CACHE_CLONE_TIME);
-            let state = state.clone_with(clone_config);
-            metrics::stop_timer(timer);
-
-            return Ok(Some(state));
-        }
 
         if let Some(HotStateSummary {
             slot,
@@ -438,9 +418,6 @@ impl<E: EthSpec> HotColdDB<E> {
                     self.load_blocks_to_replay(boundary_state.slot, slot, latest_block_root)?;
                 self.replay_blocks(boundary_state, blocks, slot)?
             };
-
-            // Update the LRU cache.
-            self.state_cache.lock().put(*state_root, state.clone());
 
             Ok(Some(state))
         } else {
