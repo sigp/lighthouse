@@ -3,9 +3,10 @@
 ## 1. Download and install Lighthouse
 
 If you already have Rust installed, you can install Lighthouse with the
-following three commands:
+following commands:
 
 - `$ git clone https://github.com/sigp/lighthouse.git`
+- `$ git checkout ethdenver`
 - `$ cd lighthouse`
 - `$ make`
 
