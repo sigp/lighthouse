@@ -287,7 +287,7 @@ fn main() {
                 .arg(
                     Arg::with_name("min-genesis-delay")
                         .long("min-genesis-delay")
-                        .value_name("UNIX_SECONDS")
+                        .value_name("SECONDS")
                         .takes_value(true)
                         .default_value("3600")    // 10 minutes
                         .help("The delay between sufficient eth1 deposits and eth2 genesis."),

@@ -221,9 +221,9 @@ impl<T: Encode> Encode for Option<T> {
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         match self {
-            None => buf.append(&mut encode_union_index(0)),
+            None => buf.extend_from_slice(&encode_union_index(0)),
             Some(t) => {
-                buf.append(&mut encode_union_index(1));
+                buf.extend_from_slice(&encode_union_index(1));
                 t.ssz_append(buf);
             }
         }

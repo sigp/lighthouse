@@ -1,4 +1,7 @@
 use super::*;
+use smallvec::{smallvec, SmallVec};
+
+type SmallVec8<T> = SmallVec<[T; 8]>;
 
 pub mod impls;
 
@@ -62,8 +65,8 @@ pub struct Offset {
 /// See [`SszDecoder`](struct.SszDecoder.html) for usage examples.
 pub struct SszDecoderBuilder<'a> {
     bytes: &'a [u8],
-    items: Vec<&'a [u8]>,
-    offsets: Vec<Offset>,
+    items: SmallVec8<&'a [u8]>,
+    offsets: SmallVec8<Offset>,
     items_index: usize,
 }
 
@@ -73,8 +76,8 @@ impl<'a> SszDecoderBuilder<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {
         Self {
             bytes,
-            items: vec![],
-            offsets: vec![],
+            items: smallvec![],
+            offsets: smallvec![],
             items_index: 0,
         }
     }
@@ -204,7 +207,7 @@ impl<'a> SszDecoderBuilder<'a> {
 ///
 /// ```
 pub struct SszDecoder<'a> {
-    items: Vec<&'a [u8]>,
+    items: SmallVec8<&'a [u8]>,
 }
 
 impl<'a> SszDecoder<'a> {

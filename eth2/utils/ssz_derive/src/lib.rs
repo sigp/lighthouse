@@ -1,4 +1,4 @@
-#![recursion_limit = "128"]
+#![recursion_limit = "256"]
 //! Provides procedural derive macros for the `Encode` and `Decode` traits of the `eth2_ssz` crate.
 //!
 //! Supports field attributes, see each derive macro for more information.
@@ -173,6 +173,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     };
 
     let mut register_types = vec![];
+    let mut fixed_decodes = vec![];
     let mut decodes = vec![];
     let mut is_fixed_lens = vec![];
     let mut fixed_lens = vec![];
@@ -187,6 +188,10 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
                     decodes.push(quote! {
                         #ident: <_>::default()
                     });
+
+                    fixed_decodes.push(quote! {
+                        #ident: <_>::default()
+                    });
                 } else {
                     let ty = &field.ty;
 
@@ -196,6 +201,10 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
 
                     decodes.push(quote! {
                         #ident: decoder.decode_next()?
+                    });
+
+                    fixed_decodes.push(quote! {
+                        #ident: decode_field!(#ty)
                     });
 
                     is_fixed_lens.push(quote! {
@@ -232,19 +241,50 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
             }
 
             fn from_ssz_bytes(bytes: &[u8]) -> std::result::Result<Self, ssz::DecodeError> {
-                let mut builder = ssz::SszDecoderBuilder::new(bytes);
+                if <Self as ssz::Decode>::is_ssz_fixed_len() {
+                    if bytes.len() != <Self as ssz::Decode>::ssz_fixed_len() {
+                        return Err(ssz::DecodeError::InvalidByteLength {
+                            len: bytes.len(),
+                            expected: <Self as ssz::Decode>::ssz_fixed_len(),
+                        });
+                    }
 
-                #(
-                    #register_types
-                )*
+                    let mut start = 0;
+                    let mut end = start;
 
-                let mut decoder = builder.build()?;
+                    macro_rules! decode_field {
+                        ($type: ty) => {{
+                            start = end;
+                            end += <$type as ssz::Decode>::ssz_fixed_len();
+                            let slice = bytes.get(start..end)
+                                .ok_or_else(|| ssz::DecodeError::InvalidByteLength {
+                                    len: bytes.len(),
+                                    expected: end
+                                })?;
+                            <$type as ssz::Decode>::from_ssz_bytes(slice)?
+                        }};
+                    }
 
-                Ok(Self {
+                    Ok(Self {
+                        #(
+                            #fixed_decodes,
+                        )*
+                    })
+                } else {
+                    let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
                     #(
-                        #decodes,
+                        #register_types
                     )*
-                })
+
+                    let mut decoder = builder.build()?;
+
+                    Ok(Self {
+                        #(
+                            #decodes,
+                        )*
+                    })
+                }
             }
         }
     };
