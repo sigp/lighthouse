@@ -50,9 +50,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
-            None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.tree_hash_root(),
-            )),
+            None => builder.set_parent_root(state.latest_block_header.tree_hash_root()),
         }
 
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
@@ -92,9 +90,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
-            None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.tree_hash_root(),
-            )),
+            None => builder.set_parent_root(state.latest_block_header.tree_hash_root()),
         }
 
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
@@ -149,9 +145,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
-            None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.tree_hash_root(),
-            )),
+            None => builder.set_parent_root(state.latest_block_header.tree_hash_root()),
         }
 
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
@@ -192,9 +186,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
-            None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.tree_hash_root(),
-            )),
+            None => builder.set_parent_root(state.latest_block_header.tree_hash_root()),
         }
 
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
@@ -241,9 +233,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
-            None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.tree_hash_root(),
-            )),
+            None => builder.set_parent_root(state.latest_block_header.tree_hash_root()),
         }
 
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
@@ -283,9 +273,7 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
 
         match previous_block_root {
             Some(root) => builder.set_parent_root(root),
-            None => builder.set_parent_root(Hash256::from_slice(
-                &state.latest_block_header.tree_hash_root(),
-            )),
+            None => builder.set_parent_root(state.latest_block_header.tree_hash_root()),
         }
 
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();

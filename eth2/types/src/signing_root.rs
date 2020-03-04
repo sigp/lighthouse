@@ -14,12 +14,10 @@ pub struct SigningRoot {
 
 pub trait SignedRoot: TreeHash {
     fn signing_root(&self, domain: u64) -> Hash256 {
-        Hash256::from_slice(
-            &SigningRoot {
-                object_root: Hash256::from_slice(&self.tree_hash_root()),
-                domain,
-            }
-            .tree_hash_root(),
-        )
+        SigningRoot {
+            object_root: self.tree_hash_root(),
+            domain,
+        }
+        .tree_hash_root()
     }
 }

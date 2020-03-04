@@ -4,9 +4,10 @@ use eth2_hashing::hash;
 /// Merkleizes bytes and returns the root, using a simple algorithm that does not optimize to avoid
 /// processing or storing padding bytes.
 ///
-/// The input `bytes` will be padded to ensure that the number of leaves is a power-of-two.
+/// **Note**: This function is generally worse than using the `crate::merkle_root` which uses
+/// `MerkleHasher`. We only keep this function around for reference testing.
 ///
-/// It is likely a better choice to use [merkleize_padded](fn.merkleize_padded.html) instead.
+/// The input `bytes` will be padded to ensure that the number of leaves is a power-of-two.
 ///
 /// ## CPU Performance
 ///
@@ -17,12 +18,12 @@ use eth2_hashing::hash;
 ///  - Duplicates the input `bytes`.
 ///  - Stores all internal nodes, even if they are padding.
 ///  - Does not free up unused memory during operation.
-pub fn merkleize_standard(bytes: &[u8]) -> Vec<u8> {
+pub fn merkleize_standard(bytes: &[u8]) -> Hash256 {
     // If the bytes are just one chunk (or less than one chunk) just return them.
     if bytes.len() <= HASHSIZE {
         let mut o = bytes.to_vec();
         o.resize(HASHSIZE, 0);
-        return o;
+        return Hash256::from_slice(&o[0..HASHSIZE]);
     }
 
     let leaves = num_sanitized_leaves(bytes.len());
@@ -67,7 +68,7 @@ pub fn merkleize_standard(bytes: &[u8]) -> Vec<u8> {
         o[j..j + HASHSIZE].copy_from_slice(&hash);
     }
 
-    o
+    Hash256::from_slice(&o[0..HASHSIZE])
 }
 
 fn num_sanitized_leaves(num_bytes: usize) -> usize {
