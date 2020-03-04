@@ -10,19 +10,18 @@ use beacon_chain::AttestationProcessingOutcome;
 use state_processing::per_slot_processing;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, BitList, EthSpec, Hash256,
-    Keypair, MinimalEthSpec, Signature,
+    Keypair, MainnetEthSpec, Signature,
 };
 
-// Should ideally be divisible by 3.
-pub const VALIDATOR_COUNT: usize = 24;
+pub const VALIDATOR_COUNT: usize = 128;
 
 lazy_static! {
     /// A cached set of keys.
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<MinimalEthSpec>> {
-    let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
+fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<MainnetEthSpec>> {
+    let harness = BeaconChainHarness::new(MainnetEthSpec, KEYPAIRS[0..validator_count].to_vec());
 
     harness.advance_slot();
 
@@ -36,7 +35,7 @@ fn attestation_validity() {
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
-        MinimalEthSpec::slots_per_epoch() as usize * 3 + 1,
+        MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
         BlockStrategy::OnCanonicalHead,
         AttestationStrategy::AllValidators,
     );
@@ -83,7 +82,7 @@ fn attestation_validity() {
 
     let mut early_attestation = valid_attestation.clone();
     early_attestation.data.target.epoch = current_epoch + 1;
-    early_attestation.data.slot = (current_epoch + 1).start_slot(MinimalEthSpec::slots_per_epoch());
+    early_attestation.data.slot = (current_epoch + 1).start_slot(MainnetEthSpec::slots_per_epoch());
 
     assert_eq!(
         harness.chain.process_attestation(early_attestation),
@@ -98,7 +97,7 @@ fn attestation_validity() {
      * Should reject attestations from epochs prior to the previous epoch.
      */
 
-    let late_slot = (current_epoch - 2).start_slot(MinimalEthSpec::slots_per_epoch());
+    let late_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
     let late_block = chain
         .block_at_slot(late_slot)
         .expect("should not error getting block at slot")
@@ -213,7 +212,7 @@ fn attestation_that_skips_epochs() {
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
-        MinimalEthSpec::slots_per_epoch() as usize * 3 + 1,
+        MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
         BlockStrategy::OnCanonicalHead,
         AttestationStrategy::AllValidators,
     );
@@ -221,7 +220,7 @@ fn attestation_that_skips_epochs() {
     let current_slot = chain.slot().expect("should get slot");
     let current_epoch = chain.epoch().expect("should get epoch");
 
-    let earlier_slot = (current_epoch - 2).start_slot(MinimalEthSpec::slots_per_epoch());
+    let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
     let earlier_block = chain
         .block_at_slot(earlier_slot)
         .expect("should not error getting block at slot")
