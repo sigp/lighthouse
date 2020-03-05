@@ -821,6 +821,7 @@ mod release_tests {
             let committee = state
                 .get_beacon_committee(att.data.slot, att.data.index)
                 .expect("should get beacon committee");
+
             let att_indices = BTreeSet::from_iter(
                 get_attesting_indices::<MainnetEthSpec>(
                     committee.committee,
