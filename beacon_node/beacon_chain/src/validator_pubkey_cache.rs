@@ -131,15 +131,11 @@ impl From<Error> for BeaconChainError {
 impl ValidatorPubkeyCacheFile {
     /// Creates a file for reading and writing.
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        if path.as_ref().exists() {
-            Err(Error::FileExists)
-        } else {
-            OpenOptions::new()
-                .create_new(true)
-                .open(path)
-                .map(Self)
-                .map_err(Error::IoError)
-        }
+        OpenOptions::new()
+            .create_new(true)
+            .open(path)
+            .map(Self)
+            .map_err(Error::IoError)
     }
 
     /// Opens an existing file for reading and writing.
