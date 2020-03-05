@@ -13,7 +13,7 @@ use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes};
 /// 1. To avoid reading a `BeaconState` from disk each time we need a public key.
 /// 2. To reduce the amount of public key _decompression_ required. A `BeaconState` stores public
 ///    keys in compressed form and they are needed in decompressed form for signature verification.
-///    Decompression is expensive when may keys are involved.
+///    Decompression is expensive when many keys are involved.
 ///
 /// The cache has a `persistence_file` that it uses to maintain a persistent, on-disk
 /// copy of itself. This allows it to be restored between process invocations.
@@ -134,7 +134,11 @@ impl ValidatorPubkeyCacheFile {
         if path.as_ref().exists() {
             Err(Error::FileExists)
         } else {
-            File::create(path).map(Self).map_err(Error::IoError)
+            OpenOptions::new()
+                .create_new(true)
+                .open(path)
+                .map(Self)
+                .map_err(Error::IoError)
         }
     }
 

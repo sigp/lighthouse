@@ -1372,28 +1372,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the imported block is in the previous or current epochs (according to the
         // wall-clock), check to see if this is the first block of the epoch. If so, add the
         // committee to the shuffling cache.
-        if state.current_epoch() + 1 >= self.epoch()? {
-            // If the parent was in a previous epoch then this state must contain some new
-            // shuffling that may be of use to the shuffling cache.
-            if parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch() {
-                let mut shuffling_cache = self
-                    .shuffling_cache
-                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
+        if state.current_epoch() + 1 >= self.epoch()?
+            && parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch()
+        {
+            let mut shuffling_cache = self
+                .shuffling_cache
+                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
 
-                let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
+            let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
 
-                let epoch_start_slot = state
-                    .current_epoch()
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                let target_root = if state.slot == epoch_start_slot {
-                    block_root
-                } else {
-                    *state.get_block_root(epoch_start_slot)?
-                };
+            let epoch_start_slot = state
+                .current_epoch()
+                .start_slot(T::EthSpec::slots_per_epoch());
+            let target_root = if state.slot == epoch_start_slot {
+                block_root
+            } else {
+                *state.get_block_root(epoch_start_slot)?
+            };
 
-                shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
-            }
+            shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
         }
 
         // Register the new block with the fork choice service.
