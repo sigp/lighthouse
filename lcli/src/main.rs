@@ -4,7 +4,9 @@ extern crate log;
 mod change_genesis_time;
 mod deploy_deposit_contract;
 mod eth1_genesis;
+mod helpers;
 mod interop_genesis;
+mod new_testnet;
 mod parse_hex;
 mod refund_deposit_contract;
 mod transition_blocks;
@@ -112,34 +114,7 @@ fn main() {
         .subcommand(
             SubCommand::with_name("deploy-deposit-contract")
                 .about(
-                    "Deploy an eth1 deposit contract and create a ~/.lighthouse/testnet directory \
-                    (unless another directory is specified).",
-                )
-                .arg(
-                    Arg::with_name("output")
-                        .short("o")
-                        .long("output")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .help("The output directory. Defaults to ~/.lighthouse/testnet"),
-                )
-                .arg(
-                    Arg::with_name("min-genesis-time")
-                        .short("t")
-                        .long("min-genesis-time")
-                        .value_name("UNIX_EPOCH_SECONDS")
-                        .takes_value(true)
-                        .default_value("0")
-                        .help("The MIN_GENESIS_TIME constant."),
-                )
-                .arg(
-                    Arg::with_name("min-genesis-active-validator-count")
-                        .short("v")
-                        .long("min-genesis-active-validator-count")
-                        .value_name("INTEGER")
-                        .takes_value(true)
-                        .default_value("64")
-                        .help("The MIN_GENESIS_ACTIVE_VALIDATOR_COUNT constant."),
+                    "Deploy a testing eth1 deposit contract.",
                 )
                 .arg(
                     Arg::with_name("eth1-endpoint")
@@ -281,6 +256,109 @@ fn main() {
                         .help("The value for state.genesis_time."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("new-testnet")
+                .about(
+                    "Produce a new testnet directory.",
+                )
+                .arg(
+                    Arg::with_name("testnet-dir")
+                        .long("testnet-dir")
+                        .value_name("DIRECTORY")
+                        .takes_value(true)
+                        .help("The output path for the new testnet directory. Defaults to ~/.lighthouse/testnet"),
+                )
+                .arg(
+                    Arg::with_name("min-genesis-time")
+                        .long("min-genesis-time")
+                        .value_name("UNIX_SECONDS")
+                        .takes_value(true)
+                        .help("The minimum permitted genesis time. For non-eth1 testnets will be
+                              the genesis time. Defaults to now."),
+                )
+                .arg(
+                    Arg::with_name("min-genesis-active-validator-count")
+                        .long("min-genesis-active-validator-count")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("16384")
+                        .help("The number of validators required to trigger eth2 genesis."),
+                )
+                .arg(
+                    Arg::with_name("min-genesis-delay")
+                        .long("min-genesis-delay")
+                        .value_name("SECONDS")
+                        .takes_value(true)
+                        .default_value("3600")    // 10 minutes
+                        .help("The delay between sufficient eth1 deposits and eth2 genesis."),
+                )
+                .arg(
+                    Arg::with_name("min-deposit-amount")
+                        .long("min-deposit-amount")
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .default_value("100000000")    // 0.1 Eth
+                        .help("The minimum permitted deposit amount."),
+                )
+                .arg(
+                    Arg::with_name("max-effective-balance")
+                        .long("max-effective-balance")
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .default_value("3200000000")    // 3.2 Eth
+                        .help("The amount required to become a validator."),
+                )
+                .arg(
+                    Arg::with_name("effective-balance-increment")
+                        .long("effective-balance-increment")
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .default_value("100000000")    // 0.1 Eth
+                        .help("The steps in effective balance calculation."),
+                )
+                .arg(
+                    Arg::with_name("ejection-balance")
+                        .long("ejection-balance")
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .default_value("1600000000")    // 1.6 Eth
+                        .help("The balance at which a validator gets ejected."),
+                )
+                .arg(
+                    Arg::with_name("eth1-follow-distance")
+                        .long("eth1-follow-distance")
+                        .value_name("ETH1_BLOCKS")
+                        .takes_value(true)
+                        .default_value("16")
+                        .help("The distance to follow behind the eth1 chain head."),
+                )
+                .arg(
+                    Arg::with_name("genesis-fork-version")
+                        .long("genesis-fork-version")
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .default_value("0x01030307")    // [1, 3, 3, 7]
+                        .help("Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default."),
+                )
+                .arg(
+                    Arg::with_name("deposit-contract-address")
+                        .long("deposit-contract-address")
+                        .value_name("ETH1_ADDRESS")
+                        .takes_value(true)
+                        .default_value("0x0000000000000000000000000000000000000000")
+                        .help("The address of the deposit contract."),
+                )
+                .arg(
+                    Arg::with_name("deposit-contract-deploy-block")
+                        .long("deposit-contract-deploy-block")
+                        .value_name("ETH1_BLOCK_NUMBER")
+                        .takes_value(true)
+                        .default_value("0")
+                        .help("The block the deposit contract was deployed. Setting this is a huge
+                              optimization for nodes, please do it."),
+                )
+        )
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -365,6 +443,8 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
             .unwrap_or_else(|e| error!("Failed to run interop-genesis command: {}", e)),
         ("change-genesis-time", Some(matches)) => change_genesis_time::run::<T>(matches)
             .unwrap_or_else(|e| error!("Failed to run change-genesis-time command: {}", e)),
+        ("new-testnet", Some(matches)) => new_testnet::run::<T>(matches)
+            .unwrap_or_else(|e| error!("Failed to run new_testnet command: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }

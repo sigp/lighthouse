@@ -1,13 +1,11 @@
-use super::BYTES_PER_CHUNK;
-use eth2_hashing::{hash, hash32_concat, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
-
-/// The size of the cache that stores padding nodes for a given height.
-///
-/// Currently, we panic if we encounter a tree with a height larger than `MAX_TREE_DEPTH`.
-pub const MAX_TREE_DEPTH: usize = ZERO_HASHES_MAX_INDEX;
+use super::{get_zero_hash, Hash256, BYTES_PER_CHUNK};
+use eth2_hashing::{hash, hash32_concat};
 
 /// Merkleize `bytes` and return the root, optionally padding the tree out to `min_leaves` number of
 /// leaves.
+///
+/// **Note**: This function is generally worse than using the `crate::merkle_root` which uses
+/// `MerkleHasher`. We only keep this function around for reference testing.
 ///
 /// First all nodes are extracted from `bytes` and then a padding node is added until the number of
 /// leaf chunks is greater than or equal to `min_leaves`. Callers may set `min_leaves` to `0` if no
@@ -34,12 +32,12 @@ pub const MAX_TREE_DEPTH: usize = ZERO_HASHES_MAX_INDEX;
 ///
 /// _Note: there are some minor memory overheads, including a handful of usizes and a list of
 /// `MAX_TREE_DEPTH` hashes as `lazy_static` constants._
-pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
+pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Hash256 {
     // If the bytes are just one chunk or less, pad to one chunk and return without hashing.
     if bytes.len() <= BYTES_PER_CHUNK && min_leaves <= 1 {
         let mut o = bytes.to_vec();
         o.resize(BYTES_PER_CHUNK, 0);
-        return o;
+        return Hash256::from_slice(&o);
     }
 
     assert!(
@@ -157,7 +155,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
     assert_eq!(root.len(), BYTES_PER_CHUNK, "Only one chunk should remain");
 
-    root
+    Hash256::from_slice(&root)
 }
 
 /// A helper struct for storing words of `BYTES_PER_CHUNK` size in a flat byte array.
@@ -212,15 +210,6 @@ impl ChunkStore {
     }
 }
 
-/// Returns a cached padding node for a given height.
-fn get_zero_hash(height: usize) -> &'static [u8] {
-    if height <= MAX_TREE_DEPTH {
-        &ZERO_HASHES[height]
-    } else {
-        panic!("Tree exceeds MAX_TREE_DEPTH of {}", MAX_TREE_DEPTH)
-    }
-}
-
 /// Returns the next even number following `n`. If `n` is even, `n` is returned.
 fn next_even_number(n: usize) -> usize {
     n + n % 2
@@ -229,9 +218,10 @@ fn next_even_number(n: usize) -> usize {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ZERO_HASHES_MAX_INDEX;
 
-    pub fn reference_root(bytes: &[u8]) -> Vec<u8> {
-        crate::merkleize_standard(&bytes)[0..32].to_vec()
+    pub fn reference_root(bytes: &[u8]) -> Hash256 {
+        crate::merkleize_standard(&bytes)
     }
 
     macro_rules! common_tests {
@@ -288,10 +278,10 @@ mod test {
             #[test]
             fn max_tree_depth_min_nodes() {
                 let input = vec![0; 10 * BYTES_PER_CHUNK];
-                let min_nodes = 2usize.pow(MAX_TREE_DEPTH as u32);
+                let min_nodes = 2usize.pow(ZERO_HASHES_MAX_INDEX as u32);
                 assert_eq!(
-                    merkleize_padded(&input, min_nodes),
-                    get_zero_hash(MAX_TREE_DEPTH)
+                    merkleize_padded(&input, min_nodes).as_bytes(),
+                    get_zero_hash(ZERO_HASHES_MAX_INDEX)
                 );
             }
         };

@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
@@ -242,7 +242,10 @@ fn check_duties<T: BeaconChainTypes>(
     );
 
     let mut state = beacon_chain
-        .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        .state_at_slot(
+            epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            StateSkipConfig::WithStateRoots,
+        )
         .expect("should get state at slot");
 
     state.build_all_caches(spec).expect("should build caches");
@@ -469,7 +472,7 @@ fn beacon_state() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain")
-        .state_at_slot(Slot::new(0))
+        .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
         .expect("should find state");
     db_state.drop_all_caches();
 

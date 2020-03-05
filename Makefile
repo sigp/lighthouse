@@ -6,7 +6,7 @@ EF_TESTS = "tests/ef_tests"
 #
 # Binaries will most likely be found in `./target/release`
 install:
-	cargo install --path lighthouse --force
+	cargo install --path lighthouse --force --locked
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.

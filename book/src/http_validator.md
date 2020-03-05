@@ -159,7 +159,12 @@ The return format is identical to the [Validator Duties](#validator-duties) resp
 
 ## `/validator/block`
 
-Produces and returns a `BeaconBlock` object from the current state.
+Produces and returns an unsigned `BeaconBlock` object.
+
+The block will be produced with the given `slot` and the parent block will be the
+highest block in the canonical chain that has a slot less than `slot`. The
+block will still be produced if some other block is also known to be at `slot`
+(i.e., it may produce a block that would be slashable if signed).
 
 ### HTTP Specification
 
@@ -210,6 +215,15 @@ Returns a `BeaconBlock` object.
 
 Produces and returns an unsigned `Attestation` from the current state.
 
+The attestation will reference the `beacon_block_root` of the highest block in
+the canonical chain with a slot equal to or less than the given `slot`.
+
+An error will be returned if the given slot is more than
+`SLOTS_PER_HISTORICAL_VECTOR` slots behind the current head block.
+
+This endpoint is not protected against slashing. Signing the returned
+attestation may result in a slashable offence.
+
 ### HTTP Specification
 
 | Property | Specification |
@@ -255,7 +269,12 @@ Returns a `Attestation` object with a default signature. The `signature` field s
 
 ## `/validator/block`
 
-Publishes a `SignedBeaconBlock` object to the network.
+Accepts a `SignedBeaconBlock` for verification. If it is valid, it will be
+imported into the local database and published on the network. Invalid blocks
+will not be published to the network.
+
+A block may be considered invalid because it is fundamentally incorrect, or its
+parent has not yet been imported.
 
 ### HTTP Specification
 
@@ -318,7 +337,13 @@ Else, returns a processing error description.
 
 ## `/validator/attestation`
 
-Publishes a `Attestation` object to the network.
+Accepts an `Attestation` for verification. If it is valid, it will be imported
+into the local database and published to the network. Invalid attestations will
+not be published to the network.
+
+An attestation may be considered invalid because it is fundamentally incorrect
+or because the beacon node has not imported the relevant blocks required to
+verify it.
 
 ### HTTP Specification
 

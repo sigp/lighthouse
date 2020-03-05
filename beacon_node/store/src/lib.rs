@@ -91,6 +91,11 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         self.get(block_root)
     }
 
+    /// Delete a block from the store.
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
+        self.delete::<SignedBeaconBlock<E>>(block_root)
+    }
+
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error>;
 
@@ -121,6 +126,11 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     ) -> Result<Option<BeaconState<E>>, Error> {
         // Default impl ignores config. Overriden in `HotColdDb`.
         self.get_state(state_root, slot)
+    }
+
+    /// Delete a state from the store.
+    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error> {
+        self.key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())
     }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
