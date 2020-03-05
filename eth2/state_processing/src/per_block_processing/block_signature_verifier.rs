@@ -189,7 +189,11 @@ impl<'a, T: EthSpec> BlockSignatureVerifier<'a, T> {
             .attestations
             .iter()
             .map(|attestation| {
-                let indexed_attestation = get_indexed_attestation(self.state, attestation)?;
+                let committee = self
+                    .state
+                    .get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+                let indexed_attestation =
+                    get_indexed_attestation(committee.committee, attestation)?;
 
                 self.sets.push(indexed_attestation_signature_set(
                     &self.state,

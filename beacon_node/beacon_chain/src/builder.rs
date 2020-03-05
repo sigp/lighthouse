@@ -2,7 +2,9 @@ use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
+use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
@@ -13,12 +15,15 @@ use proto_array_fork_choice::ProtoArrayForkChoice;
 use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Store;
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
 };
+
+pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -73,6 +78,9 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     persisted_beacon_chain: Option<PersistedBeaconChain<T>>,
     head_tracker: Option<HeadTracker>,
+    data_dir: Option<PathBuf>,
+    pubkey_cache_path: Option<PathBuf>,
+    validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
     log: Option<Logger>,
 }
@@ -106,6 +114,9 @@ where
             slot_clock: None,
             persisted_beacon_chain: None,
             head_tracker: None,
+            pubkey_cache_path: None,
+            data_dir: None,
+            validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             log: None,
         }
@@ -142,6 +153,15 @@ where
         self
     }
 
+    /// Sets the location to the pubkey cache file.
+    ///
+    /// Should generally be called early in the build chain.
+    pub fn data_dir(mut self, path: PathBuf) -> Self {
+        self.pubkey_cache_path = Some(path.join(PUBKEY_CACHE_FILENAME));
+        self.data_dir = Some(path);
+        self
+    }
+
     /// Attempt to load an existing chain from the builder's `Store`.
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
@@ -150,6 +170,11 @@ where
             .log
             .as_ref()
             .ok_or_else(|| "resume_from_db requires a log".to_string())?;
+
+        let pubkey_cache_path = self
+            .pubkey_cache_path
+            .as_ref()
+            .ok_or_else(|| "resume_from_db requires a data_dir".to_string())?;
 
         info!(
             log,
@@ -193,6 +218,11 @@ where
             None => None,
         };
         self.persisted_beacon_chain = Some(p);
+
+        let pubkey_cache = ValidatorPubkeyCache::load_from_file(pubkey_cache_path)
+            .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
+
+        self.validator_pubkey_cache = Some(pubkey_cache);
 
         Ok(self)
     }
@@ -308,6 +338,18 @@ where
             return Err("beacon_block.state_root != beacon_state".to_string());
         }
 
+        let pubkey_cache_path = self
+            .pubkey_cache_path
+            .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
+
+        let validator_pubkey_cache = self
+            .validator_pubkey_cache
+            .map(|cache| Ok(cache))
+            .unwrap_or_else(|| {
+                ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
+                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+            })?;
+
         let beacon_chain = BeaconChain {
             spec: self.spec,
             store: self
@@ -334,6 +376,8 @@ where
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             log: log.clone(),
         };
 
@@ -384,6 +428,7 @@ where
 
             let backend = ProtoArrayForkChoice::new(
                 finalized_checkpoint.beacon_block.message.slot,
+                finalized_checkpoint.beacon_block.message.state_root,
                 // Note: here we set the `justified_epoch` to be the same as the epoch of the
                 // finalized checkpoint. Whilst this finalized checkpoint may actually point to
                 // a _later_ justified checkpoint, that checkpoint won't yet exist in the fork
@@ -539,6 +584,7 @@ mod test {
     use ssz::Encode;
     use std::time::Duration;
     use store::{migrate::NullMigrator, MemoryStore};
+    use tempfile::tempdir;
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
@@ -556,6 +602,7 @@ mod test {
         let log = get_logger();
         let store = Arc::new(MemoryStore::open());
         let spec = MinimalEthSpec::default_spec();
+        let data_dir = tempdir().expect("should create temporary data_dir");
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -568,6 +615,7 @@ mod test {
             .logger(log.clone())
             .store(store)
             .store_migrator(NullMigrator)
+            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
