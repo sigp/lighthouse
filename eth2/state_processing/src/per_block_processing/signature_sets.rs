@@ -40,22 +40,22 @@ impl From<BeaconStateError> for Error {
     }
 }
 
+/// Helper function to get a public key from a `state`.
 pub fn get_pubkey_from_state<'a, T>(
     state: &'a BeaconState<T>,
-) -> impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone
+    validator_index: usize,
+) -> Option<Cow<'a, G1Point>>
 where
     T: EthSpec,
 {
-    move |validator_index: usize| -> Option<Cow<'a, G1Point>> {
-        state
-            .validators
-            .get(validator_index)
-            .and_then(|v| {
-                let pk: Option<PublicKey> = (&v.pubkey).try_into().ok();
-                pk
-            })
-            .map(|pk| Cow::Owned(pk.into_point()))
-    }
+    state
+        .validators
+        .get(validator_index)
+        .and_then(|v| {
+            let pk: Option<PublicKey> = (&v.pubkey).try_into().ok();
+            pk
+        })
+        .map(|pk| Cow::Owned(pk.into_point()))
 }
 
 /// A signature set that is valid if a block was signed by the expected block producer.

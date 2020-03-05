@@ -43,7 +43,7 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
         verify!(
             indexed_attestation_signature_set(
                 state,
-                get_pubkey_from_state(state),
+                |i| get_pubkey_from_state(state, i),
                 &indexed_attestation.signature,
                 &indexed_attestation,
                 spec
