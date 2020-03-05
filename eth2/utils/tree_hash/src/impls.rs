@@ -1,6 +1,12 @@
 use super::*;
 use ethereum_types::{H256, U128, U256};
 
+fn int_to_hash256(int: u64) -> Hash256 {
+    let mut bytes = [0; HASHSIZE];
+    bytes[0..8].copy_from_slice(&int.to_le_bytes());
+    Hash256::from_slice(&bytes)
+}
+
 macro_rules! impl_for_bitsize {
     ($type: ident, $bit_size: expr) => {
         impl TreeHash for $type {
@@ -17,8 +23,8 @@ macro_rules! impl_for_bitsize {
             }
 
             #[allow(clippy::cast_lossless)]
-            fn tree_hash_root(&self) -> Vec<u8> {
-                int_to_bytes32(*self as u64)
+            fn tree_hash_root(&self) -> Hash256 {
+                int_to_hash256(*self as u64)
             }
         }
     };
@@ -43,12 +49,13 @@ impl TreeHash for bool {
         u8::tree_hash_packing_factor()
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
-        int_to_bytes32(*self as u64)
+    fn tree_hash_root(&self) -> Hash256 {
+        int_to_hash256(*self as u64)
     }
 }
 
-macro_rules! impl_for_u8_array {
+/// Only valid for byte types less than 32 bytes.
+macro_rules! impl_for_lt_32byte_u8_array {
     ($len: expr) => {
         impl TreeHash for [u8; $len] {
             fn tree_hash_type() -> TreeHashType {
@@ -63,15 +70,17 @@ macro_rules! impl_for_u8_array {
                 unreachable!("bytesN should never be packed.")
             }
 
-            fn tree_hash_root(&self) -> Vec<u8> {
-                merkle_root(&self[..], 0)
+            fn tree_hash_root(&self) -> Hash256 {
+                let mut result = [0; 32];
+                result[0..$len].copy_from_slice(&self[..]);
+                Hash256::from_slice(&result)
             }
         }
     };
 }
 
-impl_for_u8_array!(4);
-impl_for_u8_array!(32);
+impl_for_lt_32byte_u8_array!(4);
+impl_for_lt_32byte_u8_array!(32);
 
 impl TreeHash for U128 {
     fn tree_hash_type() -> TreeHashType {
@@ -88,8 +97,10 @@ impl TreeHash for U128 {
         2
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&self.tree_hash_packed_encoding(), 0)
+    fn tree_hash_root(&self) -> Hash256 {
+        let mut result = [0; HASHSIZE];
+        self.to_little_endian(&mut result[0..16]);
+        Hash256::from_slice(&result)
     }
 }
 
@@ -108,8 +119,10 @@ impl TreeHash for U256 {
         1
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&self.tree_hash_packed_encoding(), 0)
+    fn tree_hash_root(&self) -> Hash256 {
+        let mut result = [0; 32];
+        self.to_little_endian(&mut result[..]);
+        Hash256::from_slice(&result)
     }
 }
 
@@ -126,16 +139,9 @@ impl TreeHash for H256 {
         1
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&self.as_bytes().to_vec(), 0)
+    fn tree_hash_root(&self) -> Hash256 {
+        *self
     }
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: u64) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }
 
 #[cfg(test)]
@@ -149,22 +155,22 @@ mod test {
 
         let false_bytes: Vec<u8> = vec![0; 32];
 
-        assert_eq!(true.tree_hash_root(), true_bytes);
-        assert_eq!(false.tree_hash_root(), false_bytes);
+        assert_eq!(true.tree_hash_root().as_bytes(), true_bytes.as_slice());
+        assert_eq!(false.tree_hash_root().as_bytes(), false_bytes.as_slice());
     }
 
     #[test]
     fn int_to_bytes() {
-        assert_eq!(&int_to_bytes32(0), &[0; 32]);
+        assert_eq!(int_to_hash256(0).as_bytes(), &[0; 32]);
         assert_eq!(
-            &int_to_bytes32(1),
+            int_to_hash256(1).as_bytes(),
             &[
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0
             ]
         );
         assert_eq!(
-            &int_to_bytes32(u64::max_value()),
+            int_to_hash256(u64::max_value()).as_bytes(),
             &[
                 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0

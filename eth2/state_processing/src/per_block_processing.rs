@@ -24,7 +24,7 @@ pub mod block_processing_builder;
 mod block_signature_verifier;
 pub mod errors;
 mod is_valid_indexed_attestation;
-mod signature_sets;
+pub mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;
@@ -144,8 +144,7 @@ pub fn process_block_header<T: EthSpec>(
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
 
-    let expected_previous_block_root =
-        Hash256::from_slice(&state.latest_block_header.tree_hash_root());
+    let expected_previous_block_root = state.latest_block_header.tree_hash_root();
     verify!(
         block.parent_root == expected_previous_block_root,
         HeaderInvalid::ParentBlockRootMismatch {

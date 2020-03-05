@@ -2,7 +2,7 @@ use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
 use crate::validator::get_state_for_epoch;
 use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use futures::{Future, Stream};
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,8 @@ use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::Store;
 use types::{
-    BeaconState, CommitteeIndex, EthSpec, Hash256, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, Slot, Validator,
+    AttesterSlashing, BeaconState, CommitteeIndex, EthSpec, Hash256, ProposerSlashing,
+    PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, Slot, Validator,
 };
 
 /// Information about the block and state that are at head of the beacon chain.
@@ -381,7 +381,7 @@ pub fn get_committees<T: BeaconChainTypes>(
 
     let epoch = query.epoch()?;
 
-    let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let mut state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|e| {
         ApiError::ServerError(format!("Failed to get state suitable for epoch: {:?}", e))
@@ -471,7 +471,7 @@ pub fn get_state_root<T: BeaconChainTypes>(
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let slot = parse_slot(&slot_string)?;
 
-    let root = state_root_at_slot(&beacon_chain, slot)?;
+    let root = state_root_at_slot(&beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
 
     ResponseBuilder::new(&req)?.body(&root)
 }
@@ -495,4 +495,88 @@ pub fn get_genesis_time<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
     ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.genesis_time)
+}
+
+pub fn proposer_slashing<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> BoxFut {
+    let response_builder = ResponseBuilder::new(&req);
+
+    let future = req
+        .into_body()
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice::<ProposerSlashing>(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into ProposerSlashing: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(move |proposer_slashing| {
+            let spec = &beacon_chain.spec;
+            let state = &beacon_chain.head().unwrap().beacon_state;
+            if beacon_chain.eth1_chain.is_some() {
+                beacon_chain
+                    .op_pool
+                    .insert_proposer_slashing(proposer_slashing, state, spec)
+                    .map_err(|e| {
+                        ApiError::BadRequest(format!(
+                            "Error while inserting proposer slashing: {:?}",
+                            e
+                        ))
+                    })
+            } else {
+                Err(ApiError::BadRequest(
+                    "Cannot insert proposer slashing on node without Eth1 connection.".to_string(),
+                ))
+            }
+        })
+        .and_then(|_| response_builder?.body(&true));
+
+    Box::new(future)
+}
+
+pub fn attester_slashing<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> BoxFut {
+    let response_builder = ResponseBuilder::new(&req);
+
+    let future = req
+        .into_body()
+        .concat2()
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into AttesterSlashing: {:?}",
+                    e
+                ))
+            })
+        })
+        .and_then(move |attester_slashing| {
+            let spec = &beacon_chain.spec;
+            let state = &beacon_chain.head().unwrap().beacon_state;
+            if beacon_chain.eth1_chain.is_some() {
+                beacon_chain
+                    .op_pool
+                    .insert_attester_slashing(attester_slashing, state, spec)
+                    .map_err(|e| {
+                        ApiError::BadRequest(format!(
+                            "Error while inserting attester slashing: {:?}",
+                            e
+                        ))
+                    })
+            } else {
+                Err(ApiError::BadRequest(
+                    "Cannot insert attester slashing on node without Eth1 connection.".to_string(),
+                ))
+            }
+        })
+        .and_then(|_| response_builder?.body(&true));
+
+    Box::new(future)
 }

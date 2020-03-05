@@ -284,14 +284,14 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         // Vector containing all leaves
         let leaves = datas
             .iter()
-            .map(|data| Hash256::from_slice(&data.tree_hash_root()))
+            .map(|data| data.tree_hash_root())
             .collect::<Vec<_>>();
 
         // Building a VarList from leaves
         let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
 
         // Setting the deposit_root to be the tree_hash_root of the VarList
-        state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+        state.eth1_data.deposit_root = deposit_data_list.tree_hash_root();
 
         // Building the merkle tree used for generating proofs
         let tree = MerkleTree::create(&leaves[..], spec.deposit_contract_tree_depth as usize);
@@ -377,7 +377,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
 /// Builds an `ProposerSlashing` for some `validator_index`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_proposer_slashing<T: EthSpec>(
+pub fn build_proposer_slashing<T: EthSpec>(
     test_task: ProposerSlashingTestTask,
     validator_index: u64,
     secret_key: &SecretKey,
@@ -396,7 +396,7 @@ fn build_proposer_slashing<T: EthSpec>(
 /// Builds an `AttesterSlashing` for some `validator_indices`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_double_vote_attester_slashing<T: EthSpec>(
+pub fn build_double_vote_attester_slashing<T: EthSpec>(
     test_task: AttesterSlashingTestTask,
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],

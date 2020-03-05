@@ -115,7 +115,7 @@ impl<'a> SszEncoder<'a> {
             item.ssz_append(&mut self.buf);
         } else {
             self.buf
-                .append(&mut encode_length(self.offset + self.variable_bytes.len()));
+                .extend_from_slice(&encode_length(self.offset + self.variable_bytes.len()));
 
             item.ssz_append(&mut self.variable_bytes);
         }
@@ -132,17 +132,17 @@ impl<'a> SszEncoder<'a> {
     }
 }
 
-/// Encode `index` as a little-endian byte vec of `BYTES_PER_LENGTH_OFFSET` length.
+/// Encode `index` as a little-endian byte array of `BYTES_PER_LENGTH_OFFSET` length.
 ///
 /// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.
-pub fn encode_union_index(index: usize) -> Vec<u8> {
+pub fn encode_union_index(index: usize) -> [u8; BYTES_PER_LENGTH_OFFSET] {
     encode_length(index)
 }
 
-/// Encode `len` as a little-endian byte vec of `BYTES_PER_LENGTH_OFFSET` length.
+/// Encode `len` as a little-endian byte array of `BYTES_PER_LENGTH_OFFSET` length.
 ///
 /// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.
-pub fn encode_length(len: usize) -> Vec<u8> {
+pub fn encode_length(len: usize) -> [u8; BYTES_PER_LENGTH_OFFSET] {
     // Note: it is possible for `len` to be larger than what can be encoded in
     // `BYTES_PER_LENGTH_OFFSET` bytes, triggering this debug assertion.
     //
@@ -166,7 +166,9 @@ pub fn encode_length(len: usize) -> Vec<u8> {
     // If you have a different opinion, feel free to start an issue and tag @paulhauner.
     debug_assert!(len <= MAX_LENGTH_VALUE);
 
-    len.to_le_bytes()[0..BYTES_PER_LENGTH_OFFSET].to_vec()
+    let mut bytes = [0; BYTES_PER_LENGTH_OFFSET];
+    bytes.copy_from_slice(&len.to_le_bytes()[0..BYTES_PER_LENGTH_OFFSET]);
+    bytes
 }
 
 #[cfg(test)]
@@ -175,13 +177,13 @@ mod tests {
 
     #[test]
     fn test_encode_length() {
-        assert_eq!(encode_length(0), vec![0; 4]);
+        assert_eq!(encode_length(0), [0; 4]);
 
-        assert_eq!(encode_length(1), vec![1, 0, 0, 0]);
+        assert_eq!(encode_length(1), [1, 0, 0, 0]);
 
         assert_eq!(
             encode_length(MAX_LENGTH_VALUE),
-            vec![255; BYTES_PER_LENGTH_OFFSET]
+            [255; BYTES_PER_LENGTH_OFFSET]
         );
     }
 
@@ -195,6 +197,6 @@ mod tests {
     #[test]
     #[cfg(not(debug_assertions))]
     fn test_encode_length_above_max_not_debug_does_not_panic() {
-        assert_eq!(encode_length(MAX_LENGTH_VALUE + 1), vec![0; 4]);
+        assert_eq!(&encode_length(MAX_LENGTH_VALUE + 1)[..], &[0; 4]);
     }
 }

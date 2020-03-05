@@ -2,10 +2,10 @@
 //!
 //! It makes some assumptions about the layouts and update patterns of other structs in this
 //! crate, and should be updated carefully whenever those structs are changed.
-use crate::{Epoch, Hash256, Validator};
+use crate::{Epoch, Hash256, PublicKeyBytes, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, Error, TreeHashCache};
 use int_to_bytes::int_to_fixed_bytes32;
-use tree_hash::TreeHash;
+use tree_hash::merkle_root;
 
 /// Number of struct fields on `Validator`.
 const NUM_VALIDATOR_FIELDS: usize = 8;
@@ -53,7 +53,7 @@ fn process_field_by_index(
     force_update: bool,
 ) -> bool {
     match field_idx {
-        0 => process_vec_field(v.pubkey.tree_hash_root(), leaf, force_update),
+        0 => process_pubkey_bytes_field(&v.pubkey, leaf, force_update),
         1 => process_slice_field(v.withdrawal_credentials.as_bytes(), leaf, force_update),
         2 => process_u64_field(v.effective_balance, leaf, force_update),
         3 => process_bool_field(v.slashed, leaf, force_update),
@@ -68,13 +68,13 @@ fn process_field_by_index(
     }
 }
 
-fn process_vec_field(new_tree_hash: Vec<u8>, leaf: &mut Hash256, force_update: bool) -> bool {
-    if force_update || leaf.as_bytes() != &new_tree_hash[..] {
-        leaf.assign_from_slice(&new_tree_hash);
-        true
-    } else {
-        false
-    }
+fn process_pubkey_bytes_field(
+    val: &PublicKeyBytes,
+    leaf: &mut Hash256,
+    force_update: bool,
+) -> bool {
+    let new_tree_hash = merkle_root(val.as_slice(), 0);
+    process_slice_field(new_tree_hash.as_bytes(), leaf, force_update)
 }
 
 fn process_slice_field(new_tree_hash: &[u8], leaf: &mut Hash256, force_update: bool) -> bool {
@@ -106,6 +106,7 @@ mod test {
     use crate::Epoch;
     use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;
+    use tree_hash::TreeHash;
 
     fn test_validator_tree_hash(v: &Validator) {
         let arena = &mut CacheArena::default();
@@ -151,5 +152,14 @@ mod test {
         (0..num_validators)
             .map(|_| Validator::random_for_test(&mut rng))
             .for_each(|v| test_validator_tree_hash(&v));
+    }
+
+    #[test]
+    pub fn smallvec_size_check() {
+        // If this test fails we need to go and reassess the length of the `SmallVec` in
+        // `cached_tree_hash::TreeHashCache`. If the size of the `SmallVec` is too slow we're going
+        // to start doing heap allocations for each validator, this will fragment memory and slow
+        // us down.
+        assert!(NUM_VALIDATOR_FIELDS <= 8,);
     }
 }

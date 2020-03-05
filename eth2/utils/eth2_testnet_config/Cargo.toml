@@ -4,10 +4,14 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+build = "build.rs"
+
+[build-dependencies]
+reqwest = "0.9.20"
 
 [dev-dependencies]
 tempdir = "0.3"
+reqwest = "0.9.20"
 
 [dependencies]
 serde = "1.0"

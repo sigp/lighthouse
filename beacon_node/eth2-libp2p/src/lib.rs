@@ -9,6 +9,7 @@ pub mod behaviour;
 mod config;
 mod discovery;
 pub mod error;
+mod globals;
 mod metrics;
 pub mod rpc;
 mod service;
@@ -16,6 +17,7 @@ mod topics;
 
 pub use behaviour::PubsubMessage;
 pub use config::Config as NetworkConfig;
+pub use globals::NetworkGlobals;
 pub use libp2p::enr::Enr;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::multiaddr;

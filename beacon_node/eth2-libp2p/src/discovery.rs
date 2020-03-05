@@ -1,5 +1,5 @@
 use crate::metrics;
-use crate::{error, NetworkConfig};
+use crate::{error, NetworkConfig, NetworkGlobals};
 /// This manages the discovery and management of peers.
 ///
 /// Currently using discv5 for peer discovery.
@@ -16,6 +16,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::{atomic::Ordering, Arc};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
@@ -30,9 +31,6 @@ const ENR_FILENAME: &str = "enr.dat";
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
 pub struct Discovery<TSubstream> {
-    /// The peers currently connected to libp2p streams.
-    connected_peers: HashSet<PeerId>,
-
     /// The currently banned peers.
     banned_peers: HashSet<PeerId>,
 
@@ -57,6 +55,9 @@ pub struct Discovery<TSubstream> {
     /// The discovery behaviour used to discover new peers.
     discovery: Discv5<TSubstream>,
 
+    /// A collection of network constants that can be read from other threads.
+    network_globals: Arc<NetworkGlobals>,
+
     /// Logger for the discovery behaviour.
     log: slog::Logger,
 }
@@ -65,12 +66,15 @@ impl<TSubstream> Discovery<TSubstream> {
     pub fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
+        network_globals: Arc<NetworkGlobals>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
 
         // checks if current ENR matches that found on disk
         let local_enr = load_enr(local_key, config, &log)?;
+
+        *network_globals.local_enr.write() = Some(local_enr.clone());
 
         let enr_dir = match config.network_dir.to_str() {
             Some(path) => String::from(path),
@@ -98,13 +102,13 @@ impl<TSubstream> Discovery<TSubstream> {
         }
 
         Ok(Self {
-            connected_peers: HashSet::new(),
             banned_peers: HashSet::new(),
             max_peers: config.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
             tcp_port: config.libp2p_port,
             discovery,
+            network_globals,
             log,
             enr_dir,
         })
@@ -129,12 +133,17 @@ impl<TSubstream> Discovery<TSubstream> {
 
     /// The current number of connected libp2p peers.
     pub fn connected_peers(&self) -> usize {
-        self.connected_peers.len()
+        self.network_globals.connected_peers.load(Ordering::Relaxed)
     }
 
     /// The current number of connected libp2p peers.
-    pub fn connected_peer_set(&self) -> &HashSet<PeerId> {
-        &self.connected_peers
+    pub fn connected_peer_set(&self) -> Vec<PeerId> {
+        self.network_globals
+            .connected_peer_set
+            .read()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
     }
 
     /// The peer has been banned. Add this peer to the banned list to prevent any future
@@ -180,7 +189,14 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
-        self.connected_peers.insert(peer_id);
+        self.network_globals
+            .connected_peer_set
+            .write()
+            .insert(peer_id);
+        self.network_globals.connected_peers.store(
+            self.network_globals.connected_peer_set.read().len(),
+            Ordering::Relaxed,
+        );
         // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -188,7 +204,14 @@ where
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
-        self.connected_peers.remove(peer_id);
+        self.network_globals
+            .connected_peer_set
+            .write()
+            .remove(peer_id);
+        self.network_globals.connected_peers.store(
+            self.network_globals.connected_peer_set.read().len(),
+            Ordering::Relaxed,
+        );
 
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
         metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
@@ -224,7 +247,8 @@ where
         loop {
             match self.peer_discovery_delay.poll() {
                 Ok(Async::Ready(_)) => {
-                    if self.connected_peers.len() < self.max_peers {
+                    if self.network_globals.connected_peers.load(Ordering::Relaxed) < self.max_peers
+                    {
                         self.find_peers();
                     }
                     // Set to maximum, and update to earlier, once we get our results back.
@@ -278,8 +302,15 @@ where
                             }
                             for peer_id in closer_peers {
                                 // if we need more peers, attempt a connection
-                                if self.connected_peers.len() < self.max_peers
-                                    && self.connected_peers.get(&peer_id).is_none()
+
+                                if self.network_globals.connected_peers.load(Ordering::Relaxed)
+                                    < self.max_peers
+                                    && self
+                                        .network_globals
+                                        .connected_peer_set
+                                        .read()
+                                        .get(&peer_id)
+                                        .is_none()
                                     && !self.banned_peers.contains(&peer_id)
                                 {
                                     debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));

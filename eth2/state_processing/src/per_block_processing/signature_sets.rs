@@ -8,7 +8,7 @@ use std::convert::TryInto;
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
-    DepositData, Domain, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
+    DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
     Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit,
     SigningRoot,
 };
@@ -62,13 +62,13 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
         }
         .tree_hash_root()
     } else {
-        block.signing_root(domain).as_bytes().to_vec()
+        block.signing_root(domain)
     };
 
     Ok(SignatureSet::single(
         &signed_block.signature,
         validator_pubkey(state, proposer_index)?,
-        message,
+        message.as_bytes().to_vec(),
     ))
 }
 
@@ -162,6 +162,32 @@ pub fn indexed_attestation_signature_set<'a, 'b, T: EthSpec>(
         indexed_attestation.data.target.epoch,
         Domain::BeaconAttester,
         &state.fork,
+    );
+
+    let message = indexed_attestation.data.signing_root(domain);
+    let signed_message = SignedMessage::new(pubkeys, message.as_bytes().to_vec());
+
+    Ok(SignatureSet::new(signature, vec![signed_message]))
+}
+
+/// Returns the signature set for the given `indexed_attestation` but pubkeys are supplied directly
+/// instead of from the state.
+pub fn indexed_attestation_signature_set_from_pubkeys<'a, 'b, T: EthSpec>(
+    pubkeys: Vec<&'a PublicKey>,
+    signature: &'a AggregateSignature,
+    indexed_attestation: &'b IndexedAttestation<T>,
+    fork: &Fork,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>> {
+    let pubkeys = pubkeys
+        .into_iter()
+        .map(|pubkey| Cow::Borrowed(&pubkey.as_raw().point))
+        .collect();
+
+    let domain = spec.get_domain(
+        indexed_attestation.data.target.epoch,
+        Domain::BeaconAttester,
+        &fork,
     );
 
     let message = indexed_attestation.data.signing_root(domain);
