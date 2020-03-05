@@ -1,7 +1,7 @@
-FROM rust:1.41.0 AS builder
+FROM rust:1.41.1 AS builder
 COPY . lighthouse
 RUN cd lighthouse && make
-RUN cd lighthouse && cargo install --path lcli
+RUN cd lighthouse && cargo install --path lcli --locked
 
 FROM debian:buster-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
