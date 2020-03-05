@@ -3,6 +3,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+pub const DEFAULT_DATADIR: &str = ".lighthouse";
+
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
@@ -70,7 +72,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            data_dir: PathBuf::from(".lighthouse"),
+            data_dir: PathBuf::from(DEFAULT_DATADIR),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
             testnet_dir: None,

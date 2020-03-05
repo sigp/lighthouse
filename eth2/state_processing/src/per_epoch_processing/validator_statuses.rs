@@ -195,7 +195,9 @@ impl ValidatorStatuses {
             .iter()
             .chain(state.current_epoch_attestations.iter())
         {
-            let attesting_indices = get_attesting_indices(state, &a.data, &a.aggregation_bits)?;
+            let committee = state.get_beacon_committee(a.data.slot, a.data.index)?;
+            let attesting_indices =
+                get_attesting_indices::<T>(committee.committee, &a.aggregation_bits)?;
 
             let mut status = ValidatorStatus::default();
 

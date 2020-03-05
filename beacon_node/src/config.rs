@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use client::{ClientConfig, ClientGenesis, Eth2Config};
+use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -47,7 +47,7 @@ pub fn get_configs<E: EthSpec>(
     client_config.data_dir = cli_args
         .value_of("datadir")
         .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
+        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
         .unwrap_or_else(|| PathBuf::from("."));
 
     // Load the client config, if it exists .
