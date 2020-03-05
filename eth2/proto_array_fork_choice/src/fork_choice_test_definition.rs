@@ -57,6 +57,7 @@ impl ForkChoiceTestDefinition {
     pub fn run(self) {
         let fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
+            Hash256::zero(),
             self.justified_epoch,
             self.finalized_epoch,
             self.finalized_root,
@@ -120,7 +121,14 @@ impl ForkChoiceTestDefinition {
                     finalized_epoch,
                 } => {
                     fork_choice
-                        .process_block(slot, root, parent_root, justified_epoch, finalized_epoch)
+                        .process_block(
+                            slot,
+                            root,
+                            parent_root,
+                            Hash256::zero(),
+                            justified_epoch,
+                            finalized_epoch,
+                        )
                         .expect(&format!(
                             "process_block op at index {} returned error",
                             op_index

@@ -86,10 +86,42 @@ lazy_static! {
         "beacon_attestation_processing_seconds",
         "Full runtime of attestation processing"
     );
-    pub static ref ATTESTATION_PROCESSING_CORE: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_core_seconds",
-        "Time spent on the core spec processing of attestation processing"
+    pub static ref ATTESTATION_PROCESSING_INITIAL_VALIDATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_initial_validation_seconds",
+        "Time spent on the initial_validation of attestation processing"
     );
+    pub static ref ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_shuffling_cache_wait_seconds",
+        "Time spent on waiting for the shuffling cache lock during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_committee_building_seconds",
+        "Time spent on building committees during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_state_read_seconds",
+        "Time spent on reading the state during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_STATE_SKIP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_state_skip_seconds",
+        "Time spent on reading the state during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_signature_setup_seconds",
+        "Time spent on setting up for the signature verification of attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_signature_seconds",
+        "Time spent on the signature verification of attestation processing"
+    );
+
+    /*
+     * Shuffling cache
+     */
+    pub static ref SHUFFLING_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
+    pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
 
     /*
      * Attestation Production
@@ -106,7 +138,10 @@ lazy_static! {
         "beacon_attestation_production_seconds",
         "Full runtime of attestation production"
     );
+}
 
+// Second lazy-static block is used to account for macro recursion limit.
+lazy_static! {
     /*
      * Fork Choice
      */

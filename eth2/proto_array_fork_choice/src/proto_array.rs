@@ -9,6 +9,9 @@ pub struct ProtoNode {
     /// The `slot` is not necessary for `ProtoArray`, it just exists so external components can
     /// easily query the block slot. This is useful for upstream fork choice logic.
     pub slot: Slot,
+    /// The `state_root` is not necessary for `ProtoArray` either, it also just exists for upstream
+    /// components (namely attestation verification).
+    pub state_root: Hash256,
     root: Hash256,
     parent: Option<usize>,
     justified_epoch: Epoch,
@@ -126,6 +129,7 @@ impl ProtoArray {
         slot: Slot,
         root: Hash256,
         parent_opt: Option<Hash256>,
+        state_root: Hash256,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
     ) -> Result<(), Error> {
@@ -138,6 +142,7 @@ impl ProtoArray {
 
         let node = ProtoNode {
             slot,
+            state_root,
             root,
             parent: parent_opt.and_then(|parent| self.indices.get(&parent).copied()),
             justified_epoch,

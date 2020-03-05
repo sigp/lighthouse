@@ -307,13 +307,19 @@ fn epoch_boundary_state_attestation_processing() {
         let res = harness
             .chain
             .process_attestation_internal(attestation.clone());
-        if attestation.data.slot <= finalized_epoch.start_slot(E::slots_per_epoch()) {
+
+        let current_epoch = harness.chain.epoch().expect("should get epoch");
+        let attestation_epoch = attestation.data.target.epoch;
+
+        if attestation.data.slot <= finalized_epoch.start_slot(E::slots_per_epoch())
+            || attestation_epoch + 1 < current_epoch
+        {
             checked_pre_fin = true;
             assert_eq!(
                 res,
-                Ok(AttestationProcessingOutcome::FinalizedSlot {
-                    attestation: attestation.data.target.epoch,
-                    finalized: finalized_epoch,
+                Ok(AttestationProcessingOutcome::PastEpoch {
+                    attestation_epoch,
+                    current_epoch,
                 })
             );
         } else {
