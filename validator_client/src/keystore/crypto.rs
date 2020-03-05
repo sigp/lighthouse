@@ -52,7 +52,7 @@ impl Crypto {
     /// An error will be returned if `cipher.message` is not in hex format or
     /// if password is incorrect.
     pub fn decrypt(&self, password: String) -> Result<Vec<u8>, String> {
-        // Genrate derived key
+        // Generate derived key
         let derived_key = match &self.kdf.params {
             Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(&password),
             Kdf::Scrypt(scrypt) => scrypt.derive_key(&password),
@@ -80,6 +80,7 @@ impl Crypto {
     }
 }
 
+// Test cases taken from https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,7 +110,7 @@ mod tests {
             dklen: 32,
             c: 262144,
             prf: Prf::HmacSha256,
-            salt: salt,
+            salt,
         });
 
         let cipher = Cipher::Aes128Ctr(Aes128Ctr {
@@ -122,7 +123,6 @@ mod tests {
         assert_eq!(expected_cipher, keystore.cipher.message);
 
         let json = serde_json::to_string(&keystore).unwrap();
-        println!("{}", json);
 
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
         let recovered_secret = recovered_keystore.decrypt(password).unwrap();
@@ -147,7 +147,7 @@ mod tests {
             n: 262144,
             r: 8,
             p: 1,
-            salt: salt,
+            salt,
         });
 
         let cipher = Cipher::Aes128Ctr(Aes128Ctr {
@@ -160,7 +160,6 @@ mod tests {
         assert_eq!(expected_cipher, keystore.cipher.message);
 
         let json = serde_json::to_string(&keystore).unwrap();
-        println!("{}", json);
 
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
         let recovered_secret = recovered_keystore.decrypt(password).unwrap();

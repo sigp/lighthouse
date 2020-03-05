@@ -95,6 +95,7 @@ fn pad_secret_key(sk: &[u8]) -> [u8; PRIVATE_KEY_BYTES] {
     bytes
 }
 
+// Test cases taken from https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
 #[cfg(test)]
 mod tests {
     use super::*;

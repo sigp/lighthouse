@@ -32,11 +32,11 @@ impl Default for Pbkdf2 {
 
 impl Pbkdf2 {
     /// Derive key from password.
-    pub fn derive_key(&self, password: &str) -> Vec<u8> {
+    pub fn derive_key(&self, password: &str) -> [u8; DECRYPTION_KEY_SIZE as usize] {
         let mut dk = [0u8; DECRYPTION_KEY_SIZE as usize];
         let mut mac = self.prf.mac(password.as_bytes());
         pbkdf2::pbkdf2(&mut mac, &self.salt, self.c, &mut dk);
-        dk.to_vec()
+        dk
     }
 }
 
@@ -61,13 +61,13 @@ fn log2_int(x: u32) -> u32 {
 }
 
 impl Scrypt {
-    pub fn derive_key(&self, password: &str) -> Vec<u8> {
+    pub fn derive_key(&self, password: &str) -> [u8; DECRYPTION_KEY_SIZE as usize] {
         let mut dk = [0u8; DECRYPTION_KEY_SIZE as usize];
         // Assert that `n` is power of 2
         debug_assert_eq!(self.n, 2u32.pow(log2_int(self.n)));
         let params = scrypt::ScryptParams::new(log2_int(self.n) as u8, self.r, self.p);
         scrypt::scrypt(password.as_bytes(), &self.salt, &params, &mut dk);
-        dk.to_vec()
+        dk
     }
 }
 

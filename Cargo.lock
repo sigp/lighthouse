@@ -4719,6 +4719,7 @@ dependencies = [
  "tree_hash 0.1.1",
  "types 0.1.0",
  "uuid 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zeroize 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

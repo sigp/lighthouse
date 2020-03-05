@@ -6,11 +6,15 @@ use std::default::Default;
 const IV_SIZE: usize = 16;
 
 /// Convert slice to fixed length array.
-fn from_slice(bytes: &[u8]) -> [u8; IV_SIZE] {
+/// Returns `None` if slice has len > `IV_SIZE`
+fn from_slice(bytes: &[u8]) -> Option<[u8; IV_SIZE]> {
+    if bytes.len() != 16 {
+        return None;
+    }
     let mut array = [0; IV_SIZE];
-    let bytes = &bytes[..array.len()]; // panics if not enough data
+    let bytes = &bytes[..array.len()];
     array.copy_from_slice(bytes);
-    array
+    Some(array)
 }
 
 /// Cipher module representation.
@@ -69,7 +73,7 @@ where
             E: de::Error,
         {
             let bytes = hex::decode(v).map_err(E::custom)?;
-            Ok(from_slice(&bytes))
+            from_slice(&bytes).ok_or_else(|| E::custom(format!("IV should have length 16 bytes")))
         }
     }
     deserializer.deserialize_any(StringVisitor)
