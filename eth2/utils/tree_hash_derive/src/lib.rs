@@ -93,6 +93,7 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     };
 
     let idents = get_hashable_fields(&struct_data);
+    let num_leaves = idents.len();
 
     let output = quote! {
         impl #impl_generics tree_hash::TreeHash for #name #ty_generics #where_clause {
@@ -108,14 +109,15 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
                 unreachable!("Struct should never be packed.")
             }
 
-            fn tree_hash_root(&self) -> Vec<u8> {
-                let mut leaves = Vec::with_capacity(4 * tree_hash::HASHSIZE);
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
+                let mut hasher = tree_hash::MerkleHasher::with_leaves(#num_leaves);
 
                 #(
-                    leaves.append(&mut self.#idents.tree_hash_root());
+                    hasher.write(self.#idents.tree_hash_root().as_bytes())
+                        .expect("tree hash derive should not apply too many leaves");
                 )*
 
-                tree_hash::merkle_root(&leaves, 0)
+                hasher.finish().expect("tree hash derive should not have a remaining buffer")
             }
         }
     };

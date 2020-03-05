@@ -149,7 +149,7 @@ impl DepositCache {
     pub fn insert_log(&mut self, log: DepositLog) -> Result<(), Error> {
         match log.index.cmp(&(self.logs.len() as u64)) {
             Ordering::Equal => {
-                let deposit = Hash256::from_slice(&log.deposit_data.tree_hash_root());
+                let deposit = log.deposit_data.tree_hash_root();
                 self.leaves.push(deposit);
                 self.logs.push(log);
                 self.deposit_tree

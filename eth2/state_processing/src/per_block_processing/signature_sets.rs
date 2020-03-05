@@ -62,13 +62,13 @@ pub fn block_proposal_signature_set<'a, T: EthSpec>(
         }
         .tree_hash_root()
     } else {
-        block.signing_root(domain).as_bytes().to_vec()
+        block.signing_root(domain)
     };
 
     Ok(SignatureSet::single(
         &signed_block.signature,
         validator_pubkey(state, proposer_index)?,
-        message,
+        message.as_bytes().to_vec(),
     ))
 }
 

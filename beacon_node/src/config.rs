@@ -376,9 +376,6 @@ fn init_new_client<E: EthSpec>(
 
     let spec = &mut eth2_config.spec;
 
-    // For now, assume that all networks will use the lighthouse genesis fork.
-    spec.genesis_fork_version = [1, 3, 3, 7];
-
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =

@@ -4,6 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
+use tree_hash::Hash256;
 use typenum::Unsigned;
 
 pub use typenum;
@@ -162,7 +163,7 @@ where
         unreachable!("Vector should never be packed.")
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
+    fn tree_hash_root(&self) -> Hash256 {
         vec_tree_hash_root::<T, N>(&self.vec)
     }
 }
@@ -375,24 +376,27 @@ mod test {
         assert_eq!(fixed.tree_hash_root(), merkle_root(&[0; 32], 0));
 
         let fixed: FixedVector<A, U1> = FixedVector::from(vec![a]);
-        assert_eq!(fixed.tree_hash_root(), merkle_root(&a.tree_hash_root(), 0));
+        assert_eq!(
+            fixed.tree_hash_root(),
+            merkle_root(a.tree_hash_root().as_bytes(), 0)
+        );
 
         let fixed: FixedVector<A, U8> = FixedVector::from(vec![a; 8]);
         assert_eq!(
             fixed.tree_hash_root(),
-            merkle_root(&repeat(&a.tree_hash_root(), 8), 0)
+            merkle_root(&repeat(a.tree_hash_root().as_bytes(), 8), 0)
         );
 
         let fixed: FixedVector<A, U13> = FixedVector::from(vec![a; 13]);
         assert_eq!(
             fixed.tree_hash_root(),
-            merkle_root(&repeat(&a.tree_hash_root(), 13), 0)
+            merkle_root(&repeat(a.tree_hash_root().as_bytes(), 13), 0)
         );
 
         let fixed: FixedVector<A, U16> = FixedVector::from(vec![a; 16]);
         assert_eq!(
             fixed.tree_hash_root(),
-            merkle_root(&repeat(&a.tree_hash_root(), 16), 0)
+            merkle_root(&repeat(a.tree_hash_root().as_bytes(), 16), 0)
         );
     }
 }

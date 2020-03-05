@@ -21,6 +21,21 @@ lazy_static! {
         "http_server_success_total",
         "Total count of HTTP 200 responses sent"
     );
+    pub static ref VALIDATOR_GET_BLOCK_REQUEST_RESPONSE_TIME: Result<Histogram> =
+        try_create_histogram(
+            "http_server_validator_block_get_request_duration_seconds",
+            "Time taken to respond to GET /validator/block"
+        );
+    pub static ref VALIDATOR_GET_ATTESTATION_REQUEST_RESPONSE_TIME: Result<Histogram> =
+        try_create_histogram(
+            "http_server_validator_attestation_get_request_duration_seconds",
+            "Time taken to respond to GET /validator/attestation"
+        );
+    pub static ref VALIDATOR_GET_DUTIES_REQUEST_RESPONSE_TIME: Result<Histogram> =
+        try_create_histogram(
+            "http_server_validator_duties_get_request_duration_seconds",
+            "Time taken to respond to GET /validator/duties"
+        );
 }
 
 /// Returns the full set of Prometheus metrics for the Beacon Node application.

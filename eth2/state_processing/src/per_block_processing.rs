@@ -144,8 +144,7 @@ pub fn process_block_header<T: EthSpec>(
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
 
-    let expected_previous_block_root =
-        Hash256::from_slice(&state.latest_block_header.tree_hash_root());
+    let expected_previous_block_root = state.latest_block_header.tree_hash_root();
     verify!(
         block.parent_root == expected_previous_block_root,
         HeaderInvalid::ParentBlockRootMismatch {

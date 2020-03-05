@@ -172,7 +172,7 @@ pub fn process_final_updates<T: EthSpec>(
         let historical_batch = state.historical_batch();
         state
             .historical_roots
-            .push(Hash256::from_slice(&historical_batch.tree_hash_root()))?;
+            .push(historical_batch.tree_hash_root())?;
     }
 
     // Rotate current/previous epoch attestations
