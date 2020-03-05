@@ -573,7 +573,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the validator index (if any) for the given public key.
     ///
-    /// Information is retrieved from the present `beacon_state.validators`.
+    /// ## Notes
+    ///
+    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
+    /// even if those validators aren't included in the head state. It is important to remember
+    /// that just because a validator exists here, it doesn't necessarily exist in all
+    /// `BeaconStates`.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
         let pubkey_cache = self
             .validator_pubkey_cache
@@ -1321,32 +1330,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let signature_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_SIGNATURE);
 
-        let validator_pubkey_cache = self
-            .validator_pubkey_cache
-            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+        let signature_verification_result = {
+            let validator_pubkey_cache = self
+                .validator_pubkey_cache
+                .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
 
-        let signature_verification_result = BlockSignatureVerifier::verify_entire_block(
-            &state,
-            |validator_index| {
-                if validator_index < state.validators.len() {
-                    validator_pubkey_cache
-                        .get(validator_index)
-                        .map(|pk| Cow::Borrowed(pk.as_point()))
-                } else {
-                    None
-                }
-            },
-            &signed_block,
-            Some(block_root),
-            &self.spec,
-        );
+            BlockSignatureVerifier::verify_entire_block(
+                &state,
+                |validator_index| {
+                    // Disallow access to any validator pubkeys that are not in the current beacon
+                    // state.
+                    if validator_index < state.validators.len() {
+                        validator_pubkey_cache
+                            .get(validator_index)
+                            .map(|pk| Cow::Borrowed(pk.as_point()))
+                    } else {
+                        None
+                    }
+                },
+                &signed_block,
+                Some(block_root),
+                &self.spec,
+            )
+        };
 
         if signature_verification_result.is_err() {
             return Ok(BlockProcessingOutcome::InvalidSignature);
         }
-
-        drop(validator_pubkey_cache);
 
         metrics::stop_timer(signature_timer);
 
@@ -1358,6 +1369,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &signed_block,
             Some(block_root),
+            // Signatures were verified earlier in this function.
             BlockSignatureStrategy::NoVerification,
             &self.spec,
         ) {
