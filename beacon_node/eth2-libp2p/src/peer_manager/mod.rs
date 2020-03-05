@@ -1,48 +1,32 @@
 //! Implementation of a Lighthouse's peer management system.
 
+pub use self::peerdb::*;
 use crate::PeerId;
-use slog::warn;
+use futures::prelude::*;
+use futures::Stream;
+// use slog::warn;
 use smallvec::SmallVec;
-use std::collections::HashMap;
+use std::time::Instant;
 
-/// The default starting reputation for an unknown peer.
-const DEFAULT_REPUTATION: usize = 50;
-
+mod peerdb;
 /// The minimum reputation before a peer is disconnected.
-const MINIMUM_REPUTATION_BEFORE_DISCONNECT: usize = 20;
+// Most likely this needs tweaking
+const MINIMUM_REPUTATION_BEFORE_BAN: Rep = 20;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager {
-    /// The collection of known connected peers, their status and their reputation.
-    connected_peers: HashMap<PeerId, PeerInfo>,
-
-    /// A collection of known banned peers, their status and reputation
-    banned_peers: HashMap<PeerId, PeerInfo>,
-
+    /// Storage of known peer's info
+    peerdb: PeerDB,
     /// A queue of events that the `PeerManager` is waiting to produce.
     events: SmallVec<[PeerManagerEvent; 5]>,
-
     /// The logger associated with the `PeerManager`.
-    log: slog::Logger,
+    _log: slog::Logger,
+    /// Last updated moment
+    last_updated: Instant,
 }
 
-/// A collection of information about a peer.
-pub struct PeerInfo {
-    /// The connection status of the peer.
-    _status: PeerStatus,
-    /// The peers reputation. Currently modelled as an unsigned integer.
-    reputation: usize,
-}
-
-pub enum PeerStatus {
-    /// The peer is healthy
-    Healthy,
-    /// The peer is clogged. It has not been responding to requests on time
-    Clogged,
-}
-
-/// A collection of actions a peer can perform which will adjust it's reputation. Each variant has
-/// an associated reputation change.
+/// A collection of actions a peer can perform which will adjust its reputation
+/// Each variant has an associated reputation change.
 pub enum PeerAction {
     /// The peer timed out on an RPC request/response.
     TimedOut = -10,
@@ -50,9 +34,14 @@ pub enum PeerAction {
     InvalidMessage = -20,
     /// The peer sent  something objectively malicious
     Malicious = -50,
+    /// Received an expected message
+    ValidMessage = 20,
+    /// Peer disconnected
+    Disconnected = -30,
 }
 
-/// The events that the PeerManager outputs.
+/// The events that the PeerManager outputs (requests)
+// TODO: request connecting to a peer?
 pub enum PeerManagerEvent {
     /// The peer should be disconnected.
     DisconnectPeer(PeerId),
@@ -60,112 +49,107 @@ pub enum PeerManagerEvent {
     BanPeer(PeerId),
 }
 
-impl Default for PeerInfo {
-    fn default() -> PeerInfo {
-        PeerInfo {
-            _status: PeerStatus::Healthy,
-            reputation: DEFAULT_REPUTATION,
-        }
-    }
-}
-
 impl PeerManager {
-    pub fn new(log: slog::Logger) -> Self {
+    pub fn new(log: slog::Logger, max_dc_peers: usize) -> Self {
         PeerManager {
-            connected_peers: HashMap::new(),
-            banned_peers: HashMap::new(),
+            peerdb: PeerDB::new(max_dc_peers, &log),
             events: SmallVec::new(),
-            log,
+            _log: log,
+            last_updated: Instant::now(),
         }
     }
 
-    /// Adds a newly connected peer to the peer manager.
-    pub fn add_connected_peer(&mut self, peer_id: PeerId) {
-        self.connected_peers.insert(peer_id, Default::default());
+    /// Checks the reputation of a peer and if it is too low, bans it and
+    /// sends the corresponding event. Informs if it got banned
+    fn gets_banned(&mut self, peer_id: &PeerId) -> bool {
+        // if the peer was already banned don't inform again
+        if self.peerdb.reputation(peer_id) < MINIMUM_REPUTATION_BEFORE_BAN
+            && !self.peerdb.connection_status(peer_id).is_banned()
+        {
+            self.peerdb.ban(peer_id);
+            self.events.push(PeerManagerEvent::BanPeer(peer_id.clone()));
+            return true;
+        }
+        false
+    }
+
+    /// Sets a peer as disconnected. If its reputation gets too low requests
+    /// the peer to be banned and to be disconnected otherwise
+    pub fn disconnect(&mut self, peer_id: &PeerId) {
+        self.update_reputations();
+        self.peerdb.disconnect(peer_id);
+        self.peerdb
+            .add_reputation(peer_id, PeerAction::Disconnected as Rep);
+        if !self.gets_banned(peer_id) {
+            self.events
+                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
+        }
+    }
+
+    /// Sets a peer as connected as long as their reputation allows it
+    /// Informs if the peer was accepted
+    pub fn connect_ingoing(&mut self, peer_id: &PeerId) -> bool {
+        self.update_reputations();
+        self.peerdb.new_peer(peer_id);
+        if !self.peerdb.connection_status(peer_id).is_banned() {
+            self.peerdb.connect_ingoing(peer_id);
+            return true;
+        }
+        false
+    }
+
+    /// Sets a peer as connected as long as their reputation allows it
+    /// Informs if the peer was accepted
+    pub fn connect_outgoing(&mut self, peer_id: &PeerId) -> bool {
+        self.update_reputations();
+        self.peerdb.new_peer(peer_id);
+        if !self.peerdb.connection_status(peer_id).is_banned() {
+            self.peerdb.connect_outgoing(peer_id);
+            return true;
+        }
+        false
     }
 
     /// Provides a given peer's reputation if it exists.
-    pub fn get_peer_rep(&self, peer_id: &PeerId) -> Option<usize> {
-        self.connected_peers
-            .get(peer_id)
-            .or_else(|| self.banned_peers.get(peer_id))
-            .map(|peer_info| peer_info.reputation)
+    pub fn get_peer_rep(&self, peer_id: &PeerId) -> Rep {
+        self.peerdb.reputation(peer_id)
+    }
+
+    /// Updates the reputation of known peers according to their connection
+    /// status and the time that has passed.
+    pub fn update_reputations(&mut self) {
+        let now = Instant::now();
+        let elapsed = (now - self.last_updated).as_secs();
+        // 0 seconds means now - last_updated < 0, but (most likely) not = 0.
+        // In this case, do nothing (updating last_updated would propagate
+        // rounding errors)
+        if elapsed > 0 {
+            self.last_updated = now;
+            // TODO decide how reputations change with time. If they get too low
+            // set the peers as banned
+        }
     }
 
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        let log_ref = &self.log;
-        let mut peer_info = self.connected_peers.entry(peer_id.clone()).or_insert_with(|| {
-            warn!(log_ref, "Peer reported without being connected"; "peer_id" => format!("{:?}",peer_id));
-            Default::default()
-        });
-
-        // adjust the reputation
-        // NOTE: This calculation is lossy. Cannot have negative reputation value
-        // TODO: Implement a maximum
-        peer_info.reputation = (peer_info.reputation as i32 + action as i32) as usize;
-
-        // if the reputation goes below the minimum disconnect the peer
-        if peer_info.reputation <= MINIMUM_REPUTATION_BEFORE_DISCONNECT {
-            self.events
-                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
-        }
+        self.update_reputations();
+        self.peerdb.add_reputation(peer_id, action as Rep);
+        self.update_reputations();
     }
 }
 
-// TODO: We should implement the stream trait here. So that events get emitted from the queue.
+impl Stream for PeerManager {
+    type Item = PeerManagerEvent;
+    type Error = ();
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use slog::{o, Drain};
-
-    pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        if !self.events.is_empty() {
+            Ok(Async::Ready(Some(self.events.remove(0))))
         } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+            self.events.shrink_to_fit();
+            Ok(Async::NotReady)
         }
-    }
-
-    fn get_new_manager() -> PeerManager {
-        let log = build_log(slog::Level::Debug, true);
-        PeerManager::new(log)
-    }
-
-    #[test]
-    fn test_peer_added_successfully() {
-        let mut pm = get_new_manager();
-
-        let random_peer = PeerId::random();
-
-        // add the peer to the manager
-        pm.add_connected_peer(random_peer.clone());
-
-        // the peer should have the default reputation
-        assert_eq!(pm.get_peer_rep(&random_peer), Some(DEFAULT_REPUTATION))
-    }
-
-    #[test]
-    fn test_reputation_change() {
-        let mut pm = get_new_manager();
-
-        let random_peer = PeerId::random();
-
-        // add the peer to the manager
-        pm.add_connected_peer(random_peer.clone());
-
-        // build an action
-        let action = PeerAction::InvalidMessage;
-        pm.report_peer(&random_peer, action);
-
-        // the peer should have the default reputation
-        assert_eq!(pm.get_peer_rep(&random_peer), Some(DEFAULT_REPUTATION - 20))
     }
 }
