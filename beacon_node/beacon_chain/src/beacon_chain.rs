@@ -622,12 +622,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Information is retrieved from the present `beacon_state.validators`.
     pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
-        for (i, validator) in self.head()?.beacon_state.validators.iter().enumerate() {
-            if validator.pubkey == *pubkey {
-                return Ok(Some(i));
-            }
-        }
-        Ok(None)
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        Ok(pubkey_cache.get_index(pubkey))
     }
 
     /// Returns the block canonical root of the current canonical chain at a given slot.
@@ -1377,7 +1377,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.log,
         );
 
-        let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
+        let signature_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_SIGNATURE);
 
         let validator_pubkey_cache = self
             .validator_pubkey_cache
@@ -1405,6 +1405,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         drop(validator_pubkey_cache);
+
+        metrics::stop_timer(signature_timer);
+
+        let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).
