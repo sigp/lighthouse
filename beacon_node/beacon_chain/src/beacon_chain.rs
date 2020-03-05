@@ -1338,7 +1338,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.log,
         );
 
-        let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
+        let signature_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_SIGNATURE);
 
         let validator_pubkey_cache = self
             .validator_pubkey_cache
@@ -1366,6 +1366,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         drop(validator_pubkey_cache);
+
+        metrics::stop_timer(signature_timer);
+
+        let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         // Apply the received block to its parent state (which has been transitioned into this
         // slot).

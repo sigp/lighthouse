@@ -32,6 +32,10 @@ lazy_static! {
         "beacon_block_processing_committee_building_seconds",
         "Time spent building/obtaining committees for block processing."
     );
+    pub static ref BLOCK_PROCESSING_SIGNATURE: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_signature_seconds",
+        "Time spent doing signature verification for a block."
+    );
     pub static ref BLOCK_PROCESSING_CORE: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_core_seconds",
         "Time spent doing the core per_block_processing state processing."
