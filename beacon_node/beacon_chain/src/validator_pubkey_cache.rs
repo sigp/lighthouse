@@ -113,7 +113,6 @@ struct ValidatorPubkeyCacheFile(File);
 enum Error {
     IoError(io::Error),
     SszError(DecodeError),
-    FileExists,
     /// The file read from disk does not have a contiguous list of validator public keys. The file
     /// has become corrupted.
     InconsistentIndex {
