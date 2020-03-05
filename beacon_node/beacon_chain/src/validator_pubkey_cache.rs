@@ -132,6 +132,7 @@ impl ValidatorPubkeyCacheFile {
     pub fn create<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         OpenOptions::new()
             .create_new(true)
+            .write(true)
             .open(path)
             .map(Self)
             .map_err(Error::IoError)
