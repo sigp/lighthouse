@@ -1,4 +1,4 @@
-# Lighthouse REST API: `/spec`
+# Lighthouse REST API: `/advanced`
 
 The `/advanced` endpoints provide information Lighthouse specific data structures for advanced debugging.
 

@@ -8,11 +8,10 @@ type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 ///
 /// Spec v0.10.1
 pub fn get_indexed_attestation<T: EthSpec>(
-    state: &BeaconState<T>,
+    committee: &[usize],
     attestation: &Attestation<T>,
 ) -> Result<IndexedAttestation<T>> {
-    let attesting_indices =
-        get_attesting_indices(state, &attestation.data, &attestation.aggregation_bits)?;
+    let attesting_indices = get_attesting_indices::<T>(committee, &attestation.aggregation_bits)?;
 
     Ok(IndexedAttestation {
         attesting_indices: VariableList::new(

@@ -3,7 +3,7 @@ use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
+    eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{
         migrate::{BackgroundMigrator, Migrate, NullMigrator},
@@ -117,13 +117,14 @@ where
     pub fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
-        config: Eth1Config,
+        config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
         let store = self.store.clone();
         let store_migrator = self.store_migrator.take();
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
+        let data_dir = config.data_dir.clone();
 
         future::ok(())
             .and_then(move |()| {
@@ -133,7 +134,9 @@ where
                     "beacon_chain_start_method requires a store migrator".to_string()
                 })?;
                 let context = runtime_context
-                    .ok_or_else(|| "beacon_chain_start_method requires a log".to_string())?
+                    .ok_or_else(|| {
+                        "beacon_chain_start_method requires a runtime context".to_string()
+                    })?
                     .service_context("beacon".into());
                 let spec = chain_spec
                     .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
@@ -142,6 +145,7 @@ where
                     .logger(context.log.clone())
                     .store(store)
                     .store_migrator(store_migrator)
+                    .data_dir(data_dir)
                     .custom_spec(spec.clone());
 
                 Ok((builder, spec, context))
@@ -195,11 +199,11 @@ where
                             info!(
                                 context.log,
                                 "Waiting for eth2 genesis from eth1";
-                                "eth1_node" => &config.endpoint
+                                "eth1_node" => &config.eth1.endpoint
                             );
 
                             let genesis_service =
-                                Eth1GenesisService::new(config, context.log.clone());
+                                Eth1GenesisService::new(config.eth1, context.log.clone());
 
                             let future = genesis_service
                                 .wait_for_genesis_state(
@@ -230,10 +234,7 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::Resume => {
-                            let future = builder
-                                .resume_from_db(config)
-                                .into_future()
-                                .map(|v| (v, None));
+                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -628,7 +629,20 @@ where
 
             CachingEth1Backend::from_service(eth1_service_from_genesis, store)
         } else {
-            CachingEth1Backend::new(config, context.log, store)
+            beacon_chain_builder
+                .get_persisted_eth1_backend()?
+                .map(|persisted| {
+                    Eth1Chain::from_ssz_container(
+                        &persisted,
+                        config.clone(),
+                        store.clone(),
+                        &context.log,
+                    )
+                    .map(|chain| chain.into_backend())
+                })
+                .unwrap_or_else(|| {
+                    Ok(CachingEth1Backend::new(config, context.log.clone(), store))
+                })?
         };
 
         self.eth1_service = None;
