@@ -6,11 +6,11 @@ extern crate lazy_static;
 use beacon_chain::AttestationProcessingOutcome;
 use beacon_chain::{
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, PersistedBeaconChain,
-        BEACON_CHAIN_DB_KEY,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
     },
     BlockProcessingOutcome,
 };
+use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
@@ -344,15 +344,21 @@ fn roundtrip_operation_pool() {
     assert!(harness.chain.op_pool.num_attestations() > 0);
 
     // TODO: could add some other operations
-    harness.chain.persist().unwrap();
+    harness
+        .chain
+        .persist_op_pool()
+        .expect("should persist op pool");
 
-    let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-    let p: PersistedBeaconChain<HarnessType<MinimalEthSpec>> =
-        harness.chain.store.get(&key).unwrap().unwrap();
+    let head_state = harness.chain.head().expect("should get head").beacon_state;
 
-    let restored_op_pool = p
-        .op_pool
-        .into_operation_pool(&p.canonical_head.beacon_state, &harness.spec);
+    let key = Hash256::from_slice(&OP_POOL_DB_KEY);
+    let restored_op_pool = harness
+        .chain
+        .store
+        .get::<PersistedOperationPool<MinimalEthSpec>>(&key)
+        .expect("should read db")
+        .expect("should find op pool")
+        .into_operation_pool(&head_state, &harness.spec);
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }

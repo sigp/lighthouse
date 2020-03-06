@@ -4,6 +4,7 @@ use eth2_hashing::hash;
 use exit_future::Exit;
 use futures::Future;
 use slog::{debug, error, trace, Logger};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
@@ -11,7 +12,7 @@ use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{Error as StoreError, Store};
+use store::{DBColumn, Error as StoreError, SimpleStoreItem, Store};
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
     DEPOSIT_TREE_DEPTH,
@@ -50,6 +51,20 @@ pub enum Error {
 pub struct SszEth1 {
     use_dummy_backend: bool,
     backend_bytes: Vec<u8>,
+}
+
+impl SimpleStoreItem for SszEth1 {
+    fn db_column() -> DBColumn {
+        DBColumn::Eth1Cache
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
+    }
 }
 
 /// Holds an `Eth1ChainBackend` and serves requests from the `BeaconChain`.
@@ -141,6 +156,11 @@ where
             use_dummy_backend: self.use_dummy_backend,
             backend_bytes: self.backend.as_bytes(),
         }
+    }
+
+    /// Consumes `self`, returning the backend.
+    pub fn into_backend(self) -> T {
+        self.backend
     }
 }
 

@@ -3,7 +3,7 @@ use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
+    eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     store::{
         migrate::{BackgroundMigrator, Migrate, NullMigrator},
@@ -234,10 +234,7 @@ where
                             Box::new(future)
                         }
                         ClientGenesis::Resume => {
-                            let future = builder
-                                .resume_from_db(config.eth1)
-                                .into_future()
-                                .map(|v| (v, None));
+                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
 
                             Box::new(future)
                         }
@@ -632,7 +629,20 @@ where
 
             CachingEth1Backend::from_service(eth1_service_from_genesis, store)
         } else {
-            CachingEth1Backend::new(config, context.log, store)
+            beacon_chain_builder
+                .get_persisted_eth1_backend()?
+                .map(|persisted| {
+                    Eth1Chain::from_ssz_container(
+                        &persisted,
+                        config.clone(),
+                        store.clone(),
+                        &context.log,
+                    )
+                    .map(|chain| chain.into_backend())
+                })
+                .unwrap_or_else(|| {
+                    Ok(CachingEth1Backend::new(config, context.log.clone(), store))
+                })?
         };
 
         self.eth1_service = None;

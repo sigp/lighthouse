@@ -191,7 +191,11 @@ pub enum DBColumn {
     BeaconMeta,
     BeaconBlock,
     BeaconState,
+    /// For persisting in-memory state to the database.
     BeaconChain,
+    OpPool,
+    Eth1Cache,
+    ForkChoice,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
     /// For the mapping from state roots to their slots or summaries.
@@ -211,6 +215,9 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",
+            DBColumn::OpPool => "opo",
+            DBColumn::Eth1Cache => "etc",
+            DBColumn::ForkChoice => "frk",
             DBColumn::BeaconRestorePoint => "brp",
             DBColumn::BeaconStateSummary => "bss",
             DBColumn::BeaconBlockRoots => "bbr",

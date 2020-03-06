@@ -5,7 +5,7 @@ use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
-use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
+use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -61,6 +61,11 @@ const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// validator pubkey cache.
 const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
+pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
+pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
+pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -196,43 +201,76 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Attempt to save this instance to `self.store`.
-    pub fn persist(&self) -> Result<(), Error> {
-        let timer = metrics::start_timer(&metrics::PERSIST_CHAIN);
+    /// Persists the core `BeaconChain` components (including the head block) and the fork choice.
+    ///
+    /// ## Notes:
+    ///
+    /// In this function we first obtain the head, persist fork choice, then persist the head. We
+    /// do it in this order to ensure that the persisted head is always from a time prior to fork
+    /// choice.
+    ///
+    /// We want to ensure that the head never out dates the fork choice to avoid having references
+    /// to blocks that do not exist in fork choice.
+    pub fn persist_head_and_fork_choice(&self) -> Result<(), Error> {
+        let canonical_head_block_root = self
+            .canonical_head
+            .try_read_for(HEAD_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
+            .beacon_block_root;
 
-        let canonical_head = self.head()?;
-
-        let finalized_checkpoint = {
-            let beacon_block_root = canonical_head.beacon_state.finalized_checkpoint.root;
-            let beacon_block = self
-                .store
-                .get_block(&beacon_block_root)?
-                .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
-            let beacon_state_root = beacon_block.state_root();
-            let beacon_state = self
-                .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
-
-            CheckPoint {
-                beacon_block_root,
-                beacon_block,
-                beacon_state_root,
-                beacon_state,
-            }
-        };
-
-        let p: PersistedBeaconChain<T> = PersistedBeaconChain {
-            canonical_head,
-            finalized_checkpoint,
-            op_pool: PersistedOperationPool::from_operation_pool(&self.op_pool),
+        let persisted_head = PersistedBeaconChain {
+            canonical_head_block_root,
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
-            fork_choice: self.fork_choice.as_ssz_container(),
-            eth1_cache: self.eth1_chain.as_ref().map(|x| x.as_ssz_container()),
         };
 
-        let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-        self.store.put(&key, &p)?;
+        let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+
+        self.store.put(
+            &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
+            &self.fork_choice.as_ssz_container(),
+        )?;
+
+        metrics::stop_timer(fork_choice_timer);
+        let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
+
+        self.store
+            .put(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
+
+        metrics::stop_timer(head_timer);
+
+        Ok(())
+    }
+
+    /// Persists `self.op_pool` to disk.
+    ///
+    /// ## Notes
+    ///
+    /// This operation is typically slow and causes a lot of allocations. It should be used
+    /// sparingly.
+    pub fn persist_op_pool(&self) -> Result<(), Error> {
+        let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
+
+        self.store.put(
+            &Hash256::from_slice(&OP_POOL_DB_KEY),
+            &PersistedOperationPool::from_operation_pool(&self.op_pool),
+        )?;
+
+        metrics::stop_timer(timer);
+
+        Ok(())
+    }
+
+    /// Persists `self.eth1_chain` and its caches to disk.
+    pub fn persist_eth1_cache(&self) -> Result<(), Error> {
+        let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
+
+        if let Some(eth1_chain) = self.eth1_chain.as_ref() {
+            self.store.put(
+                &Hash256::from_slice(&ETH1_CACHE_DB_KEY),
+                &eth1_chain.as_ssz_container(),
+            )?;
+        }
 
         metrics::stop_timer(timer);
 
@@ -1654,8 +1692,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 metrics::stop_timer(timer);
 
-                // Save `self` to `self.store`.
-                self.persist()?;
+                if previous_slot.epoch(T::EthSpec::slots_per_epoch())
+                    < new_slot.epoch(T::EthSpec::slots_per_epoch())
+                    || is_reorg
+                {
+                    self.persist_head_and_fork_choice()?;
+                }
 
                 let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
                     reorg: is_reorg,
@@ -1793,16 +1835,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
-        if let Err(e) = self.persist() {
+        let drop = || -> Result<(), Error> {
+            self.persist_head_and_fork_choice()?;
+            self.persist_op_pool()?;
+            self.persist_eth1_cache()
+        };
+
+        if let Err(e) = drop() {
             error!(
                 self.log,
-                "Failed to persist BeaconChain on drop";
+                "Failed to persist on BeaconChain drop";
                 "error" => format!("{:?}", e)
             )
         } else {
             info!(
                 self.log,
-                "Saved beacon chain state";
+                "Saved beacon chain to disk";
             )
         }
     }
