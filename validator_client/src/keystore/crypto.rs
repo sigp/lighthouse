@@ -133,7 +133,7 @@ mod tests {
         let salt = hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
             .unwrap();
         let iv = hex::decode("264daa3f303d7259501c93d997d84fe6").unwrap();
-        let password = Password("testpassword".to_string());
+        let password: Password = "testpassword".into();
 
         let kdf = Kdf::Pbkdf2(Pbkdf2 {
             dklen: 32,
@@ -169,7 +169,7 @@ mod tests {
         let salt = hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
             .unwrap();
         let iv = hex::decode("264daa3f303d7259501c93d997d84fe6").unwrap();
-        let password = "testpassword".to_string();
+        let password: Password = "testpassword".into();
 
         let kdf = Kdf::Scrypt(Scrypt {
             dklen: 32,

@@ -1,4 +1,4 @@
-use crate::keystore::{Keystore, Password};
+use crate::keystore::Keystore;
 use bls::get_withdrawal_credentials;
 use deposit_contract::eth1_tx_data;
 use hex;
