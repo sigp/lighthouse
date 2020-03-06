@@ -9,8 +9,22 @@ use bls::{Keypair, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use uuid::Uuid;
+use zeroize::Zeroize;
+
+pub use crate::keystore::crypto::Password;
 
 const PRIVATE_KEY_BYTES: usize = 48;
+
+/// Wrapper over BLS secret key that is compatible with Milagro.
+#[derive(Zeroize)]
+#[zeroize(drop)]
+struct MilagroSecretKey([u8; PRIVATE_KEY_BYTES]);
+
+impl MilagroSecretKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 /// Version for `Keystore`.
 #[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -42,7 +56,7 @@ impl Keystore {
     /// keypair and password. Optionally, provide params for kdf, cipher and a uuid.
     pub fn new(
         keypair: &Keypair,
-        password: String,
+        password: Password,
         kdf: Option<Kdf>,
         cipher: Option<Cipher>,
         uuid: Option<Uuid>,
@@ -71,13 +85,13 @@ impl Keystore {
     /// An error is returned if the password provided is incorrect or if
     /// keystore does not contain valid hex strings or if the secret contained is not a
     /// BLS12-381 secret key.
-    fn to_keypair(&self, password: String) -> Result<Keypair, String> {
+    pub fn to_keypair(&self, password: Password) -> Result<Keypair, String> {
         let sk_bytes = self.crypto.decrypt(password)?;
         if sk_bytes.len() != 32 {
             return Err(format!("Invalid secret key size: {:?}", sk_bytes));
         }
         let padded_sk_bytes = pad_secret_key(&sk_bytes);
-        let sk = SecretKey::from_bytes(&padded_sk_bytes)
+        let sk = SecretKey::from_bytes(padded_sk_bytes.as_ref())
             .map_err(|e| format!("Invalid secret key in keystore {:?}", e))?;
         let pk = PublicKey::from_secret_key(&sk);
         if pk.as_hex_string()[2..].to_string() != self.pubkey {
@@ -89,10 +103,10 @@ impl Keystore {
 
 /// Pad 0's to a 32 bytes BLS secret key to make it compatible with the Milagro library
 /// Note: Milagro library only accepts 48 byte bls12 381 private keys.
-fn pad_secret_key(sk: &[u8]) -> [u8; PRIVATE_KEY_BYTES] {
+fn pad_secret_key(sk: &[u8]) -> MilagroSecretKey {
     let mut bytes = [0; PRIVATE_KEY_BYTES];
     bytes[PRIVATE_KEY_BYTES - sk.len()..].copy_from_slice(sk);
-    bytes
+    MilagroSecretKey(bytes)
 }
 
 // Test cases taken from https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
@@ -102,7 +116,7 @@ mod tests {
     #[test]
     fn test_vectors() {
         let expected_secret = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
-        let password = "testpassword".to_string();
+        let password: Password = "testpassword".into();
         let scrypt_test_vector = r#"
             {
             "crypto": {
@@ -174,7 +188,10 @@ mod tests {
             let keystore: Keystore = serde_json::from_str(test).unwrap();
             let keypair = keystore.to_keypair(password.clone()).unwrap();
             let expected_sk = pad_secret_key(&hex::decode(expected_secret).unwrap());
-            assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk.to_vec())
+            assert_eq!(
+                keypair.sk.as_raw().as_bytes(),
+                expected_sk.as_ref().to_vec()
+            )
         }
     }
 }

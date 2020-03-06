@@ -1,4 +1,4 @@
-use crate::keystore::Keystore;
+use crate::keystore::{Keystore, Password};
 use bls::get_withdrawal_credentials;
 use deposit_contract::eth1_tx_data;
 use hex;
@@ -106,7 +106,7 @@ fn load_keypair(base_path: PathBuf, file_prefix: &str) -> Result<Keypair, String
 }
 
 /// Load a `Keystore` from a file.
-fn load_keystore(path: PathBuf, password: String) -> Result<Keystore, String> {
+fn load_keystore(path: PathBuf) -> Result<Keystore, String> {
     if !path.exists() {
         return Err(format!("Keypair file does not exist: {:?}", path));
     }

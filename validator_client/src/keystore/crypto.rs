@@ -2,6 +2,35 @@ use crate::keystore::checksum::{Checksum, ChecksumModule};
 use crate::keystore::cipher::{Cipher, CipherModule};
 use crate::keystore::kdf::{Kdf, KdfModule};
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use zeroize::Zeroize;
+
+#[derive(Zeroize, Clone, PartialEq)]
+#[zeroize(drop)]
+pub struct Password(String);
+
+impl fmt::Display for Password {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "******")
+    }
+}
+impl Password {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl From<String> for Password {
+    fn from(s: String) -> Password {
+        Password(s)
+    }
+}
+
+impl<'a> From<&'a str> for Password {
+    fn from(s: &'a str) -> Password {
+        Password::from(String::from(s))
+    }
+}
 
 /// Crypto module for keystore.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -14,11 +43,11 @@ pub struct Crypto {
 impl Crypto {
     /// Generate crypto module for `Keystore` given the password,
     /// secret to encrypt, kdf params and cipher params.
-    pub fn encrypt(password: String, secret: &[u8], kdf: Kdf, cipher: Cipher) -> Self {
+    pub fn encrypt(password: Password, secret: &[u8], kdf: Kdf, cipher: Cipher) -> Self {
         // Generate derived key
         let derived_key = match &kdf {
-            Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(&password),
-            Kdf::Scrypt(scrypt) => scrypt.derive_key(&password),
+            Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(password.as_str()),
+            Kdf::Scrypt(scrypt) => scrypt.derive_key(password.as_str()),
         };
         // Encrypt secret
         let cipher_message = match &cipher {
@@ -51,11 +80,11 @@ impl Crypto {
     ///
     /// An error will be returned if `cipher.message` is not in hex format or
     /// if password is incorrect.
-    pub fn decrypt(&self, password: String) -> Result<Vec<u8>, String> {
+    pub fn decrypt(&self, password: Password) -> Result<Vec<u8>, String> {
         // Generate derived key
         let derived_key = match &self.kdf.params {
-            Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(&password),
-            Kdf::Scrypt(scrypt) => scrypt.derive_key(&password),
+            Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(password.as_str()),
+            Kdf::Scrypt(scrypt) => scrypt.derive_key(password.as_str()),
         };
         // Regenerate checksum
         let mut pre_image: Vec<u8> = derived_key[16..32].to_owned();
@@ -104,7 +133,7 @@ mod tests {
         let salt = hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
             .unwrap();
         let iv = hex::decode("264daa3f303d7259501c93d997d84fe6").unwrap();
-        let password = "testpassword".to_string();
+        let password = Password("testpassword".to_string());
 
         let kdf = Kdf::Pbkdf2(Pbkdf2 {
             dklen: 32,
