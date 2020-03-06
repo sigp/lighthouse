@@ -166,9 +166,7 @@ where
         self
     }
 
-    /// Attempt to load an existing chain from the builder's `Store`.
-    ///
-    /// May initialize several components; including the op_pool and finalized checkpoints.
+    /// Attempt to load an existing eth1 cache from the builder's `Store`.
     pub fn get_persisted_eth1_backend(&self) -> Result<Option<SszEth1>, String> {
         let store = self
             .store
@@ -176,7 +174,7 @@ where
             .ok_or_else(|| "get_persisted_eth1_backend requires a store.".to_string())?;
 
         store
-            .get::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY.as_bytes()))
+            .get::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY))
             .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
     }
 
@@ -206,7 +204,7 @@ where
             .ok_or_else(|| "load_from_store requires a store.".to_string())?;
 
         let chain = store
-            .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes()))
+            .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .ok_or_else(|| {
                 "No persisted beacon chain found in store. Try deleting the .lighthouse/beacon dir."
@@ -232,9 +230,7 @@ where
 
         self.op_pool = Some(
             store
-                .get::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(
-                    &OP_POOL_DB_KEY.as_bytes(),
-                ))
+                .get::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(&OP_POOL_DB_KEY))
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
                 .map(|persisted| persisted.into_operation_pool(&head_state, &self.spec))
                 .unwrap_or_else(|| OperationPool::new()),
@@ -466,7 +462,7 @@ where
             .ok_or_else(|| "reduced_tree_fork_choice requires a store.".to_string())?;
 
         let persisted_fork_choice = store
-            .get::<SszForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY.as_bytes()))
+            .get::<SszForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {

@@ -62,10 +62,10 @@ const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// validator pubkey cache.
 const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
-pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
-pub const OP_POOL_DB_KEY: &str = "OPPOOLOPPOOLOPPOOLOPPOOLOPPOOLOP";
-pub const ETH1_CACHE_DB_KEY: &str = "ETH1CACHEETH1CACHEETH1CACHEETH1C";
-pub const FORK_CHOICE_DB_KEY: &str = "FORKCHOICEFORKCHOICEFORKCHOICEFO";
+pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
+pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
+pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
+pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -227,17 +227,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
         self.store.put(
-            &Hash256::from_slice(&FORK_CHOICE_DB_KEY.as_bytes()),
+            &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
             &self.fork_choice.as_ssz_container(),
         )?;
 
         metrics::stop_timer(fork_choice_timer);
         let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
 
-        self.store.put(
-            &Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes()),
-            &persisted_head,
-        )?;
+        self.store
+            .put(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
 
         metrics::stop_timer(head_timer);
 
@@ -254,7 +252,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         self.store.put(
-            &Hash256::from_slice(&OP_POOL_DB_KEY.as_bytes()),
+            &Hash256::from_slice(&OP_POOL_DB_KEY),
             &PersistedOperationPool::from_operation_pool(&self.op_pool),
         )?;
 
@@ -269,7 +267,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
             self.store.put(
-                &Hash256::from_slice(&ETH1_CACHE_DB_KEY.as_bytes()),
+                &Hash256::from_slice(&ETH1_CACHE_DB_KEY),
                 &eth1_chain.as_ssz_container(),
             )?;
         }

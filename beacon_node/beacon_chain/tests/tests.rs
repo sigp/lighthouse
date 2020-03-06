@@ -351,7 +351,7 @@ fn roundtrip_operation_pool() {
 
     let head_state = harness.chain.head().expect("should get head").beacon_state;
 
-    let key = Hash256::from_slice(&OP_POOL_DB_KEY.as_bytes());
+    let key = Hash256::from_slice(&OP_POOL_DB_KEY);
     let restored_op_pool = harness
         .chain
         .store
