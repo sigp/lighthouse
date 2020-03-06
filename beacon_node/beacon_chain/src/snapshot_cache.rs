@@ -29,7 +29,7 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// Setting `max_len = 0` is equivalent to setting `max_len = 1`.
     pub fn new(max_len: usize, head: BeaconSnapshot<T>) -> Self {
         Self {
-            max_len: cmp::min(max_len, 1),
+            max_len: cmp::max(max_len, 1),
             head_block_root: head.beacon_block_root,
             snapshots: vec![head],
         }
