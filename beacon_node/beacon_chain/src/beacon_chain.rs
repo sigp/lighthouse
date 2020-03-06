@@ -1597,144 +1597,154 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub fn fork_choice(&self) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
+        let overall_timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
-        // Start fork choice metrics timer.
-        let timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
-
-        // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self.fork_choice.find_head(&self)?;
-
-        // If a new head was chosen.
-        let result = if beacon_block_root != self.head_info()?.block_root {
-            metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
-
-            let beacon_block = self
-                .get_block(&beacon_block_root)?
-                .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
-
-            let beacon_state_root = beacon_block.state_root();
-            let beacon_state: BeaconState<T::EthSpec> = self
-                .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
-
-            let previous_slot = self.head_info()?.slot;
-            let new_slot = beacon_block.slot();
-
-            // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
-            // between calls to fork choice without swapping between chains. This seems like an
-            // extreme-enough scenario that a warning is fine.
-            let is_reorg = self.head_info()?.block_root
-                != beacon_state
-                    .get_block_root(self.head_info()?.slot)
-                    .map(|root| *root)
-                    .unwrap_or_else(|_| Hash256::random());
-
-            // If we switched to a new chain (instead of building atop the present chain).
-            if is_reorg {
-                metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
-                warn!(
-                    self.log,
-                    "Beacon chain re-org";
-                    "previous_head" => format!("{}", self.head_info()?.block_root),
-                    "previous_slot" => previous_slot,
-                    "new_head_parent" => format!("{}", beacon_block.parent_root()),
-                    "new_head" => format!("{}", beacon_block_root),
-                    "new_slot" => new_slot
-                );
-            } else {
-                debug!(
-                    self.log,
-                    "Head beacon block";
-                    "justified_root" => format!("{}", beacon_state.current_justified_checkpoint.root),
-                    "justified_epoch" => beacon_state.current_justified_checkpoint.epoch,
-                    "finalized_root" => format!("{}", beacon_state.finalized_checkpoint.root),
-                    "finalized_epoch" => beacon_state.finalized_checkpoint.epoch,
-                    "root" => format!("{}", beacon_block_root),
-                    "slot" => new_slot,
-                );
-            };
-
-            let old_finalized_epoch = self.head_info()?.finalized_checkpoint.epoch;
-            let new_finalized_epoch = beacon_state.finalized_checkpoint.epoch;
-            let finalized_root = beacon_state.finalized_checkpoint.root;
-
-            // Never revert back past a finalized epoch.
-            if new_finalized_epoch < old_finalized_epoch {
-                Err(Error::RevertedFinalizedEpoch {
-                    previous_epoch: old_finalized_epoch,
-                    new_epoch: new_finalized_epoch,
-                })
-            } else {
-                let previous_head_beacon_block_root = self
-                    .canonical_head
-                    .try_read_for(HEAD_LOCK_TIMEOUT)
-                    .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
-                    .beacon_block_root;
-                let current_head_beacon_block_root = beacon_block_root;
-
-                let mut new_head = BeaconSnapshot {
-                    beacon_block,
-                    beacon_block_root,
-                    beacon_state,
-                    beacon_state_root,
-                };
-
-                new_head
-                    .beacon_state
-                    .build_all_committee_caches(&self.spec)?;
-
-                let timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
-
-                // Update the checkpoint that stores the head of the chain at the time it received the
-                // block.
-                *self
-                    .canonical_head
-                    .try_write_for(HEAD_LOCK_TIMEOUT)
-                    .ok_or_else(|| Error::CanonicalHeadLockTimeout)? = new_head;
-
-                metrics::stop_timer(timer);
-
-                self.block_processing_cache
-                    .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                    .map(|mut block_processing_cache| {
-                        block_processing_cache.update_head(beacon_block_root);
-                    })
-                    .unwrap_or_else(|| {
-                        error!(
-                            self.log,
-                            "Failed to obtain cache write lock";
-                            "lock" => "block_processing_cache",
-                            "task" => "update head"
-                        );
-                    });
-
-                // Save `self` to `self.store`.
-                self.persist()?;
-
-                let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
-                    reorg: is_reorg,
-                    previous_head_beacon_block_root,
-                    current_head_beacon_block_root,
-                });
-
-                if new_finalized_epoch != old_finalized_epoch {
-                    self.after_finalization(old_finalized_epoch, finalized_root)?;
-                }
-
-                Ok(())
-            }
-        } else {
-            Ok(())
-        };
-
-        // End fork choice metrics timer.
-        metrics::stop_timer(timer);
+        let result = self.fork_choice_internal();
 
         if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
 
+        metrics::stop_timer(overall_timer);
+
         result
+    }
+
+    fn fork_choice_internal(&self) -> Result<(), Error> {
+        // Determine the root of the block that is the head of the chain.
+        let beacon_block_root = self.fork_choice.find_head(&self)?;
+
+        let current_head = self.head_info()?;
+
+        if beacon_block_root == current_head.block_root {
+            return Ok(());
+        }
+
+        // At this point we know that the new head block is not the same as the previous one
+        metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
+
+        // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
+        // back to a database read if that fails.
+        let new_head = self
+            .block_processing_cache
+            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .and_then(|block_processing_cache| block_processing_cache.get_cloned(beacon_block_root))
+            .map::<Result<_, Error>, _>(|snapshot| Ok(snapshot))
+            .unwrap_or_else(|| {
+                let beacon_block = self
+                    .get_block(&beacon_block_root)?
+                    .ok_or_else(|| Error::MissingBeaconBlock(beacon_block_root))?;
+
+                let beacon_state_root = beacon_block.state_root();
+                let beacon_state: BeaconState<T::EthSpec> = self
+                    .get_state(&beacon_state_root, Some(beacon_block.slot()))?
+                    .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
+
+                Ok(BeaconSnapshot {
+                    beacon_block,
+                    beacon_block_root,
+                    beacon_state,
+                    beacon_state_root,
+                })
+            })
+            .and_then(|mut snapshot| {
+                // Regardless of where we got the state from, attempt to build the committee
+                // caches.
+                snapshot
+                    .beacon_state
+                    .build_all_committee_caches(&self.spec)
+                    .map_err(Into::into)
+                    .map(|()| snapshot)
+            })?;
+
+        // Attempt to detect if the new head is not on the same chain as the previous block
+        // (i.e., a re-org).
+        //
+        // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
+        // between calls to fork choice without swapping between chains. This seems like an
+        // extreme-enough scenario that a warning is fine.
+        let is_reorg = current_head.block_root
+            != new_head
+                .beacon_state
+                .get_block_root(current_head.slot)
+                .map(|root| *root)
+                .unwrap_or_else(|_| Hash256::random());
+
+        if is_reorg {
+            metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
+            warn!(
+                self.log,
+                "Beacon chain re-org";
+                "previous_head" => format!("{}", current_head.block_root),
+                "previous_slot" => current_head.slot,
+                "new_head_parent" => format!("{}", new_head.beacon_block.parent_root()),
+                "new_head" => format!("{}", beacon_block_root),
+                "new_slot" => new_head.beacon_block.slot()
+            );
+        } else {
+            debug!(
+                self.log,
+                "Head beacon block";
+                "justified_root" => format!("{}", new_head.beacon_state.current_justified_checkpoint.root),
+                "justified_epoch" => new_head.beacon_state.current_justified_checkpoint.epoch,
+                "finalized_root" => format!("{}", new_head.beacon_state.finalized_checkpoint.root),
+                "finalized_epoch" => new_head.beacon_state.finalized_checkpoint.epoch,
+                "root" => format!("{}", beacon_block_root),
+                "slot" => new_head.beacon_block.slot(),
+            );
+        };
+
+        let old_finalized_epoch = current_head.finalized_checkpoint.epoch;
+        let new_finalized_epoch = new_head.beacon_state.finalized_checkpoint.epoch;
+        let finalized_root = new_head.beacon_state.finalized_checkpoint.root;
+
+        // It is an error to try to update to a head with a lesser finalized epoch.
+        if new_finalized_epoch < old_finalized_epoch {
+            return Err(Error::RevertedFinalizedEpoch {
+                previous_epoch: old_finalized_epoch,
+                new_epoch: new_finalized_epoch,
+            });
+        }
+
+        let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
+
+        // Update the checkpoint that stores the head of the chain at the time it received the
+        // block.
+        *self
+            .canonical_head
+            .try_write_for(HEAD_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::CanonicalHeadLockTimeout)? = new_head;
+
+        metrics::stop_timer(update_head_timer);
+
+        self.block_processing_cache
+            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .map(|mut block_processing_cache| {
+                block_processing_cache.update_head(beacon_block_root);
+            })
+            .unwrap_or_else(|| {
+                error!(
+                    self.log,
+                    "Failed to obtain cache write lock";
+                    "lock" => "block_processing_cache",
+                    "task" => "update head"
+                );
+            });
+
+        // Save `self` to `self.store`.
+        self.persist()?;
+
+        if new_finalized_epoch != old_finalized_epoch {
+            self.after_finalization(old_finalized_epoch, finalized_root)?;
+        }
+
+        let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
+            reorg: is_reorg,
+            previous_head_beacon_block_root: current_head.block_root,
+            current_head_beacon_block_root: beacon_block_root,
+        });
+
+        Ok(())
     }
 
     /// Called after `self` has had a new block finalized.
