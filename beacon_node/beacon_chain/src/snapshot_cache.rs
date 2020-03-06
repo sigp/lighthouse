@@ -1,6 +1,8 @@
 use crate::BeaconSnapshot;
 use types::{Epoch, EthSpec, Hash256};
 
+const CACHE_SIZE: usize = 4;
+
 /// Provides a cache of `BeaconSnapshot` that is intended primarily for block processing.
 ///
 /// ## Cache Queuing
@@ -24,7 +26,7 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// Instantiate a new cache which contains the `head` snapshot.
     pub fn new(head: BeaconSnapshot<T>) -> Self {
         Self {
-            max_len: 4,
+            max_len: CACHE_SIZE,
             head_block_root: head.beacon_block_root,
             snapshots: vec![head],
         }
@@ -86,5 +88,125 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// during `Self::insert`.
     pub fn update_head(&mut self, head_block_root: Hash256) {
         self.head_block_root = head_block_root
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::{
+        test_utils::{generate_deterministic_keypair, TestingBeaconStateBuilder},
+        BeaconBlock, Epoch, MainnetEthSpec, Signature, SignedBeaconBlock, Slot,
+    };
+
+    fn get_snapshot(i: u64) -> BeaconSnapshot<MainnetEthSpec> {
+        let spec = MainnetEthSpec::default_spec();
+
+        let state_builder = TestingBeaconStateBuilder::from_deterministic_keypairs(1, &spec);
+        let (beacon_state, _keypairs) = state_builder.build();
+
+        BeaconSnapshot {
+            beacon_state,
+            beacon_state_root: Hash256::from_low_u64_be(i),
+            beacon_block: SignedBeaconBlock {
+                message: BeaconBlock::empty(&spec),
+                signature: Signature::new(&[42], &generate_deterministic_keypair(0).sk),
+            },
+            beacon_block_root: Hash256::from_low_u64_be(i),
+        }
+    }
+
+    #[test]
+    fn insert_get_prune_update() {
+        let mut cache = SnapshotCache::new(get_snapshot(0));
+
+        // Insert a bunch of entries in the cache. It should look like this:
+        //
+        // Index    Root
+        // 0        0     <--head
+        // 1        1
+        // 2        2
+        // 3        3
+        for i in 1..CACHE_SIZE as u64 {
+            let mut snapshot = get_snapshot(i);
+
+            // Each snapshot should be one slot into an epoch, with each snapshot one epoch apart.
+            snapshot.beacon_state.slot = Slot::from(i * MainnetEthSpec::slots_per_epoch() + 1);
+
+            cache.insert(snapshot);
+
+            assert_eq!(
+                cache.snapshots.len(),
+                i as usize + 1,
+                "cache length should be as expected"
+            );
+            assert_eq!(cache.head_block_root, Hash256::from_low_u64_be(0));
+        }
+
+        // Insert a new value in the cache. Afterwards it should look like:
+        //
+        // Index    Root
+        // 0        0     <--head
+        // 1        42
+        // 2        2
+        // 3        3
+        assert_eq!(cache.snapshots.len(), CACHE_SIZE);
+        cache.insert(get_snapshot(42));
+        assert_eq!(cache.snapshots.len(), CACHE_SIZE);
+
+        assert!(
+            cache.try_remove(Hash256::from_low_u64_be(1)).is_none(),
+            "the snapshot with the lowest slot should have been removed during the insert function"
+        );
+        assert!(cache.get_cloned(Hash256::from_low_u64_be(1)).is_none());
+
+        assert!(
+            cache
+                .get_cloned(Hash256::from_low_u64_be(0))
+                .expect("the head should still be in the cache")
+                .beacon_block_root
+                == Hash256::from_low_u64_be(0),
+            "get_cloned should get the correct snapshot"
+        );
+        assert!(
+            cache
+                .try_remove(Hash256::from_low_u64_be(0))
+                .expect("the head should still be in the cache")
+                .beacon_block_root
+                == Hash256::from_low_u64_be(0),
+            "try_remove should get the correct snapshot"
+        );
+
+        assert_eq!(
+            cache.snapshots.len(),
+            CACHE_SIZE - 1,
+            "try_remove should shorten the cache"
+        );
+
+        // Prune the cache. Afterwards it should look like:
+        //
+        // Index    Root
+        // 0        2
+        // 1        3
+        cache.prune(Epoch::new(2));
+
+        assert_eq!(cache.snapshots.len(), 2);
+
+        cache.update_head(Hash256::from_low_u64_be(2));
+
+        // Over-fill the cache so it needs to eject some old values on insert.
+        for i in 0..CACHE_SIZE as u64 {
+            cache.insert(get_snapshot(u64::max_value() - i));
+        }
+
+        // Ensure that the new head value was not removed from the cache.
+        assert!(
+            cache
+                .try_remove(Hash256::from_low_u64_be(2))
+                .expect("the new head should still be in the cache")
+                .beacon_block_root
+                == Hash256::from_low_u64_be(2),
+            "try_remove should get the correct snapshot"
+        );
     }
 }
