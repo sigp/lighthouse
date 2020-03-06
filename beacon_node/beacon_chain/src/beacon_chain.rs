@@ -1,4 +1,5 @@
 use crate::checkpoint::CheckPoint;
+use crate::checkpoint_cache::CheckpointCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -7,7 +8,6 @@ use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
-use crate::state_cache::StateCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -190,7 +190,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
     /// A cache dedicated to block processing.
-    pub(crate) block_processing_cache: TimeoutRwLock<StateCache<T::EthSpec>>,
+    pub(crate) block_processing_cache: TimeoutRwLock<CheckpointCache<T::EthSpec>>,
     /// Caches the shuffling for a given epoch and state root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.

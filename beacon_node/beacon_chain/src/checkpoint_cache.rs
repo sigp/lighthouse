@@ -1,13 +1,13 @@
 use crate::checkpoint::CheckPoint;
 use types::{Epoch, EthSpec, Hash256};
 
-pub struct StateCache<T: EthSpec> {
+pub struct CheckpointCache<T: EthSpec> {
     max_len: usize,
     head_block_root: Hash256,
     checkpoints: Vec<CheckPoint<T>>,
 }
 
-impl<T: EthSpec> StateCache<T> {
+impl<T: EthSpec> CheckpointCache<T> {
     pub fn new(head: CheckPoint<T>) -> Self {
         Self {
             max_len: 4,
