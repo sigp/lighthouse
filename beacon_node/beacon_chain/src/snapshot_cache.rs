@@ -1,7 +1,8 @@
 use crate::BeaconSnapshot;
 use types::{Epoch, EthSpec, Hash256};
 
-const CACHE_SIZE: usize = 4;
+/// The default size of the cache.
+pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 
 /// Provides a cache of `BeaconSnapshot` that is intended primarily for block processing.
 ///
@@ -24,9 +25,15 @@ pub struct SnapshotCache<T: EthSpec> {
 
 impl<T: EthSpec> SnapshotCache<T> {
     /// Instantiate a new cache which contains the `head` snapshot.
-    pub fn new(head: BeaconSnapshot<T>) -> Self {
+    ///
+    /// Setting `max_len = 0` is equivalent to setting `max_len = 1`.
+    pub fn new(mut max_len: usize, head: BeaconSnapshot<T>) -> Self {
+        if max_len == 0 {
+            max_len = 1
+        }
+
         Self {
-            max_len: CACHE_SIZE,
+            max_len,
             head_block_root: head.beacon_block_root,
             snapshots: vec![head],
         }
@@ -99,6 +106,8 @@ mod test {
         BeaconBlock, Epoch, MainnetEthSpec, Signature, SignedBeaconBlock, Slot,
     };
 
+    const CACHE_SIZE: usize = 4;
+
     fn get_snapshot(i: u64) -> BeaconSnapshot<MainnetEthSpec> {
         let spec = MainnetEthSpec::default_spec();
 
@@ -118,7 +127,7 @@ mod test {
 
     #[test]
     fn insert_get_prune_update() {
-        let mut cache = SnapshotCache::new(get_snapshot(0));
+        let mut cache = SnapshotCache::new(CACHE_SIZE, get_snapshot(0));
 
         // Insert a bunch of entries in the cache. It should look like this:
         //

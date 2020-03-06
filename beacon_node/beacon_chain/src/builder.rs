@@ -3,7 +3,7 @@ use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
-use crate::snapshot_cache::SnapshotCache;
+use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -377,7 +377,10 @@ where
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
-            block_processing_cache: TimeoutRwLock::new(SnapshotCache::new(canonical_head)),
+            block_processing_cache: TimeoutRwLock::new(SnapshotCache::new(
+                DEFAULT_SNAPSHOT_CACHE_SIZE,
+                canonical_head,
+            )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             log: log.clone(),
