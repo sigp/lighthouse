@@ -68,9 +68,9 @@ where
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     store: Option<Arc<T::Store>>,
     store_migrator: Option<T::StoreMigrator>,
-    /// The finalized checkpoint to anchor the chain. May be genesis or a higher
-    /// checkpoint.
-    pub finalized_checkpoint: Option<BeaconSnapshot<T::EthSpec>>,
+    /// The finalized snapshot to anchor the chain. May be genesis or a higher
+    /// snapshot.
+    pub finalized_snapshot: Option<BeaconSnapshot<T::EthSpec>>,
     genesis_block_root: Option<Hash256>,
     op_pool: Option<OperationPool<T::EthSpec>>,
     fork_choice: Option<ForkChoice<T>>,
@@ -106,7 +106,7 @@ where
         Self {
             store: None,
             store_migrator: None,
-            finalized_checkpoint: None,
+            finalized_snapshot: None,
             genesis_block_root: None,
             op_pool: None,
             fork_choice: None,
@@ -165,7 +165,7 @@ where
 
     /// Attempt to load an existing chain from the builder's `Store`.
     ///
-    /// May initialize several components; including the op_pool and finalized checkpoints.
+    /// May initialize several components; including the op_pool and finalized snapshots.
     pub fn resume_from_db(mut self, config: Eth1Config) -> Result<Self, String> {
         let log = self
             .log
@@ -208,7 +208,7 @@ where
                 .into_operation_pool(&p.canonical_head.beacon_state, &self.spec),
         );
 
-        self.finalized_checkpoint = Some(p.finalized_checkpoint.clone());
+        self.finalized_snapshot = Some(p.finalized_snapshot.clone());
         self.genesis_block_root = Some(p.genesis_block_root);
         self.head_tracker = Some(
             HeadTracker::from_ssz_container(&p.ssz_head_tracker)
@@ -264,7 +264,7 @@ where
             )
         })?;
 
-        self.finalized_checkpoint = Some(BeaconSnapshot {
+        self.finalized_snapshot = Some(BeaconSnapshot {
             beacon_block_root,
             beacon_block,
             beacon_state_root,
@@ -322,11 +322,11 @@ where
             .ok_or_else(|| "Cannot build without a logger".to_string())?;
 
         // If this beacon chain is being loaded from disk, use the stored head. Otherwise, just use
-        // the finalized checkpoint (which is probably genesis).
+        // the finalized snapshot (which is probably genesis).
         let mut canonical_head = if let Some(persisted_beacon_chain) = self.persisted_beacon_chain {
             persisted_beacon_chain.canonical_head
         } else {
-            self.finalized_checkpoint
+            self.finalized_snapshot
                 .ok_or_else(|| "Cannot build without a state".to_string())?
         };
 
@@ -420,30 +420,30 @@ where
             ForkChoice::from_ssz_container(persisted_beacon_chain.fork_choice.clone())
                 .map_err(|e| format!("Unable to decode fork choice from db: {:?}", e))?
         } else {
-            let finalized_checkpoint = &self
-                .finalized_checkpoint
+            let finalized_snapshot = &self
+                .finalized_snapshot
                 .as_ref()
-                .ok_or_else(|| "fork_choice_backend requires a finalized_checkpoint")?;
+                .ok_or_else(|| "fork_choice_backend requires a finalized_snapshot")?;
             let genesis_block_root = self
                 .genesis_block_root
                 .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
             let backend = ProtoArrayForkChoice::new(
-                finalized_checkpoint.beacon_block.message.slot,
-                finalized_checkpoint.beacon_block.message.state_root,
+                finalized_snapshot.beacon_block.message.slot,
+                finalized_snapshot.beacon_block.message.state_root,
                 // Note: here we set the `justified_epoch` to be the same as the epoch of the
                 // finalized checkpoint. Whilst this finalized checkpoint may actually point to
                 // a _later_ justified checkpoint, that checkpoint won't yet exist in the fork
                 // choice.
-                finalized_checkpoint.beacon_state.current_epoch(),
-                finalized_checkpoint.beacon_state.current_epoch(),
-                finalized_checkpoint.beacon_block_root,
+                finalized_snapshot.beacon_state.current_epoch(),
+                finalized_snapshot.beacon_state.current_epoch(),
+                finalized_snapshot.beacon_block_root,
             )?;
 
             ForkChoice::new(
                 backend,
                 genesis_block_root,
-                &finalized_checkpoint.beacon_state,
+                &finalized_snapshot.beacon_state,
             )
         };
 
@@ -519,7 +519,7 @@ where
     /// Requires the state to be initialized.
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
-            .finalized_checkpoint
+            .finalized_snapshot
             .as_ref()
             .ok_or_else(|| "testing_slot_clock requires an initialized state")?
             .beacon_state

@@ -208,7 +208,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let canonical_head = self.head()?;
 
-        let finalized_checkpoint = {
+        let finalized_snapshot = {
             let beacon_block_root = canonical_head.beacon_state.finalized_checkpoint.root;
             let beacon_block = self
                 .store
@@ -229,7 +229,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let p: PersistedBeaconChain<T> = PersistedBeaconChain {
             canonical_head,
-            finalized_checkpoint,
+            finalized_snapshot,
             op_pool: PersistedOperationPool::from_operation_pool(&self.op_pool),
             genesis_block_root: self.genesis_block_root,
             ssz_head_tracker: self.head_tracker.to_ssz_container(),
@@ -1259,15 +1259,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // processing.
         let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
-        let cached_checkpoint = self
+        let cached_snapshot = self
             .block_processing_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .and_then(|mut block_processing_cache| {
                 block_processing_cache.try_remove(block.parent_root)
             });
 
-        let (parent_block, parent_state) = if let Some(checkpoint) = cached_checkpoint {
-            (checkpoint.beacon_block, checkpoint.beacon_state)
+        let (parent_block, parent_state) = if let Some(snapshot) = cached_snapshot {
+            (snapshot.beacon_block, snapshot.beacon_state)
         } else {
             // Load the blocks parent block from the database, returning invalid if that block is not
             // found.
@@ -1708,7 +1708,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
-        // Update the checkpoint that stores the head of the chain at the time it received the
+        // Update the snapshot that stores the head of the chain at the time it received the
         // block.
         *self
             .canonical_head
