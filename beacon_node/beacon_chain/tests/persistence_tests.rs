@@ -72,7 +72,18 @@ fn finalizes_after_resuming_from_db() {
 
     let latest_slot = harness.chain.slot().expect("should have a slot");
 
-    harness.chain.persist().expect("should persist the chain");
+    harness
+        .chain
+        .persist_head_and_fork_choice()
+        .expect("should persist the head and fork choice");
+    harness
+        .chain
+        .persist_op_pool()
+        .expect("should persist the op pool");
+    harness
+        .chain
+        .persist_eth1_cache()
+        .expect("should persist the eth1 cache");
 
     let data_dir = harness.data_dir;
     let original_chain = harness.chain;

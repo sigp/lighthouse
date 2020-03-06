@@ -179,10 +179,16 @@ lazy_static! {
         try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache fulfils request");
 
     /*
-     * Persisting BeaconChain to disk
+     * Persisting BeaconChain components to disk
      */
-    pub static ref PERSIST_CHAIN: Result<Histogram> =
-        try_create_histogram("beacon_persist_chain", "Time taken to update the canonical head");
+    pub static ref PERSIST_HEAD: Result<Histogram> =
+        try_create_histogram("beacon_persist_head", "Time taken to persist the canonical head");
+    pub static ref PERSIST_OP_POOL: Result<Histogram> =
+        try_create_histogram("beacon_persist_op_pool", "Time taken to persist the operations pool");
+    pub static ref PERSIST_ETH1_CACHE: Result<Histogram> =
+        try_create_histogram("beacon_persist_eth1_cache", "Time taken to persist the eth1 caches");
+    pub static ref PERSIST_FORK_CHOICE: Result<Histogram> =
+        try_create_histogram("beacon_persist_fork_choice", "Time taken to persist the fork choice struct");
 
     /*
      * Eth1
