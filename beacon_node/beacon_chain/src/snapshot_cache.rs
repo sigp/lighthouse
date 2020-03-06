@@ -1,4 +1,5 @@
 use crate::BeaconSnapshot;
+use std::cmp;
 use types::{Epoch, EthSpec, Hash256};
 
 /// The default size of the cache.
@@ -17,7 +18,6 @@ pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 /// - Never be the `head_block_root`.
 /// - Be the snapshot with the lowest `state.slot` (ties broken arbitrarily).
 pub struct SnapshotCache<T: EthSpec> {
-    /// Must be greater than zero. Should be greater than one.
     max_len: usize,
     head_block_root: Hash256,
     snapshots: Vec<BeaconSnapshot<T>>,
@@ -27,13 +27,9 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// Instantiate a new cache which contains the `head` snapshot.
     ///
     /// Setting `max_len = 0` is equivalent to setting `max_len = 1`.
-    pub fn new(mut max_len: usize, head: BeaconSnapshot<T>) -> Self {
-        if max_len == 0 {
-            max_len = 1
-        }
-
+    pub fn new(max_len: usize, head: BeaconSnapshot<T>) -> Self {
         Self {
-            max_len,
+            max_len: cmp::min(max_len, 1),
             head_block_root: head.beacon_block_root,
             snapshots: vec![head],
         }
