@@ -1262,7 +1262,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let cached_checkpoint = self
             .block_processing_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|mut block_processing_cache| block_processing_cache.get(block.parent_root));
+            .and_then(|mut block_processing_cache| {
+                block_processing_cache.try_remove(block.parent_root)
+            });
 
         let (parent_block, parent_state) = if let Some(checkpoint) = cached_checkpoint {
             (checkpoint.beacon_block, checkpoint.beacon_state)
