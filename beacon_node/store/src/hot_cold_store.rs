@@ -22,7 +22,6 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
-use types::beacon_state::CloneConfig;
 use types::*;
 
 /// 32-byte key for accessing the `split` of the freezer DB.
@@ -157,7 +156,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        self.get_state_with(state_root, slot, CloneConfig::all())
+        self.get_state_with(state_root, slot)
     }
 
     /// Get a state from the store.
@@ -167,7 +166,6 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
-        clone_config: CloneConfig,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
 
@@ -175,10 +173,10 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
             if slot < self.get_split_slot() {
                 self.load_cold_state_by_slot(slot).map(Some)
             } else {
-                self.load_hot_state(state_root, clone_config)
+                self.load_hot_state(state_root)
             }
         } else {
-            match self.load_hot_state(state_root, clone_config)? {
+            match self.load_hot_state(state_root)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
@@ -304,10 +302,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
             let state = self
-                .load_hot_state(
-                    &epoch_boundary_state_root,
-                    CloneConfig::committee_caches_only(),
-                )?
+                .load_hot_state(&epoch_boundary_state_root)?
                 .ok_or_else(|| {
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
                 })?;
@@ -389,11 +384,7 @@ impl<E: EthSpec> HotColdDB<E> {
     /// Load a post-finalization state from the hot database.
     ///
     /// Will replay blocks from the nearest epoch boundary.
-    pub fn load_hot_state(
-        &self,
-        state_root: &Hash256,
-        clone_config: CloneConfig,
-    ) -> Result<Option<BeaconState<E>>, Error> {
+    pub fn load_hot_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
         if let Some(HotStateSummary {

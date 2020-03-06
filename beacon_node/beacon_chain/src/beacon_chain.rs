@@ -410,27 +410,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_state(state_root, slot)?)
     }
 
-    /// Returns the state at the given root, if any.
-    ///
-    /// The return state does not contain any caches other than the committee caches. This method
-    /// is much faster than `Self::get_state` because it does not clone the tree hash cache
-    /// when the state is found in the cache.
-    ///
-    /// ## Errors
-    ///
-    /// May return a database error.
-    pub fn get_state_caching_only_with_committee_caches(
-        &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        Ok(self.store.get_state_with(
-            state_root,
-            slot,
-            types::beacon_state::CloneConfig::committee_caches_only(),
-        )?)
-    }
-
     /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
     /// the head of the canonical `BeaconChain`.
     ///
@@ -667,7 +646,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             drop(head);
 
             let mut state = self
-                .get_state_caching_only_with_committee_caches(&state_root, Some(slot))?
+                .get_state(&state_root, Some(slot))?
                 .ok_or_else(|| Error::MissingBeaconState(state_root))?;
 
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -931,10 +910,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
                 let mut state = self
-                    .get_state_caching_only_with_committee_caches(
-                        &target_block_state_root,
-                        Some(target_block_slot),
-                    )?
+                    .get_state(&target_block_state_root, Some(target_block_slot))?
                     .ok_or_else(|| Error::MissingBeaconState(target_block_state_root))?;
 
                 metrics::stop_timer(state_read_timer);
@@ -1786,10 +1762,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
 
             let finalized_state = self
-                .get_state_caching_only_with_committee_caches(
-                    &finalized_block.state_root,
-                    Some(finalized_block.slot),
-                )?
+                .get_state(&finalized_block.state_root, Some(finalized_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
