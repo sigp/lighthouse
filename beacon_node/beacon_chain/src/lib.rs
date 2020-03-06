@@ -4,8 +4,6 @@ extern crate lazy_static;
 
 mod beacon_chain;
 pub mod builder;
-mod checkpoint;
-mod checkpoint_cache;
 mod errors;
 pub mod eth1_chain;
 pub mod events;
@@ -14,6 +12,8 @@ mod head_tracker;
 mod metrics;
 mod persisted_beacon_chain;
 mod shuffling_cache;
+mod snapshot;
+mod snapshot_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
 mod validator_pubkey_cache;
@@ -22,8 +22,8 @@ pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
     StateSkipConfig,
 };
-pub use self::checkpoint::CheckPoint;
 pub use self::errors::{BeaconChainError, BlockProductionError};
+pub use self::snapshot::BeaconSnapshot;
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::EventHandler;
 pub use fork_choice::ForkChoice;

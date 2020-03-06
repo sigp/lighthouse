@@ -1,14 +1,14 @@
-use crate::checkpoint::CheckPoint;
+use crate::BeaconSnapshot;
 use types::{Epoch, EthSpec, Hash256};
 
-pub struct CheckpointCache<T: EthSpec> {
+pub struct SnapshotCache<T: EthSpec> {
     max_len: usize,
     head_block_root: Hash256,
-    checkpoints: Vec<CheckPoint<T>>,
+    checkpoints: Vec<BeaconSnapshot<T>>,
 }
 
-impl<T: EthSpec> CheckpointCache<T> {
-    pub fn new(head: CheckPoint<T>) -> Self {
+impl<T: EthSpec> SnapshotCache<T> {
+    pub fn new(head: BeaconSnapshot<T>) -> Self {
         Self {
             max_len: 4,
             head_block_root: head.beacon_block_root,
@@ -16,7 +16,7 @@ impl<T: EthSpec> CheckpointCache<T> {
         }
     }
 
-    pub fn insert(&mut self, checkpoint: CheckPoint<T>) {
+    pub fn insert(&mut self, checkpoint: BeaconSnapshot<T>) {
         if self.checkpoints.len() < self.max_len {
             self.checkpoints.push(checkpoint);
         } else {
@@ -40,7 +40,7 @@ impl<T: EthSpec> CheckpointCache<T> {
         }
     }
 
-    pub fn get(&mut self, block_root: Hash256) -> Option<CheckPoint<T>> {
+    pub fn get(&mut self, block_root: Hash256) -> Option<BeaconSnapshot<T>> {
         self.checkpoints
             .iter()
             .position(|checkpoint| checkpoint.beacon_block_root == block_root)

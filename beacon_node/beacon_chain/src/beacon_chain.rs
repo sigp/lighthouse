@@ -1,5 +1,3 @@
-use crate::checkpoint::CheckPoint;
-use crate::checkpoint_cache::CheckpointCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -8,8 +6,10 @@ use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
+use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::BeaconSnapshot;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -179,7 +179,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
-    pub(crate) canonical_head: TimeoutRwLock<CheckPoint<T::EthSpec>>,
+    pub(crate) canonical_head: TimeoutRwLock<BeaconSnapshot<T::EthSpec>>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
     /// A state-machine that is updated with information from the network and chooses a canonical
@@ -190,7 +190,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
     /// A cache dedicated to block processing.
-    pub(crate) block_processing_cache: TimeoutRwLock<CheckpointCache<T::EthSpec>>,
+    pub(crate) block_processing_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the shuffling for a given epoch and state root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .get_state(&beacon_state_root, Some(beacon_block.slot()))?
                 .ok_or_else(|| Error::MissingBeaconState(beacon_state_root))?;
 
-            CheckPoint {
+            BeaconSnapshot {
                 beacon_block_root,
                 beacon_block,
                 beacon_state_root,
@@ -437,7 +437,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// It is important to note that the `beacon_state` returned may not match the present slot. It
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
-    pub fn head(&self) -> Result<CheckPoint<T::EthSpec>, Error> {
+    pub fn head(&self) -> Result<BeaconSnapshot<T::EthSpec>, Error> {
         self.canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)
@@ -1450,7 +1450,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.block_processing_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut block_processing_cache| {
-                block_processing_cache.insert(CheckPoint {
+                block_processing_cache.insert(BeaconSnapshot {
                     beacon_block: signed_block,
                     beacon_block_root: block_root,
                     beacon_state: state,
@@ -1670,7 +1670,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .beacon_block_root;
                 let current_head_beacon_block_root = beacon_block_root;
 
-                let mut new_head = CheckPoint {
+                let mut new_head = BeaconSnapshot {
                     beacon_block,
                     beacon_block_root,
                     beacon_state,
@@ -1810,10 +1810,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
     /// activities.
-    pub fn chain_dump(&self) -> Result<Vec<CheckPoint<T::EthSpec>>, Error> {
+    pub fn chain_dump(&self) -> Result<Vec<BeaconSnapshot<T::EthSpec>>, Error> {
         let mut dump = vec![];
 
-        let mut last_slot = CheckPoint {
+        let mut last_slot = BeaconSnapshot {
             beacon_block: self.head()?.beacon_block,
             beacon_block_root: self.head()?.beacon_block_root,
             beacon_state: self.head()?.beacon_state,
@@ -1840,7 +1840,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
                 })?;
 
-            let slot = CheckPoint {
+            let slot = BeaconSnapshot {
                 beacon_block,
                 beacon_block_root,
                 beacon_state,

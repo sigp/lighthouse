@@ -1,7 +1,7 @@
 use crate::eth1_chain::SszEth1;
 use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::SszHeadTracker;
-use crate::{BeaconChainTypes, CheckPoint};
+use crate::{BeaconChainTypes, BeaconSnapshot};
 use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -13,8 +13,8 @@ pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
 
 #[derive(Clone, Encode, Decode)]
 pub struct PersistedBeaconChain<T: BeaconChainTypes> {
-    pub canonical_head: CheckPoint<T::EthSpec>,
-    pub finalized_checkpoint: CheckPoint<T::EthSpec>,
+    pub canonical_head: BeaconSnapshot<T::EthSpec>,
+    pub finalized_checkpoint: BeaconSnapshot<T::EthSpec>,
     pub op_pool: PersistedOperationPool<T::EthSpec>,
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,

@@ -1,13 +1,13 @@
-use crate::checkpoint_cache::CheckpointCache;
 use crate::eth1_chain::CachingEth1Backend;
 use crate::events::NullEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY};
 use crate::shuffling_cache::ShufflingCache;
+use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
+    BeaconChain, BeaconChainTypes, BeaconSnapshot, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
 };
 use eth1::Config as Eth1Config;
@@ -70,7 +70,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     store_migrator: Option<T::StoreMigrator>,
     /// The finalized checkpoint to anchor the chain. May be genesis or a higher
     /// checkpoint.
-    pub finalized_checkpoint: Option<CheckPoint<T::EthSpec>>,
+    pub finalized_checkpoint: Option<BeaconSnapshot<T::EthSpec>>,
     genesis_block_root: Option<Hash256>,
     op_pool: Option<OperationPool<T::EthSpec>>,
     fork_choice: Option<ForkChoice<T>>,
@@ -264,7 +264,7 @@ where
             )
         })?;
 
-        self.finalized_checkpoint = Some(CheckPoint {
+        self.finalized_checkpoint = Some(BeaconSnapshot {
             beacon_block_root,
             beacon_block,
             beacon_state_root,
@@ -377,7 +377,7 @@ where
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
-            block_processing_cache: TimeoutRwLock::new(CheckpointCache::new(canonical_head)),
+            block_processing_cache: TimeoutRwLock::new(SnapshotCache::new(canonical_head)),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             log: log.clone(),
