@@ -67,7 +67,8 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     verify_casper_ffg_vote(attestation, state)?;
 
     // Check signature and bitfields
-    let indexed_attestation = get_indexed_attestation(state, attestation)?;
+    let committee = state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+    let indexed_attestation = get_indexed_attestation(committee.committee, attestation)?;
     is_valid_indexed_attestation(state, &indexed_attestation, verify_signatures, spec)?;
 
     Ok(())
