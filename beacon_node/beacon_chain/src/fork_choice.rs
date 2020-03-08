@@ -107,7 +107,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend.contains_block(block_root)
     }
 
-    /// Returns the state root for the given block is known to fork choice.
+    /// Returns the state root for the given block root.
     pub fn block_slot_and_state_root(&self, block_root: &Hash256) -> Option<(Slot, Hash256)> {
         self.backend.block_slot_and_state_root(block_root)
     }

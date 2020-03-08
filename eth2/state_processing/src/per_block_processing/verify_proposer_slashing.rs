@@ -51,7 +51,7 @@ pub fn verify_proposer_slashing<T: EthSpec>(
     if verify_signatures.is_true() {
         let (signature_set_1, signature_set_2) = proposer_slashing_signature_set(
             state,
-            get_pubkey_from_state(state),
+            |i| get_pubkey_from_state(state, i),
             proposer_slashing,
             spec,
         )?;

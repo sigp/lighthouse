@@ -85,7 +85,7 @@ pub fn per_block_processing<T: EthSpec>(
             block_verify!(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
-                    get_pubkey_from_state(state),
+                    |i| get_pubkey_from_state(state, i),
                     signed_block,
                     block_root,
                     spec
@@ -182,8 +182,14 @@ pub fn verify_block_signature<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(
-        block_proposal_signature_set(state, get_pubkey_from_state(state), block, block_root, spec)?
-            .is_valid(),
+        block_proposal_signature_set(
+            state,
+            |i| get_pubkey_from_state(state, i),
+            block,
+            block_root,
+            spec
+        )?
+        .is_valid(),
         HeaderInvalid::ProposalSignatureInvalid
     );
 
@@ -203,7 +209,8 @@ pub fn process_randao<T: EthSpec>(
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set(state, get_pubkey_from_state(state), block, spec)?.is_valid(),
+            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?
+                .is_valid(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }

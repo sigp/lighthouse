@@ -67,10 +67,10 @@ const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// processing cache.
 const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
-pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
-pub const OP_POOL_DB_KEY: &str = "OPPOOLOPPOOLOPPOOLOPPOOLOPPOOLOP";
-pub const ETH1_CACHE_DB_KEY: &str = "ETH1CACHEETH1CACHEETH1CACHEETH1C";
-pub const FORK_CHOICE_DB_KEY: &str = "FORKCHOICEFORKCHOICEFORKCHOICEFO";
+pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
+pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
+pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
+pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
@@ -240,17 +240,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
         self.store.put(
-            &Hash256::from_slice(&FORK_CHOICE_DB_KEY.as_bytes()),
+            &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
             &self.fork_choice.as_ssz_container(),
         )?;
 
         metrics::stop_timer(fork_choice_timer);
         let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
 
-        self.store.put(
-            &Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes()),
-            &persisted_head,
-        )?;
+        self.store
+            .put(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
 
         metrics::stop_timer(head_timer);
 
@@ -267,7 +265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         self.store.put(
-            &Hash256::from_slice(&OP_POOL_DB_KEY.as_bytes()),
+            &Hash256::from_slice(&OP_POOL_DB_KEY),
             &PersistedOperationPool::from_operation_pool(&self.op_pool),
         )?;
 
@@ -282,7 +280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
             self.store.put(
-                &Hash256::from_slice(&ETH1_CACHE_DB_KEY.as_bytes()),
+                &Hash256::from_slice(&ETH1_CACHE_DB_KEY),
                 &eth1_chain.as_ssz_container(),
             )?;
         }
@@ -620,7 +618,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the validator index (if any) for the given public key.
     ///
-    /// Information is retrieved from the present `beacon_state.validators`.
+    /// ## Notes
+    ///
+    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
+    /// even if those validators aren't included in the head state. It is important to remember
+    /// that just because a validator exists here, it doesn't necessarily exist in all
+    /// `BeaconStates`.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
         let pubkey_cache = self
             .validator_pubkey_cache
@@ -1379,32 +1386,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let signature_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_SIGNATURE);
 
-        let validator_pubkey_cache = self
-            .validator_pubkey_cache
-            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+        let signature_verification_result = {
+            let validator_pubkey_cache = self
+                .validator_pubkey_cache
+                .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
 
-        let signature_verification_result = BlockSignatureVerifier::verify_entire_block(
-            &state,
-            |validator_index| {
-                if validator_index < state.validators.len() {
-                    validator_pubkey_cache
-                        .get(validator_index)
-                        .map(|pk| Cow::Borrowed(pk.as_point()))
-                } else {
-                    None
-                }
-            },
-            &signed_block,
-            Some(block_root),
-            &self.spec,
-        );
+            BlockSignatureVerifier::verify_entire_block(
+                &state,
+                |validator_index| {
+                    // Disallow access to any validator pubkeys that are not in the current beacon
+                    // state.
+                    if validator_index < state.validators.len() {
+                        validator_pubkey_cache
+                            .get(validator_index)
+                            .map(|pk| Cow::Borrowed(pk.as_point()))
+                    } else {
+                        None
+                    }
+                },
+                &signed_block,
+                Some(block_root),
+                &self.spec,
+            )
+        };
 
         if signature_verification_result.is_err() {
             return Ok(BlockProcessingOutcome::InvalidSignature);
         }
-
-        drop(validator_pubkey_cache);
 
         metrics::stop_timer(signature_timer);
 
@@ -1416,6 +1425,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &signed_block,
             Some(block_root),
+            // Signatures were verified earlier in this function.
             BlockSignatureStrategy::NoVerification,
             &self.spec,
         ) {
@@ -1463,28 +1473,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the imported block is in the previous or current epochs (according to the
         // wall-clock), check to see if this is the first block of the epoch. If so, add the
         // committee to the shuffling cache.
-        if state.current_epoch() + 1 >= self.epoch()? {
-            // If the parent was in a previous epoch then this state must contain some new
-            // shuffling that may be of use to the shuffling cache.
-            if parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch() {
-                let mut shuffling_cache = self
-                    .shuffling_cache
-                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
+        if state.current_epoch() + 1 >= self.epoch()?
+            && parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch()
+        {
+            let mut shuffling_cache = self
+                .shuffling_cache
+                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
 
-                let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
+            let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
 
-                let epoch_start_slot = state
-                    .current_epoch()
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                let target_root = if state.slot == epoch_start_slot {
-                    block_root
-                } else {
-                    *state.get_block_root(epoch_start_slot)?
-                };
+            let epoch_start_slot = state
+                .current_epoch()
+                .start_slot(T::EthSpec::slots_per_epoch());
+            let target_root = if state.slot == epoch_start_slot {
+                block_root
+            } else {
+                *state.get_block_root(epoch_start_slot)?
+            };
 
-                shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
-            }
+            shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
         }
 
         // Register the new block with the fork choice service.
