@@ -1,10 +1,11 @@
 use crate::errors::BeaconChainError;
 use ssz::{Decode, DecodeError, Encode};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
-use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes};
+use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes, Validator};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///
@@ -19,6 +20,7 @@ use types::{BeaconState, EthSpec, PublicKey, PublicKeyBytes};
 /// copy of itself. This allows it to be restored between process invocations.
 pub struct ValidatorPubkeyCache {
     pubkeys: Vec<PublicKey>,
+    indices: HashMap<PublicKeyBytes, usize>,
     persitence_file: ValidatorPubkeyCacheFile,
 }
 
@@ -47,6 +49,7 @@ impl ValidatorPubkeyCache {
         let mut cache = Self {
             persitence_file: ValidatorPubkeyCacheFile::create(persistence_path)?,
             pubkeys: vec![],
+            indices: HashMap::new(),
         };
 
         cache.import_new_pubkeys(state)?;
@@ -61,37 +64,56 @@ impl ValidatorPubkeyCache {
         &mut self,
         state: &BeaconState<T>,
     ) -> Result<(), BeaconChainError> {
-        state
-            .validators
-            .iter()
-            .skip(self.pubkeys.len())
-            .try_for_each(|v| {
-                let i = self.pubkeys.len();
+        if state.validators.len() > self.pubkeys.len() {
+            self.import(&state.validators[self.pubkeys.len()..])
+        } else {
+            Ok(())
+        }
+    }
 
-                // The item is written to disk (the persistence file) _before_ it is written into
-                // the local struct.
-                //
-                // This means that a pubkey cache read from disk will always be equivalent to or
-                // _later than_ the cache that was running in the previous instance of Lighthouse.
-                //
-                // The motivation behind this ordering is that we do not want to have states that
-                // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
-                // that are never referenced in a state.
-                self.persitence_file.append(i, &v.pubkey)?;
+    /// Adds zero or more validators to `self`.
+    fn import(&mut self, validators: &[Validator]) -> Result<(), BeaconChainError> {
+        self.pubkeys.reserve(validators.len());
+        self.indices.reserve(validators.len());
 
-                self.pubkeys.push(
-                    (&v.pubkey)
-                        .try_into()
-                        .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
-                );
+        for v in validators.iter() {
+            let i = self.pubkeys.len();
 
-                Ok(())
-            })
+            if self.indices.contains_key(&v.pubkey) {
+                return Err(BeaconChainError::DuplicateValidatorPublicKey);
+            }
+
+            // The item is written to disk (the persistence file) _before_ it is written into
+            // the local struct.
+            //
+            // This means that a pubkey cache read from disk will always be equivalent to or
+            // _later than_ the cache that was running in the previous instance of Lighthouse.
+            //
+            // The motivation behind this ordering is that we do not want to have states that
+            // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
+            // that are never referenced in a state.
+            self.persitence_file.append(i, &v.pubkey)?;
+
+            self.pubkeys.push(
+                (&v.pubkey)
+                    .try_into()
+                    .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
+            );
+
+            self.indices.insert(v.pubkey.clone(), i);
+        }
+
+        Ok(())
     }
 
     /// Get the public key for a validator with index `i`.
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
         self.pubkeys.get(i)
+    }
+
+    /// Get the index of a validator with `pubkey`.
+    pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<usize> {
+        self.indices.get(pubkey).copied()
     }
 }
 
@@ -168,12 +190,14 @@ impl ValidatorPubkeyCacheFile {
 
         let mut last = None;
         let mut pubkeys = Vec::with_capacity(list.len());
+        let mut indices = HashMap::new();
 
         for (index, pubkey) in list {
             let expected = last.map(|n| n + 1);
             if expected.map_or(true, |expected| index == expected) {
                 last = Some(index);
                 pubkeys.push((&pubkey).try_into().map_err(Error::SszError)?);
+                indices.insert(pubkey, index);
             } else {
                 return Err(Error::InconsistentIndex {
                     expected,
@@ -184,6 +208,7 @@ impl ValidatorPubkeyCacheFile {
 
         Ok(ValidatorPubkeyCache {
             pubkeys,
+            indices,
             persitence_file: self,
         })
     }
@@ -221,6 +246,16 @@ mod test {
             if i < validator_count {
                 let pubkey = cache.get(i).expect("pubkey should be present");
                 assert_eq!(pubkey, &keypairs[i].pk, "pubkey should match cache");
+
+                let pubkey_bytes: PublicKeyBytes = pubkey.clone().into();
+
+                assert_eq!(
+                    i,
+                    cache
+                        .get_index(&pubkey_bytes)
+                        .expect("should resolve index"),
+                    "index should match cache"
+                );
             } else {
                 assert_eq!(
                     cache.get(i),
