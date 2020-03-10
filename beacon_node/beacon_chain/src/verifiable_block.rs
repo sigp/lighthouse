@@ -1,5 +1,5 @@
 use crate::{
-    beacon_chain::BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, BeaconChain, BeaconChainError,
+    beacon_chain::BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, metrics, BeaconChain, BeaconChainError,
     BeaconChainTypes, BeaconSnapshot,
 };
 use types::{Hash256, SignedBeaconBlock};
@@ -39,10 +39,24 @@ impl<T: BeaconChainTypes> VerifiableBlock<T> {
         }
     }
 
-    pub fn load_parent(
+    fn take_parent(
+        &mut self,
+        chain: &BeaconChain<T>,
+    ) -> Result<Option<BeaconSnapshot<T::EthSpec>>, BeaconChainError> {
+        // Return early if the value has been already computed.
+        if let Some(parent_opt) = &mut self.parent {
+            return Ok(std::mem::replace(parent_opt, None));
+        }
+
+        self.load_parent(chain)
+    }
+
+    fn load_parent(
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<Option<BeaconSnapshot<T::EthSpec>>, BeaconChainError> {
+        let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
+
         let block = &self.block.message;
 
         // Reject any block if its parent is not known to fork choice.
@@ -60,7 +74,7 @@ impl<T: BeaconChainTypes> VerifiableBlock<T> {
         }
 
         // Load the parent block and state from disk, returning early if it's not available.
-        chain
+        let result = chain
             .block_processing_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .and_then(|mut block_processing_cache| {
@@ -98,6 +112,10 @@ impl<T: BeaconChainTypes> VerifiableBlock<T> {
                     beacon_state: parent_state,
                     beacon_state_root: parent_state_root,
                 }))
-            })
+            });
+
+        metrics::stop_timer(db_read_timer);
+
+        result
     }
 }

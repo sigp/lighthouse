@@ -9,6 +9,7 @@ use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::verifiable_block::VerifiableBlock;
 use crate::BeaconSnapshot;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
@@ -1208,13 +1209,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    fn process_block_internal(
+    fn process_block_internal<B>(
         &self,
-        signed_block: SignedBeaconBlock<T::EthSpec>,
-    ) -> Result<BlockProcessingOutcome, Error> {
+        verifiable_block: B,
+    ) -> Result<BlockProcessingOutcome, Error>
+    where
+        B: Into<VerifiableBlock<T>>,
+    {
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
         let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
+        let verifiable_block = verifiable_block.into();
+
+        let signed_block = verifiable_block.block;
         let block = &signed_block.message;
 
         let finalized_slot = self
