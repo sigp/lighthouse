@@ -423,6 +423,62 @@ fn delete_blocks_and_states() {
     check_chain_dump(&harness, unforked_blocks + fork_blocks + 1);
 }
 
+// Check that we never produce invalid blocks when there is deep forking that changes the shuffling.
+// See https://github.com/sigp/lighthouse/issues/845
+fn multi_epoch_fork_valid_blocks_test(
+    initial_blocks: usize,
+    num_fork1_blocks: usize,
+    num_fork2_blocks: usize,
+    num_fork1_validators: usize,
+) {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), VALIDATOR_COUNT);
+
+    // Create the initial portion of the chain
+    if initial_blocks > 0 {
+        harness.extend_chain(
+            initial_blocks,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        );
+    }
+
+    assert!(num_fork1_validators <= VALIDATOR_COUNT);
+    let fork1_validators: Vec<usize> = (0..num_fork1_validators).collect();
+    let fork2_validators: Vec<usize> = (num_fork1_validators..VALIDATOR_COUNT).collect();
+
+    harness.generate_two_forks_by_skipping_a_block(
+        &fork1_validators,
+        &fork2_validators,
+        num_fork1_blocks,
+        num_fork2_blocks,
+    );
+}
+
+// This is the minimal test of block production with different shufflings.
+#[test]
+fn block_production_different_shuffling_early() {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    multi_epoch_fork_valid_blocks_test(
+        slots_per_epoch - 2,
+        slots_per_epoch + 3,
+        slots_per_epoch + 3,
+        VALIDATOR_COUNT / 2,
+    );
+}
+
+#[test]
+fn block_production_different_shuffling_long() {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    multi_epoch_fork_valid_blocks_test(
+        2 * slots_per_epoch - 2,
+        3 * slots_per_epoch,
+        3 * slots_per_epoch,
+        VALIDATOR_COUNT / 2,
+    );
+}
+
 /// Check that the head state's slot matches `expected_slot`.
 fn check_slot(harness: &TestHarness, expected_slot: u64) {
     let state = &harness.chain.head().expect("should get head").beacon_state;
