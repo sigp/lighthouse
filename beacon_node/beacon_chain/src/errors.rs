@@ -3,9 +3,11 @@ use crate::fork_choice::Error as ForkChoiceError;
 use operation_pool::OpPoolError;
 use ssz::DecodeError;
 use ssz_types::Error as SszTypesError;
-use state_processing::per_block_processing::errors::AttestationValidationError;
-use state_processing::BlockProcessingError;
-use state_processing::SlotProcessingError;
+use state_processing::{
+    block_signature_verifier::Error as BlockSignatureVerifierError,
+    per_block_processing::errors::AttestationValidationError,
+    signature_sets::Error as SignatureSetError, BlockProcessingError, SlotProcessingError,
+};
 use std::time::Duration;
 use types::*;
 
@@ -57,7 +59,7 @@ pub enum BeaconChainError {
     IncorrectStateForAttestation(RelativeEpochError),
     InvalidValidatorPubkeyBytes(DecodeError),
     ValidatorPubkeyCacheIncomplete(usize),
-    SignatureSetError(state_processing::signature_sets::Error),
+    SignatureSetError(SignatureSetError),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
     DuplicateValidatorPublicKey,
     ValidatorPubkeyCacheFileError(String),
@@ -66,6 +68,7 @@ pub enum BeaconChainError {
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
+easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {

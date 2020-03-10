@@ -37,7 +37,7 @@ use super::network_context::SyncNetworkContext;
 use super::range_sync::{Batch, BatchProcessResult, RangeSync};
 use crate::message_processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome, VerifiableBlock};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
@@ -356,7 +356,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // we have the correct block, try and process it
         if let Some(chain) = self.chain.upgrade() {
-            match chain.process_block(block.clone()) {
+            match chain.process_block(block.clone(), VerifiableBlock::empty()) {
                 Ok(outcome) => {
                     match outcome {
                         BlockProcessingOutcome::Processed { block_root } => {
@@ -545,7 +545,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             while let Some(block) = parent_request.downloaded_blocks.pop() {
                 // check if the chain exists
                 if let Some(chain) = self.chain.upgrade() {
-                    match chain.process_block(block.clone()) {
+                    match chain.process_block(block.clone(), VerifiableBlock::empty()) {
                         Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
                             // need to keep looking for parents
                             parent_request.downloaded_blocks.push(block);

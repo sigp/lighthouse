@@ -37,3 +37,4 @@ pub use state_processing::per_block_processing::errors::{
 };
 pub use store;
 pub use types;
+pub use verifiable_block::VerifiableBlock;

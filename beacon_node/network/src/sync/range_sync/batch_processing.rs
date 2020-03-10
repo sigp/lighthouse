@@ -1,7 +1,7 @@
 use super::batch::Batch;
 use crate::message_processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome, VerifiableBlock};
 use slog::{debug, error, trace, warn};
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
@@ -57,7 +57,7 @@ fn process_batch<T: BeaconChainTypes>(
     let mut successful_block_import = false;
     for block in &batch.downloaded_blocks {
         if let Some(chain) = chain.upgrade() {
-            let processing_result = chain.process_block(block.clone());
+            let processing_result = chain.process_block(block.clone(), VerifiableBlock::empty());
 
             if let Ok(outcome) = processing_result {
                 match outcome {
@@ -70,7 +70,7 @@ fn process_batch<T: BeaconChainTypes>(
                         );
                         successful_block_import = true;
                     }
-                    BlockProcessingOutcome::ParentUnknown { parent, .. } => {
+                    BlockProcessingOutcome::ParentUnknown(parent) => {
                         // blocks should be sequential and all parents should exist
                         warn!(
                             log, "Parent block is unknown";

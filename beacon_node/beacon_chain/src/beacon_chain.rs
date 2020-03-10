@@ -80,10 +80,7 @@ pub enum BlockProcessingOutcome {
     },
     InvalidSignature,
     /// The parent block was unknown.
-    ParentUnknown {
-        parent: Hash256,
-        reference_location: &'static str,
-    },
+    ParentUnknown(Hash256),
     /// The block slot is greater than the present slot.
     FutureSlot {
         present_slot: Slot,
@@ -1161,8 +1158,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_block(
         &self,
         block: SignedBeaconBlock<T::EthSpec>,
+        verifiable_block: VerifiableBlock<T>,
     ) -> Result<BlockProcessingOutcome, Error> {
-        let outcome = self.process_block_internal(block.clone());
+        let outcome = self.process_block_internal(block.clone(), verifiable_block);
 
         match &outcome {
             Ok(outcome) => match outcome {
@@ -1209,35 +1207,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accept some block and attempt to add it to block DAG.
     ///
     /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    fn process_block_internal<B>(
+    fn process_block_internal(
         &self,
-        verifiable_block: B,
-    ) -> Result<BlockProcessingOutcome, Error>
-    where
-        B: Into<VerifiableBlock<T>>,
-    {
+        signed_block: SignedBeaconBlock<T::EthSpec>,
+        mut verifiable_block: VerifiableBlock<T>,
+    ) -> Result<BlockProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
         let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
-        let verifiable_block = verifiable_block.into();
-
-        let signed_block = verifiable_block.block;
         let block = &signed_block.message;
 
+        // Do not process blocks from the future.
+        if block.slot > self.slot()? {
+            return Ok(BlockProcessingOutcome::FutureSlot {
+                present_slot: self.slot()?,
+                block_slot: block.slot,
+            });
+        }
+
+        // Do not re-process the genesis block.
+        if block.slot == 0 {
+            return Ok(BlockProcessingOutcome::GenesisBlock);
+        }
+
+        // This is an artificial (non-spec) restriction that provides some protection from overflow
+        // abuses.
+        if block.slot >= MAXIMUM_BLOCK_SLOT_NUMBER {
+            return Ok(BlockProcessingOutcome::BlockSlotLimitReached);
+        }
+
+        // Do not process a block from a finalized slot.
         let finalized_slot = self
             .head_info()?
             .finalized_checkpoint
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-
-        if block.slot == 0 {
-            return Ok(BlockProcessingOutcome::GenesisBlock);
-        }
-
-        if block.slot >= MAXIMUM_BLOCK_SLOT_NUMBER {
-            return Ok(BlockProcessingOutcome::BlockSlotLimitReached);
-        }
-
         if block.slot <= finalized_slot {
             return Ok(BlockProcessingOutcome::WouldRevertFinalizedSlot {
                 block_slot: block.slot,
@@ -1256,30 +1260,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //  choice, so we will not reject any child of the finalized block (this is relevant during
         //  genesis).
         if !self.fork_choice.contains_block(&block.parent_root) {
-            return Ok(BlockProcessingOutcome::ParentUnknown {
-                parent: block.parent_root,
-                reference_location: "fork_choice",
-            });
+            return Ok(BlockProcessingOutcome::ParentUnknown(block.parent_root));
         }
+
+        drop(block);
 
         let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
 
-        let block_root = block.canonical_root();
+        let block_root = verifiable_block
+            .block_root
+            .unwrap_or_else(|| signed_block.canonical_root());
 
         metrics::stop_timer(block_root_timer);
-
-        if block_root == self.genesis_block_root {
-            return Ok(BlockProcessingOutcome::GenesisBlock);
-        }
-
-        let present_slot = self.slot()?;
-
-        if block.slot > present_slot {
-            return Ok(BlockProcessingOutcome::FutureSlot {
-                present_slot,
-                block_slot: block.slot,
-            });
-        }
 
         // Check if the block is already known. We know it is post-finalization, so it is
         // sufficient to check the fork choice.
@@ -1287,46 +1279,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
         }
 
-        // Records the time taken to load the block and state from the database during block
-        // processing.
-        let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
-
-        let cached_snapshot = self
-            .block_processing_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|mut block_processing_cache| {
-                block_processing_cache.try_remove(block.parent_root)
-            });
-
-        let (parent_block, parent_state) = if let Some(snapshot) = cached_snapshot {
-            (snapshot.beacon_block, snapshot.beacon_state)
-        } else {
-            // Load the blocks parent block from the database, returning invalid if that block is not
-            // found.
-            let parent_block = match self.get_block(&block.parent_root)? {
-                Some(block) => block,
-                None => {
-                    return Ok(BlockProcessingOutcome::ParentUnknown {
-                        parent: block.parent_root,
-                        reference_location: "database",
-                    });
-                }
+        // Obtain the parent from the `VerifiableBlock`.
+        let (parent_block, parent_state) =
+            if let Some(snapshot) = verifiable_block.take_parent(self, block)? {
+                (snapshot.beacon_block, snapshot.beacon_state)
+            } else {
+                return Ok(BlockProcessingOutcome::ParentUnknown(block.parent_root));
             };
 
-            // Load the parent blocks state from the database, returning an error if it is not found.
-            // It is an error because if we know the parent block we should also know the parent state.
-            let parent_state_root = parent_block.state_root();
-            let parent_state = self
-                .get_state(&parent_state_root, Some(parent_block.slot()))?
-                .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing state {:?}", parent_state_root))
-                })?;
-
-            (parent_block, parent_state)
-        };
-
-        metrics::stop_timer(db_read_timer);
-
+        // If enabled, the block will be written to a file for debugging purposes.
         write_block(&block, block_root, &self.log);
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
@@ -1376,7 +1337,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
                 .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
 
-            BlockSignatureVerifier::verify_entire_block(
+            let mut signature_verifier = BlockSignatureVerifier::new(
                 &state,
                 |validator_index| {
                     // Disallow access to any validator pubkeys that are not in the current beacon
@@ -1389,10 +1350,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         None
                     }
                 },
-                &signed_block,
-                Some(block_root),
                 &self.spec,
-            )
+            );
+
+            verifiable_block.apply_to_signature_verifier(&mut signature_verifier, &signed_block)?;
+
+            signature_verifier.verify()
         };
 
         if signature_verification_result.is_err() {
