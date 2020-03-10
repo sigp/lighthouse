@@ -8,7 +8,7 @@ use beacon_chain::{
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
     },
-    BlockProcessingOutcome, VerifiableBlock,
+    BlockProcessingOutcome, PartialBlockVerification,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -563,7 +563,7 @@ fn run_skip_slot_test(skip_slots: u64) {
                 .expect("should get head")
                 .beacon_block
                 .clone(),
-            VerifiableBlock::empty()
+            PartialBlockVerification::empty()
         ),
         Ok(BlockProcessingOutcome::Processed {
             block_root: harness_a

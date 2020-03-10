@@ -4,12 +4,12 @@ use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
+use crate::partial_block_verification::PartialBlockVerification;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::verifiable_block::VerifiableBlock;
 use crate::BeaconSnapshot;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{debug, error, info, trace, warn, Logger};
@@ -199,7 +199,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: HeadTracker,
     /// A cache dedicated to block processing.
-    pub(crate) block_processing_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
+    pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the shuffling for a given epoch and state root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -1158,9 +1158,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_block(
         &self,
         block: SignedBeaconBlock<T::EthSpec>,
-        verifiable_block: VerifiableBlock<T>,
+        partial_block_verification: PartialBlockVerification<T>,
     ) -> Result<BlockProcessingOutcome, Error> {
-        let outcome = self.process_block_internal(block.clone(), verifiable_block);
+        let outcome = self.process_block_internal(block.clone(), partial_block_verification);
 
         match &outcome {
             Ok(outcome) => match outcome {
@@ -1210,7 +1210,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn process_block_internal(
         &self,
         signed_block: SignedBeaconBlock<T::EthSpec>,
-        mut verifiable_block: VerifiableBlock<T>,
+        mut partial_block_verification: PartialBlockVerification<T>,
     ) -> Result<BlockProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
         let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -1267,7 +1267,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
 
-        let block_root = verifiable_block
+        let block_root = partial_block_verification
             .block_root
             .unwrap_or_else(|| signed_block.canonical_root());
 
@@ -1279,9 +1279,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
         }
 
-        // Obtain the parent from the `VerifiableBlock`.
+        // Obtain the parent from the `PartialBlockVerification`.
         let (parent_block, parent_state) =
-            if let Some(snapshot) = verifiable_block.take_parent(self, block)? {
+            if let Some(snapshot) = partial_block_verification.take_parent(self, block)? {
                 (snapshot.beacon_block, snapshot.beacon_state)
             } else {
                 return Ok(BlockProcessingOutcome::ParentUnknown(block.parent_root));
@@ -1353,7 +1353,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &self.spec,
             );
 
-            verifiable_block.apply_to_signature_verifier(&mut signature_verifier, &signed_block)?;
+            partial_block_verification
+                .apply_to_signature_verifier(&mut signature_verifier, &signed_block)?;
 
             signature_verifier.verify()
         };
@@ -1478,10 +1479,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put_state(&state_root, &state)?;
         self.store.put_block(&block_root, signed_block.clone())?;
 
-        self.block_processing_cache
+        self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut block_processing_cache| {
-                block_processing_cache.insert(BeaconSnapshot {
+            .map(|mut snapshot_cache| {
+                snapshot_cache.insert(BeaconSnapshot {
                     beacon_block: signed_block,
                     beacon_block_root: block_root,
                     beacon_state: state,
@@ -1492,7 +1493,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error!(
                     self.log,
                     "Failed to obtain cache write lock";
-                    "lock" => "block_processing_cache",
+                    "lock" => "snapshot_cache",
                     "task" => "process block"
                 );
             });
@@ -1655,9 +1656,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
         // back to a database read if that fails.
         let new_head = self
-            .block_processing_cache
+            .snapshot_cache
             .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|block_processing_cache| block_processing_cache.get_cloned(beacon_block_root))
+            .and_then(|snapshot_cache| snapshot_cache.get_cloned(beacon_block_root))
             .map::<Result<_, Error>, _>(|snapshot| Ok(snapshot))
             .unwrap_or_else(|| {
                 let beacon_block = self
@@ -1756,16 +1757,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(update_head_timer);
 
-        self.block_processing_cache
+        self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut block_processing_cache| {
-                block_processing_cache.update_head(beacon_block_root);
+            .map(|mut snapshot_cache| {
+                snapshot_cache.update_head(beacon_block_root);
             })
             .unwrap_or_else(|| {
                 error!(
                     self.log,
                     "Failed to obtain cache write lock";
-                    "lock" => "block_processing_cache",
+                    "lock" => "snapshot_cache",
                     "task" => "update head"
                 );
             });
@@ -1807,16 +1808,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             self.fork_choice.prune()?;
 
-            self.block_processing_cache
+            self.snapshot_cache
                 .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .map(|mut block_processing_cache| {
-                    block_processing_cache.prune(new_finalized_epoch);
+                .map(|mut snapshot_cache| {
+                    snapshot_cache.prune(new_finalized_epoch);
                 })
                 .unwrap_or_else(|| {
                     error!(
                         self.log,
                         "Failed to obtain cache write lock";
-                        "lock" => "block_processing_cache",
+                        "lock" => "snapshot_cache",
                         "task" => "prune"
                     );
                 });

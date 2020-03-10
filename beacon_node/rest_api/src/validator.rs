@@ -5,7 +5,7 @@ use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    StateSkipConfig, VerifiableBlock,
+    PartialBlockVerification, StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use futures::{Future, Stream};
@@ -294,7 +294,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
             })
             .and_then(move |block: SignedBeaconBlock<T::EthSpec>| {
                 let slot = block.slot();
-                match beacon_chain.process_block(block.clone(), VerifiableBlock::empty()) {
+                match beacon_chain.process_block(block.clone(), PartialBlockVerification::empty()) {
                     Ok(BlockProcessingOutcome::Processed { block_root }) => {
                         // Block was processed, publish via gossipsub
                         info!(

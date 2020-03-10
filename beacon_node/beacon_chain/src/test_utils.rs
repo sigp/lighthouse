@@ -7,7 +7,7 @@ use crate::{
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    StateSkipConfig, VerifiableBlock,
+    PartialBlockVerification, StateSkipConfig,
 };
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
@@ -258,7 +258,7 @@ where
 
             let outcome = self
                 .chain
-                .process_block(block, VerifiableBlock::empty())
+                .process_block(block, PartialBlockVerification::empty())
                 .expect("should not error during block processing");
 
             self.chain.fork_choice().expect("should find head");

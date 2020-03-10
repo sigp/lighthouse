@@ -6,7 +6,7 @@ use state_processing::block_signature_verifier::{BlockSignatureVerifier, G1Point
 use std::borrow::Cow;
 use types::{BeaconBlock, Hash256, SignedBeaconBlock};
 
-pub struct VerifiableBlock<T: BeaconChainTypes> {
+pub struct PartialBlockVerification<T: BeaconChainTypes> {
     pub(crate) block_root: Option<Hash256>,
     /// The outer Option indicates whether not there has been an attempt to load the parent. The
     /// inner option indicates if the parent exists.
@@ -17,7 +17,7 @@ pub struct VerifiableBlock<T: BeaconChainTypes> {
     pub(crate) all_signatures_valid: Option<bool>,
 }
 
-impl<T: BeaconChainTypes> VerifiableBlock<T> {
+impl<T: BeaconChainTypes> PartialBlockVerification<T> {
     pub fn empty() -> Self {
         Self {
             block_root: None,
@@ -73,11 +73,9 @@ impl<T: BeaconChainTypes> VerifiableBlock<T> {
 
         // Load the parent block and state from disk, returning early if it's not available.
         let result = chain
-            .block_processing_cache
+            .snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|mut block_processing_cache| {
-                block_processing_cache.try_remove(block.parent_root)
-            })
+            .and_then(|mut snapshot_cache| snapshot_cache.try_remove(block.parent_root))
             .map(|snapshot| Ok(Some(snapshot)))
             .unwrap_or_else(|| {
                 // Load the blocks parent block from the database, returning invalid if that block is not
