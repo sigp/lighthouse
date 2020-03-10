@@ -1084,6 +1084,65 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Check that an attestation has the same shuffling as a given state.
+    ///
+    /// Specifically, check that the attestation's head block comes from a chain that shares the
+    /// same shuffling as the given `state` at the attestation's slot.
+    // FIXME(sproul): use block root argument
+    fn attestation_shuffling_is_compatible(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> bool {
+        let shuffling_lookahead = 1 + self.spec.min_seed_lookahead.as_u64();
+
+        // Shuffling can't have changed if we're in the first few epochs
+        if state.current_epoch() < shuffling_lookahead {
+            return true;
+        }
+
+        // Otherwise the shuffling is determined by the block at the end of the current epoch
+        // minus the shuffling lookahead (usually 2). We call this the "pivot".
+        let pivot_slot =
+            (state.current_epoch() - shuffling_lookahead).end_slot(T::EthSpec::slots_per_epoch());
+        let pivot_block_root = match state.get_block_root(pivot_slot) {
+            Ok(root) => *root,
+            Err(e) => {
+                warn!(
+                    &self.log,
+                    "Missing pivot block root for attestation";
+                    "slot" => pivot_slot,
+                    "error" => format!("{:?}", e),
+                );
+                return false;
+            }
+        };
+
+        // Use fork choice's view of the block DAG to quickly evaluate whether the attestation's
+        // pivot block is the same as the current state's pivot block. If it is, then the
+        // attestation's shuffling is the same as the current state's.
+        let fork_choice_lock = self.fork_choice.core_proto_array();
+        let block_root = fork_choice_lock
+            .iter_block_roots(&attestation.data.beacon_block_root)
+            .take_while(|(_, slot)| *slot >= pivot_slot)
+            .find(|(_, slot)| *slot == pivot_slot)
+            .map(|(block_root, _)| block_root);
+        drop(fork_choice_lock);
+
+        match block_root {
+            Some(root) => root == pivot_block_root,
+            None => {
+                debug!(
+                    &self.log,
+                    "Discarding attestation because of missing ancestor";
+                    "pivot_slot" => pivot_slot.as_u64(),
+                    "block_root" => format!("{:?}", attestation.data.beacon_block_root),
+                );
+                false
+            }
+        }
+    }
+
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn process_voluntary_exit(
         &self,
@@ -1557,7 +1616,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attester_slashings: attester_slashings.into(),
                     attestations: self
                         .op_pool
-                        .get_attestations(&state, &self.spec)
+                        .get_attestations(
+                            &state,
+                            |att| self.attestation_shuffling_is_compatible(att, &state),
+                            &self.spec,
+                        )
                         .map_err(BlockProductionError::OpPoolError)?
                         .into(),
                     deposits,

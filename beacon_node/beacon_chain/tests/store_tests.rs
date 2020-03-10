@@ -349,9 +349,7 @@ fn delete_blocks_and_states() {
     let honest_validators: Vec<usize> = (0..two_thirds).collect();
     let faulty_validators: Vec<usize> = (two_thirds..VALIDATOR_COUNT).collect();
 
-    // NOTE: should remove this -1 and/or write a similar test once #845 is resolved
-    // https://github.com/sigp/lighthouse/issues/845
-    let fork_blocks = 2 * E::slots_per_epoch() - 1;
+    let fork_blocks = 2 * E::slots_per_epoch();
 
     let (honest_head, faulty_head) = harness.generate_two_forks_by_skipping_a_block(
         &honest_validators,
