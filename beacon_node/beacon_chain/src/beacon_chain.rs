@@ -57,7 +57,7 @@ const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The time-out before failure during an operation to take a read/write RwLock on the block
 /// processing cache.
-const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+pub const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// attestation cache.
 const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);

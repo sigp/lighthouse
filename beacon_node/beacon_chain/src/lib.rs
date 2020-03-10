@@ -17,6 +17,7 @@ mod snapshot_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
 mod validator_pubkey_cache;
+mod verifiable_block;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
