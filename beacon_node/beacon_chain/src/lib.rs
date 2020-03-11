@@ -4,6 +4,7 @@ extern crate lazy_static;
 
 mod beacon_chain;
 mod beacon_snapshot;
+mod block_processing;
 pub mod builder;
 mod errors;
 pub mod eth1_chain;
