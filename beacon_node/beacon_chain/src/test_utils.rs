@@ -266,7 +266,12 @@ where
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
-                self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
+                let current_epoch = self.chain.epoch().expect("chain should have a epoch");
+
+                // Only produce attestations if they will be accepted by the beacon chain.
+                if slot.epoch(E::slots_per_epoch()) + 1 >= current_epoch {
+                    self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
+                }
             } else {
                 panic!("block should be successfully processed: {:?}", outcome);
             }
@@ -455,13 +460,6 @@ where
         honest_fork_blocks: usize,
         faulty_fork_blocks: usize,
     ) -> (Hash256, Hash256) {
-        let initial_head_slot = self
-            .chain
-            .head()
-            .expect("should get head")
-            .beacon_block
-            .slot();
-
         // Move to the next slot so we may produce some more blocks on the head.
         self.advance_slot();
 
@@ -472,14 +470,24 @@ where
             AttestationStrategy::SomeValidators(honest_validators.to_vec()),
         );
 
+        // Compute the slot on which to build on.  No point in using slot number smaller than
+        // last_finalized_slot because process_block will error out with WouldRevertFinalizedSlot.
+        let last_finalized_slot = self
+            .chain
+            .head_info()
+            .expect("should get head info")
+            .finalized_checkpoint
+            .epoch
+            .start_slot(E::slots_per_epoch());
+
         // Go back to the last block where all agreed, and build blocks upon it where only faulty nodes
         // agree.
         let faulty_head = self.extend_chain(
             faulty_fork_blocks,
             BlockStrategy::ForkCanonicalChainAt {
-                previous_slot: initial_head_slot,
-                // `initial_head_slot + 2` means one slot is skipped.
-                first_slot: initial_head_slot + 2,
+                previous_slot: last_finalized_slot,
+                // `last_finalized_slot + 2` means one slot is skipped.
+                first_slot: last_finalized_slot + 2,
             },
             AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
         );

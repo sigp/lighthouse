@@ -216,6 +216,50 @@ fn finalizes_with_full_participation() {
     );
 }
 
+// Ensure blocks from abandoned forks are pruned from the Hot DB
+#[test]
+fn prunes_abandoned_forks() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let two_thirds = (VALIDATOR_COUNT / 3) * 2;
+    let delay = MinimalEthSpec::default_spec().min_attestation_inclusion_delay as usize;
+
+    let honest_validators: Vec<usize> = (0..two_thirds).collect();
+    let faulty_validators: Vec<usize> = (two_thirds..VALIDATOR_COUNT).collect();
+
+    let initial_blocks = delay + 1;
+    let honest_fork_blocks = (MinimalEthSpec::slots_per_epoch() * 5 + 1) as usize;
+    let faulty_fork_blocks = delay + 2;
+
+    // Build an initial chain where all validators agree.
+    harness.extend_chain(
+        initial_blocks,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let (_honest_head, faulty_head) = harness.generate_two_forks_by_skipping_a_block(
+        &honest_validators,
+        &faulty_validators,
+        honest_fork_blocks,
+        faulty_fork_blocks,
+    );
+
+    harness.advance_slot();
+
+    // Trigger one more finalization
+    harness.extend_chain(
+        (MinimalEthSpec::slots_per_epoch() * 2) as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    assert!(
+        harness.chain.get_block(&faulty_head).unwrap().is_none(),
+        "abandoned blocks should have been pruned"
+    );
+}
+
 #[test]
 fn finalizes_with_two_thirds_participation() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;

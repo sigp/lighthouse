@@ -26,12 +26,15 @@ use state_processing::{
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::io::prelude::*;
+use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
-    BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
+    BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
+    ReverseStateRootIterator, StateRootsIterator,
 };
 use store::{Error as DBError, Migrate, StateBatch, Store};
 use tree_hash::TreeHash;
@@ -1796,6 +1799,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root = self.fork_choice.find_head(&self)?;
 
         let current_head = self.head_info()?;
+        let old_finalized_root = current_head.finalized_checkpoint.root;
 
         if beacon_block_root == current_head.block_root {
             return Ok(());
@@ -1923,7 +1927,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
 
         if new_finalized_epoch != old_finalized_epoch {
-            self.after_finalization(old_finalized_epoch, finalized_root)?;
+            self.after_finalization(old_finalized_epoch, finalized_root, old_finalized_root)?;
         }
 
         let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
@@ -1935,6 +1939,55 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    fn prune_abandoned_forks(
+        &self,
+        old_finalized_block: &Hash256,
+        new_finalized_block: &Hash256,
+        new_finalized_slot: Slot,
+    ) -> Result<(), Error> {
+        let old_finalized_slot = self
+            .get_block(old_finalized_block)?
+            .ok_or_else(|| Error::MissingBeaconBlock(*old_finalized_block))?
+            .message
+            .slot;
+
+        // Collect hashes from new_finalized_block up to old_finalized_block
+        let newly_finalized_blocks: HashSet<Hash256> = HashSet::from_iter(
+            ParentRootBlockIterator::new(&*self.store, *new_finalized_block)
+                .take_while(|(block_hash, _)| block_hash != old_finalized_block)
+                .map(|(block_hash, _)| block_hash),
+        );
+
+        // Forget blocks with the slot number in the range [old_finalized_slot, new_finalized_slot]
+        // that are not in the newly_finalized_blocks.
+        for (head, _) in self.heads() {
+            debug_assert_ne!(head, *new_finalized_block);
+
+            let abandoned_blocks = ParentRootBlockIterator::new(&*self.store, head)
+                .skip_while(|(_, signed_beacon_block)| {
+                    signed_beacon_block.message.slot > new_finalized_slot
+                })
+                .take_while(|(_, signed_beacon_block)| {
+                    signed_beacon_block.message.slot > old_finalized_slot
+                })
+                .filter(|(block_hash, _)| !newly_finalized_blocks.contains(block_hash))
+                .map(|(block_hash, signed_beacon_block)| {
+                    (
+                        block_hash,
+                        signed_beacon_block.message.state_root,
+                        signed_beacon_block.message.slot,
+                    )
+                });
+
+            for (block_hash, state_root, slot) in abandoned_blocks {
+                self.store.delete_block(&block_hash)?;
+                self.store.delete_state(&state_root, slot)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Called after `self` has had a new block finalized.
     ///
     /// Performs pruning and finality-based optimizations.
@@ -1942,6 +1995,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         old_finalized_epoch: Epoch,
         finalized_block_root: Hash256,
+        old_finalized_root: Hash256,
     ) -> Result<(), Error> {
         let finalized_block = self
             .store
@@ -1978,6 +2032,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
+            self.prune_abandoned_forks(
+                &old_finalized_root,
+                &finalized_block_root,
+                finalized_block.slot,
+            )?;
 
             // TODO: configurable max finality distance
             let max_finality_distance = 0;
