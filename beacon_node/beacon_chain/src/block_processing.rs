@@ -48,7 +48,7 @@ pub enum BlockError {
     /// A signature in the block is invalid (exactly which is unknown).
     InvalidSignature,
     /// The provided block is from an earlier slot than its parent.
-    BlockIsEarlierThanParent,
+    BlockIsEarlierThanParent { block_slot: Slot, state_slot: Slot },
     /// The block failed the specification's `per_block_processing` function, it is invalid.
     PerBlockProcessingError(BlockProcessingError),
     /// There was an error whilst processing the block. It is not necessarily invalid.
@@ -595,15 +595,18 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         let relative_epoch = loop {
             match RelativeEpoch::from_epoch(state.current_epoch(), block_epoch) {
                 Ok(relative_epoch) => break relative_epoch,
-                Err(RelativeEpochError::EpochTooLow { .. }) => {
+                Err(RelativeEpochError::EpochTooHigh { .. }) => {
                     // Don't calculate state roots since they aren't required for calculating
                     // shuffling (achieved by providing Hash256::zero()).
                     per_slot_processing(&mut state, Some(Hash256::zero()), spec).map_err(|e| {
                         BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e))
                     })?;
                 }
-                Err(RelativeEpochError::EpochTooHigh { .. }) => {
-                    return Err(BlockError::BlockIsEarlierThanParent);
+                Err(RelativeEpochError::EpochTooLow { .. }) => {
+                    return Err(BlockError::BlockIsEarlierThanParent {
+                        block_slot,
+                        state_slot: state.slot,
+                    });
                 }
             }
         };
