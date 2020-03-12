@@ -103,6 +103,9 @@ pub enum SyncMessage<T: EthSpec> {
         batch: Box<Batch<T>>,
         result: BatchProcessResult,
     },
+
+    /// Parent lookup failed for a block given by this peer_id
+    ParentLookupFailed(PeerId),
 }
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
@@ -172,6 +175,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     /// The logger for the import manager.
     log: Logger,
+
+    /// The sending part of input_channel
+    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -202,6 +208,7 @@ pub fn spawn<T: BeaconChainTypes>(
         single_block_lookups: FnvHashMap::default(),
         full_peers: HashSet::new(),
         log: log.clone(),
+        sync_send: sync_send.clone(),
     };
 
     // spawn the sync manager thread
@@ -636,63 +643,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
 
             //TODO: Shift this to a block processing thread
-
-            // the last received block has been successfully processed, process all other blocks in the
-            // chain
-            while let Some(block) = parent_request.downloaded_blocks.pop() {
-                // check if the chain exists
-                if let Some(chain) = self.chain.upgrade() {
-                    match chain.process_block(block) {
-                        Ok(BlockProcessingOutcome::Processed { .. })
-                        | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {} // continue to the next block
-
-                        // all else is considered a failure
-                        Ok(outcome) => {
-                            // the previous blocks have failed, notify the user the chain lookup has
-                            // failed and drop the parent queue
-                            debug!(
-                                self.log, "Invalid parent chain. Past blocks failure";
-                                "outcome" => format!("{:?}", outcome),
-                                "peer" => format!("{:?}", parent_request.last_submitted_peer),
-                            );
-                            self.network
-                                .downvote_peer(parent_request.last_submitted_peer.clone());
-                            break;
-                        }
-                        Err(e) => {
-                            warn!(
-                                self.log, "Parent chain processing error.";
-                                "error" => format!("{:?}", e)
-                            );
-                            self.network
-                                .downvote_peer(parent_request.last_submitted_peer.clone());
-                            break;
-                        }
-                    }
-                } else {
-                    // chain doesn't exist, end the processing
-                    break;
-                }
-            }
-
-            // at least one block has been processed, run fork-choice
-            if let Some(chain) = self.chain.upgrade() {
-                match chain.fork_choice() {
-                    Ok(()) => trace!(
-                        self.log,
-                        "Fork choice success";
-                        "block_imports" => total_blocks_to_process - parent_request.downloaded_blocks.len(),
-                        "location" => "parent request"
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => format!("{:?}", e),
-                        "location" => "parent request"
-                    ),
-                };
-            }
+            self.spawn_parent_lookup_thread(parent_request, total_blocks_to_process);
         }
+    }
+
+    fn spawn_parent_lookup_thread(
+        &self,
+        parent_request: ParentRequests<T::EthSpec>,
+        total_blocks_to_process: usize,
+    ) {
+        let log = self.log.clone();
+        let sync_send = self.sync_send.clone();
+        let chain = self.chain.clone();
+        std::thread::spawn(move || {
+            parent_lookup(
+                parent_request,
+                chain,
+                sync_send,
+                total_blocks_to_process,
+                log,
+            );
+        });
     }
 
     /// Progresses a parent request query.
@@ -735,6 +706,81 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             parent_request.pending = Some(request_id);
             self.parent_queue.push(parent_request);
         }
+    }
+}
+
+fn parent_lookup<T: BeaconChainTypes>(
+    mut parent_request: ParentRequests<T::EthSpec>,
+    chain: Weak<BeaconChain<T>>,
+    mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    total_blocks_to_process: usize,
+    log: slog::Logger,
+) {
+    while let Some(block) = parent_request.downloaded_blocks.pop() {
+        // check if the chain exists
+        if let Some(chain) = chain.upgrade() {
+            match chain.process_block(block) {
+                Ok(BlockProcessingOutcome::Processed { .. })
+                | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {} // continue to the next block
+
+                // all else is considered a failure
+                Ok(outcome) => {
+                    // the previous blocks have failed, notify the user the chain lookup has
+                    // failed and drop the parent queue
+                    debug!(
+                        log, "Invalid parent chain. Past blocks failure";
+                        "outcome" => format!("{:?}", outcome),
+                        "peer" => format!("{:?}", parent_request.last_submitted_peer),
+                    );
+                    sync_send
+                        .try_send(SyncMessage::ParentLookupFailed(
+                            parent_request.last_submitted_peer.clone(),
+                        ))
+                        .unwrap_or_else(|_| {
+                            debug!(log, "Could not inform parent lookup failure");
+                        });
+                    break;
+                }
+                Err(e) => {
+                    warn!(
+                        log, "Parent chain processing error.";
+                        "error" => format!("{:?}", e)
+                    );
+                    sync_send
+                        .try_send(SyncMessage::ParentLookupFailed(
+                            parent_request.last_submitted_peer.clone(),
+                        ))
+                        .unwrap_or_else(|_| {
+                            debug!(log, "Could not inform parent lookup failure");
+                        });
+                    break;
+                }
+            }
+        } else {
+            // chain doesn't exist, end the processing
+            break;
+        }
+    }
+
+    // the last received block has been successfully processed, process all other blocks in the
+    // chain
+
+    // at least one block has been processed, run fork-choice
+    if let Some(chain) = chain.upgrade() {
+        match chain.fork_choice() {
+            Ok(()) => trace!(
+                log,
+                "Fork choice success";
+                "block_imports" => total_blocks_to_process - parent_request.downloaded_blocks.len(),
+                "location" => "parent request"
+            ),
+            Err(e) => error!(
+                log,
+                "Fork choice failed";
+                "error" => format!("{:?}", e),
+                "location" => "parent request"
+            ),
+        };
     }
 }
 
@@ -792,6 +838,9 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                             *batch,
                             result,
                         );
+                    }
+                    SyncMessage::ParentLookupFailed(peer_id) => {
+                        self.network.downvote_peer(peer_id);
                     }
                 },
                 Ok(Async::NotReady) => break,
