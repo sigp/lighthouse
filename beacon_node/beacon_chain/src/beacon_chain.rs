@@ -1,3 +1,4 @@
+use crate::block_processing::{BlockError, GossipVerifiedBlock, IntoReadyToProcessBlock};
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -1150,6 +1151,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(())
             }
         }
+    }
+
+    /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the gossip
+    /// network. If there is an error or the block is invalid, an `Err` is returned.
+    pub fn verify_block_for_gossip(
+        &self,
+        block: SignedBeaconBlock<T::EthSpec>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+        GossipVerifiedBlock::new(block, self)
+    }
+
+    pub fn import_block<B: IntoReadyToProcessBlock<T>>(
+        &self,
+        block: B,
+    ) -> Result<Hash256, BlockError> {
+        let ready_to_process = block.into_ready_to_process_block(self)?;
+
+        todo!()
     }
 
     /// Accept some block and attempt to add it to block DAG.
