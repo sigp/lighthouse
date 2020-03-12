@@ -127,6 +127,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
+        // Do not gossip a block from a finalized slot.
+        check_block_against_finalized_slot(&block.message, chain)?;
+
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = get_block_root(&block);
 
@@ -359,6 +362,26 @@ impl<T: BeaconChainTypes> FullyVerfiedBlock<T> {
     }
 }
 
+fn check_block_against_finalized_slot<T: BeaconChainTypes>(
+    block: &BeaconBlock<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<(), BlockError> {
+    let finalized_slot = chain
+        .head_info()?
+        .finalized_checkpoint
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
+
+    if block.slot <= finalized_slot {
+        Err(BlockError::WouldRevertFinalizedSlot {
+            block_slot: block.slot,
+            finalized_slot,
+        })
+    } else {
+        Ok(())
+    }
+}
+
 fn check_block_relevancy<T: BeaconChainTypes>(
     signed_block: &SignedBeaconBlock<T::EthSpec>,
     block_root: Option<Hash256>,
@@ -386,17 +409,7 @@ fn check_block_relevancy<T: BeaconChainTypes>(
     }
 
     // Do not process a block from a finalized slot.
-    let finalized_slot = chain
-        .head_info()?
-        .finalized_checkpoint
-        .epoch
-        .start_slot(T::EthSpec::slots_per_epoch());
-    if block.slot <= finalized_slot {
-        return Err(BlockError::WouldRevertFinalizedSlot {
-            block_slot: block.slot,
-            finalized_slot,
-        });
-    }
+    check_block_against_finalized_slot(block, chain)?;
 
     // Reject any block if its parent is not known to fork choice.
     //
