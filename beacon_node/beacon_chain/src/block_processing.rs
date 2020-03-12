@@ -128,7 +128,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         // Do not gossip a block from a finalized slot.
+        //
+        // TODO: adjust this to allow for clock disparity tolerance.
         check_block_against_finalized_slot(&block.message, chain)?;
+
+        // TODO: add check for the `(block.proposer_index, block.slot)` tuple once we have v0.11.0
 
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = get_block_root(&block);
