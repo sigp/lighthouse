@@ -1,4 +1,4 @@
-use crate::block_processing::{BlockError, GossipVerifiedBlock, IntoReadyToProcessBlock};
+use crate::block_processing::{BlockError, GossipVerifiedBlock, IntoFullyVerfiedBlock};
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -1154,7 +1154,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the gossip
-    /// network. If there is an error or the block is invalid, an `Err` is returned.
+    /// network.
+    ///
+    /// ## Errors
+    ///
+    /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub fn verify_block_for_gossip(
         &self,
         block: SignedBeaconBlock<T::EthSpec>,
@@ -1162,13 +1166,129 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         GossipVerifiedBlock::new(block, self)
     }
 
-    pub fn import_block<B: IntoReadyToProcessBlock<T>>(
+    /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
+    /// imported into the chain.
+    ///
+    /// Items that implement `IntoFullyVerfiedBlock` include:
+    ///
+    /// - `SignedBeaconBlock`
+    /// - `GossipVerifiedBlock`
+    ///
+    /// ## Errors
+    ///
+    /// Returns an `Err` if the given block was invalid, or an error was encountered during
+    /// verification.
+    pub fn import_block<B: IntoFullyVerfiedBlock<T>>(
         &self,
-        block: B,
+        unverified_block: B,
     ) -> Result<Hash256, BlockError> {
-        let ready_to_process = block.into_ready_to_process_block(self)?;
+        let fully_verified = unverified_block.into_fully_verified_block(self)?;
 
-        todo!()
+        let signed_block = fully_verified.block;
+        let block = &signed_block.message;
+        let block_root = fully_verified.block_root;
+        let state = fully_verified.state;
+        let parent_block = fully_verified.parent_block;
+        let intermediate_states = fully_verified.intermediate_states;
+
+        let fork_choice_register_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
+
+        // If there are new validators in this block, update our pubkey cache.
+        //
+        // We perform this _before_ adding the block to fork choice because the pubkey cache is
+        // used by attestation processing which will only process an attestation if the block is
+        // known to fork choice. This ordering ensure that the pubkey cache is always up-to-date.
+        self.validator_pubkey_cache
+            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?
+            .import_new_pubkeys(&state)?;
+
+        // If the imported block is in the previous or current epochs (according to the
+        // wall-clock), check to see if this is the first block of the epoch. If so, add the
+        // committee to the shuffling cache.
+        if state.current_epoch() + 1 >= self.epoch()?
+            && parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch()
+        {
+            let mut shuffling_cache = self
+                .shuffling_cache
+                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
+
+            let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
+
+            let epoch_start_slot = state
+                .current_epoch()
+                .start_slot(T::EthSpec::slots_per_epoch());
+            let target_root = if state.slot == epoch_start_slot {
+                block_root
+            } else {
+                *state.get_block_root(epoch_start_slot)?
+            };
+
+            shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
+        }
+
+        // Register the new block with the fork choice service.
+        if let Err(e) = self
+            .fork_choice
+            .process_block(self, &state, block, block_root)
+        {
+            error!(
+                self.log,
+                "Add block to fork choice failed";
+                "block_root" =>  format!("{}", block_root),
+                "error" => format!("{:?}", e),
+            )
+        }
+
+        metrics::stop_timer(fork_choice_register_timer);
+
+        self.head_tracker.register_block(block_root, &block);
+        metrics::observe(
+            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+            block.body.attestations.len() as f64,
+        );
+
+        let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
+
+        // Store all the states between the parent block state and this block's slot before storing
+        // the final state.
+        intermediate_states.commit(&*self.store)?;
+
+        // Store the block and state.
+        // NOTE: we store the block *after* the state to guard against inconsistency in the event of
+        // a crash, as states are usually looked up from blocks, not the other way around. A better
+        // solution would be to use a database transaction (once our choice of database and API
+        // settles down).
+        // See: https://github.com/sigp/lighthouse/issues/692
+        self.store.put_state(&block.state_root, &state)?;
+        self.store.put_block(&block_root, signed_block.clone())?;
+
+        self.snapshot_cache
+            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .map(|mut snapshot_cache| {
+                snapshot_cache.insert(BeaconSnapshot {
+                    beacon_state: state,
+                    beacon_state_root: signed_block.state_root(),
+                    beacon_block: signed_block,
+                    beacon_block_root: block_root,
+                });
+            })
+            .unwrap_or_else(|| {
+                error!(
+                    self.log,
+                    "Failed to obtain cache write lock";
+                    "lock" => "snapshot_cache",
+                    "task" => "process block"
+                );
+            });
+
+        metrics::stop_timer(db_write_timer);
+
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
+
+        Ok(block_root)
     }
 
     /// Accept some block and attempt to add it to block DAG.

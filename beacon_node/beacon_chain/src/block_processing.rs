@@ -96,17 +96,19 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     parent: Option<BeaconSnapshot<T::EthSpec>>,
 }
 
-pub struct ReadyToProcessBlock<T: BeaconChainTypes> {
-    block: SignedBeaconBlock<T::EthSpec>,
-    block_root: Hash256,
-    parent: BeaconSnapshot<T::EthSpec>,
+pub struct FullyVerfiedBlock<T: BeaconChainTypes> {
+    pub block: SignedBeaconBlock<T::EthSpec>,
+    pub block_root: Hash256,
+    pub state: BeaconState<T::EthSpec>,
+    pub parent_block: SignedBeaconBlock<T::EthSpec>,
+    pub intermediate_states: StateBatch<T::EthSpec>,
 }
 
-pub trait IntoReadyToProcessBlock<T: BeaconChainTypes> {
-    fn into_ready_to_process_block(
+pub trait IntoFullyVerfiedBlock<T: BeaconChainTypes> {
+    fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<ReadyToProcessBlock<T>, BlockError>;
+    ) -> Result<FullyVerfiedBlock<T>, BlockError>;
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
@@ -151,13 +153,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     }
 }
 
-impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for GossipVerifiedBlock<T> {
-    fn into_ready_to_process_block(
+impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for GossipVerifiedBlock<T> {
+    fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<ReadyToProcessBlock<T>, BlockError> {
+    ) -> Result<FullyVerfiedBlock<T>, BlockError> {
         let fully_verified = SignatureVerifiedBlock::from_gossip_verified_block(self, chain)?;
-        fully_verified.into_ready_to_process_block(chain)
+        fully_verified.into_fully_verified_block(chain)
     }
 }
 
@@ -223,31 +225,35 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     }
 }
 
-impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for SignatureVerifiedBlock<T> {
-    fn into_ready_to_process_block(
+impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignatureVerifiedBlock<T> {
+    fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<ReadyToProcessBlock<T>, BlockError> {
+    ) -> Result<FullyVerfiedBlock<T>, BlockError> {
         let block = self.block;
         let parent = self
             .parent
             .map(Result::Ok)
             .unwrap_or_else(|| load_parent(&block.message, chain))?;
 
-        ReadyToProcessBlock::from_signature_verified_components(
-            block,
-            self.block_root,
-            parent,
-            chain,
-        )
+        FullyVerfiedBlock::from_signature_verified_components(block, self.block_root, parent, chain)
     }
 }
 
-impl<T: BeaconChainTypes> ReadyToProcessBlock<T> {
+impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignedBeaconBlock<T::EthSpec> {
+    fn into_fully_verified_block(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<FullyVerfiedBlock<T>, BlockError> {
+        SignatureVerifiedBlock::new(self, chain)?.into_fully_verified_block(chain)
+    }
+}
+
+impl<T: BeaconChainTypes> FullyVerfiedBlock<T> {
     pub fn from_signature_verified_components(
         block: SignedBeaconBlock<T::EthSpec>,
         block_root: Hash256,
-        mut parent: BeaconSnapshot<T::EthSpec>,
+        parent: BeaconSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         /*
@@ -267,7 +273,7 @@ impl<T: BeaconChainTypes> ReadyToProcessBlock<T> {
         let mut intermediate_states = StateBatch::new();
 
         // Transition the parent state to the block slot.
-        let state = &mut parent.beacon_state;
+        let mut state = parent.beacon_state;
         let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
         for i in 0..distance {
             let state_root = if i == 0 {
@@ -281,7 +287,7 @@ impl<T: BeaconChainTypes> ReadyToProcessBlock<T> {
                 state_root
             };
 
-            per_slot_processing(state, Some(state_root), &chain.spec)?;
+            per_slot_processing(&mut state, Some(state_root), &chain.spec)?;
         }
 
         metrics::stop_timer(catchup_timer);
@@ -305,7 +311,7 @@ impl<T: BeaconChainTypes> ReadyToProcessBlock<T> {
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         if let Err(err) = per_block_processing(
-            state,
+            &mut state,
             &block,
             Some(block_root),
             // Signatures were verified earlier in this function.
@@ -346,7 +352,9 @@ impl<T: BeaconChainTypes> ReadyToProcessBlock<T> {
         Ok(Self {
             block,
             block_root,
-            parent,
+            state,
+            parent_block: parent.beacon_block,
+            intermediate_states,
         })
     }
 }
