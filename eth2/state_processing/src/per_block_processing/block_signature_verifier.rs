@@ -90,17 +90,7 @@ where
         spec: &'a ChainSpec,
     ) -> Result<()> {
         let mut verifier = Self::new(state, get_pubkey, spec);
-
-        verifier.include_block_proposal(block, block_root)?;
-        verifier.include_randao_reveal(block)?;
-        verifier.include_proposer_slashings(block)?;
-        verifier.include_attester_slashings(block)?;
-        verifier.include_attestations(block)?;
-        /*
-         * Deposits are not included because they can legally have invalid signatures.
-         */
-        verifier.include_exits(block)?;
-
+        verifier.include_all_signatures(block, block_root)?;
         verifier.verify()
     }
 
@@ -132,6 +122,39 @@ where
         } else {
             Err(Error::SignatureInvalid)
         }
+    }
+
+    /// Includes all signatures on the block (except the deposit signatures) for verification.
+    pub fn include_all_signatures(
+        &mut self,
+        block: &'a SignedBeaconBlock<T>,
+        block_root: Option<Hash256>,
+    ) -> Result<()> {
+        self.include_block_proposal(block, block_root)?;
+        self.include_randao_reveal(block)?;
+        self.include_proposer_slashings(block)?;
+        self.include_attester_slashings(block)?;
+        self.include_attestations(block)?;
+        // Deposits are not included because they can legally have invalid signatures.
+        self.include_exits(block)?;
+
+        Ok(())
+    }
+
+    /// Includes all signatures on the block (except the deposit signatures and the proposal
+    /// signature) for verification.
+    pub fn include_all_signatures_except_proposal(
+        &mut self,
+        block: &'a SignedBeaconBlock<T>,
+    ) -> Result<()> {
+        self.include_randao_reveal(block)?;
+        self.include_proposer_slashings(block)?;
+        self.include_attester_slashings(block)?;
+        self.include_attestations(block)?;
+        // Deposits are not included because they can legally have invalid signatures.
+        self.include_exits(block)?;
+
+        Ok(())
     }
 
     /// Includes the block signature for `self.block` for verification.

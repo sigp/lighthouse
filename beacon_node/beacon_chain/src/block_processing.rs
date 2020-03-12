@@ -17,9 +17,17 @@ use types::{
 };
 
 pub enum BlockProcessingError {
+    ProposalSignatureInvalid,
     UnknownParent(Hash256),
     BlockIsEarlierThanParent,
     BeaconChainError(BeaconChainError),
+    SignatureVerificationError(BlockSignatureVerifierError),
+}
+
+impl From<BlockSignatureVerifierError> for BlockProcessingError {
+    fn from(e: BlockSignatureVerifierError) -> Self {
+        BlockProcessingError::SignatureVerificationError(e)
+    }
 }
 
 pub struct ProposalSignatureVerifiedBlock<T: BeaconChainTypes> {
@@ -34,17 +42,17 @@ pub struct FullySignatureVerifiedBlock<T: BeaconChainTypes> {
     parent: Option<BeaconSnapshot<T::EthSpec>>,
 }
 
-pub struct ReadyToProcessBlock<T: BeaconChainTypes> {
-    block: SignedBeaconBlock<T::EthSpec>,
+pub struct ReadyToProcessBlock<E: EthSpec> {
+    block: SignedBeaconBlock<E>,
     block_root: Hash256,
-    parent: BeaconSnapshot<T::EthSpec>,
+    parent: BeaconSnapshot<E>,
 }
 
-trait IntoReadyToProcessBlock {
-    fn into_ready_to_process_block<T: BeaconChainTypes>(
-        &self,
+trait IntoReadyToProcessBlock<T: BeaconChainTypes> {
+    fn into_ready_to_process_block(
+        self,
         chain: &BeaconChain<T>,
-    ) -> Result<ReadyToProcessBlock<T>, BlockProcessingError>;
+    ) -> Result<ReadyToProcessBlock<T::EthSpec>, BlockProcessingError>;
 }
 
 impl<T: BeaconChainTypes> ProposalSignatureVerifiedBlock<T> {
@@ -52,91 +60,123 @@ impl<T: BeaconChainTypes> ProposalSignatureVerifiedBlock<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockProcessingError> {
-        let parent = load_parent(&block.message, chain)?;
+        let mut parent = load_parent(&block.message, chain)?;
         let block_root = block.canonical_root();
 
-        todo!()
+        let state = cheap_state_advance_to_obtain_committees(
+            &mut parent.beacon_state,
+            block.slot(),
+            &chain.spec,
+        )?;
+
+        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+
+        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+        signature_verifier.include_block_proposal(&block, Some(block_root))?;
+
+        if signature_verifier.verify().is_ok() {
+            Ok(Self {
+                block,
+                block_root,
+                parent,
+            })
+        } else {
+            Err(BlockProcessingError::ProposalSignatureInvalid)
+        }
     }
 }
 
-/*
-impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
+impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for ProposalSignatureVerifiedBlock<T> {
+    fn into_ready_to_process_block(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<ReadyToProcessBlock<T::EthSpec>, BlockProcessingError> {
+        let fully_verified =
+            FullySignatureVerifiedBlock::from_proposal_signature_verified_block(self, chain)?;
+        fully_verified.into_ready_to_process_block(chain)
+    }
+}
+
+impl<T: BeaconChainTypes> FullySignatureVerifiedBlock<T> {
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, SignatureVerificationError> {
-        let parent = self
-            .load_parent(chain)
-            .map_err(SignatureVerificationError::BeaconChainError)?
-            .ok_or_else(|| SignatureVerificationError::UnknownParent);
+    ) -> Result<Self, BlockProcessingError> {
+        let mut parent = load_parent(&block.message, chain)?;
+        let block_root = block.canonical_root();
+
+        let state = cheap_state_advance_to_obtain_committees(
+            &mut parent.beacon_state,
+            block.slot(),
+            &chain.spec,
+        )?;
+
+        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+
+        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+
+        signature_verifier.include_all_signatures(&block, Some(block_root))?;
+
+        if signature_verifier.verify().is_ok() {
+            Ok(Self {
+                block,
+                block_root,
+                parent: Some(parent),
+            })
+        } else {
+            Err(BlockProcessingError::ProposalSignatureInvalid)
+        }
     }
 
-    fn load_parent(
-        &self,
+    pub fn from_proposal_signature_verified_block(
+        from: ProposalSignatureVerifiedBlock<T>,
         chain: &BeaconChain<T>,
-    ) -> Result<Option<BeaconSnapshot<T::EthSpec>>, BeaconChainError> {
-        let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
+    ) -> Result<Self, BlockProcessingError> {
+        let mut parent = from.parent;
+        let block = from.block;
 
-        // Reject any block if its parent is not known to fork choice.
-        //
-        // A block that is not in fork choice is either:
-        //
-        //  - Not yet imported: we should reject this block because we should only import a child
-        //  after its parent has been fully imported.
-        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-        //  because it will revert finalization. Note that the finalized block is stored in fork
-        //  choice, so we will not reject any child of the finalized block (this is relevant during
-        //  genesis).
-        if !chain.fork_choice.contains_block(&self.block.parent_root()) {
-            return Ok(None);
+        let state = cheap_state_advance_to_obtain_committees(
+            &mut parent.beacon_state,
+            block.slot(),
+            &chain.spec,
+        )?;
+
+        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+
+        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+
+        signature_verifier.include_all_signatures_except_proposal(&block)?;
+
+        if signature_verifier.verify().is_ok() {
+            Ok(Self {
+                block,
+                block_root: from.block_root,
+                parent: Some(parent),
+            })
+        } else {
+            Err(BlockProcessingError::ProposalSignatureInvalid)
         }
-
-        // Load the parent block and state from disk, returning early if it's not available.
-        let result = chain
-            .snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|mut snapshot_cache| snapshot_cache.try_remove(self.block.parent_root()))
-            .map(|snapshot| Ok(Some(snapshot)))
-            .unwrap_or_else(|| {
-                // Load the blocks parent block from the database, returning invalid if that block is not
-                // found.
-                //
-                // We don't return a DBInconsistent error here since it's possible for a block to
-                // exist in fork choice but not in the database yet. In such a case we simply
-                // indicate that we don't yet know the parent.
-                let parent_block =
-                    if let Some(block) = chain.get_block(&self.block.parent_root())? {
-                        block
-                    } else {
-                        return Ok(None);
-                    };
-
-                // Load the parent blocks state from the database, returning an error if it is not found.
-                // It is an error because if we know the parent block we should also know the parent state.
-                let parent_state_root = parent_block.state_root();
-                let parent_state = chain
-                    .get_state(&parent_state_root, Some(parent_block.slot()))?
-                    .ok_or_else(|| {
-                        BeaconChainError::DBInconsistent(format!(
-                            "Missing state {:?}",
-                            parent_state_root
-                        ))
-                    })?;
-
-                Ok(Some(BeaconSnapshot {
-                    beacon_block: parent_block,
-                    beacon_block_root: self.block.parent_root(),
-                    beacon_state: parent_state,
-                    beacon_state_root: parent_state_root,
-                }))
-            });
-
-        metrics::stop_timer(db_read_timer);
-
-        result
     }
 }
-*/
+
+impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for FullySignatureVerifiedBlock<T> {
+    fn into_ready_to_process_block(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<ReadyToProcessBlock<T::EthSpec>, BlockProcessingError> {
+        let block = self.block;
+        let parent = self
+            .parent
+            .map(Result::Ok)
+            .unwrap_or_else(|| load_parent(&block.message, chain))?;
+
+        Ok(ReadyToProcessBlock {
+            block,
+            block_root: self.block_root,
+            parent,
+        })
+    }
+}
 
 fn load_parent<T: BeaconChainTypes>(
     block: &BeaconBlock<T::EthSpec>,
@@ -204,13 +244,23 @@ fn load_parent<T: BeaconChainTypes>(
     result
 }
 
-pub fn cheap_state_advance_to_obtain_committees<E: EthSpec>(
-    state: &mut BeaconState<E>,
+pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
+    state: &'a mut BeaconState<E>,
     block_slot: Slot,
     spec: &ChainSpec,
-) -> Result<Option<BeaconState<E>>, BlockProcessingError> {
+) -> Result<Cow<'a, BeaconState<E>>, BlockProcessingError> {
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
     let state_epoch = state.current_epoch();
+
+    macro_rules! build_committee_cache {
+        ($state: ident, $relative_epoch: ident) => {
+            $state
+                .build_committee_cache($relative_epoch, spec)
+                .map_err(|e| {
+                    BlockProcessingError::BeaconChainError(BeaconChainError::BeaconStateError(e))
+                })?;
+        };
+    };
 
     if let Ok(relative_epoch) = RelativeEpoch::from_epoch(state_epoch, block_epoch) {
         state
@@ -219,7 +269,9 @@ pub fn cheap_state_advance_to_obtain_committees<E: EthSpec>(
                 BlockProcessingError::BeaconChainError(BeaconChainError::BeaconStateError(e))
             })?;
 
-        Ok(None)
+        build_committee_cache!(state, relative_epoch);
+
+        Ok(Cow::Borrowed(state))
     } else {
         let mut state = state.clone_with(CloneConfig::none());
 
@@ -241,13 +293,9 @@ pub fn cheap_state_advance_to_obtain_committees<E: EthSpec>(
             }
         };
 
-        state
-            .build_committee_cache(relative_epoch, spec)
-            .map_err(|e| {
-                BlockProcessingError::BeaconChainError(BeaconChainError::BeaconStateError(e))
-            })?;
+        build_committee_cache!(state, relative_epoch);
 
-        Ok(Some(state))
+        Ok(Cow::Owned(state))
     }
 }
 
@@ -265,14 +313,11 @@ pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
 ///
 /// The signature verifier is empty because it does not yet have any of this block's signatures
 /// added to it. Use `Self::apply_to_signature_verifier` to apply the signatures.
-pub fn produce_signature_verifier<'a, T>(
-    state: &'a BeaconState<T::EthSpec>,
+pub fn get_signature_verifier<'a, E: EthSpec>(
+    state: &'a BeaconState<E>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache,
     spec: &'a ChainSpec,
-) -> BlockSignatureVerifier<'a, T::EthSpec, impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone>
-where
-    T: BeaconChainTypes,
-{
+) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone> {
     BlockSignatureVerifier::new(
         state,
         move |validator_index| {
