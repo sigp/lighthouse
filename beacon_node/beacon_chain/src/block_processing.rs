@@ -20,6 +20,10 @@ pub enum BlockProcessingError {
     ProposalSignatureInvalid,
     UnknownParent(Hash256),
     BlockIsEarlierThanParent,
+    FutureBlock {
+        current_slot: Slot,
+        block_slot: Slot,
+    },
     BeaconChainError(BeaconChainError),
     SignatureVerificationError(BlockSignatureVerifierError),
 }
@@ -30,13 +34,19 @@ impl From<BlockSignatureVerifierError> for BlockProcessingError {
     }
 }
 
-pub struct ProposalSignatureVerifiedBlock<T: BeaconChainTypes> {
+impl From<BeaconChainError> for BlockProcessingError {
+    fn from(e: BeaconChainError) -> Self {
+        BlockProcessingError::BeaconChainError(e)
+    }
+}
+
+pub struct GossipVerfiedBlock<T: BeaconChainTypes> {
     block: SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
     parent: BeaconSnapshot<T::EthSpec>,
 }
 
-pub struct FullySignatureVerifiedBlock<T: BeaconChainTypes> {
+pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     block: SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
     parent: Option<BeaconSnapshot<T::EthSpec>>,
@@ -55,11 +65,22 @@ trait IntoReadyToProcessBlock<T: BeaconChainTypes> {
     ) -> Result<ReadyToProcessBlock<T::EthSpec>, BlockProcessingError>;
 }
 
-impl<T: BeaconChainTypes> ProposalSignatureVerifiedBlock<T> {
+impl<T: BeaconChainTypes> GossipVerfiedBlock<T> {
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockProcessingError> {
+        // Do not gossip or process blocks from future slots.
+        //
+        // TODO: adjust this to allow for clock disparity tolerance.
+        let current_slot = chain.slot()?;
+        if block.slot() > current_slot {
+            return Err(BlockProcessingError::FutureBlock {
+                current_slot,
+                block_slot: block.slot(),
+            });
+        }
+
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = block.canonical_root();
 
@@ -86,18 +107,17 @@ impl<T: BeaconChainTypes> ProposalSignatureVerifiedBlock<T> {
     }
 }
 
-impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for ProposalSignatureVerifiedBlock<T> {
+impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for GossipVerfiedBlock<T> {
     fn into_ready_to_process_block(
         self,
         chain: &BeaconChain<T>,
     ) -> Result<ReadyToProcessBlock<T::EthSpec>, BlockProcessingError> {
-        let fully_verified =
-            FullySignatureVerifiedBlock::from_proposal_signature_verified_block(self, chain)?;
+        let fully_verified = SignatureVerifiedBlock::from_gossip_verified_block(self, chain)?;
         fully_verified.into_ready_to_process_block(chain)
     }
 }
 
-impl<T: BeaconChainTypes> FullySignatureVerifiedBlock<T> {
+impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -128,8 +148,8 @@ impl<T: BeaconChainTypes> FullySignatureVerifiedBlock<T> {
         }
     }
 
-    pub fn from_proposal_signature_verified_block(
-        from: ProposalSignatureVerifiedBlock<T>,
+    pub fn from_gossip_verified_block(
+        from: GossipVerfiedBlock<T>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockProcessingError> {
         let mut parent = from.parent;
@@ -159,7 +179,7 @@ impl<T: BeaconChainTypes> FullySignatureVerifiedBlock<T> {
     }
 }
 
-impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for FullySignatureVerifiedBlock<T> {
+impl<T: BeaconChainTypes> IntoReadyToProcessBlock<T> for SignatureVerifiedBlock<T> {
     fn into_ready_to_process_block(
         self,
         chain: &BeaconChain<T>,
