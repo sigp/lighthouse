@@ -21,6 +21,7 @@ use types::{
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 
+#[derive(Debug, PartialEq)]
 pub enum BlockError {
     /// The parent block was unknown.
     ParentUnknown(Hash256),
@@ -95,8 +96,16 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         return Ok(vec![]);
     };
 
-    let state =
-        cheap_state_advance_to_obtain_committees(&mut parent.beacon_state, slot, &chain.spec)?;
+    let highest_slot = chain_segment
+        .last()
+        .map(|block| block.slot())
+        .unwrap_or_else(|| slot);
+
+    let state = cheap_state_advance_to_obtain_committees(
+        &mut parent.beacon_state,
+        highest_slot,
+        &chain.spec,
+    )?;
 
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);

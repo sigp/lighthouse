@@ -157,6 +157,7 @@ pub enum StateSkipConfig {
     WithoutStateRoots,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct HeadInfo {
     pub slot: Slot,
     pub block_root: Hash256,
