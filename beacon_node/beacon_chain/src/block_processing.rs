@@ -4,14 +4,21 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
 };
 use parking_lot::RwLockReadGuard;
-use state_processing::block_signature_verifier::{
-    BlockSignatureVerifier, Error as BlockSignatureVerifierError, G1Point,
+use state_processing::{
+    block_signature_verifier::{
+        BlockSignatureVerifier, Error as BlockSignatureVerifierError, G1Point,
+    },
+    per_slot_processing,
 };
 use std::borrow::Cow;
-use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
+use types::{
+    BeaconBlock, BeaconState, ChainSpec, CloneConfig, EthSpec, Hash256, RelativeEpoch,
+    RelativeEpochError, SignedBeaconBlock, Slot,
+};
 
 pub enum BlockProcessingError {
     UnknownParent(Hash256),
+    BlockIsEarlierThanParent,
     BeaconChainError(BeaconChainError),
 }
 
@@ -38,6 +45,18 @@ trait IntoReadyToProcessBlock {
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<ReadyToProcessBlock<T>, BlockProcessingError>;
+}
+
+impl<T: BeaconChainTypes> ProposalSignatureVerifiedBlock<T> {
+    pub fn new(
+        block: SignedBeaconBlock<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, BlockProcessingError> {
+        let parent = load_parent(&block.message, chain)?;
+        let block_root = block.canonical_root();
+
+        todo!()
+    }
 }
 
 /*
@@ -122,7 +141,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 fn load_parent<T: BeaconChainTypes>(
     block: &BeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<Option<BeaconSnapshot<T::EthSpec>>, BeaconChainError> {
+) -> Result<BeaconSnapshot<T::EthSpec>, BlockProcessingError> {
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
     // Reject any block if its parent is not known to fork choice.
@@ -136,7 +155,7 @@ fn load_parent<T: BeaconChainTypes>(
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
     if !chain.fork_choice.contains_block(&block.parent_root) {
-        return Ok(None);
+        return Err(BlockProcessingError::UnknownParent(block.parent_root));
     }
 
     // Load the parent block and state from disk, returning early if it's not available.
@@ -176,41 +195,87 @@ fn load_parent<T: BeaconChainTypes>(
                 beacon_state: parent_state,
                 beacon_state_root: parent_state_root,
             }))
-        });
+        })
+        .map_err(BlockProcessingError::BeaconChainError)?
+        .ok_or_else(|| BlockProcessingError::UnknownParent(block.parent_root));
 
     metrics::stop_timer(db_read_timer);
 
     result
 }
 
+pub fn cheap_state_advance_to_obtain_committees<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    block_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<Option<BeaconState<E>>, BlockProcessingError> {
+    let block_epoch = block_slot.epoch(E::slots_per_epoch());
+    let state_epoch = state.current_epoch();
+
+    if let Ok(relative_epoch) = RelativeEpoch::from_epoch(state_epoch, block_epoch) {
+        state
+            .build_committee_cache(relative_epoch, spec)
+            .map_err(|e| {
+                BlockProcessingError::BeaconChainError(BeaconChainError::BeaconStateError(e))
+            })?;
+
+        Ok(None)
+    } else {
+        let mut state = state.clone_with(CloneConfig::none());
+
+        let relative_epoch = loop {
+            match RelativeEpoch::from_epoch(state.current_epoch(), block_epoch) {
+                Ok(relative_epoch) => break relative_epoch,
+                Err(RelativeEpochError::EpochTooLow { .. }) => {
+                    // Don't calculate state roots since they aren't required for calculating
+                    // shuffling (achieved by providing Hash256::zero()).
+                    per_slot_processing(&mut state, Some(Hash256::zero()), spec).map_err(|e| {
+                        BlockProcessingError::BeaconChainError(
+                            BeaconChainError::SlotProcessingError(e),
+                        )
+                    })?;
+                }
+                Err(RelativeEpochError::EpochTooHigh { .. }) => {
+                    return Err(BlockProcessingError::BlockIsEarlierThanParent);
+                }
+            }
+        };
+
+        state
+            .build_committee_cache(relative_epoch, spec)
+            .map_err(|e| {
+                BlockProcessingError::BeaconChainError(BeaconChainError::BeaconStateError(e))
+            })?;
+
+        Ok(Some(state))
+    }
+}
+
+pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+) -> Result<RwLockReadGuard<ValidatorPubkeyCache>, BlockProcessingError> {
+    chain
+        .validator_pubkey_cache
+        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+        .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+        .map_err(BlockProcessingError::BeaconChainError)
+}
+
 /// Produces an _empty_ `BlockSignatureVerifier`.
 ///
 /// The signature verifier is empty because it does not yet have any of this block's signatures
 /// added to it. Use `Self::apply_to_signature_verifier` to apply the signatures.
-pub fn produce_signature_verifier<'a, F, T>(
+pub fn produce_signature_verifier<'a, T>(
     state: &'a BeaconState<T::EthSpec>,
-    chain: &'a BeaconChain<T>,
-    spec: &ChainSpec,
-) -> Result<
-    (
-        BlockSignatureVerifier<'a, T::EthSpec, F>,
-        RwLockReadGuard<'a, ValidatorPubkeyCache>,
-    ),
-    BlockProcessingError,
->
+    validator_pubkey_cache: &'a ValidatorPubkeyCache,
+    spec: &'a ChainSpec,
+) -> BlockSignatureVerifier<'a, T::EthSpec, impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone>
 where
-    F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
     T: BeaconChainTypes,
 {
-    let validator_pubkey_cache = chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheLockTimeout)
-        .map_err(BlockProcessingError::BeaconChainError)?;
-
-    let verifier = BlockSignatureVerifier::new(
+    BlockSignatureVerifier::new(
         state,
-        |validator_index| {
+        move |validator_index| {
             // Disallow access to any validator pubkeys that are not in the current beacon
             // state.
             if validator_index < state.validators.len() {
@@ -221,8 +286,6 @@ where
                 None
             }
         },
-        &chain.spec,
-    );
-
-    Ok((verifier, validator_pubkey_cache))
+        spec,
+    )
 }
