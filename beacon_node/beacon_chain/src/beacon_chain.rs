@@ -1,4 +1,6 @@
-use crate::block_processing::{BlockError, GossipVerifiedBlock, IntoFullyVerfiedBlock};
+use crate::block_processing::{
+    signature_verify_chain_segment, BlockError, GossipVerifiedBlock, IntoFullyVerfiedBlock,
+};
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -1151,6 +1153,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(())
             }
         }
+    }
+
+    pub fn import_chain_segment(
+        &self,
+        mut chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<Vec<Hash256>, BlockError> {
+        let mut roots = Vec::with_capacity(chain_segment.len());
+
+        while !chain_segment.is_empty() {
+            let start_epoch = chain_segment
+                .first()
+                .expect("chain_segment cannot be empty")
+                .slot()
+                .epoch(T::EthSpec::slots_per_epoch());
+
+            let last_index = chain_segment
+                .iter()
+                .position(|block| {
+                    block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch + 1
+                })
+                // Subtraction cannot underflow since the `position` call cannot match on 0.
+                .map(|i| i - 1)
+                .unwrap_or_else(|| chain_segment.len());
+
+            let mut blocks = chain_segment.split_off(last_index);
+            std::mem::swap(&mut blocks, &mut chain_segment);
+
+            let signature_verified_blocks = signature_verify_chain_segment(blocks, self)?;
+
+            for signature_verified_block in signature_verified_blocks {
+                roots.push(self.import_block(signature_verified_block)?);
+            }
+        }
+
+        Ok(roots)
     }
 
     /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the gossip

@@ -84,6 +84,54 @@ impl From<DBError> for BlockError {
     }
 }
 
+pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
+    chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
+    chain: &BeaconChain<T>,
+) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
+    let (mut parent, slot) = if let Some(block) = chain_segment.first() {
+        let parent = load_parent(&block.message, chain)?;
+        (parent, block.slot())
+    } else {
+        return Ok(vec![]);
+    };
+
+    let state =
+        cheap_state_advance_to_obtain_committees(&mut parent.beacon_state, slot, &chain.spec)?;
+
+    let pubkey_cache = get_validator_pubkey_cache(chain)?;
+    let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+    let mut block_roots = Vec::with_capacity(chain_segment.len());
+
+    for block in &chain_segment {
+        let block_root = get_block_root(block);
+        block_roots.push(block_root);
+
+        signature_verifier.include_all_signatures(block, Some(block_root))?;
+    }
+
+    if signature_verifier.verify().is_err() {
+        return Err(BlockError::InvalidSignature);
+    }
+
+    drop(pubkey_cache);
+
+    let mut signature_verified_blocks = block_roots
+        .into_iter()
+        .zip(chain_segment.into_iter())
+        .map(|(block_root, block)| SignatureVerifiedBlock {
+            block,
+            block_root,
+            parent: None,
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
+        signature_verified_block.parent = Some(parent);
+    }
+
+    Ok(signature_verified_blocks)
+}
+
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     block: SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
