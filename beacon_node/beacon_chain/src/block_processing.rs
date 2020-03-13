@@ -48,7 +48,13 @@ pub enum BlockError {
     /// A signature in the block is invalid (exactly which is unknown).
     InvalidSignature,
     /// The provided block is from an earlier slot than its parent.
-    BlockIsEarlierThanParent { block_slot: Slot, state_slot: Slot },
+    BlockIsNotLaterThanParent { block_slot: Slot, state_slot: Slot },
+    /// At least one block in the chain segement did not have it's parent root set to the root of
+    /// the prior block.
+    NonLinearParentRoots,
+    /// The slots of the blocks in the chain segment were not strictly increasing. I.e., a child
+    /// had lower slot than a parent.
+    NonLinearSlots,
     /// The block failed the specification's `per_block_processing` function, it is invalid.
     PerBlockProcessingError(BlockProcessingError),
     /// There was an error whilst processing the block. It is not necessarily invalid.
@@ -86,10 +92,10 @@ impl From<DBError> for BlockError {
 }
 
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
-    chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
+    chain_segment: Vec<(Hash256, SignedBeaconBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
 ) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
-    let (mut parent, slot) = if let Some(block) = chain_segment.first() {
+    let (mut parent, slot) = if let Some(block) = chain_segment.first().map(|(_, block)| block) {
         let parent = load_parent(&block.message, chain)?;
         (parent, block.slot())
     } else {
@@ -98,7 +104,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     let highest_slot = chain_segment
         .last()
-        .map(|block| block.slot())
+        .map(|(_, block)| block.slot())
         .unwrap_or_else(|| slot);
 
     let state = cheap_state_advance_to_obtain_committees(
@@ -109,13 +115,9 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-    let mut block_roots = Vec::with_capacity(chain_segment.len());
 
-    for block in &chain_segment {
-        let block_root = get_block_root(block);
-        block_roots.push(block_root);
-
-        signature_verifier.include_all_signatures(block, Some(block_root))?;
+    for (block_root, block) in &chain_segment {
+        signature_verifier.include_all_signatures(block, Some(*block_root))?;
     }
 
     if signature_verifier.verify().is_err() {
@@ -124,9 +126,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     drop(pubkey_cache);
 
-    let mut signature_verified_blocks = block_roots
+    let mut signature_verified_blocks = chain_segment
         .into_iter()
-        .zip(chain_segment.into_iter())
         .map(|(block_root, block)| SignatureVerifiedBlock {
             block,
             block_root,
@@ -320,6 +321,20 @@ impl<T: BeaconChainTypes> FullyVerfiedBlock<T> {
         parent: BeaconSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
+        // Reject any block if its parent is not known to fork choice.
+        //
+        // A block that is not in fork choice is either:
+        //
+        //  - Not yet imported: we should reject this block because we should only import a child
+        //  after its parent has been fully imported.
+        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+        //  because it will revert finalization. Note that the finalized block is stored in fork
+        //  choice, so we will not reject any child of the finalized block (this is relevant during
+        //  genesis).
+        if !chain.fork_choice.contains_block(&block.parent_root()) {
+            return Err(BlockError::ParentUnknown(block.parent_root()));
+        }
+
         /*
          *  Perform cursory checks to see if the block is even worth processing.
          */
@@ -335,6 +350,14 @@ impl<T: BeaconChainTypes> FullyVerfiedBlock<T> {
         // Keep a batch of any states that were "skipped" (block-less) in between the parent state
         // slot and the block slot. These will be stored in the database.
         let mut intermediate_states = StateBatch::new();
+
+        // The block must have a higher slot than its parent.
+        if block.slot() <= parent.beacon_state.slot {
+            return Err(BlockError::BlockIsNotLaterThanParent {
+                block_slot: block.slot(),
+                state_slot: parent.beacon_state.slot,
+            });
+        }
 
         // Transition the parent state to the block slot.
         let mut state = parent.beacon_state;
@@ -443,7 +466,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     }
 }
 
-fn check_block_relevancy<T: BeaconChainTypes>(
+pub fn check_block_relevancy<T: BeaconChainTypes>(
     signed_block: &SignedBeaconBlock<T::EthSpec>,
     block_root: Option<Hash256>,
     chain: &BeaconChain<T>,
@@ -472,20 +495,6 @@ fn check_block_relevancy<T: BeaconChainTypes>(
     // Do not process a block from a finalized slot.
     check_block_against_finalized_slot(block, chain)?;
 
-    // Reject any block if its parent is not known to fork choice.
-    //
-    // A block that is not in fork choice is either:
-    //
-    //  - Not yet imported: we should reject this block because we should only import a child
-    //  after its parent has been fully imported.
-    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-    //  because it will revert finalization. Note that the finalized block is stored in fork
-    //  choice, so we will not reject any child of the finalized block (this is relevant during
-    //  genesis).
-    if !chain.fork_choice.contains_block(&block.parent_root) {
-        return Err(BlockError::ParentUnknown(block.parent_root));
-    }
-
     let block_root = block_root.unwrap_or_else(|| get_block_root(&signed_block));
 
     // Check if the block is already known. We know it is post-finalization, so it is
@@ -497,7 +506,7 @@ fn check_block_relevancy<T: BeaconChainTypes>(
     Ok(block_root)
 }
 
-fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
+pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
     let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
 
     let block_root = block.canonical_root();
@@ -603,7 +612,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
                     })?;
                 }
                 Err(RelativeEpochError::EpochTooLow { .. }) => {
-                    return Err(BlockError::BlockIsEarlierThanParent {
+                    return Err(BlockError::BlockIsNotLaterThanParent {
                         block_slot,
                         state_slot: state.slot,
                     });

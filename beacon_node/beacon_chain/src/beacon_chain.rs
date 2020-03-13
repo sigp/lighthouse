@@ -1,5 +1,6 @@
 use crate::block_processing::{
-    signature_verify_chain_segment, BlockError, GossipVerifiedBlock, IntoFullyVerfiedBlock,
+    check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
+    GossipVerifiedBlock, IntoFullyVerfiedBlock,
 };
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -1158,31 +1159,88 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn import_chain_segment(
         &self,
-        mut chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
+        chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<Vec<Hash256>, BlockError> {
-        let mut roots = Vec::with_capacity(chain_segment.len());
+        let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
 
-        while !chain_segment.is_empty() {
-            let start_epoch = chain_segment
+        // Produce a list of the parent root and slot of the child of each block.
+        //
+        // E.g., `children[0] == (chain_segment[1].parent_root(), chain_segment[1].slot())`
+        let children = chain_segment
+            .iter()
+            .skip(1)
+            .map(|block| (block.parent_root(), block.slot()))
+            .collect::<Vec<_>>();
+
+        for (i, block) in chain_segment.into_iter().enumerate() {
+            let block_root = get_block_root(&block);
+
+            if let Some((child_parent_root, child_slot)) = children.get(i) {
+                // If this block has a child in this chain segment, ensure that its parent root matches
+                // the root of this block.
+                //
+                // Without this check it would be possible to have a block verified using the
+                // incorrect shuffling. That would be bad, mmkay.
+                if block_root != *child_parent_root {
+                    return Err(BlockError::NonLinearParentRoots);
+                }
+
+                // Ensure that the slots are strictly increasing throughout the chain segement.
+                if *child_slot <= block.slot() {
+                    return Err(BlockError::NonLinearSlots);
+                }
+            }
+
+            match check_block_relevancy(&block, Some(block_root), self) {
+                // If the block is relevant, add it to the filtered chain segment.
+                Ok(_) => filtered_chain_segment.push((block_root, block)),
+                // If the block is already known, simply ignore this block.
+                Err(BlockError::BlockIsAlreadyKnown) => continue,
+                // If the block is the genesis block, simply ignore this block.
+                Err(BlockError::GenesisBlock) => continue,
+                // If there was an error whilst determining if the block was invalid, return that
+                // error.
+                Err(BlockError::BeaconChainError(e)) => {
+                    return Err(BlockError::BeaconChainError(e))
+                }
+                // If the block was decided to be irrelevant for any other reason, don't include
+                // this block or any of it's children in the filtered chain segment.
+                _ => break,
+            }
+        }
+
+        let mut roots = Vec::with_capacity(filtered_chain_segment.len());
+
+        while !filtered_chain_segment.is_empty() {
+            // Determine the epoch of the first block in the remaining segment.
+            let start_epoch = filtered_chain_segment
                 .first()
+                .map(|(_root, block)| block)
                 .expect("chain_segment cannot be empty")
                 .slot()
                 .epoch(T::EthSpec::slots_per_epoch());
 
-            let last_index = chain_segment
+            // The `last_index` indicates the position of the last block that is in the current or
+            // next epoch of `start_epoch`.
+            let last_index = filtered_chain_segment
                 .iter()
-                .position(|block| {
+                .position(|(_root, block)| {
                     block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch + 1
                 })
                 // Subtraction cannot underflow since the `position` call cannot match on 0.
                 .map(|i| i - 1)
-                .unwrap_or_else(|| chain_segment.len());
+                .unwrap_or_else(|| filtered_chain_segment.len());
 
-            let mut blocks = chain_segment.split_off(last_index);
-            std::mem::swap(&mut blocks, &mut chain_segment);
+            // Split off the first section blocks that are all either within the current or next
+            // epoch of the first block. Due to the shuffling look-ahead of one epoch, these blocks
+            // can all be signature-verified with the same `BeaconState`.
+            let mut blocks = filtered_chain_segment.split_off(last_index);
+            std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
+            // Verify the signature of the blocks, returning early if the signature is invalid.
             let signature_verified_blocks = signature_verify_chain_segment(blocks, self)?;
 
+            // Import the blocks into the chain.
             for signature_verified_block in signature_verified_blocks {
                 roots.push(self.import_block(signature_verified_block)?);
             }
