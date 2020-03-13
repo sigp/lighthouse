@@ -700,11 +700,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// This checks to ensure there a peers to progress the query, checks for failures and
     /// initiates requests.
     fn request_parent(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
-        // check to make sure there are peers to search for the parent from
-        if self.full_peers.is_empty() {
-            return;
-        }
-
         // check to make sure this request hasn't failed
         if parent_request.failed_attempts >= PARENT_FAIL_TOLERANCE
             || parent_request.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE
@@ -716,20 +711,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return; // drop the request
         }
 
-        let parent_hash = parent_request
-            .downloaded_blocks
-            .last()
-            .expect("The parent queue should never be empty")
-            .parent_root();
+        let parent_hash = if let Some(block) = parent_request.downloaded_blocks.last() {
+            block.parent_root()
+        } else {
+            crit!(self.log, "Parent queue is empty. This should never happen");
+            return;
+        };
+
         let request = BlocksByRootRequest {
             block_roots: vec![parent_hash],
         };
         // select a random fully synced peer to attempt to download the parent block
         let available_peers = self.full_peers.iter().collect::<Vec<_>>();
-        let peer_id = (**available_peers
-            .choose(&mut rand::thread_rng())
-            .expect("List is not empty"))
-        .clone();
+        let peer_id = if let Some(peer_id) = available_peers.choose(&mut rand::thread_rng()) {
+            (**peer_id).clone()
+        } else {
+            // there were no peers to choose from. We drop the lookup request
+            return;
+        };
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
             // if the request was successful add the queue back into self
