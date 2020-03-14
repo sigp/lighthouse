@@ -204,6 +204,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+
         signature_verifier.include_block_proposal(&block, Some(block_root))?;
 
         if signature_verifier.verify().is_ok() {
@@ -255,7 +256,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 parent: Some(parent),
             })
         } else {
-            Err(BlockError::ProposalSignatureInvalid)
+            Err(BlockError::InvalidSignature)
         }
     }
 
@@ -285,7 +286,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 parent: Some(parent),
             })
         } else {
-            Err(BlockError::ProposalSignatureInvalid)
+            Err(BlockError::InvalidSignature)
         }
     }
 }

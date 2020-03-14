@@ -255,16 +255,57 @@ fn chain_segment_invalid_signatures() {
             .slot_clock
             .set_slot(CHAIN_SEGMENT.last().unwrap().beacon_block.slot().as_u64());
 
+        // Import all the ancestors before the `block_index` block.
+        let ancestor_blocks = CHAIN_SEGMENT
+            .iter()
+            .take(block_index)
+            .map(|snapshot| snapshot.beacon_block.clone())
+            .collect();
+        harness
+            .chain
+            .import_chain_segment(ancestor_blocks)
+            .expect("should import all blocks prior to the one being tested");
+
+        // For the given snapshots, test the following:
+        //
+        // - The `import_chain_segment` function returns `InvalidSignature`.
+        // - The `import_block` function returns `InvalidSignature` when importing the
+        //    `SignedBeaconBlock` directly.
+        // - The `verify_block_for_gossip` function does _not_ return an error.
+        // - The `import_block` function returns `InvalidSignature` when verifying the
+        //    GossipVerifiedBlock.
         let assert_invalid_signature = |snapshots: &[BeaconSnapshot<E>], item: &str| {
             let blocks = snapshots
                 .iter()
                 .map(|snapshot| snapshot.beacon_block.clone())
                 .collect();
 
+            // Ensure the block will be rejected if imported in a chain segment.
             assert_eq!(
                 harness.chain.import_chain_segment(blocks),
                 Err(BlockError::InvalidSignature),
-                "should not import chain with an invalid {} signature",
+                "should not import chain segment with an invalid {} signature",
+                item
+            );
+
+            // Ensure the block will be rejected if imported on its own (without gossip checking).
+            assert_eq!(
+                harness
+                    .chain
+                    .import_block(snapshots[block_index].beacon_block.clone()),
+                Err(BlockError::InvalidSignature),
+                "should not import individual block with an invalid {} signature",
+                item
+            );
+
+            let gossip_verified = harness
+                .chain
+                .verify_block_for_gossip(snapshots[block_index].beacon_block.clone())
+                .expect("should obtain gossip verified block");
+            assert_eq!(
+                harness.chain.import_block(gossip_verified),
+                Err(BlockError::InvalidSignature),
+                "should not import gossip verified block with an invalid {} signature",
                 item
             );
         };
@@ -274,7 +315,24 @@ fn chain_segment_invalid_signatures() {
          */
         let mut snapshots = CHAIN_SEGMENT.clone();
         snapshots[block_index].beacon_block.signature = junk_signature();
-        assert_invalid_signature(&snapshots, "proposal");
+        let blocks = snapshots
+            .iter()
+            .map(|snapshot| snapshot.beacon_block.clone())
+            .collect();
+        // Ensure the block will be rejected if imported in a chain segment.
+        assert_eq!(
+            harness.chain.import_chain_segment(blocks),
+            Err(BlockError::InvalidSignature),
+            "should not import chain segment with an invalid gossip signature",
+        );
+        // Ensure the block will be rejected if imported on its own (without gossip checking).
+        assert_eq!(
+            harness
+                .chain
+                .import_block(snapshots[block_index].beacon_block.clone()),
+            Err(BlockError::InvalidSignature),
+            "should not import individual block with an invalid gossip signature",
+        );
 
         /*
          * Randao reveal
