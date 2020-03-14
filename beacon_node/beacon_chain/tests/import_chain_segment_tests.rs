@@ -9,8 +9,8 @@ use beacon_chain::{
 };
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
-    AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, Hash256, IndexedAttestation,
-    Keypair, MainnetEthSpec, ProposerSlashing, Signature, SignedBeaconBlock,
+    AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, EthSpec, Hash256,
+    IndexedAttestation, Keypair, MainnetEthSpec, ProposerSlashing, Signature, SignedBeaconBlock,
     SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, VoluntaryExit, DEPOSIT_TREE_DEPTH,
 };
 
@@ -245,7 +245,7 @@ fn chain_segment_non_linear_slots() {
 }
 
 #[test]
-fn chain_segment_invalid_signatures() {
+fn invalid_signatures() {
     let mut checked_attestation = false;
 
     for &block_index in &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT.len() - 1] {
@@ -487,4 +487,86 @@ fn chain_segment_invalid_signatures() {
         checked_attestation,
         "the test should check an attestation signature"
     )
+}
+
+fn unwrap_err<T, E>(result: Result<T, E>) -> E {
+    match result {
+        Ok(_) => panic!("called unwrap_err on Ok"),
+        Err(e) => e,
+    }
+}
+
+#[test]
+fn gossip_verification() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let block_index = CHAIN_SEGMENT_LENGTH - 2;
+
+    harness
+        .chain
+        .slot_clock
+        .set_slot(CHAIN_SEGMENT[block_index].beacon_block.slot().as_u64());
+
+    // Import the ancestors prior to the block we're testing.
+    for snapshot in &CHAIN_SEGMENT[0..block_index] {
+        let gossip_verified = harness
+            .chain
+            .verify_block_for_gossip(snapshot.beacon_block.clone())
+            .expect("should obtain gossip verified block");
+
+        harness
+            .chain
+            .import_block(gossip_verified)
+            .expect("should import valid gossip verfied block");
+    }
+
+    /*
+     * Block with invalid signature
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    block.signature = junk_signature();
+    assert_eq!(
+        unwrap_err(harness.chain.verify_block_for_gossip(block)),
+        BlockError::ProposalSignatureInvalid,
+        "should not import a block with an invalid proposal signature"
+    );
+
+    /*
+     * Block from a future slot.
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let block_slot = block.message.slot + 1;
+    block.message.slot = block_slot;
+    assert_eq!(
+        unwrap_err(harness.chain.verify_block_for_gossip(block)),
+        BlockError::FutureSlot {
+            present_slot: block_slot - 1,
+            block_slot
+        },
+        "should not import a block with a future slot"
+    );
+
+    /*
+     * Block from a finalized slot.
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let finalized_slot = harness
+        .chain
+        .head_info()
+        .expect("should get head info")
+        .finalized_checkpoint
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    block.message.slot = finalized_slot;
+    assert_eq!(
+        unwrap_err(harness.chain.verify_block_for_gossip(block)),
+        BlockError::WouldRevertFinalizedSlot {
+            block_slot: finalized_slot,
+            finalized_slot
+        },
+        "should not import a block with a finalized slot"
+    );
 }
