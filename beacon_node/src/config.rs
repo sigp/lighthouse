@@ -39,16 +39,7 @@ pub fn get_configs<E: EthSpec>(
     let mut client_config = ClientConfig::default();
 
     client_config.spec_constants = eth2_config.spec_constants.clone();
-
-    // Read the `--datadir` flag.
-    //
-    // If it's not present, try and find the home directory (`~`) and push the default data
-    // directory onto it.
-    client_config.data_dir = cli_args
-        .value_of("datadir")
-        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
-        .unwrap_or_else(|| PathBuf::from("."));
+    client_config.data_dir = get_data_dir(cli_args);
 
     // Load the client config, if it exists .
     let path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
@@ -56,28 +47,6 @@ pub fn get_configs<E: EthSpec>(
         client_config = read_from_file(path.clone())
             .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
             .ok_or_else(|| format!("{:?} file does not exist", path))?;
-    }
-
-    // Load the eth2 config, if it exists .
-    let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
-    if path.exists() {
-        let loaded_eth2_config: Eth2Config = read_from_file(path.clone())
-            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
-            .ok_or_else(|| format!("{:?} file does not exist", path))?;
-
-        // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
-        // client expects.
-        if loaded_eth2_config.spec_constants == client_config.spec_constants {
-            eth2_config = loaded_eth2_config
-        } else {
-            return Err(
-                format!(
-                    "Eth2 config loaded from disk does not match client spec version. Got {} expected {}",
-                    &loaded_eth2_config.spec_constants,
-                    &client_config.spec_constants
-                )
-            );
-        }
     }
 
     // Read the `--testnet-dir` flag.
@@ -317,6 +286,19 @@ pub fn get_configs<E: EthSpec>(
             Some("127.0.0.1".parse().expect("Valid IP address"))
     }
     Ok((client_config, eth2_config, log))
+}
+
+/// Gets the datadir which should be used.
+pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
+    // Read the `--datadir` flag.
+    //
+    // If it's not present, try and find the home directory (`~`) and push the default data
+    // directory onto it.
+    cli_args
+        .value_of("datadir")
+        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
+        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Load from an existing database.

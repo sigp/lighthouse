@@ -7,7 +7,7 @@
 //! `Context` which can be handed to any service that wishes to start async tasks or perform
 //! logging.
 
-use eth2_config::Eth2Config;
+use eth2_config::{Eth2Config, read_from_file};
 use futures::{sync::oneshot, Future};
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -18,6 +18,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+
+const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
@@ -131,6 +133,33 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         };
 
         self.log = Some(Logger::root(drain.fuse(), o!()));
+        Ok(self)
+    }
+
+    pub fn load_eth2_config(mut self, datadir: PathBuf) -> Result<Self, String> {
+        // Load the eth2 config, if it exists .
+        let filename = datadir.join(ETH2_CONFIG_FILENAME);
+        if filename.exists() {
+            let loaded_eth2_config: Eth2Config = read_from_file(filename.clone())
+                .map_err(|e| format!("Unable to parse {:?} file: {:?}", filename, e))?
+                .ok_or_else(|| format!("{:?} file does not exist", filename))?;
+
+            // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
+            // client expects.
+            if loaded_eth2_config.spec_constants == self.eth2_config.spec_constants {
+                self.eth2_config = loaded_eth2_config;
+            } else {
+                return Err(
+                    format!(
+                        "Eth2 config loaded from disk does not match client spec version. Got {} \
+                         expected {}",
+                        &loaded_eth2_config.spec_constants,
+                        &self.eth2_config.spec_constants
+                    )
+                );
+            }
+        }
+
         Ok(self)
     }
 
@@ -320,3 +349,4 @@ pub fn null_logger() -> Result<Logger, String> {
         .build()
         .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }
+
