@@ -5,9 +5,14 @@ extern crate lazy_static;
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    BlockError,
+    BeaconSnapshot, BlockError,
 };
-use types::{Hash256, Keypair, MainnetEthSpec, SignedBeaconBlock, Slot};
+use types::{
+    test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
+    AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, Hash256, IndexedAttestation,
+    Keypair, MainnetEthSpec, ProposerSlashing, Signature, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, VoluntaryExit, DEPOSIT_TREE_DEPTH,
+};
 
 type E = MainnetEthSpec;
 
@@ -20,10 +25,10 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 
     /// A cached set of valid blocks
-    static ref CHAIN_SEGMENT: Vec<SignedBeaconBlock<E>> = get_chain_segment();
+    static ref CHAIN_SEGMENT: Vec<BeaconSnapshot<E>> = get_chain_segment();
 }
 
-fn get_chain_segment() -> Vec<SignedBeaconBlock<E>> {
+fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
     let harness = get_harness(VALIDATOR_COUNT);
 
     harness.extend_chain(
@@ -38,7 +43,6 @@ fn get_chain_segment() -> Vec<SignedBeaconBlock<E>> {
         .expect("should dump chain")
         .into_iter()
         .skip(1)
-        .map(|snapshot| snapshot.beacon_block)
         .collect()
 }
 
@@ -50,15 +54,74 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
     harness
 }
 
+fn chain_segment_blocks() -> Vec<SignedBeaconBlock<E>> {
+    CHAIN_SEGMENT
+        .iter()
+        .map(|snapshot| snapshot.beacon_block.clone())
+        .collect()
+}
+
+fn junk_signature() -> Signature {
+    let kp = generate_deterministic_keypair(VALIDATOR_COUNT);
+    let message = &[42, 42];
+    Signature::new(message, &kp.sk)
+}
+
+fn junk_aggregate_signature() -> AggregateSignature {
+    let mut agg_sig = AggregateSignature::new();
+    agg_sig.add(&junk_signature());
+    agg_sig
+}
+
+fn update_proposal_signatures(
+    snapshots: &mut [BeaconSnapshot<E>],
+    harness: &BeaconChainHarness<HarnessType<E>>,
+) {
+    for snapshot in snapshots {
+        let spec = &harness.chain.spec;
+        let slot = snapshot.beacon_block.slot();
+        let state = &snapshot.beacon_state;
+        let proposer_index = state
+            .get_beacon_proposer_index(slot, spec)
+            .expect("should find proposer index");
+        let keypair = harness
+            .keypairs
+            .get(proposer_index)
+            .expect("proposer keypair should be available");
+
+        snapshot.beacon_block =
+            snapshot
+                .beacon_block
+                .message
+                .clone()
+                .sign(&keypair.sk, &state.fork, spec);
+    }
+}
+
+fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>]) {
+    for i in 0..snapshots.len() {
+        let root = snapshots[i].beacon_block.canonical_root();
+        if let Some(child) = snapshots.get_mut(i + 1) {
+            child.beacon_block.message.parent_root = root
+        }
+    }
+}
+
 #[test]
-fn chain_segement_full_segment() {
+fn chain_segment_full_segment() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let blocks = CHAIN_SEGMENT.clone();
+    let blocks = chain_segment_blocks();
 
     harness
         .chain
         .slot_clock
         .set_slot(blocks.last().unwrap().slot().as_u64());
+
+    // Sneak in a little check to ensure we can process empty chain segments.
+    harness
+        .chain
+        .import_chain_segment(vec![])
+        .expect("should import empty chain segment");
 
     harness
         .chain
@@ -79,10 +142,10 @@ fn chain_segement_full_segment() {
 }
 
 #[test]
-fn chain_segement_varying_chunk_size() {
+fn chain_segment_varying_chunk_size() {
     for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
         let harness = get_harness(VALIDATOR_COUNT);
-        let blocks = CHAIN_SEGMENT.clone();
+        let blocks = chain_segment_blocks();
 
         harness
             .chain
@@ -114,19 +177,18 @@ fn chain_segement_varying_chunk_size() {
 }
 
 #[test]
-fn chain_segement_non_linear_parent_roots() {
+fn chain_segment_non_linear_parent_roots() {
     let harness = get_harness(VALIDATOR_COUNT);
+    harness
+        .chain
+        .slot_clock
+        .set_slot(CHAIN_SEGMENT.last().unwrap().beacon_block.slot().as_u64());
 
     /*
      * Test with a block removed.
      */
-    let mut blocks = CHAIN_SEGMENT.clone();
+    let mut blocks = chain_segment_blocks();
     blocks.remove(2);
-
-    harness
-        .chain
-        .slot_clock
-        .set_slot(CHAIN_SEGMENT.last().unwrap().slot().as_u64());
 
     assert_eq!(
         harness.chain.import_chain_segment(blocks.clone()),
@@ -137,13 +199,8 @@ fn chain_segement_non_linear_parent_roots() {
     /*
      * Test with a modified parent root.
      */
-    let mut blocks = CHAIN_SEGMENT.clone();
+    let mut blocks = chain_segment_blocks();
     blocks[3].message.parent_root = Hash256::zero();
-
-    harness
-        .chain
-        .slot_clock
-        .set_slot(CHAIN_SEGMENT.last().unwrap().slot().as_u64());
 
     assert_eq!(
         harness.chain.import_chain_segment(blocks.clone()),
@@ -153,20 +210,19 @@ fn chain_segement_non_linear_parent_roots() {
 }
 
 #[test]
-fn chain_segement_non_linear_slots() {
+fn chain_segment_non_linear_slots() {
     let harness = get_harness(VALIDATOR_COUNT);
+    harness
+        .chain
+        .slot_clock
+        .set_slot(CHAIN_SEGMENT.last().unwrap().beacon_block.slot().as_u64());
 
     /*
      * Test where a child is lower than the parent.
      */
 
-    let mut blocks = CHAIN_SEGMENT.clone();
+    let mut blocks = chain_segment_blocks();
     blocks[3].message.slot = Slot::new(0);
-
-    harness
-        .chain
-        .slot_clock
-        .set_slot(CHAIN_SEGMENT.last().unwrap().slot().as_u64());
 
     assert_eq!(
         harness.chain.import_chain_segment(blocks.clone()),
@@ -178,17 +234,199 @@ fn chain_segement_non_linear_slots() {
      * Test where a child is equal to the parent.
      */
 
-    let mut blocks = CHAIN_SEGMENT.clone();
+    let mut blocks = chain_segment_blocks();
     blocks[3].message.slot = blocks[2].message.slot;
-
-    harness
-        .chain
-        .slot_clock
-        .set_slot(CHAIN_SEGMENT.last().unwrap().slot().as_u64());
 
     assert_eq!(
         harness.chain.import_chain_segment(blocks.clone()),
         Err(BlockError::NonLinearSlots),
         "should not import chain with a parent that has an equal slot to its child"
     );
+}
+
+#[test]
+fn chain_segment_invalid_signatures() {
+    let mut checked_attestation = false;
+
+    for &block_index in &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT.len() - 1] {
+        let harness = get_harness(VALIDATOR_COUNT);
+        harness
+            .chain
+            .slot_clock
+            .set_slot(CHAIN_SEGMENT.last().unwrap().beacon_block.slot().as_u64());
+
+        let assert_invalid_signature = |snapshots: &[BeaconSnapshot<E>], item: &str| {
+            let blocks = snapshots
+                .iter()
+                .map(|snapshot| snapshot.beacon_block.clone())
+                .collect();
+
+            assert_eq!(
+                harness.chain.import_chain_segment(blocks),
+                Err(BlockError::InvalidSignature),
+                "should not import chain with an invalid {} signature",
+                item
+            );
+        };
+
+        /*
+         * Block proposal
+         */
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        snapshots[block_index].beacon_block.signature = junk_signature();
+        assert_invalid_signature(&snapshots, "proposal");
+
+        /*
+         * Randao reveal
+         */
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        snapshots[block_index]
+            .beacon_block
+            .message
+            .body
+            .randao_reveal = junk_signature();
+        update_parent_roots(&mut snapshots);
+        update_proposal_signatures(&mut snapshots, &harness);
+        assert_invalid_signature(&snapshots, "randao");
+
+        /*
+         * Proposer slashing
+         */
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        let proposer_slashing = ProposerSlashing {
+            proposer_index: 0,
+            signed_header_1: SignedBeaconBlockHeader {
+                message: snapshots[block_index].beacon_block.message.block_header(),
+                signature: junk_signature(),
+            },
+            signed_header_2: SignedBeaconBlockHeader {
+                message: snapshots[block_index].beacon_block.message.block_header(),
+                signature: junk_signature(),
+            },
+        };
+        snapshots[block_index]
+            .beacon_block
+            .message
+            .body
+            .proposer_slashings
+            .push(proposer_slashing)
+            .expect("should update proposer slashing");
+        update_parent_roots(&mut snapshots);
+        update_proposal_signatures(&mut snapshots, &harness);
+        assert_invalid_signature(&snapshots, "proposer slashing");
+
+        /*
+         * Attester slashing
+         */
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        let indexed_attestation = IndexedAttestation {
+            attesting_indices: vec![0].into(),
+            data: AttestationData {
+                slot: Slot::new(0),
+                index: 0,
+                beacon_block_root: Hash256::zero(),
+                source: Checkpoint {
+                    epoch: Epoch::new(0),
+                    root: Hash256::zero(),
+                },
+                target: Checkpoint {
+                    epoch: Epoch::new(0),
+                    root: Hash256::zero(),
+                },
+            },
+            signature: junk_aggregate_signature(),
+        };
+        let attester_slashing = AttesterSlashing {
+            attestation_1: indexed_attestation.clone(),
+            attestation_2: indexed_attestation,
+        };
+        snapshots[block_index]
+            .beacon_block
+            .message
+            .body
+            .attester_slashings
+            .push(attester_slashing)
+            .expect("should update attester slashing");
+        update_parent_roots(&mut snapshots);
+        update_proposal_signatures(&mut snapshots, &harness);
+        assert_invalid_signature(&snapshots, "attester slashing");
+
+        /*
+         * Attestation
+         */
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        if let Some(attestation) = snapshots[block_index]
+            .beacon_block
+            .message
+            .body
+            .attestations
+            .get_mut(0)
+        {
+            attestation.signature = junk_aggregate_signature();
+            update_parent_roots(&mut snapshots);
+            update_proposal_signatures(&mut snapshots, &harness);
+            assert_invalid_signature(&snapshots, "attestation");
+            checked_attestation = true;
+        }
+
+        /*
+         * Deposit
+         *
+         * Note: an invalid deposit signature is permitted!
+         */
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        let deposit = Deposit {
+            proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1].into(),
+            data: DepositData {
+                pubkey: Keypair::random().pk.into(),
+                withdrawal_credentials: Hash256::zero(),
+                amount: 0,
+                signature: junk_signature().into(),
+            },
+        };
+        snapshots[block_index]
+            .beacon_block
+            .message
+            .body
+            .deposits
+            .push(deposit)
+            .expect("should update deposit");
+        update_parent_roots(&mut snapshots);
+        update_proposal_signatures(&mut snapshots, &harness);
+        let blocks = snapshots
+            .iter()
+            .map(|snapshot| snapshot.beacon_block.clone())
+            .collect();
+        assert!(
+            harness.chain.import_chain_segment(blocks) != Err(BlockError::InvalidSignature),
+            "should not throw an invalid signature error for a bad deposit signature"
+        );
+
+        /*
+         * Voluntary exit
+         */
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        let epoch = snapshots[block_index].beacon_state.current_epoch();
+        snapshots[block_index]
+            .beacon_block
+            .message
+            .body
+            .voluntary_exits
+            .push(SignedVoluntaryExit {
+                message: VoluntaryExit {
+                    epoch,
+                    validator_index: 0,
+                },
+                signature: junk_signature(),
+            })
+            .expect("should update deposit");
+        update_parent_roots(&mut snapshots);
+        update_proposal_signatures(&mut snapshots, &harness);
+        assert_invalid_signature(&snapshots, "voluntary exit");
+    }
+
+    assert!(
+        checked_attestation,
+        "the test should check an attestation signature"
+    )
 }
