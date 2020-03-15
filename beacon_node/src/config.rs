@@ -49,10 +49,7 @@ pub fn get_configs<E: EthSpec>(
             .ok_or_else(|| format!("{:?} file does not exist", path))?;
     }
 
-    // Read the `--testnet-dir` flag.
-    if let Some(val) = cli_args.value_of("testnet-dir") {
-        client_config.testnet_dir = Some(PathBuf::from(val));
-    }
+    client_config.testnet_dir = get_testnet_dir(cli_args);
 
     /*
      * Networking
@@ -206,7 +203,7 @@ pub fn get_configs<E: EthSpec>(
                     "Starting from an empty database";
                     "data_dir" => format!("{:?}", client_config.data_dir)
                 );
-                init_new_client::<E>(&mut client_config, &mut eth2_config)?
+                init_new_client::<E>(&mut client_config, &eth2_config)?
             } else {
                 info!(
                     log,
@@ -301,6 +298,29 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Gets the testnet dir which should be used.
+pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
+    // Read the `--testnet-dir` flag.
+    if let Some(val) = cli_args.value_of("testnet-dir") {
+        Some(PathBuf::from(val))
+    } else {
+        None
+    }
+}
+
+pub fn get_eth2_testnet_config<E: EthSpec>(testnet_dir: &Option<PathBuf>) -> Result<Eth2TestnetConfig<E>> {
+    let tesnet_config =
+        if let Some(testnet_dir) = testnet_dir {
+            Eth2TestnetConfig::load(testnet_dir.clone())
+                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+        } else {
+            Eth2TestnetConfig::hard_coded()
+                .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
+        };
+
+    Ok(tesnet_config)
+}
+
 /// Load from an existing database.
 fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
     // Check to ensure the datadir exists.
@@ -333,30 +353,10 @@ fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
 /// Create a new client with the default configuration.
 fn init_new_client<E: EthSpec>(
     client_config: &mut ClientConfig,
-    eth2_config: &mut Eth2Config,
+    eth2_config: &Eth2Config,
 ) -> Result<()> {
-    let eth2_testnet_config: Eth2TestnetConfig<E> =
-        if let Some(testnet_dir) = &client_config.testnet_dir {
-            Eth2TestnetConfig::load(testnet_dir.clone())
-                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
-        } else {
-            Eth2TestnetConfig::hard_coded()
-                .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
-        };
-
-    eth2_config.spec = eth2_testnet_config
-        .yaml_config
-        .as_ref()
-        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
-        .apply_to_chain_spec::<E>(&eth2_config.spec)
-        .ok_or_else(|| {
-            format!(
-                "The loaded config is not compatible with the {} spec",
-                &eth2_config.spec_constants
-            )
-        })?;
-
-    let spec = &mut eth2_config.spec;
+    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&client_config.testnet_dir)?;
+    let spec = &eth2_config.spec;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);

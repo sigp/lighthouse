@@ -5,7 +5,7 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-pub use config::get_data_dir;
+pub use config::{get_eth2_testnet_config, get_data_dir, get_testnet_dir};
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use eth2_config::Eth2Config;

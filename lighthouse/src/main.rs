@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use beacon_node::{ProductionBeaconNode, get_data_dir};
+use beacon_node::{ProductionBeaconNode, get_data_dir, get_testnet_dir, get_eth2_testnet_config};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
@@ -114,7 +114,11 @@ fn run<E: EthSpec>(
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .setup_eth2_config(get_data_dir(matches), matches)?
+        .setup_eth2_config(
+            get_data_dir(matches),
+            get_eth2_testnet_config(&get_testnet_dir(matches))?,
+            matches
+        )?
         .build()?;
 
     let log = environment.core_context().log;

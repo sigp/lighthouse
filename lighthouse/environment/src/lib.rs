@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+use eth2_testnet_config::Eth2TestnetConfig;
 
 const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
@@ -137,8 +138,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    pub fn setup_eth2_config(mut self, datadir: PathBuf, cli_args: &ArgMatches) -> Result<Self, String> {
-        self.load_eth2_config(datadir)?;
+    pub fn setup_eth2_config(
+        mut self,
+        datadir: PathBuf,
+        eth2_testnet_config: Eth2TestnetConfig<E>,
+        cli_args: &ArgMatches,
+    ) -> Result<Self, String> {
+        self.load_eth2_config(&datadir)?;
 
         match cli_args.subcommand() {
             ("testnet", Some(sub_cli_args)) => {
@@ -162,16 +168,31 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         spec.min_genesis_time = 0;
                         spec.genesis_fork_version = [0, 0, 0, 2];
                     }
-                    _ => {}
+                    _ => {} // Nothing to do.
                 }
             }
-            _ => {}
+            _ => {
+                if !datadir.exists() {
+                    // Create a new chain spec from the default configuration.
+                    self.eth2_config.spec = eth2_testnet_config
+                        .yaml_config
+                        .as_ref()
+                        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+                        .apply_to_chain_spec::<E>(&self.eth2_config.spec)
+                        .ok_or_else(|| {
+                            format!(
+                                "The loaded config is not compatible with the {} spec",
+                                &self.eth2_config.spec_constants
+                            )
+                        })?;
+                }
+            }
         }
 
         Ok(self)
     }
 
-    fn load_eth2_config(&mut self, datadir: PathBuf) -> Result<(), String> {
+    fn load_eth2_config(&mut self, datadir: &PathBuf) -> Result<(), String> {
         // Load the eth2 config, if it exists .
         let filename = datadir.join(ETH2_CONFIG_FILENAME);
         if filename.exists() {
