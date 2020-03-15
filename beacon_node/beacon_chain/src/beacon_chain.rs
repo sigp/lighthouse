@@ -1,6 +1,6 @@
 use crate::block_verification::{
     check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
-    GossipVerifiedBlock, IntoFullyVerfiedBlock,
+    FullyVerifiedBlock, GossipVerifiedBlock, IntoFullyVerifiedBlock,
 };
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -16,7 +16,7 @@ use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconSnapshot;
 use operation_pool::{OperationPool, PersistedOperationPool};
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::errors::{
@@ -1157,7 +1157,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    pub fn import_chain_segment(
+    /// Attempt to verify and import a chain of blocks to `self`.
+    ///
+    /// The provided blocks _must_ each reference the previous block via `block.parent_root` (i.e.,
+    /// be a chain). An error will be returned if this is not the case.
+    ///
+    /// This operation is not atomic; if one of the blocks in the chain is invalid then some prior
+    /// blocks might be imported.
+    ///
+    /// This method is generally much more efficient than importing each block using
+    /// `Self::process_block`.
+    pub fn process_chain_segment(
         &self,
         chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<Vec<Hash256>, BlockError> {
@@ -1242,15 +1252,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Import the blocks into the chain.
             for signature_verified_block in signature_verified_blocks {
-                roots.push(self.import_block(signature_verified_block)?);
+                roots.push(self.process_block(signature_verified_block)?);
             }
         }
 
         Ok(roots)
     }
 
-    /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the gossip
-    /// network.
+    /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the
+    /// gossip network. The block is not imported into the chain, it is just partially verified.
+    ///
+    /// The returned `GossipVerifiedBlock` should be provided to `Self::process_block` immediately
+    /// after it is returned, unless some other circumstance decides it should not be imported at
+    /// all.
     ///
     /// ## Errors
     ///
@@ -1265,7 +1279,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
     /// imported into the chain.
     ///
-    /// Items that implement `IntoFullyVerfiedBlock` include:
+    /// Items that implement `IntoFullyVerifiedBlock` include:
     ///
     /// - `SignedBeaconBlock`
     /// - `GossipVerifiedBlock`
@@ -1274,18 +1288,100 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
-    pub fn import_block<B: IntoFullyVerfiedBlock<T>>(
+    pub fn process_block<B: IntoFullyVerifiedBlock<T>>(
         &self,
         unverified_block: B,
     ) -> Result<Hash256, BlockError> {
-        let fully_verified = unverified_block.into_fully_verified_block(self)?;
+        // Start the Prometheus timer.
+        let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
-        let signed_block = fully_verified.block;
+        // Increment the Prometheus counter for block processing requests.
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
+
+        // Clone the block so we can provide it to the event handler.
+        let block = unverified_block.block().clone();
+
+        // A small closure to group the verification and import errors.
+        let import_block = |unverified_block: B| -> Result<Hash256, BlockError> {
+            let fully_verified = unverified_block.into_fully_verified_block(self)?;
+            self.import_block(fully_verified)
+        };
+
+        // Verify and import the block.
+        let result = match import_block(unverified_block) {
+            // The block was successfully verified and imported. Yay.
+            Ok(block_root) => {
+                trace!(
+                    self.log,
+                    "Beacon block imported";
+                    "block_root" => format!("{:?}", block_root),
+                    "block_slot" => format!("{:?}", block.slot().as_u64()),
+                );
+
+                // Increment the Prometheus counter for block processing successes.
+                metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
+
+                let _ = self.event_handler.register(EventKind::BeaconBlockImported {
+                    block_root: block_root,
+                    block: Box::new(block),
+                });
+
+                Ok(block_root)
+            }
+            // There was an error whilst attempting to verify and import the block. The block might
+            // be partially verified or partially imported.
+            Err(BlockError::BeaconChainError(e)) => {
+                crit!(
+                    self.log,
+                    "Beacon block processing error";
+                    "error" => format!("{:?}", e),
+                );
+
+                let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
+                    reason: format!("Internal error: {:?}", e),
+                    block: Box::new(block),
+                });
+
+                Err(BlockError::BeaconChainError(e))
+            }
+            // The block failed verification.
+            Err(other) => {
+                trace!(
+                    self.log,
+                    "Beacon block rejected";
+                    "reason" => format!("{:?}", other),
+                );
+
+                let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
+                    reason: format!("Invalid block: {:?}", other),
+                    block: Box::new(block),
+                });
+
+                Err(other)
+            }
+        };
+
+        // Stop the Prometheus timer.
+        metrics::stop_timer(full_timer);
+
+        result
+    }
+
+    /// Accepts a fully-verified block and imports it into the chain without performing any
+    /// additional verification.
+    ///
+    /// An error is returned if the block was unable to be imported. It may be partially imported
+    /// (i.e., this function is not atomic).
+    fn import_block(
+        &self,
+        fully_verified_block: FullyVerifiedBlock<T>,
+    ) -> Result<Hash256, BlockError> {
+        let signed_block = fully_verified_block.block;
         let block = &signed_block.message;
-        let block_root = fully_verified.block_root;
-        let state = fully_verified.state;
-        let parent_block = fully_verified.parent_block;
-        let intermediate_states = fully_verified.intermediate_states;
+        let block_root = fully_verified_block.block_root;
+        let state = fully_verified_block.state;
+        let parent_block = fully_verified_block.parent_block;
+        let intermediate_states = fully_verified_block.intermediate_states;
 
         let fork_choice_register_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
@@ -1385,361 +1481,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
 
         Ok(block_root)
-    }
-
-    /// Accept some block and attempt to add it to block DAG.
-    ///
-    /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    pub fn process_block(
-        &self,
-        block: SignedBeaconBlock<T::EthSpec>,
-        partial_block_verification: PartialBlockVerification<T>,
-    ) -> Result<BlockProcessingOutcome, Error> {
-        let outcome = self.process_block_internal(block.clone(), partial_block_verification);
-
-        match &outcome {
-            Ok(outcome) => match outcome {
-                BlockProcessingOutcome::Processed { block_root } => {
-                    trace!(
-                        self.log,
-                        "Beacon block imported";
-                        "block_root" => format!("{:?}", block_root),
-                        "block_slot" => format!("{:?}", block.slot().as_u64()),
-                    );
-                    let _ = self.event_handler.register(EventKind::BeaconBlockImported {
-                        block_root: *block_root,
-                        block: Box::new(block),
-                    });
-                }
-                other => {
-                    trace!(
-                        self.log,
-                        "Beacon block rejected";
-                        "reason" => format!("{:?}", other),
-                    );
-                    let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
-                        reason: format!("Invalid block: {:?}", other),
-                        block: Box::new(block),
-                    });
-                }
-            },
-            Err(e) => {
-                error!(
-                    self.log,
-                    "Beacon block processing error";
-                    "error" => format!("{:?}", e),
-                );
-                let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
-                    reason: format!("Internal error: {:?}", e),
-                    block: Box::new(block),
-                });
-            }
-        }
-
-        outcome
-    }
-
-    /// Accept some block and attempt to add it to block DAG.
-    ///
-    /// Will accept blocks from prior slots, however it will reject any block from a future slot.
-    fn process_block_internal(
-        &self,
-        signed_block: SignedBeaconBlock<T::EthSpec>,
-        mut partial_block_verification: PartialBlockVerification<T>,
-    ) -> Result<BlockProcessingOutcome, Error> {
-        metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
-        let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
-
-        let block = &signed_block.message;
-
-        // Do not process blocks from the future.
-        if block.slot > self.slot()? {
-            return Ok(BlockProcessingOutcome::FutureSlot {
-                present_slot: self.slot()?,
-                block_slot: block.slot,
-            });
-        }
-
-        // Do not re-process the genesis block.
-        if block.slot == 0 {
-            return Ok(BlockProcessingOutcome::GenesisBlock);
-        }
-
-        // This is an artificial (non-spec) restriction that provides some protection from overflow
-        // abuses.
-        if block.slot >= MAXIMUM_BLOCK_SLOT_NUMBER {
-            return Ok(BlockProcessingOutcome::BlockSlotLimitReached);
-        }
-
-        // Do not process a block from a finalized slot.
-        let finalized_slot = self
-            .head_info()?
-            .finalized_checkpoint
-            .epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
-        if block.slot <= finalized_slot {
-            return Ok(BlockProcessingOutcome::WouldRevertFinalizedSlot {
-                block_slot: block.slot,
-                finalized_slot,
-            });
-        }
-
-        // Reject any block if its parent is not known to fork choice.
-        //
-        // A block that is not in fork choice is either:
-        //
-        //  - Not yet imported: we should reject this block because we should only import a child
-        //  after its parent has been fully imported.
-        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-        //  because it will revert finalization. Note that the finalized block is stored in fork
-        //  choice, so we will not reject any child of the finalized block (this is relevant during
-        //  genesis).
-        if !self.fork_choice.contains_block(&block.parent_root) {
-            return Ok(BlockProcessingOutcome::ParentUnknown(block.parent_root));
-        }
-
-        drop(block);
-
-        let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
-
-        let block_root = partial_block_verification
-            .block_root
-            .unwrap_or_else(|| signed_block.canonical_root());
-
-        metrics::stop_timer(block_root_timer);
-
-        // Check if the block is already known. We know it is post-finalization, so it is
-        // sufficient to check the fork choice.
-        if self.fork_choice.contains_block(&block_root) {
-            return Ok(BlockProcessingOutcome::BlockIsAlreadyKnown);
-        }
-
-        // Obtain the parent from the `PartialBlockVerification`.
-        let (parent_block, parent_state) =
-            if let Some(snapshot) = partial_block_verification.take_parent(self, block)? {
-                (snapshot.beacon_block, snapshot.beacon_state)
-            } else {
-                return Ok(BlockProcessingOutcome::ParentUnknown(block.parent_root));
-            };
-
-        // If enabled, the block will be written to a file for debugging purposes.
-        write_block(&block, block_root, &self.log);
-
-        let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
-
-        // Keep a batch of any states that were "skipped" (block-less) in between the parent state
-        // slot and the block slot. These will be stored in the database.
-        let mut intermediate_states = StateBatch::new();
-
-        // Transition the parent state to the block slot.
-        let mut state: BeaconState<T::EthSpec> = parent_state;
-        let distance = block.slot.as_u64().saturating_sub(state.slot.as_u64());
-        for i in 0..distance {
-            let state_root = if i == 0 {
-                parent_block.state_root()
-            } else {
-                // This is a new state we've reached, so stage it for storage in the DB.
-                // Computing the state root here is time-equivalent to computing it during slot
-                // processing, but we get early access to it.
-                let state_root = state.update_tree_hash_cache()?;
-                intermediate_states.add_state(state_root, &state)?;
-                state_root
-            };
-
-            per_slot_processing(&mut state, Some(state_root), &self.spec)?;
-        }
-
-        metrics::stop_timer(catchup_timer);
-
-        let committee_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_COMMITTEE);
-
-        state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-        metrics::stop_timer(committee_timer);
-
-        write_state(
-            &format!("state_pre_block_{}", block_root),
-            &state,
-            &self.log,
-        );
-
-        let signature_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_SIGNATURE);
-
-        let signature_verification_result = {
-            let validator_pubkey_cache = self
-                .validator_pubkey_cache
-                .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
-
-            let mut signature_verifier = BlockSignatureVerifier::new(
-                &state,
-                |validator_index| {
-                    // Disallow access to any validator pubkeys that are not in the current beacon
-                    // state.
-                    if validator_index < state.validators.len() {
-                        validator_pubkey_cache
-                            .get(validator_index)
-                            .map(|pk| Cow::Borrowed(pk.as_point()))
-                    } else {
-                        None
-                    }
-                },
-                &self.spec,
-            );
-
-            partial_block_verification
-                .apply_to_signature_verifier(&mut signature_verifier, &signed_block)?;
-
-            signature_verifier.verify()
-        };
-
-        if signature_verification_result.is_err() {
-            return Ok(BlockProcessingOutcome::InvalidSignature);
-        }
-
-        metrics::stop_timer(signature_timer);
-
-        let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
-
-        // Apply the received block to its parent state (which has been transitioned into this
-        // slot).
-        match per_block_processing(
-            &mut state,
-            &signed_block,
-            Some(block_root),
-            // Signatures were verified earlier in this function.
-            BlockSignatureStrategy::NoVerification,
-            &self.spec,
-        ) {
-            Err(BlockProcessingError::BeaconStateError(e)) => {
-                return Err(Error::BeaconStateError(e))
-            }
-            Err(e) => return Ok(BlockProcessingOutcome::PerBlockProcessingError(e)),
-            _ => {}
-        }
-
-        metrics::stop_timer(core_timer);
-
-        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_STATE_ROOT);
-
-        let state_root = state.update_tree_hash_cache()?;
-
-        metrics::stop_timer(state_root_timer);
-
-        write_state(
-            &format!("state_post_block_{}", block_root),
-            &state,
-            &self.log,
-        );
-
-        if block.state_root != state_root {
-            return Ok(BlockProcessingOutcome::StateRootMismatch {
-                block: block.state_root,
-                local: state_root,
-            });
-        }
-
-        let fork_choice_register_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
-
-        // If there are new validators in this block, update our pubkey cache.
-        //
-        // We perform this _before_ adding the block to fork choice because the pubkey cache is
-        // used by attestation processing which will only process an attestation if the block is
-        // known to fork choice. This ordering ensure that the pubkey cache is always up-to-date.
-        self.validator_pubkey_cache
-            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?
-            .import_new_pubkeys(&state)?;
-
-        // If the imported block is in the previous or current epochs (according to the
-        // wall-clock), check to see if this is the first block of the epoch. If so, add the
-        // committee to the shuffling cache.
-        if state.current_epoch() + 1 >= self.epoch()?
-            && parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch()
-        {
-            let mut shuffling_cache = self
-                .shuffling_cache
-                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
-
-            let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
-
-            let epoch_start_slot = state
-                .current_epoch()
-                .start_slot(T::EthSpec::slots_per_epoch());
-            let target_root = if state.slot == epoch_start_slot {
-                block_root
-            } else {
-                *state.get_block_root(epoch_start_slot)?
-            };
-
-            shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
-        }
-
-        // Register the new block with the fork choice service.
-        if let Err(e) = self
-            .fork_choice
-            .process_block(self, &state, &block, block_root)
-        {
-            error!(
-                self.log,
-                "Add block to fork choice failed";
-                "block_root" =>  format!("{}", block_root),
-                "error" => format!("{:?}", e),
-            )
-        }
-
-        metrics::stop_timer(fork_choice_register_timer);
-
-        self.head_tracker.register_block(block_root, &block);
-        metrics::observe(
-            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-            block.body.attestations.len() as f64,
-        );
-
-        let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
-
-        // Store all the states between the parent block state and this block's slot before storing
-        // the final state.
-        intermediate_states.commit(&*self.store)?;
-
-        // Store the block and state.
-        // NOTE: we store the block *after* the state to guard against inconsistency in the event of
-        // a crash, as states are usually looked up from blocks, not the other way around. A better
-        // solution would be to use a database transaction (once our choice of database and API
-        // settles down).
-        // See: https://github.com/sigp/lighthouse/issues/692
-        self.store.put_state(&state_root, &state)?;
-        self.store.put_block(&block_root, signed_block.clone())?;
-
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.insert(BeaconSnapshot {
-                    beacon_block: signed_block,
-                    beacon_block_root: block_root,
-                    beacon_state: state,
-                    beacon_state_root: state_root,
-                });
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "process block"
-                );
-            });
-
-        metrics::stop_timer(db_write_timer);
-
-        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
-
-        metrics::stop_timer(full_timer);
-
-        Ok(BlockProcessingOutcome::Processed { block_root })
     }
 
     /// Produce a new block at the given `slot`.

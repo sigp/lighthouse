@@ -225,7 +225,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 /// Note: a `FullyVerifiedBlock` is not _forever_ valid to be imported, it may later become invalid
 /// due to finality or some other event. A `FullyVerifiedBlock` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
-pub struct FullyVerfiedBlock<T: BeaconChainTypes> {
+pub struct FullyVerifiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
@@ -236,11 +236,13 @@ pub struct FullyVerfiedBlock<T: BeaconChainTypes> {
 /// Implemented on types that can be converted into a `FullyVerifiedBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
-pub trait IntoFullyVerfiedBlock<T: BeaconChainTypes> {
+pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes> {
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerfiedBlock<T>, BlockError>;
+    ) -> Result<FullyVerifiedBlock<T>, BlockError>;
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
@@ -297,14 +299,18 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     }
 }
 
-impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for GossipVerifiedBlock<T> {
+impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for GossipVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerfiedBlock<T>, BlockError> {
+    ) -> Result<FullyVerifiedBlock<T>, BlockError> {
         let fully_verified = SignatureVerifiedBlock::from_gossip_verified_block(self, chain)?;
         fully_verified.into_fully_verified_block(chain)
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        &self.block
     }
 }
 
@@ -376,34 +382,47 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     }
 }
 
-impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignatureVerifiedBlock<T> {
+impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignatureVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerfiedBlock<T>, BlockError> {
+    ) -> Result<FullyVerifiedBlock<T>, BlockError> {
         let block = self.block;
         let parent = self
             .parent
             .map(Result::Ok)
             .unwrap_or_else(|| load_parent(&block.message, chain))?;
 
-        FullyVerfiedBlock::from_signature_verified_components(block, self.block_root, parent, chain)
+        FullyVerifiedBlock::from_signature_verified_components(
+            block,
+            self.block_root,
+            parent,
+            chain,
+        )
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        &self.block
     }
 }
 
-impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignedBeaconBlock<T::EthSpec> {
+impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoFullyVerifiedBlock` to complete verification.
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerfiedBlock<T>, BlockError> {
+    ) -> Result<FullyVerifiedBlock<T>, BlockError> {
         SignatureVerifiedBlock::new(self, chain)?.into_fully_verified_block(chain)
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        &self
     }
 }
 
-impl<T: BeaconChainTypes> FullyVerfiedBlock<T> {
+impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
     /// Instantiates `Self`, a wrapper that indicates that the given `block` is fully valid. See
     /// the struct-level documentation for more information.
     ///

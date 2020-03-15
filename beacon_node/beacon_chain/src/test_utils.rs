@@ -258,7 +258,7 @@ where
 
             let outcome = self
                 .chain
-                .process_block(block, PartialBlockVerification::empty())
+                .process_block(block)
                 .expect("should not error during block processing");
 
             self.chain.fork_choice().expect("should find head");
