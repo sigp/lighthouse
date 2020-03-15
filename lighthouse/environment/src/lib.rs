@@ -138,6 +138,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Setups eth2 config using the CLI arguments.
     pub fn setup_eth2_config(
         mut self,
         datadir: PathBuf,
@@ -192,8 +193,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Loads the eth2 config if the file exists.
     fn load_eth2_config(&mut self, datadir: &PathBuf) -> Result<(), String> {
-        // Load the eth2 config, if it exists .
         let filename = datadir.join(ETH2_CONFIG_FILENAME);
         if filename.exists() {
             let loaded_eth2_config: Eth2Config = read_from_file(filename.clone())
