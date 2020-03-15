@@ -356,14 +356,13 @@ fn init_new_client<E: EthSpec>(
     eth2_config: &Eth2Config,
 ) -> Result<()> {
     let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&client_config.testnet_dir)?;
-    let spec = &eth2_config.spec;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
 
-    client_config.eth1.follow_distance = spec.eth1_follow_distance / 2;
+    client_config.eth1.follow_distance = eth2_config.spec.eth1_follow_distance / 2;
     client_config.eth1.lowest_cached_block_number = client_config
         .eth1
         .deposit_contract_deploy_block
