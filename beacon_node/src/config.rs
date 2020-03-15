@@ -307,15 +307,16 @@ pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
     }
 }
 
-pub fn get_eth2_testnet_config<E: EthSpec>(testnet_dir: &Option<PathBuf>) -> Result<Eth2TestnetConfig<E>> {
-    let tesnet_config =
-        if let Some(testnet_dir) = testnet_dir {
-            Eth2TestnetConfig::load(testnet_dir.clone())
-                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
-        } else {
-            Eth2TestnetConfig::hard_coded()
-                .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
-        };
+pub fn get_eth2_testnet_config<E: EthSpec>(
+    testnet_dir: &Option<PathBuf>,
+) -> Result<Eth2TestnetConfig<E>> {
+    let tesnet_config = if let Some(testnet_dir) = testnet_dir {
+        Eth2TestnetConfig::load(testnet_dir.clone())
+            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+    } else {
+        Eth2TestnetConfig::hard_coded()
+            .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
+    };
 
     Ok(tesnet_config)
 }
@@ -354,7 +355,8 @@ fn init_new_client<E: EthSpec>(
     client_config: &mut ClientConfig,
     eth2_config: &Eth2Config,
 ) -> Result<()> {
-    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&client_config.testnet_dir)?;
+    let eth2_testnet_config: Eth2TestnetConfig<E> =
+        get_eth2_testnet_config(&client_config.testnet_dir)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);

@@ -8,7 +8,8 @@
 //! logging.
 
 use clap::ArgMatches;
-use eth2_config::{Eth2Config, read_from_file};
+use eth2_config::{read_from_file, Eth2Config};
+use eth2_testnet_config::Eth2TestnetConfig;
 use futures::{sync::oneshot, Future};
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -19,7 +20,6 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
-use eth2_testnet_config::Eth2TestnetConfig;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
@@ -178,7 +178,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     self.eth2_config.spec = eth2_testnet_config
                         .yaml_config
                         .as_ref()
-                        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+                        .ok_or_else(|| {
+                            "The testnet directory must contain a spec config".to_string()
+                        })?
                         .apply_to_chain_spec::<E>(&self.eth2_config.spec)
                         .ok_or_else(|| {
                             format!(
@@ -206,14 +208,11 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             if loaded_eth2_config.spec_constants == self.eth2_config.spec_constants {
                 self.eth2_config = loaded_eth2_config;
             } else {
-                return Err(
-                    format!(
-                        "Eth2 config loaded from disk does not match client spec version. Got {} \
+                return Err(format!(
+                    "Eth2 config loaded from disk does not match client spec version. Got {} \
                          expected {}",
-                        &loaded_eth2_config.spec_constants,
-                        &self.eth2_config.spec_constants
-                    )
-                );
+                    &loaded_eth2_config.spec_constants, &self.eth2_config.spec_constants
+                ));
             }
         }
 

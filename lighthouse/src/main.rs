@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use beacon_node::{ProductionBeaconNode, get_data_dir, get_testnet_dir, get_eth2_testnet_config};
+use beacon_node::{get_data_dir, get_eth2_testnet_config, get_testnet_dir, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
@@ -117,7 +117,7 @@ fn run<E: EthSpec>(
         .setup_eth2_config(
             get_data_dir(matches),
             get_eth2_testnet_config(&get_testnet_dir(matches))?,
-            matches
+            matches,
         )?
         .build()?;
 

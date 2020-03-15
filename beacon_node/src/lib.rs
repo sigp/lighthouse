@@ -5,9 +5,9 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-pub use config::{get_eth2_testnet_config, get_data_dir, get_testnet_dir};
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
+pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::{
@@ -62,9 +62,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         // See https://github.com/sigp/lighthouse/issues/602
         get_config::<E>(&matches, context.eth2_config.clone(), log)
             .into_future()
-            .and_then(move |client_config| {
-                Self::new(context, client_config)
-            })
+            .and_then(move |client_config| Self::new(context, client_config))
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.
