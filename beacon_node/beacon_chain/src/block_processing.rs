@@ -27,11 +27,11 @@
 //!             |              |
 //!             |              ▼
 //!             |      GossipVerifiedBlock
-//!             |______________|
+//!             |              |
+//!             |---------------
 //!             |
 //!             ▼
 //!     SignatureVerifiedBlock
-//!             |
 //!             |
 //!             ▼
 //!      FullyVerifiedBlock
@@ -244,8 +244,8 @@ pub trait IntoFullyVerfiedBlock<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
-    /// Instantiates `Self`, a wrapper that indicates a block is safe to be re-gossiped on the p2p
-    /// network.
+    /// Instantiates `Self`, a wrapper that indicates the given `block` is safe to be re-gossiped
+    /// on the p2p network.
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
@@ -298,6 +298,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 }
 
 impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for GossipVerifiedBlock<T> {
+    /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
@@ -308,6 +309,10 @@ impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for GossipVerifiedBlock<T> {
 }
 
 impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
+    /// Instantiates `Self`, a wrapper that indicates that all signatures (except the deposit
+    /// signatures) are valid  (i.e., signed by the correct public keys).
+    ///
+    /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -338,6 +343,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         }
     }
 
+    /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify
+    /// the proposer signature.
     pub fn from_gossip_verified_block(
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,
@@ -370,6 +377,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 }
 
 impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignatureVerifiedBlock<T> {
+    /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
@@ -385,6 +393,8 @@ impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignatureVerifiedBlock<T>
 }
 
 impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignedBeaconBlock<T::EthSpec> {
+    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
+    /// and then using that implementation of `IntoFullyVerifiedBlock` to complete verification.
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
@@ -394,6 +404,13 @@ impl<T: BeaconChainTypes> IntoFullyVerfiedBlock<T> for SignedBeaconBlock<T::EthS
 }
 
 impl<T: BeaconChainTypes> FullyVerfiedBlock<T> {
+    /// Instantiates `Self`, a wrapper that indicates that the given `block` is fully valid. See
+    /// the struct-level documentation for more information.
+    ///
+    /// Note: this function does not verify block signatures, it assumes they are valid. Signature
+    /// verification must be done upstream (e.g., via a `SignatureVerifiedBlock`
+    ///
+    /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn from_signature_verified_components(
         block: SignedBeaconBlock<T::EthSpec>,
         block_root: Hash256,
@@ -525,6 +542,10 @@ impl<T: BeaconChainTypes> FullyVerfiedBlock<T> {
     }
 }
 
+/// Returns `Ok(())` if the block is later than the finalized slot on `chain`.
+///
+/// Returns an error if the block is earlier or equal to the finalized slot, or there was an error
+/// verifying that condition.
 fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     block: &BeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
@@ -545,6 +566,13 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     }
 }
 
+/// Performs simple, cheap checks to ensure that the block is relevant to imported.
+///
+/// `Ok(block_root)` is returned if the block passes these checks and should progress with
+/// verification (viz., it is relevant).
+///
+/// Returns an error if the block fails one of these checks (viz., is not relevant) or an error is
+/// experienced whilst attempting to verify.
 pub fn check_block_relevancy<T: BeaconChainTypes>(
     signed_block: &SignedBeaconBlock<T::EthSpec>,
     block_root: Option<Hash256>,
@@ -585,6 +613,9 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     Ok(block_root)
 }
 
+/// Returns the canonical root of the given `block`.
+///
+/// Use this function to ensure that we report the block hashing time Prometheus metric.
 pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
     let block_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOCK_ROOT);
 
@@ -595,6 +626,10 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
     block_root
 }
 
+/// Load the parent snapshot (block and state) of the given `block`.
+///
+/// Returns `Err(BlockError::ParentUnknown)` if the parent is not found, or if an error occurs
+/// whilst attempting the operation.
 fn load_parent<T: BeaconChainTypes>(
     block: &BeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
@@ -661,6 +696,17 @@ fn load_parent<T: BeaconChainTypes>(
     result
 }
 
+/// Performs a cheap (time-efficient) state advancement so the committees for `slot` can be
+/// obtained from `state`.
+///
+/// The state advancement is "cheap" since it does not generate state roots. As a result, the
+/// returned state might be holistically invalid but the committees will be correct (since they do
+/// not rely upon state roots).
+///
+/// If the given `state` can already serve the `slot`, the committees will be build on the `state`
+/// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
+/// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
+/// mutated to be invalid (or ever changed beyond a simple committee cache build).
 fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state: &'a mut BeaconState<E>,
     block_slot: Slot,
@@ -705,6 +751,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     }
 }
 
+/// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
 fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache>, BlockError> {
