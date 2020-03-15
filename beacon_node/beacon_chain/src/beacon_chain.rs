@@ -1,4 +1,4 @@
-use crate::block_processing::{
+use crate::block_verification::{
     check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
     GossipVerifiedBlock, IntoFullyVerfiedBlock,
 };
