@@ -1,5 +1,6 @@
 use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis, Eth2Config};
+use environment::ETH2_CONFIG_FILENAME;
 use eth2_config::{read_from_file, write_to_file};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -14,7 +15,6 @@ use std::path::PathBuf;
 use types::EthSpec;
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
 

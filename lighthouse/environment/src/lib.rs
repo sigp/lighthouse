@@ -21,7 +21,7 @@ use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 use eth2_testnet_config::Eth2TestnetConfig;
 
-const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
