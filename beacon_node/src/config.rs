@@ -19,9 +19,8 @@ pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
 
 type Result<T> = std::result::Result<T, String>;
-type Config = (ClientConfig, Eth2Config, Logger);
 
-/// Gets the fully-initialized global client and eth2 configuration objects.
+/// Gets the fully-initialized global client.
 ///
 /// The top-level `clap` arguments should be provided as `cli_args`.
 ///
@@ -33,7 +32,7 @@ pub fn get_configs<E: EthSpec>(
     cli_args: &ArgMatches,
     eth2_config: Eth2Config,
     core_log: Logger,
-) -> Result<Config> {
+) -> Result<ClientConfig> {
     let log = core_log.clone();
 
     let mut client_config = ClientConfig::default();
@@ -282,7 +281,7 @@ pub fn get_configs<E: EthSpec>(
         client_config.network.discovery_address =
             Some("127.0.0.1".parse().expect("Valid IP address"))
     }
-    Ok((client_config, eth2_config, log))
+    Ok(client_config)
 }
 
 /// Gets the datadir which should be used.

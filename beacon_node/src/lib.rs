@@ -62,7 +62,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         // See https://github.com/sigp/lighthouse/issues/602
         get_configs::<E>(&matches, context.eth2_config.clone(), log)
             .into_future()
-            .and_then(move |(client_config, _eth2_config, _log)| {
+            .and_then(move |client_config| {
                 Self::new(context, client_config)
             })
     }
