@@ -1,3 +1,45 @@
+//! Provides `SignedBeaconBlock` verification logic.
+//!
+//! Specifically, it provides the following:
+//!
+//! - Verification for gossip blocks (i.e., should we gossip some block from the network).
+//! - Verification for normal blocks (e.g., some block received on the RPC during a parent lookup).
+//! - Verification for chain segments (e.g., some chain of blocks received on the RPC during a
+//!    sync).
+//!
+//! The primary source of complexity here is that we wish to avoid doing duplicate work as a block
+//! moves through the verification process. For example, if some block is verified for gossip, we
+//! do not wish to re-verify the block proposal signature or re-hash the block. Or, if we've
+//! verified the signatures of a block during a chain segment import, we do not wish to verify each
+//! signature individually again.
+//!
+//! The incremental processing steps (e.g., signatures verified but not the state transition) is
+//! represented as a sequence of wrapper-types around the block. There is a linear progression of
+//! types, starting at a `SignedBeaconBlock` and finishing with a `Fully VerifiedBlock` (see
+//! diagram below).
+//!
+//! ```ignore
+//!           START
+//!             |
+//!             ▼
+//!     SignedBeaconBlock
+//!             |---------------
+//!             |              |
+//!             |              ▼
+//!             |      GossipVerifiedBlock
+//!             |______________|
+//!             |
+//!             ▼
+//!     SignatureVerifiedBlock
+//!             |
+//!             |
+//!             ▼
+//!      FullyVerifiedBlock
+//!             |
+//!             ▼
+//!            END
+//!
+//! ```
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     beacon_chain::{BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
@@ -21,6 +63,10 @@ use types::{
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 
+/// Returned when a block was not verified. A block is not verified for two reasons:
+///
+/// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
+/// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
 #[derive(Debug, PartialEq)]
 pub enum BlockError {
     /// The parent block was unknown.
@@ -91,6 +137,16 @@ impl From<DBError> for BlockError {
     }
 }
 
+/// Verify all signatures (except deposit signatures) on all blocks in the `chain_segment`. If all
+/// signatures are valid, the `chain_segment` is mapped to a `Vec<SignatureVerifiedBlock>` that can
+/// later be transformed into a `FullyVerifiedBlock` without re-checking the signatures. If any
+/// signature in the block is invalid, an `Err` is returned (it is not possible to known _which_
+/// signature was invalid).
+///
+/// ## Errors
+///
+/// The given `chain_segement` must span no more than two epochs, otherwise an error will be
+/// returned.
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     chain_segment: Vec<(Hash256, SignedBeaconBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
@@ -142,18 +198,33 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     Ok(signature_verified_blocks)
 }
 
+/// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
+/// the p2p network.
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     block: SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
     parent: BeaconSnapshot<T::EthSpec>,
 }
 
+/// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
+/// signatures) have been verified.
 pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     block: SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
     parent: Option<BeaconSnapshot<T::EthSpec>>,
 }
 
+/// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
+/// ready to import into the `BeaconChain`. The validation includes:
+///
+/// - Parent is known
+/// - Signatures
+/// - State root check
+/// - Per block processing
+///
+/// Note: a `FullyVerifiedBlock` is not _forever_ valid to be imported, it may later become invalid
+/// due to finality or some other event. A `FullyVerifiedBlock` should be imported into the
+/// `BeaconChain` immediately after it is instantiated.
 pub struct FullyVerfiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
@@ -162,6 +233,9 @@ pub struct FullyVerfiedBlock<T: BeaconChainTypes> {
     pub intermediate_states: StateBatch<T::EthSpec>,
 }
 
+/// Implemented on types that can be converted into a `FullyVerifiedBlock`.
+///
+/// Used to allow functions to accept blocks at various stages of verification.
 pub trait IntoFullyVerfiedBlock<T: BeaconChainTypes> {
     fn into_fully_verified_block(
         self,
@@ -170,6 +244,10 @@ pub trait IntoFullyVerfiedBlock<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
+    /// Instantiates `Self`, a wrapper that indicates a block is safe to be re-gossiped on the p2p
+    /// network.
+    ///
+    /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
