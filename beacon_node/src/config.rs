@@ -31,7 +31,7 @@ type Config = (ClientConfig, Eth2Config, Logger);
 #[allow(clippy::cognitive_complexity)]
 pub fn get_configs<E: EthSpec>(
     cli_args: &ArgMatches,
-    mut eth2_config: Eth2Config,
+    eth2_config: Eth2Config,
     core_log: Logger,
 ) -> Result<Config> {
     let log = core_log.clone();

@@ -52,7 +52,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// given `matches` and potentially configuration files on the local filesystem or other
     /// configurations hosted remotely.
     pub fn new_from_cli<'a, 'b>(
-        mut context: RuntimeContext<E>,
+        context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
     ) -> impl Future<Item = Self, Error = String> + 'a {
         let log = context.log.clone();
@@ -62,8 +62,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         // See https://github.com/sigp/lighthouse/issues/602
         get_configs::<E>(&matches, context.eth2_config.clone(), log)
             .into_future()
-            .and_then(move |(client_config, eth2_config, _log)| {
-                context.eth2_config = eth2_config;
+            .and_then(move |(client_config, _eth2_config, _log)| {
                 Self::new(context, client_config)
             })
     }
