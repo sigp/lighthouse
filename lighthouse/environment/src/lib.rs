@@ -406,4 +406,3 @@ pub fn null_logger() -> Result<Logger, String> {
         .build()
         .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }
-
