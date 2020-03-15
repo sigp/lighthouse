@@ -190,7 +190,7 @@ pub fn get_configs<E: EthSpec>(
 
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
-            process_testnet_subcommand(&mut client_config, &mut eth2_config, sub_cmd_args)?
+            process_testnet_subcommand(&mut client_config, &eth2_config, sub_cmd_args)?
         }
         // No sub-command assumes a resume operation.
         _ => {
@@ -426,7 +426,7 @@ pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config
 /// Process the `testnet` CLI subcommand arguments, updating the `builder`.
 fn process_testnet_subcommand(
     client_config: &mut ClientConfig,
-    eth2_config: &mut Eth2Config,
+    eth2_config: &Eth2Config,
     cli_args: &ArgMatches,
 ) -> Result<()> {
     // Specifies that a random datadir should be used.
@@ -455,15 +455,6 @@ fn process_testnet_subcommand(
             return Err("Propagation percentage greater than 100".to_string());
         }
         client_config.network.propagation_percentage = Some(percentage);
-    }
-
-    // Modify the `SECONDS_PER_SLOT` "constant".
-    if let Some(slot_time) = cli_args.value_of("slot-time") {
-        let slot_time = slot_time
-            .parse::<u64>()
-            .map_err(|e| format!("Unable to parse slot-time: {:?}", e))?;
-
-        eth2_config.spec.milliseconds_per_slot = slot_time;
     }
 
     // Start matching on the second subcommand (e.g., `testnet bootstrap ...`).
@@ -527,15 +518,6 @@ fn process_testnet_subcommand(
             client_config.genesis = start_method;
         }
         ("prysm", Some(_)) => {
-            let mut spec = &mut eth2_config.spec;
-
-            spec.min_deposit_amount = 100;
-            spec.max_effective_balance = 3_200_000_000;
-            spec.ejection_balance = 1_600_000_000;
-            spec.effective_balance_increment = 100_000_000;
-            spec.min_genesis_time = 0;
-            spec.genesis_fork_version = [0, 0, 0, 2];
-
             client_config.eth1.deposit_contract_address =
                 "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
             client_config.eth1.deposit_contract_deploy_block = 1_487_270;

@@ -114,7 +114,7 @@ fn run<E: EthSpec>(
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .load_eth2_config(get_data_dir(matches))?
+        .setup_eth2_config(get_data_dir(matches), matches)?
         .build()?;
 
     let log = environment.core_context().log;

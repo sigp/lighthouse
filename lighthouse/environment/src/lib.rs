@@ -7,6 +7,7 @@
 //! `Context` which can be handed to any service that wishes to start async tasks or perform
 //! logging.
 
+use clap::ArgMatches;
 use eth2_config::{Eth2Config, read_from_file};
 use futures::{sync::oneshot, Future};
 use slog::{info, o, Drain, Level, Logger};
@@ -136,7 +137,41 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    pub fn load_eth2_config(mut self, datadir: PathBuf) -> Result<Self, String> {
+    pub fn setup_eth2_config(mut self, datadir: PathBuf, cli_args: &ArgMatches) -> Result<Self, String> {
+        self.load_eth2_config(datadir)?;
+
+        match cli_args.subcommand() {
+            ("testnet", Some(sub_cli_args)) => {
+                // Modify the `SECONDS_PER_SLOT` "constant".
+                if let Some(slot_time) = sub_cli_args.value_of("slot-time") {
+                    let slot_time = slot_time
+                        .parse::<u64>()
+                        .map_err(|e| format!("Unable to parse slot-time: {:?}", e))?;
+
+                    self.eth2_config.spec.milliseconds_per_slot = slot_time;
+                }
+
+                match sub_cli_args.subcommand() {
+                    ("prysm", Some(_)) => {
+                        let mut spec = &mut self.eth2_config.spec;
+
+                        spec.min_deposit_amount = 100;
+                        spec.max_effective_balance = 3_200_000_000;
+                        spec.ejection_balance = 1_600_000_000;
+                        spec.effective_balance_increment = 100_000_000;
+                        spec.min_genesis_time = 0;
+                        spec.genesis_fork_version = [0, 0, 0, 2];
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        Ok(self)
+    }
+
+    fn load_eth2_config(&mut self, datadir: PathBuf) -> Result<(), String> {
         // Load the eth2 config, if it exists .
         let filename = datadir.join(ETH2_CONFIG_FILENAME);
         if filename.exists() {
@@ -160,7 +195,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             }
         }
 
-        Ok(self)
+        Ok(())
     }
 
     /// Consumes the builder, returning an `Environment`.
