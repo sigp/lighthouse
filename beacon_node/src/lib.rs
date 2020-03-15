@@ -15,7 +15,7 @@ use beacon_chain::{
     slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
-use config::get_configs;
+use config::get_config;
 use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
@@ -60,7 +60,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         // TODO: the eth2 config in the env is being modified.
         //
         // See https://github.com/sigp/lighthouse/issues/602
-        get_configs::<E>(&matches, context.eth2_config.clone(), log)
+        get_config::<E>(&matches, context.eth2_config.clone(), log)
             .into_future()
             .and_then(move |client_config| {
                 Self::new(context, client_config)

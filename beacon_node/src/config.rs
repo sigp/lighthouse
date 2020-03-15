@@ -28,7 +28,7 @@ type Result<T> = std::result::Result<T, String>;
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
 #[allow(clippy::cognitive_complexity)]
-pub fn get_configs<E: EthSpec>(
+pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
     eth2_config: Eth2Config,
     core_log: Logger,
