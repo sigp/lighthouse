@@ -1086,6 +1086,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Check that the shuffling at `block_root` is equal to one of the shufflings of `state`.
+    ///
+    /// The `target_epoch` argument determines which shuffling to check compatibility with, it
+    /// should be equal to the current or previous epoch of `state`, or else `false` will be
+    /// returned.
+    ///
+    /// The compatibility check is designed to be fast: we check that the block that
+    /// determined the RANDAO mix for the `target_epoch` matches the ancestor of the block
+    /// identified by `block_root` (at that slot).
     pub fn shuffling_is_compatible(
         &self,
         block_root: &Hash256,

@@ -612,7 +612,16 @@ fn shuffling_compatible_short_fork() {
     // NOTE: don't check this case, as block 14 from the first chain appears valid on the second
     // chain due to it matching the second chain's block 15.
     // check_shuffling_compatible(&harness, &head2_state, head1, false, true, None, None);
-    check_shuffling_compatible(&harness, &head2_state, head2, true, true, None, None);
+    check_shuffling_compatible(
+        &harness,
+        &head2_state,
+        head2,
+        true,
+        true,
+        // Required because of the skipped slot.
+        Some(2 * E::slots_per_epoch() - 2),
+        None,
+    );
 
     drop(db_path);
 }
