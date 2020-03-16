@@ -4,7 +4,6 @@ use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
 use eth1::{Config, Service};
 use eth1::{DepositCache, DepositLog};
 use eth1_test_rig::GanacheEth1Instance;
-use exit_future;
 use futures::Future;
 use merkle_proof::verify_merkle_proof;
 use std::ops::Range;
@@ -146,7 +145,7 @@ mod auto_update {
             "should have imported no deposits"
         );
 
-        let (_exit, signal) = exit_future::signal();
+        let (_exit, signal) = tokio::sync::oneshot::channel();
 
         runtime.executor().spawn(service.auto_update(signal));
 

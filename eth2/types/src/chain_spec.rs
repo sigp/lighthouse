@@ -98,20 +98,19 @@ pub struct ChainSpec {
      */
     pub eth1_follow_distance: u64,
 
-    pub boot_nodes: Vec<String>,
-    pub network_id: u8,
-
-    pub genesis_fork: Fork,
-
     /*
      * Networking
      */
+    pub boot_nodes: Vec<String>,
+    pub network_id: u8,
     pub attestation_propagation_slot_range: u64,
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
+
+    pub genesis_fork: Fork,
 }
 
 impl ChainSpec {

@@ -6,9 +6,9 @@ use node_test_rig::{
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
 use remote_beacon_node::{
-    Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorDuty,
-    ValidatorResponse,
+    Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorResponse,
 };
+use rest_types::ValidatorDutyBytes;
 use std::convert::TryInto;
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -138,7 +138,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestation(attestation.clone()),
+                .publish_attestations(vec![attestation.clone()]),
         )
         .expect("should publish attestation");
     assert!(
@@ -164,7 +164,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestation(attestation),
+                .publish_attestations(vec![attestation]),
         )
         .expect("should publish attestation");
     assert!(
@@ -226,7 +226,7 @@ fn validator_duties() {
 }
 
 fn check_duties<T: BeaconChainTypes>(
-    duties: Vec<ValidatorDuty>,
+    duties: Vec<ValidatorDutyBytes>,
     epoch: Epoch,
     validators: Vec<PublicKey>,
     beacon_chain: Arc<BeaconChain<T>>,

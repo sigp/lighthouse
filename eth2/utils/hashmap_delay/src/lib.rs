@@ -17,5 +17,5 @@
 mod hashmap_delay;
 mod hashset_delay;
 
-pub use hashmap_delay::HashMapDelay;
-pub use hashset_delay::HashSetDelay;
+pub use crate::hashmap_delay::HashMapDelay;
+pub use crate::hashset_delay::HashSetDelay;

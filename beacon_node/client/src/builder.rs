@@ -246,8 +246,6 @@ where
                 self.beacon_chain_builder = Some(beacon_chain_builder);
                 self
             })
-            // each beacon chain should have an associated timer
-            .and_then(|builder| builder.timer())
     }
 
     /// Immediately starts the networking stack.
@@ -441,7 +439,8 @@ where
         self.beacon_chain_builder = None;
         self.event_handler = None;
 
-        Ok(self)
+        // a beacon chain requires a timer
+        self.timer()
     }
 }
 
