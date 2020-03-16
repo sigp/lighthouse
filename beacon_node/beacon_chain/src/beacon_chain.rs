@@ -1188,8 +1188,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .position(|(_root, block)| {
                     block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
                 })
-                // Subtraction cannot underflow since the `position` call cannot match on 0.
-                .map(|i| i - 1)
                 .unwrap_or_else(|| filtered_chain_segment.len());
 
             // Split off the first section blocks that are all either within the current epoch of
