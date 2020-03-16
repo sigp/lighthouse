@@ -12,11 +12,12 @@ faucet](https://faucet.goerli.mudit.blog/) for those familiar with Goerli, or
 
 There are two, different ways to install and start a Lighthouse validator:
 
-- [Using `docker-compose`](./become-a-validator-docker.md): this is the easiest method.
-- [Building from source](./become-a-validator-source.md): this is a little more involved, however it
+1. [Using `docker-compose`](./become-a-validator-docker.md): this is the easiest method.
+
+2. [Building from source](./become-a-validator-source.md): this is a little more involved, however it
    gives a more hands-on experience.
 
-Once you have completed **only one** of these steps, move onto the next step.
+Once you've completed **either one** of these steps, you can move onto the next step.
 
 ## 2. Submit your deposit to Goerli
 
