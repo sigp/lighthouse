@@ -105,7 +105,7 @@ Start the validator client with:
 $ lighthouse validator
 ```
 
-You know that your validator client is running and has found your validator keys from step 3 when you see the following logs:
+You know that your validator client is running and has found your validator keys from [step 3](become-a-validator-source.html#3-start-your-beacon-node) when you see the following logs:
 
 ```
 Dec 09 13:08:59.171 INFO Loaded validator keypair store          voting_validators: 1

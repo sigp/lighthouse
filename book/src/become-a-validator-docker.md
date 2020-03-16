@@ -106,7 +106,7 @@ This file is saved in `.lighthouse/validators` -- in the sub-directory that corr
 You'll find the `./lighthouse` directory in the root of the `lighthouse-docker`
 repository.
 
-> For example, if you ran Step 1 in `/home/karlm/`, and your validator's `voting_pubkey` is `0x8592c7..`, then you'll find your `eth1_deposit_data.rlp` in:
+> For example, if you ran [step 1](become-a-validator-docker.html#1-clone-the-repository) in `/home/karlm/`, and your validator's `voting_pubkey` is `0x8592c7..`, then you'll find your `eth1_deposit_data.rlp` in:
 >
 >`/home/karlm/lighthouse-docker/.lighthouse/validators/0x8592c7../`
 
