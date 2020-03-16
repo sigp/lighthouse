@@ -52,5 +52,6 @@ type_name_generic!(HistoricalBatch);
 type_name_generic!(IndexedAttestation);
 type_name_generic!(PendingAttestation);
 type_name!(ProposerSlashing);
+type_name!(SignedVoluntaryExit);
 type_name!(Validator);
 type_name!(VoluntaryExit);

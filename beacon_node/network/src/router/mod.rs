@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 if self.processor.should_forward_block(&block) {
                     self.propagate_message(id, peer_id.clone());
                 }
-                self.processor.on_block_gossip(peer_id, &block);
+                self.processor.on_block_gossip(peer_id, block);
             }
             PubsubData::AggregateAndProofAttestation(_agg_attestation) => {
                 // TODO: Handle propagation conditions

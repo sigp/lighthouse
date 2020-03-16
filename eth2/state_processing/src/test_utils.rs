@@ -52,7 +52,7 @@ impl<T: EthSpec> BlockBuilder<T> {
         self.state_builder.build_caches(&spec).unwrap();
     }
 
-    pub fn build(mut self, spec: &ChainSpec) -> (BeaconBlock<T>, BeaconState<T>) {
+    pub fn build(mut self, spec: &ChainSpec) -> (SignedBeaconBlock<T>, BeaconState<T>) {
         let (mut state, keypairs) = self.state_builder.build();
         let builder = &mut self.block_builder;
 

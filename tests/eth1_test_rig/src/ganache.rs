@@ -45,7 +45,7 @@ impl GanacheInstance {
             .spawn()
             .map_err(|e| {
                 format!(
-                    "Failed to start ganche-cli. \
+                    "Failed to start ganache-cli. \
                      Is it ganache-cli installed and available on $PATH? Error: {:?}",
                     e
                 )

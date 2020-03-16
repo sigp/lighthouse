@@ -3,7 +3,13 @@ use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
-use tree_hash::{mix_in_length, TreeHash};
+use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
+
+/// The number of fields on a beacon state.
+const NUM_BEACON_STATE_HASHING_FIELDS: usize = 20;
+
+/// The number of nodes in the Merkle tree of a validator record.
+const NODES_PER_VALIDATOR: usize = 15;
 
 /// The number of validator record tree hash caches stored in each arena.
 ///
@@ -73,64 +79,79 @@ impl BeaconTreeHashCache {
         &mut self,
         state: &BeaconState<T>,
     ) -> Result<Hash256, Error> {
-        let mut leaves = vec![];
+        let mut hasher = MerkleHasher::with_leaves(NUM_BEACON_STATE_HASHING_FIELDS);
 
-        leaves.append(&mut state.genesis_time.tree_hash_root());
-        leaves.append(&mut state.slot.tree_hash_root());
-        leaves.append(&mut state.fork.tree_hash_root());
-        leaves.append(&mut state.latest_block_header.tree_hash_root());
-        leaves.extend_from_slice(
+        hasher.write(state.genesis_time.tree_hash_root().as_bytes())?;
+        hasher.write(state.slot.tree_hash_root().as_bytes())?;
+        hasher.write(state.fork.tree_hash_root().as_bytes())?;
+        hasher.write(state.latest_block_header.tree_hash_root().as_bytes())?;
+        hasher.write(
             state
                 .block_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .state_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .historical_roots
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?
                 .as_bytes(),
-        );
-        leaves.append(&mut state.eth1_data.tree_hash_root());
-        leaves.append(&mut state.eth1_data_votes.tree_hash_root());
-        leaves.append(&mut state.eth1_deposit_index.tree_hash_root());
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(state.eth1_data.tree_hash_root().as_bytes())?;
+        hasher.write(state.eth1_data_votes.tree_hash_root().as_bytes())?;
+        hasher.write(state.eth1_deposit_index.tree_hash_root().as_bytes())?;
+        hasher.write(
             self.validators
                 .recalculate_tree_hash_root(&state.validators[..])?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .balances
                 .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .randao_mixes
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?
                 .as_bytes(),
-        );
-        leaves.extend_from_slice(
+        )?;
+        hasher.write(
             state
                 .slashings
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?
                 .as_bytes(),
-        );
-        leaves.append(&mut state.previous_epoch_attestations.tree_hash_root());
-        leaves.append(&mut state.current_epoch_attestations.tree_hash_root());
-        leaves.append(&mut state.justification_bits.tree_hash_root());
-        leaves.append(&mut state.previous_justified_checkpoint.tree_hash_root());
-        leaves.append(&mut state.current_justified_checkpoint.tree_hash_root());
-        leaves.append(&mut state.finalized_checkpoint.tree_hash_root());
+        )?;
+        hasher.write(
+            state
+                .previous_epoch_attestations
+                .tree_hash_root()
+                .as_bytes(),
+        )?;
+        hasher.write(state.current_epoch_attestations.tree_hash_root().as_bytes())?;
+        hasher.write(state.justification_bits.tree_hash_root().as_bytes())?;
+        hasher.write(
+            state
+                .previous_justified_checkpoint
+                .tree_hash_root()
+                .as_bytes(),
+        )?;
+        hasher.write(
+            state
+                .current_justified_checkpoint
+                .tree_hash_root()
+                .as_bytes(),
+        )?;
+        hasher.write(state.finalized_checkpoint.tree_hash_root().as_bytes())?;
 
-        Ok(Hash256::from_slice(&tree_hash::merkle_root(&leaves, 0)))
+        hasher.finish().map_err(Into::into)
     }
 }
 
@@ -181,10 +202,7 @@ impl ValidatorsListTreeHashCache {
 
         std::mem::replace(&mut self.list_arena, list_arena);
 
-        Ok(Hash256::from_slice(&mix_in_length(
-            list_root.as_bytes(),
-            validators.len(),
-        )))
+        Ok(mix_in_length(&list_root, validators.len()))
     }
 }
 
@@ -202,8 +220,22 @@ impl ParallelValidatorTreeHash {
     /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
     /// hashing.
     fn new<E: EthSpec>(validators: &[Validator]) -> Self {
-        let num_arenas = (validators.len() + VALIDATORS_PER_ARENA - 1) / VALIDATORS_PER_ARENA;
-        let mut arenas = vec![(CacheArena::default(), vec![]); num_arenas];
+        let num_arenas = std::cmp::max(
+            1,
+            (validators.len() + VALIDATORS_PER_ARENA - 1) / VALIDATORS_PER_ARENA,
+        );
+
+        let mut arenas = (1..=num_arenas)
+            .map(|i| {
+                let num_validators = if i == num_arenas {
+                    validators.len() % VALIDATORS_PER_ARENA
+                } else {
+                    VALIDATORS_PER_ARENA
+                };
+                NODES_PER_VALIDATOR * num_validators
+            })
+            .map(|capacity| (CacheArena::with_capacity(capacity), vec![]))
+            .collect::<Vec<_>>();
 
         validators.iter().enumerate().for_each(|(i, v)| {
             let (arena, caches) = &mut arenas[i / VALIDATORS_PER_ARENA];
@@ -270,5 +302,18 @@ impl ParallelValidatorTreeHash {
                     .collect()
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn validator_node_count() {
+        let mut arena = CacheArena::default();
+        let v = Validator::default();
+        let _cache = v.new_tree_hash_cache(&mut arena);
+        assert_eq!(arena.backing_len(), NODES_PER_VALIDATOR);
     }
 }

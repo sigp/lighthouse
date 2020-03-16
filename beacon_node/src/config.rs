@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use client::{ClientConfig, ClientGenesis, Eth2Config};
+use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use eth2_libp2p::{Enr, GossipTopic, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -11,7 +11,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{Epoch, EthSpec, Fork};
+use types::EthSpec;
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -47,7 +47,7 @@ pub fn get_configs<E: EthSpec>(
     client_config.data_dir = cli_args
         .value_of("datadir")
         .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
+        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
         .unwrap_or_else(|| PathBuf::from("."));
 
     // Load the client config, if it exists .
@@ -381,13 +381,6 @@ fn init_new_client<E: EthSpec>(
 
     let spec = &mut eth2_config.spec;
 
-    // For now, assume that all networks will use the lighthouse genesis fork.
-    spec.genesis_fork = Fork {
-        previous_version: [0, 0, 0, 0],
-        current_version: [1, 3, 3, 7],
-        epoch: Epoch::new(0),
-    };
-
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =
@@ -564,11 +557,7 @@ fn process_testnet_subcommand(
             spec.ejection_balance = 1_600_000_000;
             spec.effective_balance_increment = 100_000_000;
             spec.min_genesis_time = 0;
-            spec.genesis_fork = Fork {
-                previous_version: [0; 4],
-                current_version: [0, 0, 0, 2],
-                epoch: Epoch::new(0),
-            };
+            spec.genesis_fork_version = [0, 0, 0, 2];
 
             client_config.eth1.deposit_contract_address =
                 "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();

@@ -65,7 +65,7 @@ fn process_batch<T: BeaconChainTypes>(
                         // The block was valid and we processed it successfully.
                         trace!(
                             log, "Imported block from network";
-                            "slot" => block.slot,
+                            "slot" => block.slot(),
                             "block_root" => format!("{}", block_root),
                         );
                         successful_block_import = true;
@@ -75,21 +75,21 @@ fn process_batch<T: BeaconChainTypes>(
                         warn!(
                             log, "Parent block is unknown";
                             "parent_root" => format!("{}", parent),
-                            "baby_block_slot" => block.slot,
+                            "baby_block_slot" => block.slot(),
                         );
                         if successful_block_import {
                             run_fork_choice(chain, log);
                         }
                         return Err(format!(
                             "Block at slot {} has an unknown parent.",
-                            block.slot
+                            block.slot()
                         ));
                     }
                     BlockProcessingOutcome::BlockIsAlreadyKnown => {
                         // this block is already known to us, move to the next
                         debug!(
                             log, "Imported a block that is already known";
-                            "block_slot" => block.slot,
+                            "block_slot" => block.slot(),
                         );
                     }
                     BlockProcessingOutcome::FutureSlot {
@@ -110,7 +110,7 @@ fn process_batch<T: BeaconChainTypes>(
                             }
                             return Err(format!(
                                 "Block at slot {} is too far in the future",
-                                block.slot
+                                block.slot()
                             ));
                         } else {
                             // The block is in the future, but not too far.
@@ -144,7 +144,7 @@ fn process_batch<T: BeaconChainTypes>(
                         if successful_block_import {
                             run_fork_choice(chain, log);
                         }
-                        return Err(format!("Invalid block at slot {}", block.slot));
+                        return Err(format!("Invalid block at slot {}", block.slot()));
                     }
                 }
             } else {

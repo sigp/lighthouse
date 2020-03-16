@@ -1,5 +1,5 @@
-use eth2_hashing::hash;
-use int_to_bytes::{int_to_bytes1, int_to_bytes4};
+use crate::Hash256;
+use eth2_hashing::{Context, SHA256};
 use std::cmp::max;
 
 /// Return `p(index)` in a pseudorandom permutation `p` of `0...list_size-1` with ``seed`` as entropy.
@@ -43,27 +43,35 @@ pub fn compute_shuffled_index(
 fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize) -> Option<usize> {
     let flip = (pivot + (list_size - index)) % list_size;
     let position = max(index, flip);
-    let source = hash_with_round_and_position(seed, round, position)?;
+    let source = hash_with_round_and_position(seed, round, position);
     let byte = source[(position % 256) / 8];
     let bit = (byte >> (position % 8)) % 2;
     Some(if bit == 1 { flip } else { index })
 }
 
-fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Option<Vec<u8>> {
-    let mut seed = seed.to_vec();
-    seed.append(&mut int_to_bytes1(round));
+fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Hash256 {
+    let mut context = Context::new(&SHA256);
+
+    context.update(seed);
+    context.update(&[round]);
     /*
      * Note: the specification has an implicit assertion in `int_to_bytes4` that `position / 256 <
      * 2**24`. For efficiency, we do not check for that here as it is checked in `compute_shuffled_index`.
      */
-    seed.append(&mut int_to_bytes4((position / 256) as u32));
-    Some(hash(&seed[..]))
+    context.update(&(position / 256).to_le_bytes()[0..4]);
+
+    let digest = context.finish();
+    Hash256::from_slice(digest.as_ref())
 }
 
-fn hash_with_round(seed: &[u8], round: u8) -> Vec<u8> {
-    let mut seed = seed.to_vec();
-    seed.append(&mut int_to_bytes1(round));
-    hash(&seed[..])
+fn hash_with_round(seed: &[u8], round: u8) -> Hash256 {
+    let mut context = Context::new(&SHA256);
+
+    context.update(seed);
+    context.update(&[round]);
+
+    let digest = context.finish();
+    Hash256::from_slice(digest.as_ref())
 }
 
 fn bytes_to_int64(slice: &[u8]) -> u64 {

@@ -41,8 +41,9 @@ genesis = { path = "../genesis" }
 integer-sqrt = "0.1"
 rand = "0.7.2"
 proto_array_fork_choice = { path = "../../eth2/proto_array_fork_choice" }
+lru = "0.4.3"
+tempfile = "3.1.0"
 
 [dev-dependencies]
-tempfile = "3.1.0"
 lazy_static = "1.4.0"
 environment = { path = "../../lighthouse/environment" }

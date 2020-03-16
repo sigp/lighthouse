@@ -210,6 +210,11 @@ pub enum AttestationInvalid {
     },
     /// Attestation slot is too far in the past to be included in a block.
     IncludedTooLate { state: Slot, attestation: Slot },
+    /// Attestation target epoch does not match attestation slot.
+    TargetEpochSlotMismatch {
+        target_epoch: Epoch,
+        slot_epoch: Epoch,
+    },
     /// Attestation target epoch does not match the current or previous epoch.
     BadTargetEpoch,
     /// Attestation justified checkpoint doesn't match the state's current or previous justified
@@ -230,6 +235,8 @@ pub enum AttestationInvalid {
         committee_len: usize,
         bitfield_len: usize,
     },
+    /// The attestation was not disjoint compared to already seen attestations.
+    NotDisjoint,
     /// The validator index was unknown.
     UnknownValidator(u64),
     /// The attestation signature verification failed.

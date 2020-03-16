@@ -4,7 +4,7 @@ use bls::PublicKeyBytes;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use types::beacon_state::EthSpec;
-use types::{BeaconBlock, BeaconState, CommitteeIndex, Hash256, Slot, Validator};
+use types::{BeaconState, CommitteeIndex, Hash256, SignedBeaconBlock, Slot, Validator};
 
 /// Information about a block that is at the head of a chain. May or may not represent the
 /// canonical head.
@@ -18,7 +18,7 @@ pub struct HeadBeaconBlock {
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
     pub root: Hash256,
-    pub beacon_block: BeaconBlock<T>,
+    pub beacon_block: SignedBeaconBlock<T>,
 }
 
 /// Information about the block and state that are at head of the beacon chain.

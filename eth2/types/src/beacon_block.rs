@@ -5,38 +5,27 @@ use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::{SignedRoot, TreeHash};
-use tree_hash_derive::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 ///
-/// Spec v0.9.1
-#[derive(
-    Debug,
-    PartialEq,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    SignedRoot,
-)]
+/// Spec v0.10.1
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub body: BeaconBlockBody<T>,
-    #[signed_root(skip_hashing)]
-    pub signature: Signature,
 }
+
+impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
 
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlock {
             slot: spec.genesis_slot,
@@ -56,7 +45,6 @@ impl<T: EthSpec> BeaconBlock<T> {
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
             },
-            signature: Signature::empty_signature(),
         }
     }
 
@@ -65,11 +53,11 @@ impl<T: EthSpec> BeaconBlock<T> {
         self.slot.epoch(T::slots_per_epoch())
     }
 
-    /// Returns the `signed_root` of the block.
+    /// Returns the `tree_hash_root` of the block.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.signed_root()[..])
+        Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.
@@ -79,33 +67,40 @@ impl<T: EthSpec> BeaconBlock<T> {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
             parent_root: self.parent_root,
             state_root: self.state_root,
             body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
-            signature: self.signature.clone(),
         }
     }
 
     /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.10.1
     pub fn temporary_block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: Hash256::zero(),
-            signature: Signature::empty_signature(),
             ..self.block_header()
         }
     }
 
-    /// Signs `self`.
-    pub fn sign(&mut self, secret_key: &SecretKey, fork: &Fork, spec: &ChainSpec) {
-        let message = self.signed_root();
-        let domain = spec.get_domain(self.epoch(), Domain::BeaconProposer, &fork);
-        self.signature = Signature::new(&message, domain, &secret_key);
+    /// Signs `self`, producing a `SignedBeaconBlock`.
+    pub fn sign(
+        self,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        spec: &ChainSpec,
+    ) -> SignedBeaconBlock<T> {
+        let domain = spec.get_domain(self.epoch(), Domain::BeaconProposer, fork);
+        let message = self.signing_root(domain);
+        let signature = Signature::new(message.as_bytes(), secret_key);
+        SignedBeaconBlock {
+            message: self,
+            signature,
+        }
     }
 }
 
@@ -113,5 +108,5 @@ impl<T: EthSpec> BeaconBlock<T> {
 mod tests {
     use super::*;
 
-    ssz_tests!(BeaconBlock<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(BeaconBlock<MainnetEthSpec>);
 }

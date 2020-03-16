@@ -75,7 +75,6 @@ pub fn bls_verify_aggregate(
     pubkey: &AggregatePublicKey,
     message: &[u8],
     signature: &AggregateSignature,
-    domain: u64,
 ) -> bool {
-    signature.verify(message, domain, pubkey)
+    signature.verify(message, pubkey)
 }

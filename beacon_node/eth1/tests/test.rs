@@ -100,90 +100,6 @@ fn get_block_number(runtime: &mut Runtime, web3: &Web3<Http>) -> u64 {
         .expect("should get block number")
 }
 
-mod auto_update {
-    use super::*;
-
-    #[test]
-    fn can_auto_update() {
-        let mut env = new_env();
-        let log = env.core_context().log;
-        let runtime = env.runtime();
-
-        let eth1 = runtime
-            .block_on(GanacheEth1Instance::new())
-            .expect("should start eth1 environment");
-        let deposit_contract = &eth1.deposit_contract;
-        let web3 = eth1.web3();
-
-        let now = get_block_number(runtime, &web3);
-
-        let service = Service::new(
-            Config {
-                endpoint: eth1.endpoint(),
-                deposit_contract_address: deposit_contract.address(),
-                deposit_contract_deploy_block: now,
-                lowest_cached_block_number: now,
-                follow_distance: 0,
-                block_cache_truncation: None,
-                ..Config::default()
-            },
-            log,
-        );
-
-        // NOTE: this test is sensitive to the response speed of the external web3 server. If
-        // you're experiencing failures, try increasing the update_interval.
-        let update_interval = Duration::from_millis(3000);
-
-        assert_eq!(
-            service.block_cache_len(),
-            0,
-            "should have imported no blocks"
-        );
-        assert_eq!(
-            service.deposit_cache_len(),
-            0,
-            "should have imported no deposits"
-        );
-
-        let (_exit, signal) = tokio::sync::oneshot::channel();
-
-        runtime.executor().spawn(service.auto_update(signal));
-
-        let n = 4;
-
-        for _ in 0..n {
-            deposit_contract
-                .deposit(runtime, random_deposit_data())
-                .expect("should do first deposits");
-        }
-
-        std::thread::sleep(update_interval * 5);
-
-        assert!(
-            service.deposit_cache_len() >= n,
-            "should have imported n deposits"
-        );
-
-        for _ in 0..n {
-            deposit_contract
-                .deposit(runtime, random_deposit_data())
-                .expect("should do second deposits");
-        }
-
-        std::thread::sleep(update_interval * 4);
-
-        assert!(
-            service.block_cache_len() >= n * 2,
-            "should have imported all blocks"
-        );
-        assert!(
-            service.deposit_cache_len() >= n * 2,
-            "should have imported all deposits, not {}",
-            service.deposit_cache_len()
-        );
-    }
-}
-
 mod eth1_cache {
     use super::*;
 
@@ -613,7 +529,7 @@ mod deposit_tree {
             for (j, deposit) in deposits.iter().enumerate() {
                 assert!(
                     verify_merkle_proof(
-                        Hash256::from_slice(&deposit.data.tree_hash_root()),
+                        deposit.data.tree_hash_root(),
                         &deposit.proof,
                         DEPOSIT_CONTRACT_TREE_DEPTH + 1,
                         j,

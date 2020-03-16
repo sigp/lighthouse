@@ -10,8 +10,8 @@ use attestation_id::AttestationId;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::{
-    AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-    ProposerSlashingValidationError,
+    AttestationInvalid, AttestationValidationError, AttesterSlashingValidationError,
+    ExitValidationError, ProposerSlashingValidationError,
 };
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion,
@@ -22,8 +22,8 @@ use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    CommitteeIndex, Epoch, EthSpec, ProposerSlashing, RelativeEpoch, Slot, Validator,
-    VoluntaryExit,
+    CommitteeIndex, Epoch, EthSpec, Fork, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit,
+    Slot, Validator,
 };
 
 /// The number of slots we keep shard subnet attestations in the operation pool for. A value of 0
@@ -44,13 +44,13 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// validator is required to publish the aggregate attestation.
     /// This segregates attestations into (slot,committee_index) then by `AttestationId`.
     committee_attestations:
-        RwLock<HashMap<(Slot, CommitteeIndex), HashMap<AttestationId, Vec<Attestation<T>>>>>,
+        RwLock<HashMap<(Slot, CommitteeIndex), HashMap<AttestationId, Attestation<T>>>>,
     /// Map from two attestation IDs to a slashing for those IDs.
     attester_slashings: RwLock<HashMap<(AttestationId, AttestationId), AttesterSlashing<T>>>,
     /// Map from proposer index to slashing.
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
-    voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
+    voluntary_exits: RwLock<HashMap<u64, SignedVoluntaryExit>>,
     /// Marker to pin the generics.
     _phantom: PhantomData<T>,
 }
@@ -58,6 +58,7 @@ pub struct OperationPool<T: EthSpec + Default> {
 #[derive(Debug, PartialEq)]
 pub enum OpPoolError {
     GetAttestationsTotalBalanceError(BeaconStateError),
+    NoAttestationsForSlotCommittee,
 }
 
 impl<T: EthSpec> OperationPool<T> {
@@ -75,10 +76,10 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_aggregate_attestation(
         &self,
         attestation: Attestation<T>,
-        state: &BeaconState<T>,
+        fork: &Fork,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
-        let id = AttestationId::from_data(&attestation.data, state, spec);
+        let id = AttestationId::from_data(&attestation.data, fork, spec);
 
         // Take a write lock on the attestations map.
         let mut attestations = self.aggregate_attestations.write();
@@ -118,10 +119,10 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_raw_attestation(
         &self,
         attestation: Attestation<T>,
-        state: &BeaconState<T>,
+        fork: &Fork,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
-        let id = AttestationId::from_data(&attestation.data, state, spec);
+        let id = AttestationId::from_data(&attestation.data, fork, spec);
 
         let slot = attestation.data.slot.clone();
         let committee_index = attestation.data.index.clone();
@@ -133,26 +134,20 @@ impl<T: EthSpec> OperationPool<T> {
             .entry((slot, committee_index))
             .or_insert_with(|| HashMap::new());
 
-        let existing_attestations = match slot_index_map.entry(id) {
+        let existing_attestation = match slot_index_map.entry(id) {
             hash_map::Entry::Vacant(entry) => {
-                entry.insert(vec![attestation]);
+                entry.insert(attestation);
                 return Ok(());
             }
             hash_map::Entry::Occupied(entry) => entry.into_mut(),
         };
 
-        let mut aggregated = false;
-        for existing_attestation in existing_attestations.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&attestation) {
-                existing_attestation.aggregate(&attestation);
-                aggregated = true;
-            } else if *existing_attestation == attestation {
-                aggregated = true;
-            }
-        }
-
-        if !aggregated {
-            existing_attestations.push(attestation);
+        if existing_attestation.signers_disjoint_from(&attestation) {
+            existing_attestation.aggregate(&attestation);
+        } else if *existing_attestation != attestation {
+            return Err(AttestationValidationError::Invalid(
+                AttestationInvalid::NotDisjoint,
+            ));
         }
 
         Ok(())
@@ -173,9 +168,31 @@ impl<T: EthSpec> OperationPool<T> {
             self.committee_attestations
                 .read()
                 .values()
-                .map(|map| map.values().map(Vec::len).sum::<usize>())
+                .map(|map| map.values().len())
                 .sum(),
         )
+    }
+
+    /// Get the aggregated raw attestations for a (slot, committee)
+    //TODO: Check this logic and optimize
+    pub fn get_raw_aggregated_attestations(
+        &self,
+        slot: &Slot,
+        index: &CommitteeIndex,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<Attestation<T>, OpPoolError> {
+        let curr_domain_bytes =
+            AttestationId::compute_domain_bytes(state.current_epoch(), &state.fork, spec);
+        self.committee_attestations
+            .read()
+            .get(&(*slot, *index))
+            .ok_or_else(|| OpPoolError::NoAttestationsForSlotCommittee)?
+            .iter()
+            .filter(|(key, _)| key.domain_bytes_match(&curr_domain_bytes))
+            .next()
+            .map(|(_key, attestation)| attestation.clone())
+            .ok_or_else(|| OpPoolError::NoAttestationsForSlotCommittee)
     }
 
     /// Get a list of attestations for inclusion in a block.
@@ -189,8 +206,9 @@ impl<T: EthSpec> OperationPool<T> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
-        let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
-        let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
+        let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, &state.fork, spec);
+        let curr_domain_bytes =
+            AttestationId::compute_domain_bytes(current_epoch, &state.fork, spec);
         let reader = self.aggregate_attestations.read();
         let active_indices = state
             .get_cached_active_validator_indices(RelativeEpoch::Current)
@@ -282,8 +300,8 @@ impl<T: EthSpec> OperationPool<T> {
         spec: &ChainSpec,
     ) -> (AttestationId, AttestationId) {
         (
-            AttestationId::from_data(&slashing.attestation_1.data, state, spec),
-            AttestationId::from_data(&slashing.attestation_2.data, state, spec),
+            AttestationId::from_data(&slashing.attestation_1.data, &state.fork, spec),
+            AttestationId::from_data(&slashing.attestation_2.data, &state.fork, spec),
         )
     }
 
@@ -399,14 +417,14 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert a voluntary exit, validating it almost-entirely (future exits are permitted).
     pub fn insert_voluntary_exit(
         &self,
-        exit: VoluntaryExit,
+        exit: SignedVoluntaryExit,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), ExitValidationError> {
         verify_exit_time_independent_only(state, &exit, VerifySignatures::True, spec)?;
         self.voluntary_exits
             .write()
-            .insert(exit.validator_index, exit);
+            .insert(exit.message.validator_index, exit);
         Ok(())
     }
 
@@ -415,7 +433,7 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
-    ) -> Vec<VoluntaryExit> {
+    ) -> Vec<SignedVoluntaryExit> {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
             |exit| verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),
@@ -650,7 +668,7 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         }
 
@@ -719,9 +737,9 @@ mod release_tests {
                 None,
             );
             op_pool
-                .insert_attestation(att.clone(), state, spec)
+                .insert_attestation(att.clone(), &state.fork, spec)
                 .unwrap();
-            op_pool.insert_attestation(att, state, spec).unwrap();
+            op_pool.insert_attestation(att, &state.fork, spec).unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -758,7 +776,7 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         }
 
@@ -806,7 +824,7 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         };
 
@@ -879,7 +897,7 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         };
 
@@ -919,8 +937,14 @@ mod release_tests {
 
         for att in &best_attestations {
             let fresh_validators_bitlist = earliest_attestation_validators(att, state);
-            let att_indices =
-                get_attesting_indices(state, &att.data, &fresh_validators_bitlist).unwrap();
+            let committee = state
+                .get_beacon_committee(att.data.slot, att.data.index)
+                .expect("should get beacon committee");
+            let att_indices = get_attesting_indices::<MainnetEthSpec>(
+                committee.committee,
+                &fresh_validators_bitlist,
+            )
+            .unwrap();
             let fresh_indices = &att_indices - &seen_indices;
 
             let rewards = fresh_indices

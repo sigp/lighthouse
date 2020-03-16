@@ -5,6 +5,7 @@ use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+    StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use futures::{Future, Stream};
@@ -14,7 +15,7 @@ use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscripti
 use slog::{error, info, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, BeaconBlock, BeaconState, Epoch, RelativeEpoch, Slot, SignedAggregateAndProof, Domain};
+use types::{Attestation, SignedBeaconBlock, BeaconState, Epoch, RelativeEpoch, Slot, SignedAggregateAndProof};
 use rayon::prelude::*;
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -121,7 +122,7 @@ pub fn get_all_validator_duties<T: BeaconChainTypes>(
 
     let epoch = query.epoch()?;
 
-    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let validator_pubkeys = state
         .validators
@@ -143,7 +144,7 @@ pub fn get_active_validator_duties<T: BeaconChainTypes>(
 
     let epoch = query.epoch()?;
 
-    let state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let validator_pubkeys = state
         .validators
@@ -161,6 +162,7 @@ pub fn get_active_validator_duties<T: BeaconChainTypes>(
 pub fn get_state_for_epoch<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     epoch: Epoch,
+    config: StateSkipConfig,
 ) -> Result<BeaconState<T::EthSpec>, ApiError> {
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
     let head_epoch = beacon_chain.head()?.beacon_state.current_epoch();
@@ -180,7 +182,7 @@ pub fn get_state_for_epoch<T: BeaconChainTypes>(
             (epoch + 2).start_slot(slots_per_epoch) - 1
         };
 
-        beacon_chain.state_at_slot(slot).map_err(|e| {
+        beacon_chain.state_at_slot(slot, config).map_err(|e| {
             ApiError::ServerError(format!("Unable to load state for epoch {}: {:?}", epoch, e))
         })
     }
@@ -192,7 +194,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     validator_pubkeys: Vec<PublicKeyBytes>,
 ) -> Result<Vec<ValidatorDutyBytes>, ApiError> {
-    let mut state = get_state_for_epoch(&beacon_chain, epoch)?;
+    let mut state = get_state_for_epoch(&beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
         .map_err(|_| ApiError::ServerError(String::from("Loaded state is in the wrong epoch")))?;
@@ -308,7 +310,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&new_block)
 }
 
-/// HTTP Handler to publish a BeaconBlock, which has been signed by a validator.
+/// HTTP Handler to publish a SignedBeaconBlock, which has been signed by a validator.
 pub fn publish_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -324,11 +326,11 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
             .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
             .and_then(|chunks| {
                 serde_json::from_slice(&chunks).map_err(|e| {
-                    ApiError::BadRequest(format!("Unable to parse JSON into BeaconBlock: {:?}", e))
+                    ApiError::BadRequest(format!("Unable to parse JSON into SignedBeaconBlock: {:?}", e))
                 })
             })
-            .and_then(move |block: BeaconBlock<T::EthSpec>| {
-                let slot = block.slot;
+            .and_then(move |block: SignedBeaconBlock<T::EthSpec>| {
+                let slot = block.slot();
                 match beacon_chain.process_block(block.clone()) {
                     Ok(BlockProcessingOutcome::Processed { block_root }) => {
                         // Block was processed, publish via gossipsub
@@ -381,7 +383,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                         );
 
                         Err(ApiError::ProcessingError(format!(
-                            "The BeaconBlock could not be processed and has not been published: {:?}",
+                            "The SignedBeaconBlock could not be processed and has not been published: {:?}",
                             outcome
                         )))
                     }
@@ -549,16 +551,11 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                 // TODO: Double check speed and logic consistency of handling current fork vs
                 // validator fork for signatures.
                 let beacon_state = beacon_chain.head()?.beacon_state;
-                let domain = beacon_chain.spec.get_domain(
-                    beacon_state.slot.epoch(T::EthSpec::slots_per_epoch()),
-                    Domain::AggregateAndProof,
-                    &beacon_state.fork,
-                );
 
                 signed_proofs.par_iter().try_for_each(|signed_proof| {
                     let agg_proof = &signed_proof.message;
                     let validator_pubkey = &beacon_state.get_validator_pubkey(agg_proof.aggregator_index)?;
-                    if signed_proof.is_valid_signature(validator_pubkey, domain) {
+                    if signed_proof.is_valid(validator_pubkey, &beacon_state.fork) {
                 
                 let attestation = &agg_proof.aggregate;
                 match beacon_chain.process_attestation(attestation.clone(), Some(false)) {

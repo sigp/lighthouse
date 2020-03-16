@@ -6,8 +6,8 @@ use ssz::{Decode, Encode};
 use std::boxed::Box;
 use types::SubnetId;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    VoluntaryExit,
+    Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, VoluntaryExit,
 };
 
 /// Messages that are passed to and from the pubsub (Gossipsub) behaviour.
@@ -22,7 +22,7 @@ pub struct PubsubMessage<T: EthSpec> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubData<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
-    BeaconBlock(Box<BeaconBlock<T>>),
+    BeaconBlock(Box<SignedBeaconBlock<T>>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -110,7 +110,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     ));
                                 }
                                 GossipKind::BeaconBlock => {
-                                    let beacon_block = BeaconBlock::from_ssz_bytes(data)
+                                    let beacon_block = SignedBeaconBlock::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
                                     return Ok(PubsubMessage::new(
                                         encoding,

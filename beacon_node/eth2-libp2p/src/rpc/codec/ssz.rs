@@ -10,7 +10,7 @@ use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use tokio::codec::{Decoder, Encoder};
-use types::{BeaconBlock, EthSpec};
+use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::UviBytes;
 
 /* Inbound Codec */
@@ -209,13 +209,13 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
                         }
                         RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
                             "1" => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                BeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                                SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
                             )))),
                             _ => unreachable!("Cannot negotiate an unknown version"),
                         },
                         RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
                             "1" => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                BeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                                SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
                             )))),
                             _ => unreachable!("Cannot negotiate an unknown version"),
                         },

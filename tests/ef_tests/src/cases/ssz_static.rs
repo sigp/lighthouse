@@ -6,7 +6,6 @@ use cached_tree_hash::{CacheArena, CachedTreeHash};
 use serde_derive::Deserialize;
 use std::fs;
 use std::marker::PhantomData;
-use tree_hash::SignedRoot;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -17,13 +16,6 @@ struct SszStaticRoots {
 
 #[derive(Debug, Clone)]
 pub struct SszStatic<T> {
-    roots: SszStaticRoots,
-    serialized: Vec<u8>,
-    value: T,
-}
-
-#[derive(Debug, Clone)]
-pub struct SszStaticSR<T> {
     roots: SszStaticRoots,
     serialized: Vec<u8>,
     value: T,
@@ -46,16 +38,6 @@ fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u
 }
 
 impl<T: SszStaticType> LoadCase for SszStatic<T> {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
-        load_from_dir(path).map(|(roots, serialized, value)| Self {
-            roots,
-            serialized,
-            value,
-        })
-    }
-}
-
-impl<T: SszStaticType + SignedRoot> LoadCase for SszStaticSR<T> {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
         load_from_dir(path).map(|(roots, serialized, value)| Self {
             roots,
@@ -100,23 +82,7 @@ pub fn check_tree_hash(expected_str: &str, actual_root: &[u8]) -> Result<(), Err
 impl<T: SszStaticType> Case for SszStatic<T> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized)?;
-        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
-        Ok(())
-    }
-}
-
-impl<T: SszStaticType + SignedRoot> Case for SszStaticSR<T> {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
-        check_serialization(&self.value, &self.serialized)?;
-        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
-        check_tree_hash(
-            &self
-                .roots
-                .signing_root
-                .as_ref()
-                .expect("signed root exists"),
-            &self.value.signed_root(),
-        )?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
         Ok(())
     }
 }
@@ -124,7 +90,7 @@ impl<T: SszStaticType + SignedRoot> Case for SszStaticSR<T> {
 impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> Case for SszStaticTHC<T, C> {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized)?;
-        check_tree_hash(&self.roots.root, &self.value.tree_hash_root())?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
 
         let arena = &mut CacheArena::default();
         let mut cache = self.value.new_tree_hash_cache(arena);

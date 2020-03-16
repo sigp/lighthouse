@@ -1,5 +1,5 @@
 use crate::{ApiError, ApiResult, NetworkChannel};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
 use eth2_libp2p::types::GossipEncoding;
 use eth2_libp2p::{PubsubData, PubsubMessage};
@@ -10,8 +10,8 @@ use network::NetworkMessage;
 use ssz::Decode;
 use store::{iter::AncestorIter, Store};
 use types::{
-    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, SignedAggregateAndProof, Slot,
+    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
 /// Parse a slot.
@@ -110,7 +110,7 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     }
 }
 
-/// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
+/// Returns the root of the `SignedBeaconBlock` in the canonical chain of `beacon_chain` at the given
 /// `slot`, if possible.
 ///
 /// May return a root for a previous slot, in the case of skip slots.
@@ -139,7 +139,7 @@ pub fn state_at_slot<T: BeaconChainTypes>(
     if head.beacon_state.slot == slot {
         Ok((head.beacon_state_root, head.beacon_state))
     } else {
-        let root = state_root_at_slot(beacon_chain, slot)?;
+        let root = state_root_at_slot(beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
 
         let state: BeaconState<T::EthSpec> = beacon_chain
             .store
@@ -158,6 +158,7 @@ pub fn state_at_slot<T: BeaconChainTypes>(
 pub fn state_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
+    config: StateSkipConfig,
 ) -> Result<Hash256, ApiError> {
     let head_state = &beacon_chain.head()?.beacon_state;
     let current_slot = beacon_chain
@@ -203,11 +204,16 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         let mut state = beacon_chain.head()?.beacon_state;
         let spec = &T::EthSpec::default_spec();
 
+        let skip_state_root = match config {
+            StateSkipConfig::WithStateRoots => None,
+            StateSkipConfig::WithoutStateRoots => Some(Hash256::zero()),
+        };
+
         for _ in state.slot.as_u64()..slot.as_u64() {
             // Ensure the next epoch state caches are built in case of an epoch transition.
             state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-            state_processing::per_slot_processing(&mut state, None, spec)?;
+            state_processing::per_slot_processing(&mut state, skip_state_root, spec)?;
         }
 
         // Note: this is an expensive operation. Once the tree hash cache is implement it may be
@@ -224,7 +230,7 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     mut chan: NetworkChannel<T::EthSpec>,
-    block: BeaconBlock<T::EthSpec>,
+    block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // send the block via SSZ encoding
     let messages = vec![PubsubMessage::new(

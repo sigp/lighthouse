@@ -10,7 +10,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod block_at_slot;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
@@ -83,13 +82,18 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Store a block in the store.
-    fn put_block(&self, block_root: &Hash256, block: BeaconBlock<E>) -> Result<(), Error> {
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
         self.put(block_root, &block)
     }
 
     /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock<E>>, Error> {
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
         self.get(block_root)
+    }
+
+    /// Delete a block from the store.
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
+        self.delete::<SignedBeaconBlock<E>>(block_root)
     }
 
     /// Store a state in the store.
@@ -124,17 +128,9 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         self.get_state(state_root, slot)
     }
 
-    /// Given the root of an existing block in the store (`start_block_root`), return a parent
-    /// block with the specified `slot`.
-    ///
-    /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
-    /// slot of `start_block_root`.
-    fn get_block_at_preceeding_slot(
-        &self,
-        start_block_root: Hash256,
-        slot: Slot,
-    ) -> Result<Option<(Hash256, BeaconBlock<E>)>, Error> {
-        block_at_slot::get_block_at_preceeding_slot::<_, E>(self, slot, start_block_root)
+    /// Delete a state from the store.
+    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error> {
+        self.key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())
     }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
@@ -195,7 +191,11 @@ pub enum DBColumn {
     BeaconMeta,
     BeaconBlock,
     BeaconState,
+    /// For persisting in-memory state to the database.
     BeaconChain,
+    OpPool,
+    Eth1Cache,
+    ForkChoice,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
     /// For the mapping from state roots to their slots or summaries.
@@ -215,6 +215,9 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",
+            DBColumn::OpPool => "opo",
+            DBColumn::Eth1Cache => "etc",
+            DBColumn::ForkChoice => "frk",
             DBColumn::BeaconRestorePoint => "brp",
             DBColumn::BeaconStateSummary => "bss",
             DBColumn::BeaconBlockRoots => "bbr",

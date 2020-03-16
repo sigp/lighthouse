@@ -5,7 +5,7 @@ use futures::Future;
 use genesis::{Eth1Config, Eth1GenesisService};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::{Epoch, EthSpec, Fork};
+use types::EthSpec;
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
@@ -40,11 +40,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             )
         })?;
 
-    spec.genesis_fork = Fork {
-        previous_version: [0, 0, 0, 0],
-        current_version: [1, 3, 3, 7],
-        epoch: Epoch::new(0),
-    };
+    spec.genesis_fork_version = [1, 3, 3, 7];
 
     let mut config = Eth1Config::default();
     config.endpoint = endpoint.to_string();

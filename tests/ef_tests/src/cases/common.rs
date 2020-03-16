@@ -50,7 +50,7 @@ macro_rules! uint_wrapper {
                 <$wrapped_type>::tree_hash_packing_factor()
             }
 
-            fn tree_hash_root(&self) -> Vec<u8> {
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
                 self.x.tree_hash_root()
             }
         }

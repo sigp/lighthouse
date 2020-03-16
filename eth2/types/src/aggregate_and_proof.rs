@@ -1,9 +1,8 @@
-use super::{Attestation, ChainSpec, Domain, EthSpec, Fork, PublicKey, SecretKey, Signature};
+use super::{Attestation, Domain, EthSpec, Fork, PublicKey, SecretKey, Signature, SignedRoot};
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 /// A Validators aggregate attestation and selection proof.
@@ -22,23 +21,20 @@ pub struct AggregateAndProof<T: EthSpec> {
 }
 
 impl<T: EthSpec> AggregateAndProof<T> {
-    pub fn is_valid_selection_proof(&self, validator_pubkey: &PublicKey) -> bool {
-        let message = self.aggregate.data.slot.as_u64().tree_hash_root();
-        // FIXME(sproul): remove domain when merging with v0.10 branch
-        self.selection_proof.verify(&message, 0, validator_pubkey)
+    pub fn is_valid_selection_proof(&self, validator_pubkey: &PublicKey, fork: &Fork) -> bool {
+        let target_epoch = self.aggregate.data.slot.epoch(T::slots_per_epoch());
+        let domain = T::default_spec().get_domain(target_epoch, Domain::SelectionProof, fork);
+        let message = self.aggregate.data.slot.signing_root(domain);
+        self.selection_proof
+            .verify(message.as_bytes(), validator_pubkey)
     }
 
     /// Converts Self into a SignedAggregateAndProof.
-    pub fn into_signed(
-        self,
-        secret_key: &SecretKey,
-        fork: &Fork,
-        spec: &ChainSpec,
-    ) -> SignedAggregateAndProof<T> {
-        let sign_message = self.tree_hash_root();
+    pub fn into_signed(self, secret_key: &SecretKey, fork: &Fork) -> SignedAggregateAndProof<T> {
         let target_epoch = self.aggregate.data.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(target_epoch, Domain::AggregateAndProof, &fork);
-        let signature = Signature::new(&sign_message, domain, &secret_key);
+        let domain = T::default_spec().get_domain(target_epoch, Domain::AggregateAndProof, fork);
+        let sign_message = self.signing_root(domain);
+        let signature = Signature::new(sign_message.as_bytes(), &secret_key);
 
         SignedAggregateAndProof {
             message: self,
@@ -46,6 +42,8 @@ impl<T: EthSpec> AggregateAndProof<T> {
         }
     }
 }
+
+impl<T: EthSpec> SignedRoot for AggregateAndProof<T> {}
 
 /// A Validators signed aggregate proof to publish on the `beacon_aggregate_and_proof`
 /// gossipsub topic.
@@ -60,9 +58,23 @@ pub struct SignedAggregateAndProof<T: EthSpec> {
     pub signature: Signature,
 }
 
+impl<T: EthSpec> SignedRoot for SignedAggregateAndProof<T> {}
+
 impl<T: EthSpec> SignedAggregateAndProof<T> {
-    pub fn is_valid_signature(&self, validator_pubkey: &PublicKey, domain: u64) -> bool {
-        let message = self.message.tree_hash_root();
-        self.signature.verify(&message, domain, validator_pubkey)
+    /// Verifies the signature of the `AggregateAndProof`
+    pub fn is_valid_signature(&self, validator_pubkey: &PublicKey, fork: &Fork) -> bool {
+        let target_epoch = self.message.aggregate.data.slot.epoch(T::slots_per_epoch());
+        let domain = T::default_spec().get_domain(target_epoch, Domain::AggregateAndProof, fork);
+        let message = self.signing_root(domain);
+        self.signature.verify(message.as_bytes(), validator_pubkey)
+    }
+
+    /// Verifies the signature of the `AggregateAndProof` as well the underlying selection_proof in
+    /// the contained `AggregateAndProof`.
+    pub fn is_valid(&self, validator_pubkey: &PublicKey, fork: &Fork) -> bool {
+        self.is_valid_signature(validator_pubkey, fork)
+            && self
+                .message
+                .is_valid_selection_proof(validator_pubkey, fork)
     }
 }

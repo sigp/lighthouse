@@ -2,7 +2,9 @@ use crate::attestation_id::AttestationId;
 use crate::OperationPool;
 use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use store::{DBColumn, Error as StoreError, SimpleStoreItem};
 use types::*;
 
 /// SSZ-serializable version of `OperationPool`.
@@ -23,7 +25,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     /// Proposer slashings.
     proposer_slashings: Vec<ProposerSlashing>,
     /// Voluntary exits.
-    voluntary_exits: Vec<VoluntaryExit>,
+    voluntary_exits: Vec<SignedVoluntaryExit>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
@@ -88,7 +90,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         let voluntary_exits = RwLock::new(
             self.voluntary_exits
                 .into_iter()
-                .map(|exit| (exit.validator_index, exit))
+                .map(|exit| (exit.message.validator_index, exit))
                 .collect(),
         );
 
@@ -100,5 +102,19 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             voluntary_exits,
             _phantom: Default::default(),
         }
+    }
+}
+
+impl<T: EthSpec> SimpleStoreItem for PersistedOperationPool<T> {
+    fn db_column() -> DBColumn {
+        DBColumn::OpPool
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }

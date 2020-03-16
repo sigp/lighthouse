@@ -3,8 +3,7 @@ use eth2_hashing::hash;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use tree_hash::TreeHash;
-use types::{ChainSpec, CommitteeIndex, Domain, Epoch, Fork, Slot};
+use types::{ChainSpec, CommitteeIndex, Domain, Epoch, Fork, SignedRoot, Slot};
 
 /// A Validator duty with the validator public key represented a `PublicKeyBytes`.
 pub type ValidatorDutyBytes = ValidatorDutyBase<PublicKeyBytes>;
@@ -99,8 +98,8 @@ impl ValidatorSubscription {
             Domain::SelectionProof,
             &fork,
         );
-        let message = self.slot.as_u64().tree_hash_root();
-        if self.slot_signature.verify(&message, domain, pubkey) {
+        let message = self.slot.signing_root(domain);
+        if self.slot_signature.verify(message.as_bytes(), pubkey) {
             true
         } else {
             false
