@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::prelude::*;
-use types::{BeaconBlock, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
+use types::{
+    BeaconBlock, Epoch, EthSpec, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
+};
 
 mod common;
 
@@ -148,7 +150,12 @@ fn test_blocks_by_range_chunked_rpc() {
 
     // BlocksByRange Response
     let spec = E::default_spec();
-    let rpc_response = RPCResponse::BlocksByRange(Box::new(BeaconBlock::empty(&spec)));
+    let empty_block = BeaconBlock::empty(&spec);
+    let empty_signed = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let rpc_response = RPCResponse::BlocksByRange(Box::new(empty_signed));
 
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();
@@ -276,7 +283,12 @@ fn test_blocks_by_range_single_empty_rpc() {
 
     // BlocksByRange Response
     let spec = E::default_spec();
-    let rpc_response = RPCResponse::BlocksByRange(Box::new(BeaconBlock::empty(&spec)));
+    let empty_block = BeaconBlock::empty(&spec);
+    let empty_signed = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let rpc_response = RPCResponse::BlocksByRange(Box::new(empty_signed));
 
     let sender_request = rpc_request.clone();
     let sender_log = log.clone();

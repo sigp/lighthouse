@@ -1,6 +1,6 @@
 #![cfg(test)]
 use crate::types::GossipEncoding;
-use ::types::{BeaconBlock, EthSpec, MinimalEthSpec};
+use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
 use eth2_libp2p::*;
 use futures::prelude::*;
 use slog::{debug, Level};
@@ -28,7 +28,12 @@ fn test_gossipsub_forward() {
     let mut nodes = common::build_linear(log.clone(), num_nodes, Some(19000));
     let mut received_count = 0;
     let spec = E::default_spec();
-    let data = PubsubData::BeaconBlock(Box::new(BeaconBlock::empty(&spec)));
+    let empty_block = BeaconBlock::empty(&spec);
+    let signed_block = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let data = PubsubData::BeaconBlock(Box::new(signed_block));
     let pubsub_message = PubsubMessage::new(GossipEncoding::SSZ, data);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
     let mut subscribed_count = 0;
@@ -94,7 +99,12 @@ fn test_gossipsub_full_mesh_publish() {
     let mut nodes = common::build_full_mesh(log, num_nodes, Some(11320));
     let mut publishing_node = nodes.pop().unwrap();
     let spec = E::default_spec();
-    let data = PubsubData::BeaconBlock(Box::new(BeaconBlock::empty(&spec)));
+    let empty_block = BeaconBlock::empty(&spec);
+    let signed_block = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let data = PubsubData::BeaconBlock(Box::new(signed_block));
     let pubsub_message = PubsubMessage::new(GossipEncoding::SSZ, data);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
     let mut subscribed_count = 0;

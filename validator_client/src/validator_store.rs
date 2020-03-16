@@ -213,9 +213,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             &self.fork()?,
         );
 
-        let message = slot.as_u64().tree_hash_root();
+        let message = slot.signing_root(domain);
 
-        Some(Signature::new(&message, domain, &voting_keypair.sk))
+        Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
     }
 
     /// Signs an `AggregateAndProof` for a given validator.
@@ -230,6 +230,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let validators = self.validators.read();
         let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
 
-        Some(aggregate_and_proof.into_signed(&voting_keypair.sk, &self.fork()?, &self.spec))
+        Some(aggregate_and_proof.into_signed(&voting_keypair.sk, &self.fork()?))
     }
 }
