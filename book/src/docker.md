@@ -78,7 +78,7 @@ $ docker run -p 9000:9000 sigp/lighthouse lighthouse beacon
 ```
 
 If you use the `--http` flag you may also want to expose the HTTP port with `-p
-5052:5052`.
+127.0.0.1:5052:5052`.
 
 ```bash
 $ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 sigp/lighthouse lighthouse beacon --http --http-address 0.0.0.0
