@@ -54,18 +54,8 @@ fn process_batch<T: BeaconChainTypes>(
     batch: &Batch<T::EthSpec>,
     log: &slog::Logger,
 ) -> Result<(), String> {
-    let blocks = if let Some(0) = batch
-        .downloaded_blocks
-        .first()
-        .map(|block| block.slot().as_u64())
-    {
-        batch.downloaded_blocks[1..].to_vec()
-    } else {
-        batch.downloaded_blocks.clone()
-    };
-
     if let Some(chain) = chain.upgrade() {
-        match chain.process_chain_segment(blocks.clone()) {
+        match chain.process_chain_segment(batch.downloaded_blocks.clone()) {
             Ok(roots) => {
                 trace!(
                     log, "Imported blocks from network";
