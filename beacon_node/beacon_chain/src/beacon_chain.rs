@@ -1181,20 +1181,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .slot()
                 .epoch(T::EthSpec::slots_per_epoch());
 
-            // The `last_index` indicates the position of the last block that is in the current or
-            // next epoch of `start_epoch`.
+            // The `last_index` indicates the position of the last block that is in the current
+            // epoch of `start_epoch`.
             let last_index = filtered_chain_segment
                 .iter()
                 .position(|(_root, block)| {
-                    block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch + 1
+                    block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
                 })
                 // Subtraction cannot underflow since the `position` call cannot match on 0.
                 .map(|i| i - 1)
                 .unwrap_or_else(|| filtered_chain_segment.len());
 
-            // Split off the first section blocks that are all either within the current or next
-            // epoch of the first block. Due to the shuffling look-ahead of one epoch, these blocks
-            // can all be signature-verified with the same `BeaconState`.
+            // Split off the first section blocks that are all either within the current epoch of
+            // the first block. These blocks can all be signature-verified with the same
+            // `BeaconState`.
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
