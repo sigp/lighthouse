@@ -120,12 +120,12 @@ fn chain_segment_full_segment() {
     // Sneak in a little check to ensure we can process empty chain segments.
     harness
         .chain
-        .import_chain_segment(vec![])
+        .process_chain_segment(vec![])
         .expect("should import empty chain segment");
 
     harness
         .chain
-        .import_chain_segment(blocks.clone())
+        .process_chain_segment(blocks.clone())
         .expect("should import chain segment");
 
     harness.chain.fork_choice().expect("should run fork choice");
@@ -155,7 +155,7 @@ fn chain_segment_varying_chunk_size() {
         for chunk in blocks.chunks(*chunk_size) {
             harness
                 .chain
-                .import_chain_segment(chunk.to_vec())
+                .process_chain_segment(chunk.to_vec())
                 .expect(&format!(
                     "should import chain segment of len {}",
                     chunk_size
@@ -191,7 +191,7 @@ fn chain_segment_non_linear_parent_roots() {
     blocks.remove(2);
 
     assert_eq!(
-        harness.chain.import_chain_segment(blocks.clone()),
+        harness.chain.process_chain_segment(blocks.clone()),
         Err(BlockError::NonLinearParentRoots),
         "should not import chain with missing parent"
     );
@@ -203,7 +203,7 @@ fn chain_segment_non_linear_parent_roots() {
     blocks[3].message.parent_root = Hash256::zero();
 
     assert_eq!(
-        harness.chain.import_chain_segment(blocks.clone()),
+        harness.chain.process_chain_segment(blocks.clone()),
         Err(BlockError::NonLinearParentRoots),
         "should not import chain with a broken parent root link"
     );
@@ -225,7 +225,7 @@ fn chain_segment_non_linear_slots() {
     blocks[3].message.slot = Slot::new(0);
 
     assert_eq!(
-        harness.chain.import_chain_segment(blocks.clone()),
+        harness.chain.process_chain_segment(blocks.clone()),
         Err(BlockError::NonLinearSlots),
         "should not import chain with a parent that has a lower slot than its child"
     );
@@ -238,7 +238,7 @@ fn chain_segment_non_linear_slots() {
     blocks[3].message.slot = blocks[2].message.slot;
 
     assert_eq!(
-        harness.chain.import_chain_segment(blocks.clone()),
+        harness.chain.process_chain_segment(blocks.clone()),
         Err(BlockError::NonLinearSlots),
         "should not import chain with a parent that has an equal slot to its child"
     );
@@ -263,16 +263,16 @@ fn invalid_signatures() {
             .collect();
         harness
             .chain
-            .import_chain_segment(ancestor_blocks)
+            .process_chain_segment(ancestor_blocks)
             .expect("should import all blocks prior to the one being tested");
 
         // For the given snapshots, test the following:
         //
-        // - The `import_chain_segment` function returns `InvalidSignature`.
-        // - The `import_block` function returns `InvalidSignature` when importing the
+        // - The `process_chain_segment` function returns `InvalidSignature`.
+        // - The `process_block` function returns `InvalidSignature` when importing the
         //    `SignedBeaconBlock` directly.
         // - The `verify_block_for_gossip` function does _not_ return an error.
-        // - The `import_block` function returns `InvalidSignature` when verifying the
+        // - The `process_block` function returns `InvalidSignature` when verifying the
         //    GossipVerifiedBlock.
         let assert_invalid_signature = |snapshots: &[BeaconSnapshot<E>], item: &str| {
             let blocks = snapshots
@@ -282,7 +282,7 @@ fn invalid_signatures() {
 
             // Ensure the block will be rejected if imported in a chain segment.
             assert_eq!(
-                harness.chain.import_chain_segment(blocks),
+                harness.chain.process_chain_segment(blocks),
                 Err(BlockError::InvalidSignature),
                 "should not import chain segment with an invalid {} signature",
                 item
@@ -292,7 +292,7 @@ fn invalid_signatures() {
             assert_eq!(
                 harness
                     .chain
-                    .import_block(snapshots[block_index].beacon_block.clone()),
+                    .process_block(snapshots[block_index].beacon_block.clone()),
                 Err(BlockError::InvalidSignature),
                 "should not import individual block with an invalid {} signature",
                 item
@@ -303,7 +303,7 @@ fn invalid_signatures() {
                 .verify_block_for_gossip(snapshots[block_index].beacon_block.clone())
                 .expect("should obtain gossip verified block");
             assert_eq!(
-                harness.chain.import_block(gossip_verified),
+                harness.chain.process_block(gossip_verified),
                 Err(BlockError::InvalidSignature),
                 "should not import gossip verified block with an invalid {} signature",
                 item
@@ -321,7 +321,7 @@ fn invalid_signatures() {
             .collect();
         // Ensure the block will be rejected if imported in a chain segment.
         assert_eq!(
-            harness.chain.import_chain_segment(blocks),
+            harness.chain.process_chain_segment(blocks),
             Err(BlockError::InvalidSignature),
             "should not import chain segment with an invalid gossip signature",
         );
@@ -329,7 +329,7 @@ fn invalid_signatures() {
         assert_eq!(
             harness
                 .chain
-                .import_block(snapshots[block_index].beacon_block.clone()),
+                .process_block(snapshots[block_index].beacon_block.clone()),
             Err(BlockError::InvalidSignature),
             "should not import individual block with an invalid gossip signature",
         );
@@ -456,7 +456,7 @@ fn invalid_signatures() {
             .map(|snapshot| snapshot.beacon_block.clone())
             .collect();
         assert!(
-            harness.chain.import_chain_segment(blocks) != Err(BlockError::InvalidSignature),
+            harness.chain.process_chain_segment(blocks) != Err(BlockError::InvalidSignature),
             "should not throw an invalid signature error for a bad deposit signature"
         );
 
@@ -516,7 +516,7 @@ fn gossip_verification() {
 
         harness
             .chain
-            .import_block(gossip_verified)
+            .process_block(gossip_verified)
             .expect("should import valid gossip verfied block");
     }
 

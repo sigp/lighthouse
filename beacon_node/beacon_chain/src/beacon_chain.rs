@@ -8,7 +8,6 @@ use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
-use crate::partial_block_verification::PartialBlockVerification;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -18,27 +17,22 @@ use crate::BeaconSnapshot;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
-use ssz::Encode;
 use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
     ProposerSlashingValidationError,
 };
 use state_processing::{
     common::get_indexed_attestation, per_block_processing, per_slot_processing,
-    signature_sets::indexed_attestation_signature_set_from_pubkeys, BlockProcessingError,
-    BlockSignatureStrategy, BlockSignatureVerifier,
+    signature_sets::indexed_attestation_signature_set_from_pubkeys, BlockSignatureStrategy,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::fs;
-use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{Error as DBError, Migrate, StateBatch, Store};
-use tree_hash::TreeHash;
+use store::{Error as DBError, Migrate, Store};
 use types::*;
 
 // Text included in blocks.
@@ -46,15 +40,6 @@ use types::*;
 //
 //                          |-------must be this long------|
 pub const GRAFFITI: &str = "sigp/lighthouse-0.1.1-prerelease";
-
-/// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
-/// files in the temp directory.
-///
-/// Only useful for testing.
-const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
-
-/// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
-const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 
 /// The time-out before failure during an operation to take a read/write RwLock on the canonical
 /// head.
@@ -75,40 +60,6 @@ pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
 pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
 pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
-
-#[derive(Debug, PartialEq)]
-pub enum BlockProcessingOutcome {
-    /// Block was valid and imported into the block graph.
-    Processed {
-        block_root: Hash256,
-    },
-    InvalidSignature,
-    /// The parent block was unknown.
-    ParentUnknown(Hash256),
-    /// The block slot is greater than the present slot.
-    FutureSlot {
-        present_slot: Slot,
-        block_slot: Slot,
-    },
-    /// The block state_root does not match the generated state.
-    StateRootMismatch {
-        block: Hash256,
-        local: Hash256,
-    },
-    /// The block was a genesis block, these blocks cannot be re-imported.
-    GenesisBlock,
-    /// The slot is finalized, no need to import.
-    WouldRevertFinalizedSlot {
-        block_slot: Slot,
-        finalized_slot: Slot,
-    },
-    /// Block is already known, no need to re-import.
-    BlockIsAlreadyKnown,
-    /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
-    BlockSlotLimitReached,
-    /// The block could not be applied to the state, it is invalid.
-    PerBlockProcessingError(BlockProcessingError),
-}
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
@@ -1898,49 +1849,6 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
                 self.log,
                 "Saved beacon chain to disk";
             )
-        }
-    }
-}
-
-fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
-    if WRITE_BLOCK_PROCESSING_SSZ {
-        let root = state.tree_hash_root();
-        let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
-        let mut path = std::env::temp_dir().join("lighthouse");
-        let _ = fs::create_dir_all(path.clone());
-        path = path.join(filename);
-
-        match fs::File::create(path.clone()) {
-            Ok(mut file) => {
-                let _ = file.write_all(&state.as_ssz_bytes());
-            }
-            Err(e) => error!(
-                log,
-                "Failed to log state";
-                "path" => format!("{:?}", path),
-                "error" => format!("{:?}", e)
-            ),
-        }
-    }
-}
-
-fn write_block<T: EthSpec>(block: &BeaconBlock<T>, root: Hash256, log: &Logger) {
-    if WRITE_BLOCK_PROCESSING_SSZ {
-        let filename = format!("block_slot_{}_root{}.ssz", block.slot, root);
-        let mut path = std::env::temp_dir().join("lighthouse");
-        let _ = fs::create_dir_all(path.clone());
-        path = path.join(filename);
-
-        match fs::File::create(path.clone()) {
-            Ok(mut file) => {
-                let _ = file.write_all(&block.as_ssz_bytes());
-            }
-            Err(e) => error!(
-                log,
-                "Failed to log block";
-                "path" => format!("{:?}", path),
-                "error" => format!("{:?}", e)
-            ),
         }
     }
 }
