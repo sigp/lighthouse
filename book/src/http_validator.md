@@ -191,22 +191,22 @@ Returns a `BeaconBlock` object.
 
 ```json
 {
-    "slot": 100,
-    "parent_root": "0xb6528491793fcda1c0629a10886d0046a25e0f1375094304c2355d3db9594166",
-    "state_root": "0x8db5a59e109a30dd951fe40db6440659cae0f0c517f7c7025fee625a47e85eae",
+    "slot": 33,
+    "parent_root": "0xf54de54bd33e33aee4706cffff4bd991bcbf522f2551ab007180479c63f4fe912",
+    "state_root": "0x615c887bad27bc05754d627d941e1730e1b4c77b2eb4378c195ac8a8203bbf26",
     "body": {
-        "randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-        "eth1_data": {
-            "deposit_root": "0x66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
-            "deposit_count": 8,
-            "block_hash": "0x2b32db6c2c0a6235fb1397e8225ea85e0f0e6e8c7b126d0016ccbde0e667151e"
-        },
-        "graffiti": "0x736967702f6c69676874686f7573652d302e312e312d70726572656c65617365",
-        "proposer_slashings": [],
-        "attester_slashings": [],
-        "attestations": [],
-        "deposits": [],
-        "voluntary_exits": []
+      "randao_reveal": "0x8d7b2a32b026e9c79aae6ec6b83eabae89d60cacd65ac41ed7d2f4be9dd8c89c1bf7cd3d700374e18d03d12f6a054c23006f64f0e4e8b7cf37d6ac9a4c7d815c858120c54673b7d3cb2bb1550a4d659eaf46e34515677c678b70d6f62dbf89f",
+      "eth1_data": {
+        "deposit_root": "0x66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+        "deposit_count": 8,
+        "block_hash": "0x2b32db6c2c0a6235fb1397e8225ea85e0f0e6e8c7b126d0016ccbde0e667151e"
+      },
+      "graffiti": "0x736967702f6c69676874686f7573652d302e312e312d7076572656c65617365",
+      "proposer_slashings": [],
+      "attester_slashings": [],
+      "attestations": [],
+      "deposits": [],
+      "voluntary_exits": []
     }
 }
 ```
