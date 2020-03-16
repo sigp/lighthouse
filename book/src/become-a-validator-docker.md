@@ -93,17 +93,21 @@ If your beacon node hasn't finished syncing yet, you'll see some ERRO messages i
 validator_client_1  | Mar 16 11:34:36.086 ERRO Beacon node is not synced               current_epoch: 6999, node_head_epoch: 5531, service: duties
 ```
 
-It's safest to wait for your node to sync before moving onto the next step, otherwise your validator may activate before you're able to produce blocks and attestations. 
+It's safest to wait for your node to sync before moving onto the next step, otherwise your validator may activate before you're able to produce blocks and attestations (and you may be penalized as a result).
 
+However, since it generally takes somewhere between 4 and 8 hours after depositing for a validator to become active, if your `est_time` is less than 4 hours, you _should_ be fine to just move on to the next step. After all, this is a testnet and you're only risking Goerli ETH!
 
 ### Installation complete!
 
-In the next step you'll need to locate your `eth1_deposit_data.rlp` file from
-your `.lighthouse/validators` directory.
+In the next step you'll need to upload a file called `eth1_deposit_data.rlp`. 
 
-The `./lighthouse` directory is in the root of the `lighthouse-docker`
-repository. For example, if you ran Step 1 in `/home/karlm/` then you can find
-your validator directory in
-`/home/karlm/lighthouse-docker/.lighthouse/validators/`.
+This file is saved in `.lighthouse/validators` -- in the sub-directory that corresponds to your validator's public key (`voting_pubkey`).
 
-You can now go to [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).
+You'll find the `./lighthouse` directory in the root of the `lighthouse-docker`
+repository.
+
+> For example, if you ran Step 1 in `/home/karlm/`, and your validator's `voting_pubkey` is `0x8592c7..`, then you'll find your `eth1_deposit_data.rlp` in:
+>
+>`/home/karlm/lighthouse-docker/.lighthouse/validators/0x8592c7../`
+
+Once you've located your `eth1_deposit_data.rlp` file, you're ready to move onto [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).
