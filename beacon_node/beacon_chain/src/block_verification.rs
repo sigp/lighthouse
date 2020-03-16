@@ -57,7 +57,7 @@ use std::borrow::Cow;
 use store::{Error as DBError, StateBatch};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
-    RelativeEpoch, RelativeEpochError, SignedBeaconBlock, Slot,
+    RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 mod block_processing_outcome;
@@ -726,49 +726,38 @@ fn load_parent<T: BeaconChainTypes>(
 /// returned state might be holistically invalid but the committees will be correct (since they do
 /// not rely upon state roots).
 ///
-/// If the given `state` can already serve the `slot`, the committees will be build on the `state`
+/// If the given `state` can already serve the `slot`, the committees will be built on the `state`
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
-/// mutated to be invalid (or ever changed beyond a simple committee cache build).
+/// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
 fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state: &'a mut BeaconState<E>,
     block_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<Cow<'a, BeaconState<E>>, BlockError> {
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
-    let state_epoch = state.current_epoch();
 
-    if let Ok(relative_epoch) = RelativeEpoch::from_epoch(state_epoch, block_epoch) {
-        state
-            .build_committee_cache(relative_epoch, spec)
-            .map_err(|e| BlockError::BeaconChainError(BeaconChainError::BeaconStateError(e)))?;
-
-        state.build_committee_cache(relative_epoch, spec)?;
+    if state.current_epoch() == block_epoch {
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Borrowed(state))
+    } else if state.slot > block_slot {
+        Err(BlockError::BlockIsNotLaterThanParent {
+            block_slot,
+            state_slot: state.slot,
+        })
     } else {
-        let mut state = state.clone_with(CloneConfig::none());
+        let mut state = state.clone_with(CloneConfig::committee_caches_only());
 
-        let relative_epoch = loop {
-            match RelativeEpoch::from_epoch(state.current_epoch(), block_epoch) {
-                Ok(relative_epoch) => break relative_epoch,
-                Err(RelativeEpochError::EpochTooHigh { .. }) => {
-                    // Don't calculate state roots since they aren't required for calculating
-                    // shuffling (achieved by providing Hash256::zero()).
-                    per_slot_processing(&mut state, Some(Hash256::zero()), spec).map_err(|e| {
-                        BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e))
-                    })?;
-                }
-                Err(RelativeEpochError::EpochTooLow { .. }) => {
-                    return Err(BlockError::BlockIsNotLaterThanParent {
-                        block_slot,
-                        state_slot: state.slot,
-                    });
-                }
-            }
-        };
+        while state.current_epoch() < block_epoch {
+            // Don't calculate state roots since they aren't required for calculating
+            // shuffling (achieved by providing Hash256::zero()).
+            per_slot_processing(&mut state, Some(Hash256::zero()), spec).map_err(|e| {
+                BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e))
+            })?;
+        }
 
-        state.build_committee_cache(relative_epoch, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Owned(state))
     }
