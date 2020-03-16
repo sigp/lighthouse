@@ -1,5 +1,6 @@
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use enr::Enr;
+use libp2p::discv5::Discv5ConfigBuilder;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
@@ -20,12 +21,25 @@ pub struct Config {
     /// The TCP port that libp2p listens on.
     pub libp2p_port: u16,
 
-    /// The address to broadcast to peers about which address we are listening on. None indicates
-    /// that no discovery address has been set in the CLI args.
-    pub discovery_address: Option<std::net::IpAddr>,
-
     /// UDP port that discovery listens on.
     pub discovery_port: u16,
+
+    /// The address to broadcast to peers about which address we are listening on. None indicates
+    /// that no discovery address has been set in the CLI args.
+    pub enr_address: Option<std::net::IpAddr>,
+
+    /// The udp port to broadcast to peers in order to reach back for discovery.
+    pub enr_udp_port: Option<u16>,
+
+    /// Whether to allow discovery to automatically update the external address based on PONG
+    /// responses.
+    pub auto_update_enr_address: bool,
+
+    /// An optional parameter to specify the discovery address as a DNS entry. Lighthouse will
+    /// periodically check the DNS address and update the local ENR node record if the IP changes.
+    ///
+    /// Note: A value here will disable `auto_update_enr_address`.
+    pub enr_dns_address: Option<String>,
 
     /// Target number of connected peers.
     pub max_peers: usize,
@@ -39,6 +53,9 @@ pub struct Config {
     /// Gossipsub configuration parameters.
     #[serde(skip)]
     pub gs_config: GossipsubConfig,
+
+    /// Discv5 configuration parameters.
+    pub discv5_config: Discv5Config,
 
     /// List of nodes to initially connect to.
     pub boot_nodes: Vec<Enr>,
@@ -83,23 +100,41 @@ impl Default for Config {
             ))
         };
 
+        // gossipsub configuration
+        // Note: The topics by default are sent as plain strings. Hashes are an optional
+        // parameter.
+        let gs_config = GossipsubConfigBuilder::new()
+            .max_transmit_size(1_048_576)
+            .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
+            .manual_propagation() // require validation before propagation
+            .no_source_id()
+            .message_id_fn(gossip_message_id)
+            .build();
+
+        // discv5 configuration
+        let discv5_config = Discv5ConfigBuilder::new()
+            .request_timeout(Duration::from_secs(4))
+            .request_retries(1)
+            .enr_update(true) // update IP based on PONG responses
+            .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
+            .query_parallelism(5)
+            .ip_limit(false) // limits /24 IP's in buckets. Enable for mainnet
+            .ping_interval(Duration::from_secs(300))
+            .build();
+
         Config {
             network_dir,
             listen_address: "127.0.0.1".parse().expect("valid ip address"),
             libp2p_port: 9000,
-            discovery_address: None,
             discovery_port: 9000,
+            enr_address: None,
+            enr_udp_port: None,
+            auto_update_enr_address: true,
+            enr_dns_address: None,
             max_peers: 10,
             secret_key_hex: None,
-            // Note: The topics by default are sent as plain strings. Hashes are an optional
-            // parameter.
-            gs_config: GossipsubConfigBuilder::new()
-                .max_transmit_size(1_048_576)
-                .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
-                .manual_propagation() // require validation before propagation
-                .no_source_id()
-                .message_id_fn(gossip_message_id)
-                .build(),
+            gs_config,
+            discv5_config,
             boot_nodes: vec![],
             libp2p_nodes: vec![],
             client_version: version::version(),

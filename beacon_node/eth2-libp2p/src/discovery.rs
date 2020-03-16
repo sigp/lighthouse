@@ -6,8 +6,8 @@ use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
 ///
 use futures::prelude::*;
 use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
-use libp2p::discv5::{Discv5, Discv5Event};
-use libp2p::enr::{Enr, EnrBuilder, NodeId};
+use libp2p::discv5::enr::{CombinedKey, Enr, EnrBuilder, NodeId};
+use libp2p::discv5::{Discv5, Discv5ConfigBuilder, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 use slog::{debug, info, warn};
@@ -82,21 +82,26 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             None => String::from(""),
         };
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> local_enr.udp().unwrap_or_else(|| 0), "tcp" => local_enr.tcp().unwrap_or_else(|| 0));
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> format!("{:?}", local_enr.udp()), "tcp" => format!("{:?}", local_enr.tcp()));
 
-        // the last parameter enables IP limiting. 2 Nodes on the same /24 subnet per bucket and 10
-        // nodes on the same /24 subnet per table.
-        // TODO: IP filtering is currently disabled for the DHT. Enable for production
-        let mut discovery = Discv5::new(local_enr, local_key.clone(), config.listen_address, false)
-            .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
+        let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
+
+        let mut discovery = Discv5::new(
+            local_enr,
+            local_key.clone(),
+            config.discv5_config,
+            config.listen_address,
+            listen_socket,
+        )
+        .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes.clone() {
             debug!(
                 log,
                 "Adding node to routing table";
-                "node_id" => format!("{}",
-                bootnode_enr.node_id())
+                "node_id" => format!("{}", bootnode_enr.node_id()),
+                "peer_id" => format!("{}", bootnode_enr.peer_id())
             );
             discovery.add_enr(bootnode_enr);
         }
@@ -115,7 +120,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 
     /// Return the nodes local ENR.
-    pub fn local_enr(&self) -> &Enr {
+    pub fn local_enr(&self) -> &Enr<CombinedKey> {
         self.discovery.local_enr()
     }
 
@@ -127,7 +132,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.
-    pub fn add_enr(&mut self, enr: Enr) {
+    pub fn add_enr(&mut self, enr: Enr<CombinedKey>) {
         self.discovery.add_enr(enr);
     }
 
@@ -143,7 +148,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 
     /// Returns an iterator over all enr entries in the DHT.
-    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr<CombinedKey>> {
         self.discovery.enr_entries()
     }
 
@@ -323,18 +328,28 @@ fn load_enr(
     local_key: &Keypair,
     config: &NetworkConfig,
     log: &slog::Logger,
-) -> Result<Enr, String> {
+) -> Result<Enr<CombinedKey>, String> {
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
-    // majority of our peers.
-    let mut local_enr = EnrBuilder::new("v4")
-        .ip(config
-            .discovery_address
-            .unwrap_or_else(|| "127.0.0.1".parse().expect("valid ip")))
-        .tcp(config.libp2p_port)
-        .udp(config.discovery_port)
-        .build(&local_key)
-        .map_err(|e| format!("Could not build Local ENR: {:?}", e))?;
+    // majority of our peers, if the CLI doesn't expressly forbid it.
+    let enr_key: CombinedKey = local_key
+        .try_from()
+        .map_err(|_| "Invalid key type for ENR records")?;
+
+    let mut local_enr = {
+        let mut builder = EnrBuilder::new("v4");
+        if let Some(enr_address) = config.enr_address {
+            builder.ip(discovery_address);
+        }
+        if let Some(udp_port) = config.enr_udp_port {
+            builder.udp(config.udp_port);
+        }
+
+        builder
+            .tcp(config.libp2p_port)
+            .build(&enr_key)
+            .map_err(|e| format!("Could not build Local ENR: {:?}", e))?;
+    };
 
     let enr_f = config.network_dir.join(ENR_FILENAME);
     if let Ok(mut enr_file) = File::open(enr_f.clone()) {
@@ -345,10 +360,11 @@ fn load_enr(
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
                         if enr.node_id() == local_enr.node_id() {
-                            if (config.discovery_address.is_none()
-                                || enr.ip().map(Into::into) == config.discovery_address)
+                            if (config.enr_address.is_none()
+                                || enr.ip().map(Into::into) == config.enr_address)
                                 && enr.tcp() == Some(config.libp2p_port)
-                                && enr.udp() == Some(config.discovery_port)
+                                && (config.enr_udp_port.is_none()
+                                    || enr.udp() == Some(config.enr_port))
                             {
                                 debug!(log, "ENR loaded from file"; "file" => format!("{:?}", enr_f));
                                 // the stored ENR has the same configuration, use it
