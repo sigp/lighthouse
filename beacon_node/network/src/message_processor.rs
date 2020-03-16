@@ -2,7 +2,6 @@ use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    PartialBlockVerification,
 };
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
@@ -484,10 +483,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> bool {
-        match self
-            .chain
-            .process_block(block.clone(), PartialBlockVerification::empty())
-        {
+        match BlockProcessingOutcome::shim(self.chain.process_block(block.clone())) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";

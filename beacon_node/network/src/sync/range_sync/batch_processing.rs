@@ -65,7 +65,7 @@ fn process_batch<T: BeaconChainTypes>(
     };
 
     if let Some(chain) = chain.upgrade() {
-        match chain.import_chain_segment(blocks.clone()) {
+        match chain.process_chain_segment(blocks.clone()) {
             Ok(roots) => {
                 trace!(
                     log, "Imported blocks from network";
