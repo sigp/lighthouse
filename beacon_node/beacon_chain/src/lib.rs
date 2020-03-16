@@ -12,7 +12,6 @@ pub mod events;
 mod fork_choice;
 mod head_tracker;
 mod metrics;
-mod partial_block_verification;
 mod persisted_beacon_chain;
 mod shuffling_cache;
 mod snapshot_cache;
@@ -31,7 +30,6 @@ pub use events::EventHandler;
 pub use fork_choice::ForkChoice;
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;
-pub use partial_block_verification::PartialBlockVerification;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
