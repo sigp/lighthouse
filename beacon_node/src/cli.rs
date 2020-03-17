@@ -63,6 +63,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("discovery-port")
+                .long("discovery-port")
+                .value_name("PORT")
+                .help("The UDP port that discovery will listen on.")
+                .default_value("9000")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("maxpeers")
                 .long("maxpeers")
                 .help("The maximum number of peers.")
@@ -85,6 +93,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("enr-tcp-port")
+                .long("enr-tcp-port")
+                .value_name("PORT")
+                .help("The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
+                    The --port flag is used if this is not set.")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")
@@ -93,6 +109,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 Discovery will automatically find your external address,if possible.
            ")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-match")
+                .short("e")
+                .long("enr-match")
+                .help("Sets the local ENR IP address and port to match those set for lighthouse. \
+                Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port.")
         )
         .arg(
             Arg::with_name("disable-enr-auto-update")

@@ -116,6 +116,13 @@ pub fn get_configs<E: EthSpec>(
         client_config.network.discovery_port = port;
     }
 
+    if let Some(port_str) = cli_args.value_of("discovery-port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
+        client_config.network.discovery_port = port;
+    }
+
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
         client_config.network.boot_nodes = boot_enr_str
             .split(',')
@@ -157,6 +164,19 @@ pub fn get_configs<E: EthSpec>(
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
         );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+        client_config.network.enr_tcp_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if cli_args.is_present("enr-match") {
+        client_config.network.enr_address = Some(client_config.network.listen_address);
+        client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
     }
 
     if cli_args.is_present("disable_enr_auto_update") {

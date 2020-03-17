@@ -342,6 +342,10 @@ fn load_enr(local_key: Keypair, config: &NetworkConfig, log: &slog::Logger) -> R
         if let Some(udp_port) = config.enr_udp_port {
             builder.udp(udp_port);
         }
+        // we always give it our listening tcp port
+        // TODO: Add uPnP support to map udp and tcp ports
+        let tcp_port = config.enr_tcp_port.unwrap_or_else(|| config.libp2p_port);
+        builder.tcp(tcp_port);
 
         builder
             .tcp(config.libp2p_port)
@@ -357,10 +361,11 @@ fn load_enr(local_key: Keypair, config: &NetworkConfig, log: &slog::Logger) -> R
             Ok(_) => {
                 match Enr::from_str(&enr_string) {
                     Ok(enr) => {
+                        let tcp_port = config.enr_tcp_port.unwrap_or_else(|| config.libp2p_port);
                         if enr.node_id() == local_enr.node_id() {
                             if (config.enr_address.is_none()
                                 || enr.ip().map(Into::into) == config.enr_address)
-                                && enr.tcp() == Some(config.libp2p_port)
+                                && enr.tcp() == Some(tcp_port)
                                 && (config.enr_udp_port.is_none()
                                     || enr.udp() == config.enr_udp_port)
                             {

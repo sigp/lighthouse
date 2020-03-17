@@ -31,6 +31,9 @@ pub struct Config {
     /// The udp port to broadcast to peers in order to reach back for discovery.
     pub enr_udp_port: Option<u16>,
 
+    /// The tcp port to broadcast to peers in order to reach back for libp2p services.
+    pub enr_tcp_port: Option<u16>,
+
     /// Target number of connected peers.
     pub max_peers: usize,
 
@@ -120,6 +123,7 @@ impl Default for Config {
             discovery_port: 9000,
             enr_address: None,
             enr_udp_port: None,
+            enr_tcp_port: None,
             max_peers: 10,
             secret_key_hex: None,
             gs_config,
