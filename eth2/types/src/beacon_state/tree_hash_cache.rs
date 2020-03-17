@@ -79,7 +79,7 @@ impl<T: EthSpec> Eth1DataVotesTreeHashCache<T> {
 pub struct BeaconTreeHashCache<T: EthSpec> {
     /// Tracks the previously generated state root to ensure the next state root provided descends
     /// directly from this state.
-    previous_state_root: Option<Hash256>,
+    previous_state: Option<(Hash256, Slot)>,
     // Validators cache
     validators: ValidatorsListTreeHashCache,
     // Arenas
@@ -117,7 +117,7 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
         let slashings = state.slashings.new_tree_hash_cache(&mut slashings_arena);
 
         Self {
-            previous_state_root: None,
+            previous_state: None,
             validators,
             fixed_arena,
             balances_arena,
@@ -137,15 +137,37 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
     /// The provided `state` should be a descendant of the last `state` given to this function, or
     /// the `Self::new` function.
     pub fn recalculate_tree_hash_root(&mut self, state: &BeaconState<T>) -> Result<Hash256, Error> {
-        // Perform a check to ensure that if this cache has been used before (i.e.,
-        // `self.previous_state_root.is_some()`) then the previous state root equals the one that
-        // was last determined here.
+        // If this cache has previously produced a root, ensure that it is in the state root
+        // history of this state.
         //
-        // This ensures a linear history of cache state roots (i.e., this cache has not been
-        // supplied states that are not direct descendants of each other).
-        if let Some(root) = self.previous_state_root {
-            if root != *state.get_state_root(state.slot - 1)? {
-                return Err(Error::NonLinearTreeHashCacheHistory);
+        // This ensures that the states applied have a linear history, this
+        // allows us to make assumptions about how the state changes over times and produce a more
+        // efficient algorithm.
+        if let Some((previous_root, previous_slot)) = self.previous_state {
+            // The given state must be older than the given state.
+            if previous_slot >= state.slot {
+                return Err(Error::TreeHashCacheSkippedSlot {
+                    cache: previous_slot,
+                    state: state.slot
+                })
+            }
+
+            // The previous root must be in the history of the given state.
+            let mut slot = state.slot;
+            loop {
+                // There's no need to check the history of the genesis state.
+                if slot == 0 {
+                    break
+                }
+
+                slot -= 1;
+
+                match state.get_state_root(slot) {
+                    Ok(root) if *root == previous_root => break,
+                    Ok(_) => continue,
+                    Err(Error::SlotOutOfBounds) => return Err(Error::NonLinearTreeHashCacheHistory),
+                    Err(e) => return Err(e)
+                }
             }
         }
 
@@ -227,7 +249,7 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
 
         let root = hasher.finish()?;
 
-        self.previous_state_root = Some(root);
+        self.previous_state = Some((root, state.slot));
 
         Ok(root)
     }
