@@ -1,4 +1,4 @@
-//#[cfg(not(debug_assertions))]
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
@@ -10,7 +10,6 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use store::MemoryStore;
     use tokio::runtime::Runtime;
     use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
 
