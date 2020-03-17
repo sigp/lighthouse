@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "bls"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2_hashing",
  "eth2_ssz",
@@ -598,14 +598,14 @@ dependencies = [
 
 [[package]]
 name = "compare_fields"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "compare_fields_derive",
 ]
 
 [[package]]
 name = "compare_fields_derive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quote 0.6.13",
  "syn 0.15.44",
@@ -945,7 +945,7 @@ checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 
 [[package]]
 name = "deposit_contract"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "ethabi 9.0.1",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "ef_tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bls",
  "cached_tree_hash",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "environment"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ctrlc",
  "env_logger 0.6.2",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "eth1"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "environment",
  "eth1_test_rig",
@@ -1181,7 +1181,7 @@ dependencies = [
 
 [[package]]
 name = "eth1_test_rig"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "deposit_contract",
  "futures",
@@ -1227,7 +1227,7 @@ dependencies = [
 
 [[package]]
 name = "eth2_config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_derive",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "eth2_interop_keypairs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.11.0",
  "eth2_hashing",
@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "eth2_testnet_config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2-libp2p",
  "eth2_ssz",
@@ -1543,7 +1543,7 @@ dependencies = [
 
 [[package]]
 name = "genesis"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "environment",
  "eth1",
@@ -1634,7 +1634,7 @@ dependencies = [
 
 [[package]]
 name = "hashmap_delay"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "tokio-timer 0.2.13",
@@ -1879,7 +1879,7 @@ dependencies = [
 
 [[package]]
 name = "int_to_bytes"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "hex 0.3.2",
@@ -1980,7 +1980,7 @@ checksum = "b294d6fa9ee409a054354afc4352b0b9ef7ca222c69b8812cbea9e7d2bf3783f"
 
 [[package]]
 name = "lcli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "dirs",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse_bootstrap"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2-libp2p",
  "eth2_config",
@@ -2545,7 +2545,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse_metrics"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lazy_static",
  "prometheus",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "logging"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lazy_static",
  "lighthouse_metrics",
@@ -2660,7 +2660,7 @@ dependencies = [
 
 [[package]]
 name = "merkle_proof"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2_hashing",
  "ethereum-types 0.8.0",
@@ -2855,7 +2855,7 @@ dependencies = [
 
 [[package]]
 name = "node_test_rig"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "beacon_node",
  "environment",
@@ -2970,7 +2970,7 @@ dependencies = [
 
 [[package]]
 name = "operation_pool"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -3259,7 +3259,7 @@ dependencies = [
 
 [[package]]
 name = "proto_array_fork_choice"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -3608,7 +3608,7 @@ checksum = "7fe5bd57d1d7414c6b5ed48563a2c855d995ff777729dcd91c369ec7fea395ae"
 
 [[package]]
 name = "remote_beacon_node"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2_config",
  "eth2_ssz",
@@ -3708,7 +3708,7 @@ dependencies = [
 
 [[package]]
 name = "rest_types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bls",
  "eth2_hashing",
@@ -3936,7 +3936,7 @@ dependencies = [
 
 [[package]]
 name = "serde_hex"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex 0.3.2",
  "serde",
@@ -4046,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "simulator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "env_logger 0.7.1",
@@ -4181,7 +4181,7 @@ dependencies = [
 
 [[package]]
 name = "slot_clock"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lazy_static",
  "lighthouse_metrics",
@@ -4251,7 +4251,7 @@ checksum = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
 
 [[package]]
 name = "state_processing"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "bls",
@@ -4290,7 +4290,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "db-key",
@@ -4351,7 +4351,7 @@ checksum = "7c65d530b10ccaeac294f349038a597e435b18fb456aadd0840a623f83b9e941"
 
 [[package]]
 name = "swap_or_not_shuffle"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "eth2_hashing",
@@ -4451,7 +4451,7 @@ dependencies = [
 
 [[package]]
 name = "test_random_derive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "quote 0.6.13",
  "syn 0.15.44",
@@ -4488,7 +4488,7 @@ dependencies = [
 
 [[package]]
 name = "timer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "futures",
@@ -4902,7 +4902,7 @@ checksum = "6d2783fe2d6b8c1101136184eb41be8b1ad379e4657050b8aaff0c79ee7575f9"
 
 [[package]]
 name = "types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bls",
  "cached_tree_hash",
@@ -5064,7 +5064,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "bls",
@@ -5365,7 +5365,7 @@ dependencies = [
 
 [[package]]
 name = "websocket_server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "serde",

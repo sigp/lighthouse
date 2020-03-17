@@ -1,5 +1,6 @@
 use crate::helpers::{
-    check_content_type_for_json, publish_raw_attestations_to_network, publish_beacon_block_to_network, publish_aggregate_attestations_to_network,
+    check_content_type_for_json, publish_aggregate_attestations_to_network,
+    publish_beacon_block_to_network, publish_raw_attestations_to_network,
 };
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
@@ -11,12 +12,15 @@ use bls::PublicKeyBytes;
 use futures::{Future, Stream};
 use hyper::{Body, Request};
 use network::NetworkMessage;
+use rayon::prelude::*;
 use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscription};
 use slog::{error, info, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
-use types::{Attestation, SignedBeaconBlock, BeaconState, Epoch, RelativeEpoch, Slot, SignedAggregateAndProof};
-use rayon::prelude::*;
+use types::{
+    Attestation, BeaconState, Epoch, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    Slot,
+};
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
 /// method allows for collecting bulk sets of validator duties without risking exceeding the max
@@ -68,7 +72,10 @@ pub fn post_validator_subscriptions<T: BeaconChainTypes>(
             .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
             .and_then(|chunks| {
                 serde_json::from_slice(&chunks).map_err(|e| {
-                    ApiError::BadRequest(format!("Unable to parse JSON into ValidatorSubscriptions: {:?}", e))
+                    ApiError::BadRequest(format!(
+                        "Unable to parse JSON into ValidatorSubscriptions: {:?}",
+                        e
+                    ))
                 })
             })
             .and_then(move |subscriptions: Vec<ValidatorSubscription>| {
@@ -80,27 +87,35 @@ pub fn post_validator_subscriptions<T: BeaconChainTypes>(
                         ApiError::ServerError(format!("Error getting current beacon state {:?}", e))
                     })?;
 
-                // NOTE: Currently using validator indexes in subscriptions. We could use the
-                // public key to avoid a state lookup, however the subscriptions eventually hit
-                // the network service, which would then have to the state lookup to find the
-                // index. Potentially we could use send both.
-                let state = beacon_chain.head()?.beacon_state;
-
                 // verify the signatures in parallel
                 subscriptions.par_iter().try_for_each(|subscription| {
-                    let pubkey = &state.get_validator_pubkey(subscription.validator_index)?;
-                    if subscription.verify(pubkey, &beacon_chain.spec, &fork, T::EthSpec::slots_per_epoch()) {
-                        Ok(())
+                    if let Some(pubkey) =
+                        &beacon_chain.validator_pubkey(subscription.validator_index as usize)?
+                    {
+                        if subscription.verify(
+                            pubkey,
+                            &beacon_chain.spec,
+                            &fork,
+                            T::EthSpec::slots_per_epoch(),
+                        ) {
+                            Ok(())
+                        } else {
+                            error!(log, "HTTP RPC sent invalid signatures");
+                            Err(ApiError::ProcessingError(format!(
+                                "Could not verify signatures"
+                            )))
+                        }
                     } else {
-                        error!(log, "HTTP RPC sent invalid signatures");
-                        Err(ApiError::ProcessingError(format!("Could not verify signatures"))) }
-                        })?;
+                        error!(log, "HTTP RPC sent unknown validator");
+                        Err(ApiError::ProcessingError(format!(
+                            "Could not verify signatures"
+                        )))
+                    }
+                })?;
 
                 // subscriptions are verified, send them to the network thread
                 network_chan
-                    .try_send(NetworkMessage::Subscribe {
-                        subscriptions,
-                    })
+                    .try_send(NetworkMessage::Subscribe { subscriptions })
                     .map_err(|e| {
                         ApiError::ServerError(format!(
                             "Unable to subscriptions to the network: {:?}",
@@ -228,11 +243,24 @@ fn return_validator_duties<T: BeaconChainTypes>(
     validator_pubkeys
         .into_iter()
         .map(|validator_pubkey| {
-            if let Some(validator_index) =
-                state.get_validator_index(&validator_pubkey).map_err(|e| {
-                    ApiError::ServerError(format!("Unable to read pubkey cache: {:?}", e))
-                })?
-            {
+            // The `beacon_chain` can return a validator index that does not exist in all states.
+            // Therefore, we must check to ensure that the validator index is valid for our
+            // `state`.
+            let validator_index = if let Some(i) = beacon_chain
+                .validator_index(&validator_pubkey)
+                .map_err(|e| {
+                ApiError::ServerError(format!("Unable to get validator index: {:?}", e))
+            })? {
+                if i < state.validators.len() {
+                    Some(i)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(validator_index) = validator_index {
                 let duties = state
                     .get_attestation_duties(validator_index, relative_epoch)
                     .map_err(|e| {
@@ -242,7 +270,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                // Obtain the aggregator modulo 
+                // Obtain the aggregator modulo
                 let aggregator_modulo = duties.map(|d| {
                     std::cmp::max(
                         1,
@@ -469,7 +497,6 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                 // sub-optimal as if we have no validators needing to aggregate, these don't need
                 // to be stored in the op-pool. This is minimal however as the op_pool gets pruned
                 // every slot
-                
             attestations.par_iter().try_for_each(|attestation| {
                 match beacon_chain.process_attestation(attestation.clone(), Some(true)) {
                     Ok(AttestationProcessingOutcome::Processed) => {
@@ -483,7 +510,6 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                             "slot" => attestation.data.slot,
                         );
                         Ok(())
-                        
                     }
                     Ok(outcome) => {
                         warn!(
@@ -547,16 +573,22 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
 
                 // Verify the signatures for the aggregate and proof and if valid process the
                 // aggregate
-                
                 // TODO: Double check speed and logic consistency of handling current fork vs
                 // validator fork for signatures.
-                let beacon_state = beacon_chain.head()?.beacon_state;
+                // TODO: More efficient way of getting a fork?
+                let fork = &beacon_chain.head()?.beacon_state.fork;
 
                 signed_proofs.par_iter().try_for_each(|signed_proof| {
                     let agg_proof = &signed_proof.message;
-                    let validator_pubkey = &beacon_state.get_validator_pubkey(agg_proof.aggregator_index)?;
-                    if signed_proof.is_valid(validator_pubkey, &beacon_state.fork) {
-                
+                    let validator_pubkey = &beacon_chain.validator_pubkey(agg_proof.aggregator_index as usize)?.ok_or_else(|| {
+                        warn!(
+                            log,
+                            "Unknown validator from local validator client";
+                        );
+
+                        ApiError::ProcessingError(format!("The validator is known"))
+                    })?;
+                    if signed_proof.is_valid(validator_pubkey, fork) {
                 let attestation = &agg_proof.aggregate;
                 match beacon_chain.process_attestation(attestation.clone(), Some(false)) {
                     Ok(AttestationProcessingOutcome::Processed) => {

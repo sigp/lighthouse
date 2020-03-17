@@ -11,7 +11,6 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
-use std::borrow::Cow;
 use std::convert::TryInto;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
@@ -265,26 +264,6 @@ impl<T: EthSpec> BeaconState<T> {
                 cache_len: self.pubkey_cache.len(),
                 registry_len: self.validators.len(),
             })
-        }
-    }
-
-    /// Get the public key for the validator with the given index.
-    ///
-    /// Spec v0.10.1
-    pub fn get_validator_pubkey(&self, validator_index: u64) -> Result<Cow<PublicKey>, Error> {
-        let pubkey_bytes = &self
-            .validators
-            .get(validator_index as usize)
-            .ok_or_else(|| Error::UnknownValidator(validator_index))?
-            .pubkey;
-
-        if let Some(pubkey) = pubkey_bytes.decompressed() {
-            Ok(Cow::Borrowed(pubkey))
-        } else {
-            pubkey_bytes
-                .try_into()
-                .map(|pubkey: PublicKey| Cow::Owned(pubkey))
-                .map_err(Error::InvalidValidatorPubkey)
         }
     }
 
@@ -817,7 +796,6 @@ impl<T: EthSpec> BeaconState<T> {
         self.update_pubkey_cache()?;
         self.build_tree_hash_cache()?;
         self.exit_cache.build(&self.validators, spec)?;
-        self.decompress_validator_pubkeys()?;
 
         Ok(())
     }
@@ -983,23 +961,6 @@ impl<T: EthSpec> BeaconState<T> {
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
         self.tree_hash_cache = None;
-    }
-
-    /// Iterate through all validators and decompress their public key, unless it has already been
-    /// decompressed.
-    ///
-    /// Does not check the validity of already decompressed keys.
-    pub fn decompress_validator_pubkeys(&mut self) -> Result<(), Error> {
-        self.validators.iter_mut().try_for_each(|validator| {
-            if validator.pubkey.decompressed().is_none() {
-                validator
-                    .pubkey
-                    .decompress()
-                    .map_err(Error::InvalidValidatorPubkey)
-            } else {
-                Ok(())
-            }
-        })
     }
 
     /// Clone the state whilst preserving only the selected caches.

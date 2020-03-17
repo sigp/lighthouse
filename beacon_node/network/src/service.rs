@@ -1,23 +1,24 @@
 use crate::error;
-use crate::router::{Router, RouterMessage};
 use crate::persisted_dht::{load_dht, persist_dht};
-use crate::{attestation_service::{AttestationService,AttServiceMessage},NetworkConfig};
+use crate::router::{Router, RouterMessage};
+use crate::{
+    attestation_service::{AttServiceMessage, AttestationService},
+    NetworkConfig,
+};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{
-    rpc::RPCRequest, Enr, Libp2pEvent, MessageId, NetworkGlobals, PeerId, Swarm,
-};
-use eth2_libp2p::{RPCEvent, PubsubMessage};
-use rest_types::ValidatorSubscription;
+use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, NetworkGlobals, PeerId, Swarm};
+use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
+use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, trace};
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
-use types::EthSpec;
 use tokio::timer::Delay;
+use types::EthSpec;
 
 mod tests;
 
@@ -39,7 +40,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     store: Arc<T::Store>,
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    /// An initial delay to update variables after the libp2p service has started. 
+    /// An initial delay to update variables after the libp2p service has started.
     initial_delay: Delay,
     /// The logger for the network service.
     log: slog::Logger,
@@ -53,12 +54,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         config: &NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
-    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>, oneshot::Sender<()>)> {
+    ) -> error::Result<(
+        Arc<NetworkGlobals<T::EthSpec>>,
+        mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        oneshot::Sender<()>,
+    )> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
         // Get a reference to the beacon chain store
         let store = beacon_chain.store.clone();
-        // launch the router task 
+        // launch the router task
         let router_send = Router::spawn(
             beacon_chain.clone(),
             network_send.clone(),
@@ -68,8 +73,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         let propagation_percentage = config.propagation_percentage;
         // launch libp2p service
-        let (network_globals, mut libp2p) =
-            LibP2PService::new(config, network_log.clone())?;
+        let (network_globals, mut libp2p) = LibP2PService::new(config, network_log.clone())?;
 
         for enr in load_dht::<T>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -79,9 +83,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // This is currently used to obtain the listening addresses from the libp2p service.
         let initial_delay = Delay::new(Instant::now() + Duration::from_secs(1));
 
-
         // create the attestation service
-        let attestation_service = AttestationService::new(beacon_chain, network_globals.clone(), &network_log);
+        let attestation_service =
+            AttestationService::new(beacon_chain, network_globals.clone(), &network_log);
 
         // create the network service and spawn the task
         let network_service = NetworkService {
@@ -93,7 +97,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_globals: network_globals.clone(),
             initial_delay,
             log: network_log,
-            propagation_percentage
+            propagation_percentage,
         };
 
         let network_exit = spawn_service(network_service, &executor)?;
@@ -216,7 +220,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
                         );
                     }
-                    NetworkMessage::Subscribe { subscriptions } => 
+                    NetworkMessage::Subscribe { subscriptions } =>
                     {
                        // the result is dropped as it used solely for ergonomics
                        let _ = service.attestation_service.validator_subscriptions(subscriptions);
@@ -282,7 +286,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         message,
                         ..
                     } => {
-                       service.router_send 
+                       service.router_send
                             .try_send(RouterMessage::PubsubMessage(id, source, message))
                             .map_err(|_| { debug!(log, "Failed to send pubsub message to router");})?;
                     }
@@ -315,14 +319,12 @@ fn spawn_service<T: BeaconChainTypes>(
 pub enum NetworkMessage<T: EthSpec> {
     /// Subscribes a list of validators to specific slots for attestation duties.
     Subscribe {
-        subscriptions: Vec<ValidatorSubscription>
+        subscriptions: Vec<ValidatorSubscription>,
     },
     /// Send an RPC message to the libp2p service.
     RPC(PeerId, RPCEvent<T>),
     /// Publish a list of messages to the gossipsub protocol.
-    Publish {
-        messages: Vec<PubsubMessage<T>>
-    },
+    Publish { messages: Vec<PubsubMessage<T>> },
     /// Propagate a received gossipsub message.
     Propagate {
         propagation_source: PeerId,
