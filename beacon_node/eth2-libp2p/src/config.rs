@@ -1,6 +1,6 @@
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use enr::Enr;
-use libp2p::discv5::Discv5ConfigBuilder;
+use crate::Enr;
+use libp2p::discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
@@ -31,16 +31,6 @@ pub struct Config {
     /// The udp port to broadcast to peers in order to reach back for discovery.
     pub enr_udp_port: Option<u16>,
 
-    /// Whether to allow discovery to automatically update the external address based on PONG
-    /// responses.
-    pub auto_update_enr_address: bool,
-
-    /// An optional parameter to specify the discovery address as a DNS entry. Lighthouse will
-    /// periodically check the DNS address and update the local ENR node record if the IP changes.
-    ///
-    /// Note: A value here will disable `auto_update_enr_address`.
-    pub enr_dns_address: Option<String>,
-
     /// Target number of connected peers.
     pub max_peers: usize,
 
@@ -55,6 +45,7 @@ pub struct Config {
     pub gs_config: GossipsubConfig,
 
     /// Discv5 configuration parameters.
+    #[serde(skip)]
     pub discv5_config: Discv5Config,
 
     /// List of nodes to initially connect to.
@@ -129,8 +120,6 @@ impl Default for Config {
             discovery_port: 9000,
             enr_address: None,
             enr_udp_port: None,
-            auto_update_enr_address: true,
-            enr_dns_address: None,
             max_peers: 10,
             secret_key_hex: None,
             gs_config,

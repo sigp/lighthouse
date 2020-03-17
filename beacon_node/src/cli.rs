@@ -78,20 +78,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("discovery-port")
-                .long("disc-port")
+            Arg::with_name("enr-udp-port")
+                .long("enr-udp-port")
                 .value_name("PORT")
-                .help("The discovery UDP port.")
-                .default_value("9000")
+                .help("The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("discovery-address")
-                .long("discovery-address")
+            Arg::with_name("enr-address")
+                .long("enr-address")
                 .value_name("ADDRESS")
                 .help("The IP address to broadcast to other peers on how to reach this node. \
-                       Default will load previous values from disk failing this it is set to 127.0.0.1 \
-                       and will be updated when connecting to other nodes on the network.")
+                Set this only if you are sure other nodes can connect to your local node on this address. \
+                Discovery will automatically find your external address,if possible.
+           ")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("disable-enr-auto-update")
+                .short("s")
+                .long("disable-enr-auto-update")
+                .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
+                This disables this feature, fixing the ENR's IP/PORT to those specified on boot.")
                 .takes_value(true),
         )
         .arg(

@@ -1,4 +1,5 @@
 use crate::metrics;
+use crate::Enr;
 use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
 /// This manages the discovery and management of peers.
 ///
@@ -6,14 +7,16 @@ use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
 ///
 use futures::prelude::*;
 use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
-use libp2p::discv5::enr::{CombinedKey, Enr, EnrBuilder, NodeId};
-use libp2p::discv5::{Discv5, Discv5ConfigBuilder, Discv5Event};
+use libp2p::discv5::enr::{CombinedKey, EnrBuilder, NodeId};
+use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 use slog::{debug, info, warn};
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::prelude::*;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -73,7 +76,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         let log = log.clone();
 
         // checks if current ENR matches that found on disk
-        let local_enr = load_enr(local_key, config, &log)?;
+        let local_enr = load_enr(local_key.clone(), config, &log)?;
 
         *network_globals.local_enr.write() = Some(local_enr.clone());
 
@@ -89,8 +92,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         let mut discovery = Discv5::new(
             local_enr,
             local_key.clone(),
-            config.discv5_config,
-            config.listen_address,
+            config.discv5_config.clone(),
             listen_socket,
         )
         .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
@@ -120,7 +122,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 
     /// Return the nodes local ENR.
-    pub fn local_enr(&self) -> &Enr<CombinedKey> {
+    pub fn local_enr(&self) -> &Enr {
         self.discovery.local_enr()
     }
 
@@ -132,7 +134,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.
-    pub fn add_enr(&mut self, enr: Enr<CombinedKey>) {
+    pub fn add_enr(&mut self, enr: Enr) {
         self.discovery.add_enr(enr);
     }
 
@@ -148,7 +150,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 
     /// Returns an iterator over all enr entries in the DHT.
-    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr<CombinedKey>> {
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
         self.discovery.enr_entries()
     }
 
@@ -324,31 +326,27 @@ where
 ///
 /// If an ENR exists, with the same NodeId and IP address, we use the disk-generated one as its
 /// ENR sequence will be equal or higher than a newly generated one.
-fn load_enr(
-    local_key: &Keypair,
-    config: &NetworkConfig,
-    log: &slog::Logger,
-) -> Result<Enr<CombinedKey>, String> {
+fn load_enr(local_key: Keypair, config: &NetworkConfig, log: &slog::Logger) -> Result<Enr, String> {
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
     let enr_key: CombinedKey = local_key
-        .try_from()
+        .try_into()
         .map_err(|_| "Invalid key type for ENR records")?;
 
     let mut local_enr = {
         let mut builder = EnrBuilder::new("v4");
         if let Some(enr_address) = config.enr_address {
-            builder.ip(discovery_address);
+            builder.ip(enr_address);
         }
         if let Some(udp_port) = config.enr_udp_port {
-            builder.udp(config.udp_port);
+            builder.udp(udp_port);
         }
 
         builder
             .tcp(config.libp2p_port)
             .build(&enr_key)
-            .map_err(|e| format!("Could not build Local ENR: {:?}", e))?;
+            .map_err(|e| format!("Could not build Local ENR: {:?}", e))?
     };
 
     let enr_f = config.network_dir.join(ENR_FILENAME);
@@ -364,7 +362,7 @@ fn load_enr(
                                 || enr.ip().map(Into::into) == config.enr_address)
                                 && enr.tcp() == Some(config.libp2p_port)
                                 && (config.enr_udp_port.is_none()
-                                    || enr.udp() == Some(config.enr_port))
+                                    || enr.udp() == config.enr_udp_port)
                             {
                                 debug!(log, "ENR loaded from file"; "file" => format!("{:?}", enr_f));
                                 // the stored ENR has the same configuration, use it
@@ -373,7 +371,7 @@ fn load_enr(
 
                             // same node id, different configuration - update the sequence number
                             let new_seq_no = enr.seq().checked_add(1).ok_or_else(|| "ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
-                            local_enr.set_seq(new_seq_no, local_key).map_err(|e| {
+                            local_enr.set_seq(new_seq_no, &enr_key).map_err(|e| {
                                 format!("Could not update ENR sequence number: {:?}", e)
                             })?;
                             debug!(log, "ENR sequence number increased"; "seq" =>  new_seq_no);
