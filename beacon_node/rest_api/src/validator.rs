@@ -5,8 +5,7 @@ use crate::helpers::{
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    StateSkipConfig,
+    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockError, StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use futures::{Future, Stream};
@@ -360,7 +359,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
             .and_then(move |block: SignedBeaconBlock<T::EthSpec>| {
                 let slot = block.slot();
                 match beacon_chain.process_block(block.clone()) {
-                    Ok(BlockProcessingOutcome::Processed { block_root }) => {
+                    Ok(block_root) => {
                         // Block was processed, publish via gossipsub
                         info!(
                             log,
@@ -403,19 +402,7 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
 
                         Ok(())
                     }
-                    Ok(outcome) => {
-                        warn!(
-                            log,
-                            "Invalid block from local validator";
-                            "outcome" => format!("{:?}", outcome)
-                        );
-
-                        Err(ApiError::ProcessingError(format!(
-                            "The SignedBeaconBlock could not be processed and has not been published: {:?}",
-                            outcome
-                        )))
-                    }
-                    Err(e) => {
+                    Err(BlockError::BeaconChainError(e)) => {
                         error!(
                             log,
                             "Error whilst processing block";
@@ -425,6 +412,18 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                         Err(ApiError::ServerError(format!(
                             "Error while processing block: {:?}",
                             e
+                        )))
+                    }
+                    Err(other) => {
+                        warn!(
+                            log,
+                            "Invalid block from local validator";
+                            "outcome" => format!("{:?}", other)
+                        );
+
+                        Err(ApiError::ProcessingError(format!(
+                            "The SignedBeaconBlock could not be processed and has not been published: {:?}",
+                            other
                         )))
                     }
                 }

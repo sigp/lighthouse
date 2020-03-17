@@ -4,6 +4,7 @@ extern crate lazy_static;
 
 mod beacon_chain;
 mod beacon_snapshot;
+mod block_verification;
 pub mod builder;
 mod errors;
 pub mod eth1_chain;
@@ -19,11 +20,11 @@ mod timeout_rw_lock;
 mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    StateSkipConfig,
+    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::errors::{BeaconChainError, BlockProductionError};
+pub use block_verification::{BlockError, BlockProcessingOutcome};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::EventHandler;
 pub use fork_choice::ForkChoice;

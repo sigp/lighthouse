@@ -3,13 +3,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::AttestationProcessingOutcome;
-use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
-    },
-    BlockProcessingOutcome,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
 };
+use beacon_chain::AttestationProcessingOutcome;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
@@ -562,15 +559,13 @@ fn run_skip_slot_test(skip_slots: u64) {
                 .head()
                 .expect("should get head")
                 .beacon_block
-                .clone()
+                .clone(),
         ),
-        Ok(BlockProcessingOutcome::Processed {
-            block_root: harness_a
-                .chain
-                .head()
-                .expect("should get head")
-                .beacon_block_root
-        })
+        Ok(harness_a
+            .chain
+            .head()
+            .expect("should get head")
+            .beacon_block_root)
     );
 
     harness_b

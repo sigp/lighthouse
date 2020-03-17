@@ -17,7 +17,7 @@ use types::{Hash256, SignedBeaconBlock, Slot};
 /// downvote peers with poor bandwidth. This can be set arbitrarily high, in which case the
 /// responder will fill the response up to the max request size, assuming they have the bandwidth
 /// to do so.
-pub const BLOCKS_PER_BATCH: u64 = 50;
+pub const BLOCKS_PER_BATCH: u64 = 64;
 
 /// The number of times to retry a batch before the chain is considered failed and removed.
 const MAX_BATCH_RETRIES: u8 = 5;

@@ -494,7 +494,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) -> bool {
-        match self.chain.process_block(*(block.clone())) {
+        match BlockProcessingOutcome::shim(self.chain.process_block(*block.clone())) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
