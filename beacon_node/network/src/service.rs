@@ -75,7 +75,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(config, network_log.clone())?;
 
-        for enr in load_dht::<T>(store.clone()) {
+        for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
         }
 
@@ -135,7 +135,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         "Number of peers" => format!("{}", enrs.len()),
                     );
 
-                    match persist_dht::<T>(service.store.clone(), enrs) {
+                    match persist_dht::<T::Store, T::EthSpec>(service.store.clone(), enrs) {
                         Err(e) => error!(
                             log,
                             "Failed to persist DHT on drop";

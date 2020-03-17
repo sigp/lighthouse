@@ -449,7 +449,7 @@ fn attestations_with_increasing_slots() {
 
     for attestation in attestations {
         let attestation_epoch = attestation.data.target.epoch;
-        let res = harness.chain.process_attestation(attestation);
+        let res = harness.chain.process_attestation(attestation, Some(false));
 
         if attestation_epoch + 1 < current_epoch {
             assert_eq!(
