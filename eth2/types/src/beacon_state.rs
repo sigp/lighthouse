@@ -175,7 +175,7 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub tree_hash_cache: Option<BeaconTreeHashCache>,
+    pub tree_hash_cache: Option<BeaconTreeHashCache<T>>,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -1001,15 +1001,15 @@ impl<T: EthSpec> BeaconState<T> {
 
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
 /// recommended to use the methods directly on the beacon state instead.
-impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache> for BeaconState<T> {
-    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache {
+impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconState<T> {
+    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache<T> {
         BeaconTreeHashCache::new(self)
     }
 
     fn recalculate_tree_hash_root(
         &self,
         _arena: &mut CacheArena,
-        cache: &mut BeaconTreeHashCache,
+        cache: &mut BeaconTreeHashCache<T>,
     ) -> Result<Hash256, cached_tree_hash::Error> {
         cache
             .recalculate_tree_hash_root(self)
