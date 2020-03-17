@@ -1,9 +1,8 @@
 use super::Error;
-use crate::{BeaconState, EthSpec, Hash256, Slot, Unsigned, Validator};
+use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::U1024, VariableList};
 use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 
 /// The number of fields on a beacon state.
@@ -19,66 +18,6 @@ const NODES_PER_VALIDATOR: usize = 15;
 ///
 /// Do not set to 0.
 const VALIDATORS_PER_ARENA: usize = 4_096;
-
-// TODO: this cannot be fixed at 1024, it needs to vary with the ethspec.
-type Eth1DataRoots = VariableList<Hash256, U1024>;
-
-#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
-pub struct Eth1DataVotesTreeHashCache {
-    arena: CacheArena,
-    tree_hash_cache: TreeHashCache,
-    voting_period: u64,
-    roots: Eth1DataRoots,
-}
-
-impl Eth1DataVotesTreeHashCache {
-    /// Instantiates a new cache.
-    ///
-    /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
-    /// hashing.
-    pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Self {
-        let mut arena = CacheArena::default();
-        let roots: Eth1DataRoots = state
-            .eth1_data_votes
-            .iter()
-            .map(|eth1_data| eth1_data.tree_hash_root())
-            .collect::<Vec<_>>()
-            .into();
-        let tree_hash_cache = roots.new_tree_hash_cache(&mut arena);
-
-        Self {
-            arena,
-            tree_hash_cache,
-            voting_period: Self::voting_period::<T>(state.slot),
-            roots,
-        }
-    }
-
-    fn voting_period<T: EthSpec>(slot: Slot) -> u64 {
-        slot.as_u64() / T::SlotsPerEth1VotingPeriod::to_u64()
-    }
-
-    pub fn recalculate_tree_hash_root<T: EthSpec>(
-        &mut self,
-        state: &BeaconState<T>,
-    ) -> Result<Hash256, Error> {
-        if state.eth1_data_votes.len() < self.roots.len()
-            || Self::voting_period::<T>(state.slot) != self.voting_period
-        {
-            std::mem::replace(self, Self::new(state));
-        }
-
-        state
-            .eth1_data_votes
-            .iter()
-            .skip(self.roots.len())
-            .try_for_each(|eth1_data| self.roots.push(eth1_data.tree_hash_root()))?;
-
-        self.roots
-            .recalculate_tree_hash_root(&mut self.arena, &mut self.tree_hash_cache)
-            .map_err(Into::into)
-    }
-}
 
 /// A cache that performs a caching tree hash of the entire `BeaconState` struct.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
@@ -96,7 +35,6 @@ pub struct BeaconTreeHashCache {
     balances: TreeHashCache,
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
-    eth1_data_votes: Eth1DataVotesTreeHashCache,
 }
 
 impl BeaconTreeHashCache {
@@ -130,7 +68,6 @@ impl BeaconTreeHashCache {
             balances,
             randao_mixes,
             slashings,
-            eth1_data_votes: Eth1DataVotesTreeHashCache::new(state),
         }
     }
 
@@ -167,11 +104,7 @@ impl BeaconTreeHashCache {
                 .as_bytes(),
         )?;
         hasher.write(state.eth1_data.tree_hash_root().as_bytes())?;
-        hasher.write(
-            self.eth1_data_votes
-                .recalculate_tree_hash_root(&state)?
-                .as_bytes(),
-        )?;
+        hasher.write(state.eth1_data_votes.tree_hash_root().as_bytes())?;
         hasher.write(state.eth1_deposit_index.tree_hash_root().as_bytes())?;
         hasher.write(
             self.validators
