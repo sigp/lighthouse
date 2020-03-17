@@ -153,21 +153,8 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
             }
 
             // The previous root must be in the history of the given state.
-            let mut slot = state.slot;
-            loop {
-                // There's no need to check the history of the genesis state.
-                if slot == 0 {
-                    break
-                }
-
-                slot -= 1;
-
-                match state.get_state_root(slot) {
-                    Ok(root) if *root == previous_root => break,
-                    Ok(_) => continue,
-                    Err(Error::SlotOutOfBounds) => return Err(Error::NonLinearTreeHashCacheHistory),
-                    Err(e) => return Err(e)
-                }
+            if *state.get_state_root(previous_slot)? != previous_root {
+                return Err(Error::NonLinearTreeHashCacheHistory)
             }
         }
 
