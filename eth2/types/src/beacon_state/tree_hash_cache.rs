@@ -148,13 +148,13 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
             if previous_slot >= state.slot {
                 return Err(Error::TreeHashCacheSkippedSlot {
                     cache: previous_slot,
-                    state: state.slot
-                })
+                    state: state.slot,
+                });
             }
 
             // The previous root must be in the history of the given state.
             if *state.get_state_root(previous_slot)? != previous_root {
-                return Err(Error::NonLinearTreeHashCacheHistory)
+                return Err(Error::NonLinearTreeHashCacheHistory);
             }
         }
 

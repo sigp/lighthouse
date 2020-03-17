@@ -248,14 +248,17 @@ where
         };
 
         let mut head_block_root = None;
-        let mut state_root = state.update_tree_hash_cache().expect("should find state root");
+        let mut state_root = state
+            .update_tree_hash_cache()
+            .expect("should find state root");
 
         for _ in 0..num_blocks {
             while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
-            let (block, new_state) = self.build_block(state.clone(), state_root, slot, block_strategy);
+            let (block, new_state) =
+                self.build_block(state.clone(), state_root, slot, block_strategy);
 
             state_root = block.state_root();
 
