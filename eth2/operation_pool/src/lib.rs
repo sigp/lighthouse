@@ -669,11 +669,16 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_aggregate_attestation(att, &state.fork, spec)
+                    .unwrap();
             }
         }
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.aggregate_attestations.read().len(),
+            committees.len()
+        );
         assert_eq!(op_pool.num_attestations(), committees.len());
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
@@ -701,13 +706,15 @@ mod release_tests {
         );
 
         // Prune attestations shouldn't do anything at this point.
-        op_pool.prune_attestations(state);
+        let epoch = state.slot.epoch(MainnetEthSpec::slots_per_epoch());
+        op_pool.prune_attestations(&epoch);
         assert_eq!(op_pool.num_attestations(), committees.len());
 
         // But once we advance to more than an epoch after the attestation, it should prune it
         // out of existence.
         state.slot += 2 * MainnetEthSpec::slots_per_epoch();
-        op_pool.prune_attestations(state);
+        let epoch = state.slot.epoch(MainnetEthSpec::slots_per_epoch());
+        op_pool.prune_attestations(&epoch);
         assert_eq!(op_pool.num_attestations(), 0);
     }
 
@@ -738,9 +745,11 @@ mod release_tests {
                 None,
             );
             op_pool
-                .insert_attestation(att.clone(), &state.fork, spec)
+                .insert_aggregate_attestation(att.clone(), &state.fork, spec)
                 .unwrap();
-            op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+            op_pool
+                .insert_aggregate_attestation(att, &state.fork, spec)
+                .unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -777,13 +786,18 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_aggregate_attestation(att, &state.fork, spec)
+                    .unwrap();
             }
         }
 
         // The attestations should get aggregated into two attestations that comprise all
         // validators.
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.aggregate_attestations.read().len(),
+            committees.len()
+        );
         assert_eq!(op_pool.num_attestations(), 2 * committees.len());
     }
 
@@ -825,7 +839,9 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_aggregate_attestation(att, &state.fork, spec)
+                    .unwrap();
             }
         };
 
@@ -840,7 +856,10 @@ mod release_tests {
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.aggregate_attestations.read().len(),
+            committees.len()
+        );
         assert_eq!(
             op_pool.num_attestations(),
             (num_small + num_big) * committees.len()
@@ -898,7 +917,9 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_aggregate_attestation(att, &state.fork, spec)
+                    .unwrap();
             }
         };
 
@@ -913,7 +934,10 @@ mod release_tests {
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.aggregate_attestations.read().len(),
+            committees.len()
+        );
         assert_eq!(
             op_pool.num_attestations(),
             (num_small + num_big) * committees.len()
