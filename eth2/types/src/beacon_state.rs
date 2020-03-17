@@ -66,6 +66,7 @@ pub enum Error {
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
+    NonLinearTreeHashCacheHistory,
     TreeHashError(tree_hash::Error),
     CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
@@ -768,7 +769,6 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
-        self.build_tree_hash_cache()?;
         self.exit_cache.build(&self.validators, spec)?;
         self.decompress_validator_pubkeys()?;
 
@@ -901,17 +901,6 @@ impl<T: EthSpec> BeaconState<T> {
         if self.tree_hash_cache.is_none() {
             self.tree_hash_cache = Some(BeaconTreeHashCache::new(self))
         }
-    }
-
-    /// Build and update the tree hash cache if it isn't already initialized.
-    pub fn build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.update_tree_hash_cache().map(|_| ())
-    }
-
-    /// Build the tree hash cache, with blatant disregard for any existing cache.
-    pub fn force_build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.tree_hash_cache = None;
-        self.build_tree_hash_cache()
     }
 
     /// Compute the tree hash root of the state using the tree hash cache.
