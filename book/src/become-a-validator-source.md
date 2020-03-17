@@ -38,7 +38,7 @@ Once you have geth installed, use this command to start your Eth1 node:
  geth --goerli --rpc
 ```
 
-## 3. Start your Beacon Node
+## 3. Start your beacon node
 
 The beacon node is the core component of Eth2, it connects to other peers over
 the internet and maintains a view of the chain.
