@@ -569,6 +569,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(pubkey_cache.get_index(pubkey))
     }
 
+    /// Returns the validator pubkey (if any) for the given validator index.
+    ///
+    /// ## Notes
+    ///
+    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
+    /// even if those validators aren't included in the head state. It is important to remember
+    /// that just because a validator exists here, it doesn't necessarily exist in all
+    /// `BeaconStates`.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
+    pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        Ok(pubkey_cache.get(validator_index).cloned())
+    }
+
     /// Returns the block canonical root of the current canonical chain at a given slot.
     ///
     /// Returns None if a block doesn't exist at the slot.
