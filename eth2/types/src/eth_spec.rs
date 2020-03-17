@@ -12,6 +12,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
      */
     type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type JustificationBitsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
+    type SubnetBitfieldLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
     /*
      * Misc
      */
@@ -125,6 +126,7 @@ pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
     type JustificationBitsLength = U4;
+    type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
@@ -164,6 +166,7 @@ impl EthSpec for MinimalEthSpec {
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
+        SubnetBitfieldLength,
         MaxValidatorsPerCommittee,
         GenesisEpoch,
         HistoricalRootsLimit,
@@ -196,6 +199,7 @@ impl EthSpec for InteropEthSpec {
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
+        SubnetBitfieldLength,
         MaxValidatorsPerCommittee,
         GenesisEpoch,
         HistoricalRootsLimit,

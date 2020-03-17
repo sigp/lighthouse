@@ -1,9 +1,11 @@
 use crate::validator_store::ValidatorStore;
+use bls::Signature;
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{future, Future, IntoFuture, Stream};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
+use rest_types::{ValidatorDuty, ValidatorDutyBytes};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -12,7 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, Slot};
+use types::{ChainSpec, Epoch, EthSpec, PublicKey, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -20,35 +22,74 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 /// Remove any duties where the `duties_epoch < current_epoch - PRUNE_DEPTH`.
 const PRUNE_DEPTH: u64 = 4;
 
-type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, ValidatorDuty>>;
+type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, DutyAndState>>;
 
-/// Stores the duties for some validator for an epoch.
-#[derive(PartialEq, Debug, Clone)]
-pub struct ValidatorDuty {
-    /// The validator's BLS public key, uniquely identifying them. _48-bytes, hex encoded with 0x prefix, case insensitive._
-    pub validator_pubkey: PublicKey,
-    /// The slot at which the validator must attest.
-    pub attestation_slot: Option<Slot>,
-    /// The index of the committee within `slot` of which the validator is a member.
-    pub attestation_committee_index: Option<CommitteeIndex>,
-    /// The position of the validator in the committee.
-    pub attestation_committee_position: Option<usize>,
-    /// The slots in which a validator must propose a block (can be empty).
-    pub block_proposal_slots: Vec<Slot>,
+#[derive(Debug, Clone)]
+pub struct DutyAndState {
+    /// The validator duty.
+    pub duty: ValidatorDuty,
+    /// The current state of the validator duty.
+    state: DutyState,
 }
 
-impl TryInto<ValidatorDuty> for remote_beacon_node::ValidatorDuty {
+#[derive(Debug, Clone)]
+pub enum DutyState {
+    /// This duty has not been subscribed to the beacon node.
+    NotSubscribed,
+    /// The duty has been subscribed to the beacon node.
+    Subscribed,
+    /// The duty has been subscribed and the validator is an aggregator for this duty. The
+    /// selection proof is provided to construct the `AggregateAndProof` struct.
+    SubscribedAggregator(Signature),
+}
+
+impl DutyAndState {
+    /// Returns true if the duty is an aggregation duty (the validator must aggregate all
+    /// attestations.
+    pub fn is_aggregator(&self) -> bool {
+        match self.state {
+            DutyState::NotSubscribed => false,
+            DutyState::Subscribed => false,
+            DutyState::SubscribedAggregator(_) => true,
+        }
+    }
+
+    /// Returns the selection proof if the duty is an aggregation duty.
+    pub fn selection_proof(&self) -> Option<Signature> {
+        match &self.state {
+            DutyState::SubscribedAggregator(proof) => Some(proof.clone()),
+            _ => None,
+        }
+    }
+
+    /// Returns true if the this duty has been subscribed with the beacon node.
+    pub fn is_subscribed(&self) -> bool {
+        match self.state {
+            DutyState::NotSubscribed => false,
+            DutyState::Subscribed => true,
+            DutyState::SubscribedAggregator(_) => true,
+        }
+    }
+}
+
+impl TryInto<DutyAndState> for ValidatorDutyBytes {
     type Error = String;
 
-    fn try_into(self) -> Result<ValidatorDuty, Self::Error> {
-        Ok(ValidatorDuty {
+    fn try_into(self) -> Result<DutyAndState, Self::Error> {
+        let duty = ValidatorDuty {
             validator_pubkey: (&self.validator_pubkey)
                 .try_into()
                 .map_err(|e| format!("Invalid pubkey bytes from server: {:?}", e))?,
+            validator_index: self.validator_index,
             attestation_slot: self.attestation_slot,
             attestation_committee_index: self.attestation_committee_index,
             attestation_committee_position: self.attestation_committee_position,
             block_proposal_slots: self.block_proposal_slots,
+            aggregator_modulo: self.aggregator_modulo,
+        };
+        Ok(DutyAndState {
+            duty,
+            state: DutyState::NotSubscribed,
         })
     }
 }
@@ -82,7 +123,7 @@ impl DutiesStore {
             .filter(|(_validator_pubkey, validator_map)| {
                 validator_map
                     .get(&epoch)
-                    .map(|duties| !duties.block_proposal_slots.is_empty())
+                    .map(|duties| !duties.duty.block_proposal_slots.is_empty())
                     .unwrap_or_else(|| false)
             })
             .count()
@@ -96,7 +137,7 @@ impl DutiesStore {
             .filter(|(_validator_pubkey, validator_map)| {
                 validator_map
                     .get(&epoch)
-                    .map(|duties| duties.attestation_slot.is_some())
+                    .map(|duties| duties.duty.attestation_slot.is_some())
                     .unwrap_or_else(|| false)
             })
             .count()
@@ -112,8 +153,8 @@ impl DutiesStore {
                 let epoch = slot.epoch(slots_per_epoch);
 
                 validator_map.get(&epoch).and_then(|duties| {
-                    if duties.block_proposal_slots.contains(&slot) {
-                        Some(duties.validator_pubkey.clone())
+                    if duties.duty.block_proposal_slots.contains(&slot) {
+                        Some(duties.duty.validator_pubkey.clone())
                     } else {
                         None
                     }
@@ -122,7 +163,49 @@ impl DutiesStore {
             .collect()
     }
 
-    fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<ValidatorDuty> {
+    /// Gets a list of validator duties for an epoch that have not yet been subscribed
+    /// to the beacon node.
+    // Note: Potentially we should modify the data structure to store the unsubscribed epoch duties for validator clients with a large number of validators. This currently adds an O(N) search each slot.
+    fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<ValidatorDuty> {
+        self.store
+            .read()
+            .iter()
+            .filter_map(|(_validator_pubkey, validator_map)| {
+                validator_map.get(epoch).and_then(|duty_and_state| {
+                    if !duty_and_state.is_subscribed() {
+                        Some(duty_and_state)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .map(|duties| duties.duty.clone())
+            .collect()
+    }
+
+    /// Marks a duty as being subscribed to the beacon node. This is called by the attestation
+    /// service once it has been sent.
+    fn set_duty_state(
+        &self,
+        validator: &PublicKey,
+        slot: Slot,
+        state: DutyState,
+        slots_per_epoch: u64,
+    ) {
+        let epoch = slot.epoch(slots_per_epoch);
+
+        let mut store = self.store.write();
+        if let Some(map) = store.get_mut(validator) {
+            if let Some(duty) = map.get_mut(&epoch) {
+                if duty.duty.attestation_slot == Some(slot) {
+                    // set the duty state
+                    duty.state = state;
+                }
+            }
+        }
+    }
+
+    fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<DutyAndState> {
         self.store
             .read()
             .iter()
@@ -132,7 +215,7 @@ impl DutiesStore {
                 let epoch = slot.epoch(slots_per_epoch);
 
                 validator_map.get(&epoch).and_then(|duties| {
-                    if duties.attestation_slot == Some(slot) {
+                    if duties.duty.attestation_slot == Some(slot) {
                         Some(duties)
                     } else {
                         None
@@ -143,16 +226,16 @@ impl DutiesStore {
             .collect()
     }
 
-    fn insert(&self, epoch: Epoch, duties: ValidatorDuty, slots_per_epoch: u64) -> InsertOutcome {
+    fn insert(&self, epoch: Epoch, duties: DutyAndState, slots_per_epoch: u64) -> InsertOutcome {
         let mut store = self.store.write();
 
-        if !duties_match_epoch(&duties, epoch, slots_per_epoch) {
+        if !duties_match_epoch(&duties.duty, epoch, slots_per_epoch) {
             return InsertOutcome::Invalid;
         }
 
-        if let Some(validator_map) = store.get_mut(&duties.validator_pubkey) {
+        if let Some(validator_map) = store.get_mut(&duties.duty.validator_pubkey) {
             if let Some(known_duties) = validator_map.get_mut(&epoch) {
-                if *known_duties == duties {
+                if known_duties.duty == duties.duty {
                     InsertOutcome::Identical
                 } else {
                     *known_duties = duties;
@@ -164,7 +247,7 @@ impl DutiesStore {
                 InsertOutcome::NewEpoch
             }
         } else {
-            let validator_pubkey = duties.validator_pubkey.clone();
+            let validator_pubkey = duties.duty.validator_pubkey.clone();
 
             let mut validator_map = HashMap::new();
             validator_map.insert(epoch, duties);
@@ -315,8 +398,27 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
-    pub fn attesters(&self, slot: Slot) -> Vec<ValidatorDuty> {
+    pub fn attesters(&self, slot: Slot) -> Vec<DutyAndState> {
         self.store.attesters(slot, E::slots_per_epoch())
+    }
+
+    /// Returns all `ValidatorDuty` that have not been registered with the beacon node.
+    pub fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<ValidatorDuty> {
+        self.store.unsubscribed_epoch_duties(epoch)
+    }
+
+    /// Marks the duty as being subscribed to the beacon node.
+    ///
+    /// If the duty is to be marked as an aggregator duty, a selection proof is also provided.
+    pub fn subscribe_duty(&self, duty: &ValidatorDuty, aggregator_proof: Option<Signature>) {
+        let state = match aggregator_proof {
+            Some(proof) => DutyState::SubscribedAggregator(proof),
+            None => DutyState::Subscribed,
+        };
+        if let Some(slot) = duty.attestation_slot {
+            self.store
+                .set_duty_state(&duty.validator_pubkey, slot, state, E::slots_per_epoch())
+        }
     }
 
     /// Start the service that periodically polls the beacon node for validator duties.
@@ -477,7 +579,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 let mut invalid = 0;
 
                 all_duties.into_iter().try_for_each::<_, Result<_, String>>(|remote_duties| {
-                    let duties: ValidatorDuty = remote_duties.try_into()?;
+                    let duties: DutyAndState = remote_duties.try_into()?;
 
                     match service_2
                         .store
@@ -487,9 +589,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                             debug!(
                                 log,
                                 "First duty assignment for validator";
-                                "proposal_slots" => format!("{:?}", &duties.block_proposal_slots),
-                                "attestation_slot" => format!("{:?}", &duties.attestation_slot),
-                                "validator" => format!("{:?}", &duties.validator_pubkey)
+                                "proposal_slots" => format!("{:?}", &duties.duty.block_proposal_slots),
+                                "attestation_slot" => format!("{:?}", &duties.duty.attestation_slot),
+                                "validator" => format!("{:?}", &duties.duty.validator_pubkey)
                             );
                             new_validator += 1
                         }

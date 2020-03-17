@@ -1,7 +1,7 @@
 //! Available RPC methods types and ids.
 
 use ssz_derive::{Decode, Encode};
-use types::{Epoch, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /* Request/Response data structures for RPC methods */
 
@@ -129,16 +129,16 @@ pub struct BlocksByRootRequest {
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RPCResponse {
+pub enum RPCResponse<T: EthSpec> {
     /// A HELLO message.
     Status(StatusMessage),
 
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
-    BlocksByRange(Vec<u8>),
+    BlocksByRange(Box<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Vec<u8>),
+    BlocksByRoot(Box<SignedBeaconBlock<T>>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -152,9 +152,9 @@ pub enum ResponseTermination {
 }
 
 #[derive(Debug)]
-pub enum RPCErrorResponse {
+pub enum RPCErrorResponse<T: EthSpec> {
     /// The response is a successful.
-    Success(RPCResponse),
+    Success(RPCResponse<T>),
 
     /// The response was invalid.
     InvalidRequest(ErrorMessage),
@@ -169,7 +169,7 @@ pub enum RPCErrorResponse {
     StreamTermination(ResponseTermination),
 }
 
-impl RPCErrorResponse {
+impl<T: EthSpec> RPCErrorResponse<T> {
     /// Used to encode the response in the codec.
     pub fn as_u8(&self) -> Option<u8> {
         match self {
@@ -242,17 +242,21 @@ impl std::fmt::Display for StatusMessage {
     }
 }
 
-impl std::fmt::Display for RPCResponse {
+impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCResponse::Status(status) => write!(f, "{}", status),
-            RPCResponse::BlocksByRange(_) => write!(f, "<BlocksByRange>"),
-            RPCResponse::BlocksByRoot(_) => write!(f, "<BlocksByRoot>"),
+            RPCResponse::BlocksByRange(block) => {
+                write!(f, "BlocksByRange: Block slot: {}", block.message.slot)
+            }
+            RPCResponse::BlocksByRoot(block) => {
+                write!(f, "BlocksByRoot: BLock slot: {}", block.message.slot)
+            }
         }
     }
 }
 
-impl std::fmt::Display for RPCErrorResponse {
+impl<T: EthSpec> std::fmt::Display for RPCErrorResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCErrorResponse::Success(res) => write!(f, "{}", res),

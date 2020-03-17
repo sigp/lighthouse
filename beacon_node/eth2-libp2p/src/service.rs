@@ -1,9 +1,9 @@
-use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
-use crate::error;
+use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
+use crate::types::error;
 use crate::NetworkConfig;
-use crate::{NetworkGlobals, Topic, TopicHash};
+use crate::{NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -24,9 +24,10 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::DelayQueue;
+use types::EthSpec;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
+type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
 
 const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
@@ -34,10 +35,10 @@ const NETWORK_KEY_FILENAME: &str = "key";
 const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
 
 /// The configuration and state of the libp2p components for the beacon node.
-pub struct Service {
+pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
+    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour<TSpec>>,
 
     /// This node's PeerId.
     pub local_peer_id: PeerId,
@@ -52,11 +53,11 @@ pub struct Service {
     pub log: slog::Logger,
 }
 
-impl Service {
+impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
         config: &NetworkConfig,
         log: slog::Logger,
-    ) -> error::Result<(Arc<NetworkGlobals>, Self)> {
+    ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         trace!(log, "Libp2p Service starting");
 
         let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {
@@ -70,7 +71,11 @@ impl Service {
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
         // set up a collection of variables accessible outside of the network crate
-        let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
+        let network_globals = Arc::new(NetworkGlobals::new(
+            local_peer_id.clone(),
+            config.libp2p_port,
+            config.discovery_port,
+        ));
 
         let mut swarm = {
             // Set up the transport - tcp/ws with noise/secio and mplex/yamux
@@ -133,12 +138,15 @@ impl Service {
         }
 
         let mut subscribed_topics: Vec<String> = vec![];
-        for topic in config.topics.clone() {
-            let raw_topic: Topic = topic.into();
-            let topic_string = raw_topic.no_hash();
-            if swarm.subscribe(raw_topic.clone()) {
+        for topic in &config.topics {
+            let topic_string: String = topic.clone().into();
+            if swarm.subscribe(topic.clone()) {
                 trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
-                subscribed_topics.push(topic_string.as_str().into());
+                subscribed_topics.push(topic_string);
+                network_globals
+                    .gossipsub_subscriptions
+                    .write()
+                    .push(topic.clone());
             } else {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
             }
@@ -167,9 +175,9 @@ impl Service {
     }
 }
 
-impl Stream for Service {
-    type Item = Libp2pEvent;
-    type Error = crate::error::Error;
+impl<TSpec: EthSpec> Stream for Service<TSpec> {
+    type Item = Libp2pEvent<TSpec>;
+    type Error = error::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
@@ -313,9 +321,9 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
 
 #[derive(Debug)]
 /// Events that can be obtained from polling the Libp2p Service.
-pub enum Libp2pEvent {
+pub enum Libp2pEvent<TSpec: EthSpec> {
     /// An RPC response request has been received on the swarm.
-    RPC(PeerId, RPCEvent),
+    RPC(PeerId, RPCEvent<TSpec>),
     /// Initiated the connection to a new peer.
     PeerDialed(PeerId),
     /// A peer has disconnected.
@@ -325,7 +333,7 @@ pub enum Libp2pEvent {
         id: MessageId,
         source: PeerId,
         topics: Vec<TopicHash>,
-        message: PubsubMessage,
+        message: PubsubMessage<TSpec>,
     },
     /// Subscribed to peer for a topic hash.
     PeerSubscribed(PeerId, TopicHash),

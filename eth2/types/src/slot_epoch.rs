@@ -94,6 +94,7 @@ impl Epoch {
 }
 
 impl SignedRoot for Epoch {}
+impl SignedRoot for Slot {}
 
 pub struct SlotIter<'a> {
     current_iteration: u64,

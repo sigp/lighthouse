@@ -124,7 +124,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .system_time_slot_clock()?
                     .websocket_event_handler(client_config.websocket_server.clone())?
                     .build_beacon_chain()?
-                    .libp2p_network(&client_config.network)?
+                    .network(&client_config.network)?
                     .notifier()?;
 
                 let builder = if client_config.rest_api.enabled {

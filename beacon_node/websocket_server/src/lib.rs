@@ -40,7 +40,14 @@ pub fn start_server<T: EthSpec>(
     config: &Config,
     executor: &TaskExecutor,
     log: &Logger,
-) -> Result<(WebSocketSender<T>, exit_future::Signal, SocketAddr), String> {
+) -> Result<
+    (
+        WebSocketSender<T>,
+        tokio::sync::oneshot::Sender<()>,
+        SocketAddr,
+    ),
+    String,
+> {
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
     // Create a server that simply ignores any incoming messages.
@@ -64,29 +71,31 @@ pub fn start_server<T: EthSpec>(
     let broadcaster = server.broadcaster();
 
     // Produce a signal/channel that can gracefully shutdown the websocket server.
-    let exit_signal = {
-        let (exit_signal, exit) = exit_future::signal();
+    let exit_channel = {
+        let (exit_channel, exit) = tokio::sync::oneshot::channel();
 
         let log_inner = log.clone();
         let broadcaster_inner = server.broadcaster();
-        let exit_future = exit.and_then(move |_| {
-            if let Err(e) = broadcaster_inner.shutdown() {
-                warn!(
-                    log_inner,
-                    "Websocket server errored on shutdown";
-                    "error" => format!("{:?}", e)
-                );
-            } else {
-                info!(log_inner, "Websocket server shutdown");
-            }
-            Ok(())
-        });
+        let exit_future = exit
+            .and_then(move |_| {
+                if let Err(e) = broadcaster_inner.shutdown() {
+                    warn!(
+                        log_inner,
+                        "Websocket server errored on shutdown";
+                        "error" => format!("{:?}", e)
+                    );
+                } else {
+                    info!(log_inner, "Websocket server shutdown");
+                }
+                Ok(())
+            })
+            .map_err(|_| ());
 
         // Place a future on the executor that will shutdown the websocket server when the
         // application exits.
         executor.spawn(exit_future);
 
-        exit_signal
+        exit_channel
     };
 
     let log_inner = log.clone();
@@ -118,7 +127,7 @@ pub fn start_server<T: EthSpec>(
             sender: Some(broadcaster),
             _phantom: PhantomData,
         },
-        exit_signal,
+        exit_channel,
         actual_listen_addr,
     ))
 }

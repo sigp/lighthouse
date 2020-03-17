@@ -17,7 +17,9 @@ pub struct PersistedOperationPool<T: EthSpec> {
     /// Mapping from attestation ID to attestation mappings.
     // We could save space by not storing the attestation ID, but it might
     // be difficult to make that roundtrip due to eager aggregation.
-    attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
+    // Note: That we don't store the committee attestations as these are short lived and not worth
+    // persisting
+    aggregate_attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
     /// Attester slashings.
     attester_slashings: Vec<AttesterSlashing<T>>,
     /// Proposer slashings.
@@ -29,8 +31,8 @@ pub struct PersistedOperationPool<T: EthSpec> {
 impl<T: EthSpec> PersistedOperationPool<T> {
     /// Convert an `OperationPool` into serializable form.
     pub fn from_operation_pool(operation_pool: &OperationPool<T>) -> Self {
-        let attestations = operation_pool
-            .attestations
+        let aggregate_attestations = operation_pool
+            .aggregate_attestations
             .read()
             .iter()
             .map(|(att_id, att)| (att_id.clone(), att.clone()))
@@ -58,7 +60,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .collect();
 
         Self {
-            attestations,
+            aggregate_attestations,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
@@ -67,7 +69,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
 
     /// Reconstruct an `OperationPool`.
     pub fn into_operation_pool(self, state: &BeaconState<T>, spec: &ChainSpec) -> OperationPool<T> {
-        let attestations = RwLock::new(self.attestations.into_iter().collect());
+        let aggregate_attestations = RwLock::new(self.aggregate_attestations.into_iter().collect());
         let attester_slashings = RwLock::new(
             self.attester_slashings
                 .into_iter()
@@ -93,7 +95,8 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         );
 
         OperationPool {
-            attestations,
+            aggregate_attestations,
+            committee_attestations: Default::default(),
             attester_slashings,
             proposer_slashings,
             voluntary_exits,

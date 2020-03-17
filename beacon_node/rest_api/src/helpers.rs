@@ -1,20 +1,17 @@
-use crate::{ApiError, ApiResult};
+use crate::{ApiError, ApiResult, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
-use eth2_libp2p::GossipTopic;
-use eth2_libp2p::PubsubMessage;
+use eth2_libp2p::types::GossipEncoding;
+use eth2_libp2p::{PubsubData, PubsubMessage};
 use hex;
 use http::header;
 use hyper::{Body, Request};
 use network::NetworkMessage;
-use parking_lot::RwLock;
-use ssz::{Decode, Encode};
-use std::sync::Arc;
+use ssz::Decode;
 use store::{iter::AncestorIter, Store};
-use tokio::sync::mpsc;
 use types::{
     Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, Signature,
-    SignedBeaconBlock, Slot,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
 /// Parse a slot.
@@ -49,7 +46,7 @@ pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
 /// Checks the provided request to ensure that the `content-type` header.
 ///
 /// The content-type header should either be omitted, in which case JSON is assumed, or it should
-/// explicity specify `application/json`. If anything else is provided, an error is returned.
+/// explicitly specify `application/json`. If anything else is provided, an error is returned.
 pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
     match req.headers().get(header::CONTENT_TYPE) {
         Some(h) if h == "application/json" => Ok(()),
@@ -61,7 +58,7 @@ pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> 
     }
 }
 
-/// Parse a signature from a `0x` preixed string.
+/// Parse a signature from a `0x` prefixed string.
 pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
     const PREFIX: &str = "0x";
 
@@ -78,7 +75,7 @@ pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
     }
 }
 
-/// Parse a root from a `0x` preixed string.
+/// Parse a root from a `0x` prefixed string.
 ///
 /// E.g., `"0x0000000000000000000000000000000000000000000000000000000000000000"`
 pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
@@ -232,18 +229,17 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    mut chan: NetworkChannel<T::EthSpec>,
     block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic = GossipTopic::BeaconBlock;
-    let message = PubsubMessage::Block(block.as_ssz_bytes());
+    // send the block via SSZ encoding
+    let messages = vec![PubsubMessage::new(
+        GossipEncoding::SSZ,
+        PubsubData::BeaconBlock(Box::new(block)),
+    )];
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic.into()],
-        message,
-    }) {
+    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
             e
@@ -253,19 +249,51 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     Ok(())
 }
 
-pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    attestation: Attestation<T::EthSpec>,
+/// Publishes a raw un-aggregated attestation to the network.
+pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
+    mut chan: NetworkChannel<T::EthSpec>,
+    attestations: Vec<Attestation<T::EthSpec>>,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic = GossipTopic::BeaconAttestation;
-    let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
+    let messages = attestations
+        .into_iter()
+        .map(|attestation| {
+            // create the gossip message to send to the network
+            let subnet_id = attestation.subnet_id();
+            PubsubMessage::new(
+                GossipEncoding::SSZ,
+                PubsubData::Attestation(Box::new((subnet_id, attestation))),
+            )
+        })
+        .collect::<Vec<_>>();
 
-    // Publish the attestation to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic.into()],
-        message,
-    }) {
+    // Publish the attestations to the p2p network via gossipsub.
+    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send new attestation to network: {:?}",
+            e
+        )));
+    }
+
+    Ok(())
+}
+
+/// Publishes an aggregated attestation to the network.
+pub fn publish_aggregate_attestations_to_network<T: BeaconChainTypes + 'static>(
+    mut chan: NetworkChannel<T::EthSpec>,
+    signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>,
+) -> Result<(), ApiError> {
+    let messages = signed_proofs
+        .into_iter()
+        .map(|signed_proof| {
+            PubsubMessage::new(
+                GossipEncoding::SSZ,
+                PubsubData::AggregateAndProofAttestation(Box::new(signed_proof)),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    // Publish the attestations to the p2p network via gossipsub.
+    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new attestation to network: {:?}",
             e
