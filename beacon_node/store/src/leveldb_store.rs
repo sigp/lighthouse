@@ -123,7 +123,7 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
     }
 
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error> {
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         store_full_state(self, state_root, &state)
     }
 
