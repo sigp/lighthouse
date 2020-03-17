@@ -11,6 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
+use std::convert::TryInto;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -36,7 +37,7 @@ const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 pub enum Error {
     EpochOutOfBounds,
     SlotOutOfBounds,
-    UnknownValidator,
+    UnknownValidator(u64),
     UnableToDetermineProducer,
     InvalidBitfield,
     ValidatorIsWithdrawable,
@@ -332,6 +333,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.10.1
     pub fn get_active_validator_indices(&self, epoch: Epoch) -> Vec<usize> {
+        // FIXME(sproul): put a bounds check on here based on the maximum lookahead
         get_active_validator_indices(&self.validators, epoch)
     }
 
@@ -425,6 +427,30 @@ impl<T: EthSpec> BeaconState<T> {
             }
             i += 1;
         }
+    }
+
+    /// Return `true` if the validator who produced `slot_signature` is eligible to aggregate.
+    ///
+    /// Spec v0.10.1
+    pub fn is_aggregator(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+        slot_signature: &Signature,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error> {
+        let committee = self.get_beacon_committee(slot, index)?;
+        let modulo = std::cmp::max(
+            1,
+            committee.committee.len() as u64 / spec.target_aggregators_per_committee,
+        );
+        let signature_hash = hash(&slot_signature.as_bytes());
+        let signature_hash_int = u64::from_le_bytes(
+            signature_hash[0..8]
+                .try_into()
+                .expect("first 8 bytes of signature should always convert to fixed array"),
+        );
+        Ok(signature_hash_int % modulo == 0)
     }
 
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
@@ -710,7 +736,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.validators
             .get(validator_index)
             .map(|v| v.effective_balance)
-            .ok_or_else(|| Error::UnknownValidator)
+            .ok_or_else(|| Error::UnknownValidator(validator_index as u64))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -734,7 +760,7 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
-    /// Returns the `slot`, `index` and `committee_position` for which a validator must produce an
+    /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an
     /// attestation.
     ///
     /// Note: Utilizes the cache and will fail if the appropriate cache is not initialized.
@@ -770,7 +796,6 @@ impl<T: EthSpec> BeaconState<T> {
         self.update_pubkey_cache()?;
         self.build_tree_hash_cache()?;
         self.exit_cache.build(&self.validators, spec)?;
-        self.decompress_validator_pubkeys()?;
 
         Ok(())
     }
@@ -936,23 +961,6 @@ impl<T: EthSpec> BeaconState<T> {
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
         self.tree_hash_cache = None;
-    }
-
-    /// Iterate through all validators and decompress their public key, unless it has already been
-    /// decompressed.
-    ///
-    /// Does not check the validity of already decompressed keys.
-    pub fn decompress_validator_pubkeys(&mut self) -> Result<(), Error> {
-        self.validators.iter_mut().try_for_each(|validator| {
-            if validator.pubkey.decompressed().is_none() {
-                validator
-                    .pubkey
-                    .decompress()
-                    .map_err(Error::InvalidValidatorPubkey)
-            } else {
-                Ok(())
-            }
-        })
     }
 
     /// Clone the state whilst preserving only the selected caches.

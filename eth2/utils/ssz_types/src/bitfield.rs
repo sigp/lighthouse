@@ -302,7 +302,7 @@ impl<T: BitfieldBehaviour> Bitfield<T> {
 
     /// Returns the value of the `i`'th bit.
     ///
-    /// Returns `None` if `i` is out-of-bounds of `self`.
+    /// Returns `Error` if `i` is out-of-bounds of `self`.
     pub fn get(&self, i: usize) -> Result<bool, Error> {
         if i < self.len {
             let byte = self

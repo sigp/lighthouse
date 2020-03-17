@@ -1,6 +1,7 @@
 #![cfg(test)]
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::multiaddr::Protocol;
+use ::types::MinimalEthSpec;
 use eth2_libp2p::*;
 use futures::prelude::*;
 use libp2p::core::identity::Keypair;
@@ -16,10 +17,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::prelude::*;
 
+type TSpec = MinimalEthSpec;
+
 mod common;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
+type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>, TSpec>;
 
 /// Build and return a eth2_libp2p Swarm with only secio support.
 fn build_secio_swarm(
@@ -29,7 +32,11 @@ fn build_secio_swarm(
     let local_keypair = Keypair::generate_secp256k1();
     let local_peer_id = PeerId::from(local_keypair.public());
 
-    let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
+    let network_globals = Arc::new(NetworkGlobals::new(
+        local_peer_id.clone(),
+        config.libp2p_port,
+        config.discovery_port,
+    ));
 
     let mut swarm = {
         // Set up the transport - tcp/ws with secio and mplex/yamux

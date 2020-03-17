@@ -1,6 +1,6 @@
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature, SignedRoot,
+    Signature, SignedRoot, SubnetId,
 };
 use crate::test_utils::TestRandom;
 
@@ -74,6 +74,14 @@ impl<T: EthSpec> Attestation<T> {
 
             Ok(())
         }
+    }
+
+    /// Returns the subnet id associated with the attestation.
+    ///
+    /// Note, this will return the subnet id for an aggregated attestation. This is done
+    /// to avoid checking aggregate bits every time we wish to get an id.
+    pub fn subnet_id(&self) -> SubnetId {
+        SubnetId::new(self.data.index % T::default_spec().attestation_subnet_count)
     }
 }
 

@@ -6,6 +6,7 @@
 #[macro_use]
 pub mod test_utils;
 
+pub mod aggregate_and_proof;
 pub mod attestation;
 pub mod attestation_data;
 pub mod attestation_duty;
@@ -39,10 +40,12 @@ pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod slot_epoch;
+pub mod subnet_id;
 mod tree_hash_impls;
 
 use ethereum_types::{H160, H256};
 
+pub use crate::aggregate_and_proof::{AggregateAndProof, SignedAggregateAndProof};
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
@@ -70,6 +73,7 @@ pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_root::{SignedRoot, SigningRoot};
 pub use crate::slot_epoch::{Epoch, Slot};
+pub use crate::subnet_id::SubnetId;
 pub use crate::validator::Validator;
 pub use crate::voluntary_exit::VoluntaryExit;
 

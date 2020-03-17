@@ -5,16 +5,23 @@ client to connect to the beacon node and produce blocks and attestations.
 
 ## Endpoints
 
-HTTP Path | Description |
+HTTP Path | HTTP Method | Description |
 | --- | -- |
-[`/validator/duties`](#validatorduties) | Provides block and attestation production information for validators.
-[`/validator/duties/all`](#validatordutiesall) | Provides block and attestation production information for all validators.
-[`/validator/duties/active`](#validatordutiesactive) | Provides block and attestation production information for all active validators.
-[`/validator/block`](#validatorblock) | Produces a `BeaconBlock` object from current state.
-[`/validator/attestation`](#validatorattestation) | Produces an unsigned `Attestation` object from current state.
-[`/validator/block`](#validatorblock) | Processes a `SignedBeaconBlock` object and publishes it to the network.
-[`/validator/attestation`](#validatorattestation) | Processes a signed `Attestation` and publishes it to the network.
-
+[`/validator/duties`](#validatorduties) | GET | Provides block and attestation production information for validators.
+[`/validator/duties/all`](#validatordutiesall) | GET |Provides block and attestation production information for all validators.
+[`/validator/duties/active`](#validatordutiesactive) | GET | Provides block and attestation production information for all active validators.
+[`/validator/block`](#validatorblockget) | GET | Retrieves the current beacon
+block for the validator to publish.
+[`/validator/block`](#validatorblockpost) | POST | Publishes a signed block to the
+network.
+[`/validator/attestation`](#validatorattestation) | GET | Retrieves the current best attestation for a validator to publish.
+[`/validator/attestations`](#validatorattestations) | POST | Publishes a list
+of raw unaggregated attestations to their appropriate subnets
+[`/validator/aggregate_attestation`](#validatoraggregateattestation) | GET | Gets an aggregate attestation for validators to sign and publish.
+[`/validator/aggregate_attestations`](#validatoraggregateattestation) | POST |
+Publishes a list of aggregated attestations for validators who are aggregators
+[`/validator/subscribe`](#validatorsubscribe) | POST | Subscribes a list of
+validators to the beacon node for a particular duty/slot.
 
 ## `/validator/duties`
 
@@ -81,7 +88,8 @@ _Note: for demonstration purposes the second pubkey is some unknown pubkey._
         "attestation_slot": 38511,
         "attestation_committee_index": 3,
         "attestation_committee_position": 39,
-        "block_proposal_slots": []
+        "block_proposal_slots": [],
+		"aggregator_modulo": 5,
     },
     {
         "validator_pubkey": "0x42f87bc7c8fa10408425bbeeeb3dc3874242b4bd92f57775b60b39142426f9ec80b273a64269332d97bdb7d93ae05a42",
@@ -90,6 +98,7 @@ _Note: for demonstration purposes the second pubkey is some unknown pubkey._
         "attestation_committee_index": null,
         "attestation_committee_position": null,
         "block_proposal_slots": []
+		"aggregator_modulo": null,
     }
 ]
 ```

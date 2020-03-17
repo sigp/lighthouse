@@ -5,6 +5,9 @@ use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
 use slog::{debug, error, o, Drain};
 use std::time::Duration;
+use types::MinimalEthSpec;
+
+type E = MinimalEthSpec;
 use tempdir::TempDir;
 
 pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
@@ -43,7 +46,7 @@ pub fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     secret_key: Option<String>,
     log: slog::Logger,
-) -> LibP2PService {
+) -> LibP2PService<E> {
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
     LibP2PService::new(&config, log.clone())
@@ -52,15 +55,19 @@ pub fn build_libp2p_instance(
 }
 
 #[allow(dead_code)]
-pub fn get_enr(node: &LibP2PService) -> Enr {
+pub fn get_enr(node: &LibP2PService<E>) -> Enr {
     node.swarm.discovery().local_enr().clone()
 }
 
 // Returns `n` libp2p peers in fully connected topology.
 #[allow(dead_code)]
-pub fn build_full_mesh(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
+pub fn build_full_mesh(
+    log: slog::Logger,
+    n: usize,
+    start_port: Option<u16>,
+) -> Vec<LibP2PService<E>> {
     let base_port = start_port.unwrap_or(9000);
-    let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
+    let mut nodes: Vec<LibP2PService<E>> = (base_port..base_port + n as u16)
         .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
@@ -84,7 +91,10 @@ pub fn build_full_mesh(log: slog::Logger, n: usize, start_port: Option<u16>) -> 
 // Constructs a pair of nodes with seperate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
-pub fn build_node_pair(log: &slog::Logger, start_port: u16) -> (LibP2PService, LibP2PService) {
+pub fn build_node_pair(
+    log: &slog::Logger,
+    start_port: u16,
+) -> (LibP2PService<E>, LibP2PService<E>) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
@@ -101,9 +111,9 @@ pub fn build_node_pair(log: &slog::Logger, start_port: u16) -> (LibP2PService, L
 
 // Returns `n` peers in a linear topology
 #[allow(dead_code)]
-pub fn build_linear(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService> {
+pub fn build_linear(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService<E>> {
     let base_port = start_port.unwrap_or(9000);
-    let mut nodes: Vec<LibP2PService> = (base_port..base_port + n as u16)
+    let mut nodes: Vec<LibP2PService<E>> = (base_port..base_port + n as u16)
         .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes

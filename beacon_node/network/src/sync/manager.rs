@@ -35,7 +35,7 @@
 
 use super::network_context::SyncNetworkContext;
 use super::range_sync::{Batch, BatchProcessResult, RangeSync};
-use crate::message_processor::PeerSyncInfo;
+use crate::router::processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::rpc::methods::*;
@@ -153,7 +153,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
 
     /// A network context to contact the network service.
-    network: SyncNetworkContext,
+    network: SyncNetworkContext<T::EthSpec>,
 
     /// The object handling long-range batch load-balanced syncing.
     range_sync: RangeSync<T>,
@@ -180,7 +180,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
 pub fn spawn<T: BeaconChainTypes>(
     executor: &tokio::runtime::TaskExecutor,
     beacon_chain: Weak<BeaconChain<T>>,
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: slog::Logger,
 ) -> (
     mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
@@ -391,7 +391,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // we have the correct block, try and process it
         if let Some(chain) = self.chain.upgrade() {
-            match chain.process_block(block.clone()) {
+            match BlockProcessingOutcome::shim(chain.process_block(block.clone())) {
                 Ok(outcome) => {
                     match outcome {
                         BlockProcessingOutcome::Processed { block_root } => {
@@ -597,7 +597,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .downloaded_blocks
                     .pop()
                     .expect("There is always at least one block in the queue");
-                match chain.process_block(newest_block.clone()) {
+                match BlockProcessingOutcome::shim(chain.process_block(newest_block.clone())) {
                     Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
                         // need to keep looking for parents
                         // add the block back to the queue and continue the search
@@ -642,7 +642,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             while let Some(block) = parent_request.downloaded_blocks.pop() {
                 // check if the chain exists
                 if let Some(chain) = self.chain.upgrade() {
-                    match chain.process_block(block) {
+                    match BlockProcessingOutcome::shim(chain.process_block(block)) {
                         Ok(BlockProcessingOutcome::Processed { .. })
                         | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {} // continue to the next block
 

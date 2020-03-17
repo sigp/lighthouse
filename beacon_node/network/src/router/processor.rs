@@ -19,9 +19,6 @@ use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
-const SHOULD_FORWARD_GOSSIP_BLOCK: bool = true;
-const SHOULD_NOT_FORWARD_GOSSIP_BLOCK: bool = false;
-
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
@@ -52,7 +49,7 @@ impl PeerSyncInfo {
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
-pub struct MessageProcessor<T: BeaconChainTypes> {
+pub struct Processor<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
     /// A channel to the syncing thread.
@@ -60,17 +57,17 @@ pub struct MessageProcessor<T: BeaconChainTypes> {
     /// A oneshot channel for destroying the sync thread.
     _sync_exit: oneshot::Sender<()>,
     /// A network context to return and handle RPC requests.
-    network: HandlerNetworkContext,
+    network: HandlerNetworkContext<T::EthSpec>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> MessageProcessor<T> {
-    /// Instantiate a `MessageProcessor` instance
+impl<T: BeaconChainTypes> Processor<T> {
+    /// Instantiate a `Processor` instance
     pub fn new(
         executor: &tokio::runtime::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
-        network_send: mpsc::UnboundedSender<NetworkMessage>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
@@ -83,7 +80,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
             sync_logger,
         );
 
-        MessageProcessor {
+        Processor {
             chain: beacon_chain,
             sync_send,
             _sync_exit,
@@ -303,7 +300,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                 self.network.send_rpc_response(
                     peer_id.clone(),
                     request_id,
-                    RPCResponse::BlocksByRoot(block.as_ssz_bytes()),
+                    RPCResponse::BlocksByRoot(Box::new(block)),
                 );
                 send_block_count += 1;
             } else {
@@ -389,7 +386,7 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     self.network.send_rpc_response(
                         peer_id.clone(),
                         request_id,
-                        RPCResponse::BlocksByRange(block.as_ssz_bytes()),
+                        RPCResponse::BlocksByRange(Box::new(block)),
                     );
                 }
             } else {
@@ -436,9 +433,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
+        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRange Response";
@@ -457,9 +453,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
+        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let beacon_block = beacon_block.map(Box::new);
         trace!(
             self.log,
             "Received BlocksByRoot Response";
@@ -473,6 +468,22 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
         });
     }
 
+    /// Template function to be called on a block to determine if the block should be propagated
+    /// across the network.
+    pub fn should_forward_block(&mut self, _block: &Box<SignedBeaconBlock<T::EthSpec>>) -> bool {
+        // TODO: Propagate error once complete
+        // self.chain.should_forward_block(block).is_ok()
+        true
+    }
+
+    /// Template function to be called on an attestation to determine if the attestation should be propagated
+    /// across the network.
+    pub fn _should_forward_attestation(&mut self, _attestation: &Attestation<T::EthSpec>) -> bool {
+        // TODO: Propagate error once complete
+        //self.chain.should_forward_attestation(attestation).is_ok()
+        true
+    }
+
     /// Process a gossip message declaring a new block.
     ///
     /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
@@ -481,9 +492,9 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
     pub fn on_block_gossip(
         &mut self,
         peer_id: PeerId,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) -> bool {
-        match self.chain.process_block(block.clone()) {
+        match BlockProcessingOutcome::shim(self.chain.process_block(*block.clone())) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
@@ -508,24 +519,13 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                             "location" => "block gossip"
                         ),
                     }
-
-                    SHOULD_FORWARD_GOSSIP_BLOCK
                 }
                 BlockProcessingOutcome::ParentUnknown { .. } => {
                     // Inform the sync manager to find parents for this block
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block)));
-                    SHOULD_FORWARD_GOSSIP_BLOCK
+                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
                 }
-                BlockProcessingOutcome::FutureSlot {
-                    present_slot,
-                    block_slot,
-                } if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot => {
-                    //TODO: Decide the logic here
-                    SHOULD_FORWARD_GOSSIP_BLOCK
-                }
-                BlockProcessingOutcome::BlockIsAlreadyKnown => SHOULD_FORWARD_GOSSIP_BLOCK,
                 other => {
                     warn!(
                         self.log,
@@ -539,7 +539,6 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                         "Invalid gossip beacon block ssz";
                         "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
                     );
-                    SHOULD_NOT_FORWARD_GOSSIP_BLOCK //TODO: Decide if we want to forward these
                 }
             },
             Err(_) => {
@@ -549,15 +548,18 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     "Erroneous gossip beacon block ssz";
                     "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
                 );
-                SHOULD_NOT_FORWARD_GOSSIP_BLOCK
             }
         }
+        // TODO: Update with correct block gossip checking
+        true
     }
 
     /// Process a gossip message declaring a new attestation.
     ///
     /// Not currently implemented.
-    pub fn on_attestation_gossip(&mut self, peer_id: PeerId, msg: Attestation<T::EthSpec>) {
+    pub fn on_attestation_gossip(&mut self, _peer_id: PeerId, _msg: Attestation<T::EthSpec>) {
+        // TODO: Handle subnet gossip
+        /*
         match self.chain.process_attestation(msg.clone()) {
             Ok(outcome) => match outcome {
                 AttestationProcessingOutcome::Processed => {
@@ -603,7 +605,8 @@ impl<T: BeaconChainTypes> MessageProcessor<T> {
                     "ssz" => format!("0x{}", hex::encode(msg.as_ssz_bytes())),
                 );
             }
-        }
+        };
+        */
     }
 }
 
@@ -625,15 +628,15 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 /// Wraps a Network Channel to employ various RPC related network functionality for the message
 /// handler. The handler doesn't manage it's own request Id's and can therefore only send
 /// responses or requests with 0 request Ids.
-pub struct HandlerNetworkContext {
+pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
     /// Logger for the `NetworkContext`.
     log: slog::Logger,
 }
 
-impl HandlerNetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+impl<T: EthSpec> HandlerNetworkContext<T> {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<T>>, log: slog::Logger) -> Self {
         Self { network_send, log }
     }
 
@@ -655,7 +658,7 @@ impl HandlerNetworkContext {
             });
     }
 
-    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest) {
+    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest<T>) {
         // the message handler cannot send requests with ids. Id's are managed by the sync
         // manager.
         let request_id = 0;
@@ -667,7 +670,7 @@ impl HandlerNetworkContext {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_response: RPCResponse,
+        rpc_response: RPCResponse<T>,
     ) {
         self.send_rpc_event(
             peer_id,
@@ -680,12 +683,12 @@ impl HandlerNetworkContext {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_error_response: RPCErrorResponse,
+        rpc_error_response: RPCErrorResponse<T>,
     ) {
         self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_error_response));
     }
 
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent<T>) {
         self.network_send
             .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .unwrap_or_else(|_| {

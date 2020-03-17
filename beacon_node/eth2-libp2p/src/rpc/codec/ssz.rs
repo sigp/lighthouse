@@ -8,17 +8,20 @@ use crate::rpc::{
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
+use std::marker::PhantomData;
 use tokio::codec::{Decoder, Encoder};
+use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::UviBytes;
 
 /* Inbound Codec */
 
-pub struct SSZInboundCodec {
+pub struct SSZInboundCodec<TSpec: EthSpec> {
     inner: UviBytes,
     protocol: ProtocolId,
+    phantom: PhantomData<TSpec>,
 }
 
-impl SSZInboundCodec {
+impl<T: EthSpec> SSZInboundCodec<T> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let mut uvi_codec = UviBytes::default();
         uvi_codec.set_max_len(max_packet_size);
@@ -29,24 +32,23 @@ impl SSZInboundCodec {
         SSZInboundCodec {
             inner: uvi_codec,
             protocol,
+            phantom: PhantomData,
         }
     }
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl Encoder for SSZInboundCodec {
-    type Item = RPCErrorResponse;
+impl<TSpec: EthSpec> Encoder for SSZInboundCodec<TSpec> {
+    type Item = RPCErrorResponse<TSpec>;
     type Error = RPCError;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
-            RPCErrorResponse::Success(resp) => {
-                match resp {
-                    RPCResponse::Status(res) => res.as_ssz_bytes(),
-                    RPCResponse::BlocksByRange(res) => res, // already raw bytes
-                    RPCResponse::BlocksByRoot(res) => res,  // already raw bytes
-                }
-            }
+            RPCErrorResponse::Success(resp) => match resp {
+                RPCResponse::Status(res) => res.as_ssz_bytes(),
+                RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
+                RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+            },
             RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
             RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
             RPCErrorResponse::Unknown(err) => err.as_ssz_bytes(),
@@ -70,8 +72,8 @@ impl Encoder for SSZInboundCodec {
 }
 
 // Decoder for inbound streams: Decodes RPC requests from peers
-impl Decoder for SSZInboundCodec {
-    type Item = RPCRequest;
+impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
+    type Item = RPCRequest<TSpec>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -111,12 +113,13 @@ impl Decoder for SSZInboundCodec {
 
 /* Outbound Codec: Codec for initiating RPC requests */
 
-pub struct SSZOutboundCodec {
+pub struct SSZOutboundCodec<TSpec: EthSpec> {
     inner: UviBytes,
     protocol: ProtocolId,
+    phantom: PhantomData<TSpec>,
 }
 
-impl SSZOutboundCodec {
+impl<TSpec: EthSpec> SSZOutboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let mut uvi_codec = UviBytes::default();
         uvi_codec.set_max_len(max_packet_size);
@@ -127,13 +130,14 @@ impl SSZOutboundCodec {
         SSZOutboundCodec {
             inner: uvi_codec,
             protocol,
+            phantom: PhantomData,
         }
     }
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl Encoder for SSZOutboundCodec {
-    type Item = RPCRequest;
+impl<TSpec: EthSpec> Encoder for SSZOutboundCodec<TSpec> {
+    type Item = RPCRequest<TSpec>;
     type Error = RPCError;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -142,6 +146,7 @@ impl Encoder for SSZOutboundCodec {
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            RPCRequest::Phantom(_) => unreachable!("Never encode phantom data"),
         };
         // length-prefix
         self.inner
@@ -155,8 +160,8 @@ impl Encoder for SSZOutboundCodec {
 // The majority of the decoding has now been pushed upstream due to the changing specification.
 // We prefer to decode blocks and attestations with extra knowledge about the chain to perform
 // faster verification checks before decoding entire blocks/attestations.
-impl Decoder for SSZOutboundCodec {
-    type Item = RPCResponse;
+impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
+    type Item = RPCResponse<TSpec>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -173,11 +178,15 @@ impl Decoder for SSZOutboundCodec {
                 },
                 RPC_GOODBYE => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
                 RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCResponse::BlocksByRange(Vec::new()))),
+                    "1" => Err(RPCError::Custom(
+                        "Status stream terminated unexpectedly, empty block".into(),
+                    )), // cannot have an empty block message.
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCResponse::BlocksByRoot(Vec::new()))),
+                    "1" => Err(RPCError::Custom(
+                        "Status stream terminated unexpectedly, empty block".into(),
+                    )), // cannot have an empty block message.
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 _ => unreachable!("Cannot negotiate an unknown protocol"),
@@ -199,11 +208,15 @@ impl Decoder for SSZOutboundCodec {
                             Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
                         }
                         RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRange(raw_bytes.to_vec()))),
+                            "1" => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                            )))),
                             _ => unreachable!("Cannot negotiate an unknown version"),
                         },
                         RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRoot(raw_bytes.to_vec()))),
+                            "1" => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                            )))),
                             _ => unreachable!("Cannot negotiate an unknown version"),
                         },
                         _ => unreachable!("Cannot negotiate an unknown protocol"),
@@ -216,7 +229,7 @@ impl Decoder for SSZOutboundCodec {
     }
 }
 
-impl OutboundCodec for SSZOutboundCodec {
+impl<TSpec: EthSpec> OutboundCodec for SSZOutboundCodec<TSpec> {
     type ErrorType = ErrorMessage;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {

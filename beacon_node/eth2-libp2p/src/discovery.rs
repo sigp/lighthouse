@@ -1,5 +1,5 @@
 use crate::metrics;
-use crate::{error, NetworkConfig, NetworkGlobals};
+use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
 /// This manages the discovery and management of peers.
 ///
 /// Currently using discv5 for peer discovery.
@@ -16,10 +16,11 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
+use types::EthSpec;
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
@@ -30,7 +31,7 @@ const ENR_FILENAME: &str = "enr.dat";
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
-pub struct Discovery<TSubstream> {
+pub struct Discovery<TSubstream, TSpec: EthSpec> {
     /// The currently banned peers.
     banned_peers: HashSet<PeerId>,
 
@@ -56,17 +57,17 @@ pub struct Discovery<TSubstream> {
     discovery: Discv5<TSubstream>,
 
     /// A collection of network constants that can be read from other threads.
-    network_globals: Arc<NetworkGlobals>,
+    network_globals: Arc<NetworkGlobals<TSpec>>,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
 }
 
-impl<TSubstream> Discovery<TSubstream> {
+impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     pub fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
-        network_globals: Arc<NetworkGlobals>,
+        network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
@@ -81,8 +82,7 @@ impl<TSubstream> Discovery<TSubstream> {
             None => String::from(""),
         };
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq());
-        debug!(log, "Discv5 Node ID Initialised"; "node_id" => format!("{}",local_enr.node_id()));
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> local_enr.udp().unwrap_or_else(|| 0), "tcp" => local_enr.tcp().unwrap_or_else(|| 0));
 
         // the last parameter enables IP limiting. 2 Nodes on the same /24 subnet per bucket and 10
         // nodes on the same /24 subnet per table.
@@ -131,21 +131,6 @@ impl<TSubstream> Discovery<TSubstream> {
         self.discovery.add_enr(enr);
     }
 
-    /// The current number of connected libp2p peers.
-    pub fn connected_peers(&self) -> usize {
-        self.network_globals.connected_peers.load(Ordering::Relaxed)
-    }
-
-    /// The current number of connected libp2p peers.
-    pub fn connected_peer_set(&self) -> Vec<PeerId> {
-        self.network_globals
-            .connected_peer_set
-            .read()
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    }
-
     /// The peer has been banned. Add this peer to the banned list to prevent any future
     /// re-connections.
     // TODO: Remove the peer from the DHT if present
@@ -172,7 +157,7 @@ impl<TSubstream> Discovery<TSubstream> {
 }
 
 // Redirect all behaviour events to underlying discovery behaviour.
-impl<TSubstream> NetworkBehaviour for Discovery<TSubstream>
+impl<TSubstream, TSpec: EthSpec> NetworkBehaviour for Discovery<TSubstream, TSpec>
 where
     TSubstream: AsyncRead + AsyncWrite,
 {
@@ -189,18 +174,18 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
+        // TODO: Search for a known ENR once discv5 is updated.
         self.network_globals
             .connected_peer_set
             .write()
-            .insert(peer_id);
-        self.network_globals.connected_peers.store(
-            self.network_globals.connected_peer_set.read().len(),
-            Ordering::Relaxed,
-        );
+            .insert(peer_id, PeerInfo::new());
         // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
@@ -208,13 +193,12 @@ where
             .connected_peer_set
             .write()
             .remove(peer_id);
-        self.network_globals.connected_peers.store(
-            self.network_globals.connected_peer_set.read().len(),
-            Ordering::Relaxed,
-        );
 
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, self.connected_peers() as i64);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
     }
 
     fn inject_replaced(
@@ -247,8 +231,7 @@ where
         loop {
             match self.peer_discovery_delay.poll() {
                 Ok(Async::Ready(_)) => {
-                    if self.network_globals.connected_peers.load(Ordering::Relaxed) < self.max_peers
-                    {
+                    if self.network_globals.connected_peers() < self.max_peers {
                         self.find_peers();
                     }
                     // Set to maximum, and update to earlier, once we get our results back.
@@ -303,8 +286,7 @@ where
                             for peer_id in closer_peers {
                                 // if we need more peers, attempt a connection
 
-                                if self.network_globals.connected_peers.load(Ordering::Relaxed)
-                                    < self.max_peers
+                                if self.network_globals.connected_peers() < self.max_peers
                                     && self
                                         .network_globals
                                         .connected_peer_set

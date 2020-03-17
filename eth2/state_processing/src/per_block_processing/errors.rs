@@ -235,6 +235,8 @@ pub enum AttestationInvalid {
         committee_len: usize,
         bitfield_len: usize,
     },
+    /// The attestation was not disjoint compared to already seen attestations.
+    NotDisjoint,
     /// The validator index was unknown.
     UnknownValidator(u64),
     /// The attestation signature verification failed.

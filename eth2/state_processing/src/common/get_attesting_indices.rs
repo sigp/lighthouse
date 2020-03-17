@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use types::*;
 
 /// Returns validator indices which participated in the attestation, sorted by increasing index.
@@ -7,17 +6,20 @@ use types::*;
 pub fn get_attesting_indices<T: EthSpec>(
     committee: &[usize],
     bitlist: &BitList<T::MaxValidatorsPerCommittee>,
-) -> Result<BTreeSet<usize>, BeaconStateError> {
+) -> Result<Vec<usize>, BeaconStateError> {
     if bitlist.len() != committee.len() {
         return Err(BeaconStateError::InvalidBitfield);
     }
 
-    Ok(committee
-        .iter()
-        .enumerate()
-        .filter_map(|(i, validator_index)| match bitlist.get(i) {
-            Ok(true) => Some(*validator_index),
-            _ => None,
-        })
-        .collect())
+    let mut indices = Vec::with_capacity(bitlist.num_set_bits());
+
+    for (i, validator_index) in committee.iter().enumerate() {
+        if let Ok(true) = bitlist.get(i) {
+            indices.push(*validator_index)
+        }
+    }
+
+    indices.sort_unstable();
+
+    Ok(indices)
 }

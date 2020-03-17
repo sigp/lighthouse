@@ -42,7 +42,7 @@
 use super::chain::ProcessingResult;
 use super::chain_collection::{ChainCollection, SyncState};
 use super::{Batch, BatchProcessResult};
-use crate::message_processor::PeerSyncInfo;
+use crate::router::processor::PeerSyncInfo;
 use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -108,7 +108,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// prioritised by peer-pool size.
     pub fn add_peer(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: PeerId,
         remote: PeerSyncInfo,
     ) {
@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// This request could complete a chain or simply add to its progress.
     pub fn blocks_by_range_response(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: PeerId,
         request_id: RequestId,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
@@ -255,7 +255,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
     pub fn handle_block_process_result(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         processing_id: u64,
         batch: Batch<T::EthSpec>,
         result: BatchProcessResult,
@@ -326,7 +326,11 @@ impl<T: BeaconChainTypes> RangeSync<T> {
 
     /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
     /// disconnected peer could remove a chain
-    pub fn peer_disconnect(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
+    pub fn peer_disconnect(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+        peer_id: &PeerId,
+    ) {
         // if the peer is in the awaiting head mapping, remove it
         self.awaiting_head_peers.remove(&peer_id);
 
@@ -340,7 +344,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// When a peer gets removed, both the head and finalized chains need to be searched to check which pool the peer is in. The chain may also have a batch or batches awaiting
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain and re-status all the peers.
-    fn remove_peer(&mut self, network: &mut SyncNetworkContext, peer_id: &PeerId) {
+    fn remove_peer(&mut self, network: &mut SyncNetworkContext<T::EthSpec>, peer_id: &PeerId) {
         if let Some((index, ProcessingResult::RemoveChain)) =
             self.chains.head_finalized_request(|chain| {
                 if chain.peer_pool.remove(peer_id) {
@@ -370,7 +374,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// been too many failed attempts for the batch, remove the chain.
     pub fn inject_error(
         &mut self,
-        network: &mut SyncNetworkContext,
+        network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: PeerId,
         request_id: RequestId,
     ) {
