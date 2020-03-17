@@ -306,7 +306,7 @@ fn epoch_boundary_state_attestation_processing() {
             .epoch;
         let res = harness
             .chain
-            .process_attestation_internal(attestation.clone());
+            .process_attestation_internal(attestation.clone(), Some(true));
 
         let current_epoch = harness.chain.epoch().expect("should get epoch");
         let attestation_epoch = attestation.data.target.epoch;
