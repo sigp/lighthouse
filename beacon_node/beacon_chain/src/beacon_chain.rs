@@ -61,6 +61,11 @@ pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
 pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
+/// The accepted clock drift for nodes gossiping blocks and attestations (spec v0.11.0). See:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.11.0/specs/phase0/p2p-interface.md#configuration
+pub const MAXIMUM_GOSSIP_CLOCK_DISPARITY: Duration = Duration::from_millis(500);
+
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
     Processed,
