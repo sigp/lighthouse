@@ -43,6 +43,9 @@ pub trait SlotClock: Send + Sync + Sized {
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
 
     /// Returns the duration between UNIX epoch and the start of the 0'th slot.
+    fn genesis_slot(&self) -> Slot;
+
+    /// Returns the duration between UNIX epoch and the start of the genesis slot.
     fn genesis_duration(&self) -> Duration;
 
     /// Indicates if the slot now is within (inclusive) the given `low_slot`
@@ -54,6 +57,7 @@ pub trait SlotClock: Send + Sync + Sized {
     /// - The current slot is unknown.
     /// - `low_slot > high_slot`
     /// - The `high_slot` or `low_slot` are unable to be converted into a `u32`.
+    /// - The `high_slot` or `low_slot` are lower than `self.genesis_slot()`.
     /// - There is an integer overflow during evaluation.
     fn now_is_within(&self, low_slot: Slot, high_slot: Slot, tolerance: Duration) -> Option<bool> {
         if low_slot > high_slot {
@@ -61,6 +65,7 @@ pub trait SlotClock: Send + Sync + Sized {
         }
 
         let to_duration = |slot: Slot| -> Option<Duration> {
+            let slot = Slot::from(slot.as_u64().checked_sub(self.genesis_slot().as_u64())?);
             let raw_duration = self
                 .slot_duration()
                 .checked_mul(slot.as_u64().try_into().ok()?)?;
