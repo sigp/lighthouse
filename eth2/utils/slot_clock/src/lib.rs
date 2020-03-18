@@ -11,7 +11,6 @@ pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
-use std::convert::TryInto;
 pub use types::Slot;
 
 /// A clock that reports the current slot.
@@ -42,40 +41,17 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns the duration until the first slot of the next epoch.
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
 
-    /// Returns the duration between UNIX epoch and the start of the 0'th slot.
+    /// Returns the first slot to be returned at the genesis time.
     fn genesis_slot(&self) -> Slot;
 
-    /// Returns the duration between UNIX epoch and the start of the genesis slot.
-    fn genesis_duration(&self) -> Duration;
+    /// Returns the slot if the internal clock were advanced by `duration`.
+    fn now_with_future_tolerance(&self, tolerance: Duration) -> Option<Slot> {
+        self.slot_of(self.now_duration()?.checked_add(tolerance)?)
+    }
 
-    /// Indicates if the slot now is within (inclusive) the given `low_slot`
-    /// and `high_slot`, accounting for a `tolerance` on either side of the
-    /// range.
-    ///
-    /// Returns `None` if:
-    ///
-    /// - The current slot is unknown.
-    /// - `low_slot > high_slot`
-    /// - The `high_slot` or `low_slot` are unable to be converted into a `u32`.
-    /// - The `high_slot` or `low_slot` are lower than `self.genesis_slot()`.
-    /// - There is an integer overflow during evaluation.
-    fn now_is_within(&self, low_slot: Slot, high_slot: Slot, tolerance: Duration) -> Option<bool> {
-        if low_slot > high_slot {
-            return None;
-        }
-
-        let to_duration = |slot: Slot| -> Option<Duration> {
-            let slot = Slot::from(slot.as_u64().checked_sub(self.genesis_slot().as_u64())?);
-            let raw_duration = self
-                .slot_duration()
-                .checked_mul(slot.as_u64().try_into().ok()?)?;
-            raw_duration.checked_add(self.genesis_duration())
-        };
-
-        let high = to_duration(high_slot)?.checked_add(self.slot_duration())?;
-        let low = to_duration(low_slot)?;
-        let now = self.now_duration()?;
-
-        Some(low <= now.checked_add(tolerance)? && now < high.checked_add(tolerance)?)
+    /// Returns the slot if the internal clock were reversed by `duration`.
+    fn now_with_past_tolerance(&self, tolerance: Duration) -> Option<Slot> {
+        self.slot_of(self.now_duration()?.checked_sub(tolerance)?)
+            .or_else(|| Some(self.genesis_slot()))
     }
 }

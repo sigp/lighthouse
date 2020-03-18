@@ -40,16 +40,12 @@ impl SlotClock for SystemTimeSlotClock {
         self.clock.duration_to_next_epoch_from(now, slots_per_epoch)
     }
 
-    fn genesis_slot(&self) -> Slot {
-        self.clock.genesis_slot()
-    }
-
-    fn genesis_duration(&self) -> Duration {
-        self.clock.genesis_duration()
-    }
-
     fn slot_duration(&self) -> Duration {
         self.clock.slot_duration()
+    }
+
+    fn genesis_slot(&self) -> Slot {
+        self.clock.genesis_slot()
     }
 }
 
