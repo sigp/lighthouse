@@ -96,20 +96,16 @@ fn test_gossipsub_full_mesh_publish() {
     // as nodes may get pruned out of the mesh before the gossipsub message
     // is published to them.
     let num_nodes = 12;
-    dbg!("here");
     let mut nodes = common::build_full_mesh(log, num_nodes, Some(11320));
     let mut publishing_node = nodes.pop().unwrap();
     let spec = E::default_spec();
-    dbg!("here");
     let empty_block = BeaconBlock::empty(&spec);
-    dbg!("here");
     let signed_block = SignedBeaconBlock {
         message: empty_block,
         signature: Signature::empty_signature(),
     };
     let data = PubsubData::BeaconBlock(Box::new(signed_block));
     let pubsub_message = PubsubMessage::new(GossipEncoding::SSZ, data);
-    dbg!("here");
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
     let mut subscribed_count = 0;
     let mut received_count = 0;
@@ -141,7 +137,6 @@ fn test_gossipsub_full_mesh_publish() {
             // Publish on beacon block topic
             if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
                 subscribed_count += 1;
-                dbg!("here");
                 if subscribed_count == num_nodes - 1 {
                     publishing_node.swarm.publish(vec![pubsub_message.clone()]);
                 }
