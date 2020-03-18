@@ -142,6 +142,11 @@ impl SlotClock for ManualSlotClock {
         self.duration_to_next_epoch_from(*self.current_time.read(), slots_per_epoch)
     }
 
+    /// Returns the duration between UNIX epoch and the start of the 0'th slot.
+    fn genesis_duration(&self) -> Duration {
+        self.genesis_duration
+    }
+
     fn slot_duration(&self) -> Duration {
         self.slot_duration
     }
@@ -163,10 +168,8 @@ mod tests {
         assert_eq!(clock.now(), Some(Slot::new(123)));
     }
 
-    #[test]
-    fn test_now_is_within() {
-        let clock =
-            ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+    fn run_now_is_within_test(genesis: Duration) {
+        let clock = ManualSlotClock::new(Slot::new(0), genesis, Duration::from_secs(1));
 
         let now_is_within = |low: u64, high: u64, tolerance: Duration| -> bool {
             clock
@@ -174,14 +177,14 @@ mod tests {
                 .unwrap()
         };
 
-        *clock.current_time.write() = Duration::from_secs(0);
+        *clock.current_time.write() = genesis + Duration::from_secs(0);
         assert!(now_is_within(0, 0, Duration::from_secs(0)));
         assert!(now_is_within(0, 1, Duration::from_secs(0)));
         assert!(now_is_within(0, 10, Duration::from_secs(0)));
         assert!(!now_is_within(1, 1, Duration::from_secs(0)));
         assert!(!now_is_within(1, 10, Duration::from_secs(0)));
 
-        *clock.current_time.write() = Duration::from_secs(1);
+        *clock.current_time.write() = genesis + Duration::from_secs(1);
         assert!(now_is_within(0, 1, Duration::from_secs(0)));
         assert!(now_is_within(1, 1, Duration::from_secs(0)));
         assert!(now_is_within(0, 10, Duration::from_secs(0)));
@@ -189,14 +192,29 @@ mod tests {
         assert!(!now_is_within(0, 0, Duration::from_secs(0)));
         assert!(!now_is_within(2, 3, Duration::from_secs(0)));
 
-        *clock.current_time.write() = Duration::from_millis(2200);
+        *clock.current_time.write() = genesis + Duration::from_millis(2200);
         assert!(now_is_within(2, 2, Duration::from_millis(0)));
         assert!(now_is_within(1, 1, Duration::from_millis(201)));
         assert!(!now_is_within(1, 1, Duration::from_millis(200)));
 
-        *clock.current_time.write() = Duration::from_millis(2800);
+        *clock.current_time.write() = genesis + Duration::from_millis(2800);
         assert!(now_is_within(2, 2, Duration::from_millis(0)));
         assert!(now_is_within(3, 3, Duration::from_millis(200)));
         assert!(!now_is_within(3, 3, Duration::from_millis(199)));
+    }
+
+    #[test]
+    fn test_now_is_within_genesis_0_secs() {
+        run_now_is_within_test(Duration::from_secs(0))
+    }
+
+    #[test]
+    fn test_now_is_within_genesis_2_millis() {
+        run_now_is_within_test(Duration::from_millis(2))
+    }
+
+    #[test]
+    fn test_now_is_within_genesis_1_secs() {
+        run_now_is_within_test(Duration::from_secs(1))
     }
 }

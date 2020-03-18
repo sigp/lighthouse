@@ -42,6 +42,9 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns the duration until the first slot of the next epoch.
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
 
+    /// Returns the duration between UNIX epoch and the start of the 0'th slot.
+    fn genesis_duration(&self) -> Duration;
+
     /// Indicates if the slot now is within (inclusive) the given `low_slot`
     /// and `high_slot`, accounting for a `tolerance` on either side of the
     /// range.
@@ -58,7 +61,8 @@ pub trait SlotClock: Send + Sync + Sized {
         }
 
         let to_duration = |slot: Slot| -> Option<Duration> {
-            Some(self.slot_duration() * slot.as_u64().try_into().ok()?)
+            let raw_duration = self.slot_duration() * slot.as_u64().try_into().ok()?;
+            raw_duration.checked_add(self.genesis_duration())
         };
 
         let high = to_duration(high_slot)?.checked_add(self.slot_duration())?;
