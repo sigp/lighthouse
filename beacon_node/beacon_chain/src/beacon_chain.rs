@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io::prelude::*;
-use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
@@ -1941,48 +1940,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn prune_abandoned_forks(
         &self,
-        old_finalized_block: &Hash256,
-        new_finalized_block: &Hash256,
+        new_finalized_block_hash: &Hash256,
         new_finalized_slot: Slot,
     ) -> Result<(), Error> {
-        let old_finalized_slot = self
-            .get_block(old_finalized_block)?
-            .ok_or_else(|| Error::MissingBeaconBlock(*old_finalized_block))?
-            .message
-            .slot;
+        let mut abandoned_blocks: HashSet<(Hash256, Hash256, Slot)> = HashSet::new();
 
-        // Collect hashes from new_finalized_block up to old_finalized_block
-        let newly_finalized_blocks: HashSet<Hash256> = HashSet::from_iter(
-            ParentRootBlockIterator::new(&*self.store, *new_finalized_block)
-                .take_while(|(block_hash, _)| block_hash != old_finalized_block)
-                .map(|(block_hash, _)| block_hash),
-        );
+        for (head_hash, _) in self.heads() {
+            let mut potentially_abandoned_blocks: HashSet<(Hash256, Hash256, Slot)> = HashSet::new();
 
-        // Forget blocks with the slot number in the range [old_finalized_slot, new_finalized_slot]
-        // that are not in the newly_finalized_blocks.
-        for (head, _) in self.heads() {
-            debug_assert_ne!(head, *new_finalized_block);
-
-            let abandoned_blocks = ParentRootBlockIterator::new(&*self.store, head)
-                .skip_while(|(_, signed_beacon_block)| {
-                    signed_beacon_block.message.slot > new_finalized_slot
-                })
-                .take_while(|(_, signed_beacon_block)| {
-                    signed_beacon_block.message.slot > old_finalized_slot
-                })
-                .filter(|(block_hash, _)| !newly_finalized_blocks.contains(block_hash))
-                .map(|(block_hash, signed_beacon_block)| {
-                    (
-                        block_hash,
-                        signed_beacon_block.message.state_root,
-                        signed_beacon_block.message.slot,
-                    )
-                });
-
-            for (block_hash, state_root, slot) in abandoned_blocks {
-                self.store.delete_block(&block_hash)?;
-                self.store.delete_state(&state_root, slot)?;
+            for (block_hash, signed_beacon_block) in ParentRootBlockIterator::new(&*self.store, head_hash) {
+                if signed_beacon_block.message.slot > new_finalized_slot {
+                    // Tentatively schedule current block for deletion since it isn't know yet
+                    // whether the head is valid or not.
+                    potentially_abandoned_blocks.insert((block_hash, signed_beacon_block.message.state_root, signed_beacon_block.message.slot));
+                } else if signed_beacon_block.message.slot == new_finalized_slot {
+                    if block_hash == *new_finalized_block_hash {
+                        // The current head includes the newly finalized block, so we're either on
+                        // the canonical chain or on a legitimate candidate for the canonical
+                        // chain.  Do not remove any blocks.
+                        potentially_abandoned_blocks.clear();
+                    } else {
+                        // We've got a head which isn't based on the newly finalized block.  Delete
+                        // it and all its blocks.
+                        self.head_tracker.remove_head(head_hash);
+                        abandoned_blocks.extend(potentially_abandoned_blocks);
+                    }
+                    break;
+                } else {
+                    // We've got a head which isn't based on the newly finalized block.  Delete it
+                    // and all its blocks.
+                    self.head_tracker.remove_head(head_hash);
+                    abandoned_blocks.extend(potentially_abandoned_blocks);
+                    break;
+                }
             }
+        }
+
+        for (block_hash, state_root, slot) in abandoned_blocks {
+            self.store.delete_block(&block_hash)?;
+            self.store.delete_state(&state_root, slot)?;
         }
 
         Ok(())
@@ -1995,7 +1991,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         old_finalized_epoch: Epoch,
         finalized_block_root: Hash256,
-        old_finalized_root: Hash256,
     ) -> Result<(), Error> {
         let finalized_block = self
             .store
@@ -2033,7 +2028,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
             self.prune_abandoned_forks(
-                &old_finalized_root,
                 &finalized_block_root,
                 finalized_block.slot,
             )?;
