@@ -61,7 +61,9 @@ pub trait SlotClock: Send + Sync + Sized {
         }
 
         let to_duration = |slot: Slot| -> Option<Duration> {
-            let raw_duration = self.slot_duration() * slot.as_u64().try_into().ok()?;
+            let raw_duration = self
+                .slot_duration()
+                .checked_mul(slot.as_u64().try_into().ok()?)?;
             raw_duration.checked_add(self.genesis_duration())
         };
 
