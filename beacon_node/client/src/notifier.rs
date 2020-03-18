@@ -1,3 +1,4 @@
+use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
 use exit_future::Signal;
@@ -82,6 +83,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             let mut speedo = speedo.lock();
             speedo.observe(head_slot, Instant::now());
+
+            metrics::set_gauge(&metrics::SYNC_SLOTS_PER_SECOND, speedo.slots_per_second().unwrap_or_else(|| 0_f64) as i64);
 
             // The next two lines take advantage of saturating subtraction on `Slot`.
             let head_distance = current_slot - head_slot;
