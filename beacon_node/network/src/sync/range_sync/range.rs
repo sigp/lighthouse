@@ -41,8 +41,8 @@
 
 use super::chain::ProcessingResult;
 use super::chain_collection::{ChainCollection, SyncState};
-use super::{Batch, BatchProcessResult};
 use crate::message_processor::PeerSyncInfo;
+use crate::sync::block_processor::BatchProcessResult;
 use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -130,8 +130,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             },
             None => {
                 return warn!(self.log,
-                      "Beacon chain dropped. Peer not considered for sync";
-                      "peer_id" => format!("{:?}", peer_id));
+                    "Beacon chain dropped. Peer not considered for sync";
+                    "peer_id" => format!("{:?}", peer_id));
             }
         };
 
@@ -257,14 +257,14 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         &mut self,
         network: &mut SyncNetworkContext,
         processing_id: u64,
-        batch: Batch<T::EthSpec>,
+        downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
         result: BatchProcessResult,
     ) {
-        // build an option for passing the batch to each chain
-        let mut batch = Some(batch);
+        // build an option for passing the downloaded_blocks to each chain
+        let mut downloaded_blocks = Some(downloaded_blocks);
 
         match self.chains.finalized_request(|chain| {
-            chain.on_batch_process_result(network, processing_id, &mut batch, &result)
+            chain.on_batch_process_result(network, processing_id, &mut downloaded_blocks, &result)
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
@@ -293,7 +293,12 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             Some((_, ProcessingResult::KeepChain)) => {}
             None => {
                 match self.chains.head_request(|chain| {
-                    chain.on_batch_process_result(network, processing_id, &mut batch, &result)
+                    chain.on_batch_process_result(
+                        network,
+                        processing_id,
+                        &mut downloaded_blocks,
+                        &result,
+                    )
                 }) {
                     Some((index, ProcessingResult::RemoveChain)) => {
                         let chain = self.chains.remove_head_chain(index);

@@ -33,8 +33,9 @@
 //! if an attestation references an unknown block) this manager can search for the block and
 //! subsequently search for parents if needed.
 
+use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
-use super::range_sync::{Batch, BatchProcessResult, RangeSync};
+use super::range_sync::RangeSync;
 use crate::message_processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
@@ -100,11 +101,11 @@ pub enum SyncMessage<T: EthSpec> {
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
         process_id: u64,
-        batch: Box<Batch<T>>,
+        downloaded_blocks: Box<Vec<SignedBeaconBlock<T>>>,
         result: BatchProcessResult,
     },
 
-    /// Parent lookup failed for a block given by this peer_id
+    /// A parent lookup has failed for a block given by this `peer_id`.
     ParentLookupFailed(PeerId),
 }
 
@@ -597,8 +598,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // If the last block in the queue has an unknown parent, we continue the parent
             // lookup-search.
 
-            let total_blocks_to_process = parent_request.downloaded_blocks.len();
-
             if let Some(chain) = self.chain.upgrade() {
                 let newest_block = parent_request
                     .downloaded_blocks
@@ -613,7 +612,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         return;
                     }
                     Ok(BlockProcessingOutcome::Processed { .. })
-                    | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {}
+                    | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {
+                        spawn_block_processor(
+                            self.chain.clone(),
+                            ProcessId::ParentLookup(parent_request.last_submitted_peer.clone()),
+                            parent_request.downloaded_blocks,
+                            self.sync_send.clone(),
+                            self.log.clone(),
+                        );
+                    }
                     Ok(outcome) => {
                         // all else we consider the chain a failure and downvote the peer that sent
                         // us the last block
@@ -641,29 +648,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // chain doesn't exist, drop the parent queue and return
                 return;
             }
-
-            //TODO: Shift this to a block processing thread
-            self.spawn_parent_lookup_thread(parent_request, total_blocks_to_process);
         }
-    }
-
-    fn spawn_parent_lookup_thread(
-        &self,
-        parent_request: ParentRequests<T::EthSpec>,
-        total_blocks_to_process: usize,
-    ) {
-        let log = self.log.clone();
-        let sync_send = self.sync_send.clone();
-        let chain = self.chain.clone();
-        std::thread::spawn(move || {
-            parent_lookup(
-                parent_request,
-                chain,
-                sync_send,
-                total_blocks_to_process,
-                log,
-            );
-        });
     }
 
     /// Progresses a parent request query.
@@ -706,81 +691,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             parent_request.pending = Some(request_id);
             self.parent_queue.push(parent_request);
         }
-    }
-}
-
-fn parent_lookup<T: BeaconChainTypes>(
-    mut parent_request: ParentRequests<T::EthSpec>,
-    chain: Weak<BeaconChain<T>>,
-    mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    total_blocks_to_process: usize,
-    log: slog::Logger,
-) {
-    while let Some(block) = parent_request.downloaded_blocks.pop() {
-        // check if the chain exists
-        if let Some(chain) = chain.upgrade() {
-            match chain.process_block(block) {
-                Ok(BlockProcessingOutcome::Processed { .. })
-                | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {} // continue to the next block
-
-                // all else is considered a failure
-                Ok(outcome) => {
-                    // the previous blocks have failed, notify the user the chain lookup has
-                    // failed and drop the parent queue
-                    debug!(
-                        log, "Invalid parent chain. Past blocks failure";
-                        "outcome" => format!("{:?}", outcome),
-                        "peer" => format!("{:?}", parent_request.last_submitted_peer),
-                    );
-                    sync_send
-                        .try_send(SyncMessage::ParentLookupFailed(
-                            parent_request.last_submitted_peer.clone(),
-                        ))
-                        .unwrap_or_else(|_| {
-                            debug!(log, "Could not inform parent lookup failure");
-                        });
-                    break;
-                }
-                Err(e) => {
-                    warn!(
-                        log, "Parent chain processing error.";
-                        "error" => format!("{:?}", e)
-                    );
-                    sync_send
-                        .try_send(SyncMessage::ParentLookupFailed(
-                            parent_request.last_submitted_peer.clone(),
-                        ))
-                        .unwrap_or_else(|_| {
-                            debug!(log, "Could not inform parent lookup failure");
-                        });
-                    break;
-                }
-            }
-        } else {
-            // chain doesn't exist, end the processing
-            break;
-        }
-    }
-
-    // the last received block has been successfully processed, process all other blocks in the
-    // chain
-
-    // at least one block has been processed, run fork-choice
-    if let Some(chain) = chain.upgrade() {
-        match chain.fork_choice() {
-            Ok(()) => trace!(
-                log,
-                "Fork choice success";
-                "block_imports" => total_blocks_to_process - parent_request.downloaded_blocks.len(),
-                "location" => "parent request"
-            ),
-            Err(e) => error!(
-                log,
-                "Fork choice failed";
-                "error" => format!("{:?}", e),
-                "location" => "parent request"
-            ),
-        };
     }
 }
 
@@ -829,13 +739,13 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                     }
                     SyncMessage::BatchProcessed {
                         process_id,
-                        batch,
+                        downloaded_blocks,
                         result,
                     } => {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
                             process_id,
-                            *batch,
+                            *downloaded_blocks,
                             result,
                         );
                     }
