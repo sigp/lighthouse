@@ -72,7 +72,7 @@ pub use crate::signed_beacon_block::SignedBeaconBlock;
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_root::{SignedRoot, SigningRoot};
-pub use crate::slot_epoch::{Epoch, Slot};
+pub use crate::slot_epoch::{Epoch, Slot, FAR_FUTURE_EPOCH};
 pub use crate::subnet_id::SubnetId;
 pub use crate::validator::Validator;
 pub use crate::voluntary_exit::VoluntaryExit;
