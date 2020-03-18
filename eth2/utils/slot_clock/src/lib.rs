@@ -11,6 +11,7 @@ pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
+use std::convert::TryInto;
 pub use types::Slot;
 
 /// A clock that reports the current slot.
