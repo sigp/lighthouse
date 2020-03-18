@@ -142,16 +142,12 @@ impl SlotClock for ManualSlotClock {
         self.duration_to_next_epoch_from(*self.current_time.read(), slots_per_epoch)
     }
 
-    fn genesis_slot(&self) -> Slot {
-        self.genesis_slot
-    }
-
-    fn genesis_duration(&self) -> Duration {
-        self.genesis_duration
-    }
-
     fn slot_duration(&self) -> Duration {
         self.slot_duration
+    }
+
+    fn genesis_slot(&self) -> Slot {
+        self.genesis_slot
     }
 }
 
@@ -171,63 +167,74 @@ mod tests {
         assert_eq!(clock.now(), Some(Slot::new(123)));
     }
 
-    fn run_now_is_within_test(genesis_slot: Slot, genesis_duration: Duration) {
-        let clock = ManualSlotClock::new(genesis_slot, genesis_duration, Duration::from_secs(1));
+    #[test]
+    fn test_tolerance() {
+        let clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(10),
+            Duration::from_secs(1),
+        );
 
-        let now_is_within = |low: u64, high: u64, tolerance: Duration| -> bool {
+        // Set clock to the 0'th slot.
+        *clock.current_time.write() = Duration::from_secs(10);
+        assert_eq!(
             clock
-                .now_is_within(
-                    Slot::from(low) + genesis_slot,
-                    Slot::from(high) + genesis_slot,
-                    tolerance,
-                )
-                .unwrap()
-        };
+                .now_with_future_tolerance(Duration::from_secs(0))
+                .unwrap(),
+            Slot::new(0),
+            "future tolerance of zero should return current slot"
+        );
+        assert_eq!(
+            clock
+                .now_with_past_tolerance(Duration::from_secs(0))
+                .unwrap(),
+            Slot::new(0),
+            "past tolerance of zero should return current slot"
+        );
+        assert_eq!(
+            clock
+                .now_with_future_tolerance(Duration::from_millis(10))
+                .unwrap(),
+            Slot::new(0),
+            "insignificant future tolerance should return current slot"
+        );
+        assert_eq!(
+            clock
+                .now_with_past_tolerance(Duration::from_millis(10))
+                .unwrap(),
+            Slot::new(0),
+            "past tolerance that precedes genesis should return genesis slot"
+        );
 
-        *clock.current_time.write() = genesis_duration + Duration::from_secs(0);
-        assert!(now_is_within(0, 0, Duration::from_secs(0)));
-        assert!(now_is_within(0, 1, Duration::from_secs(0)));
-        assert!(now_is_within(0, 10, Duration::from_secs(0)));
-        assert!(!now_is_within(1, 1, Duration::from_secs(0)));
-        assert!(!now_is_within(1, 10, Duration::from_secs(0)));
-
-        *clock.current_time.write() = genesis_duration + Duration::from_secs(1);
-        assert!(now_is_within(0, 1, Duration::from_secs(0)));
-        assert!(now_is_within(1, 1, Duration::from_secs(0)));
-        assert!(now_is_within(0, 10, Duration::from_secs(0)));
-        assert!(now_is_within(1, 10, Duration::from_secs(0)));
-        assert!(!now_is_within(0, 0, Duration::from_secs(0)));
-        assert!(!now_is_within(2, 3, Duration::from_secs(0)));
-
-        *clock.current_time.write() = genesis_duration + Duration::from_millis(2200);
-        assert!(now_is_within(2, 2, Duration::from_millis(0)));
-        assert!(now_is_within(1, 1, Duration::from_millis(201)));
-        assert!(!now_is_within(1, 1, Duration::from_millis(200)));
-
-        *clock.current_time.write() = genesis_duration + Duration::from_millis(2800);
-        assert!(now_is_within(2, 2, Duration::from_millis(0)));
-        assert!(now_is_within(3, 3, Duration::from_millis(200)));
-        assert!(!now_is_within(3, 3, Duration::from_millis(199)));
-    }
-
-    #[test]
-    fn test_now_is_within_genesis_0_secs() {
-        run_now_is_within_test(Slot::new(0), Duration::from_secs(0));
-        run_now_is_within_test(Slot::new(1), Duration::from_secs(0));
-        run_now_is_within_test(Slot::new(3), Duration::from_secs(0));
-    }
-
-    #[test]
-    fn test_now_is_within_genesis_2_millis() {
-        run_now_is_within_test(Slot::new(0), Duration::from_millis(2));
-        run_now_is_within_test(Slot::new(1), Duration::from_millis(2));
-        run_now_is_within_test(Slot::new(3), Duration::from_millis(2));
-    }
-
-    #[test]
-    fn test_now_is_within_genesis_1_secs() {
-        run_now_is_within_test(Slot::new(0), Duration::from_secs(1));
-        run_now_is_within_test(Slot::new(1), Duration::from_secs(1));
-        run_now_is_within_test(Slot::new(3), Duration::from_secs(1));
+        // Set clock to part-way through the 1st slot.
+        *clock.current_time.write() = Duration::from_millis(11_200);
+        assert_eq!(
+            clock
+                .now_with_future_tolerance(Duration::from_secs(0))
+                .unwrap(),
+            Slot::new(1),
+            "future tolerance of zero should return current slot"
+        );
+        assert_eq!(
+            clock
+                .now_with_past_tolerance(Duration::from_secs(0))
+                .unwrap(),
+            Slot::new(1),
+            "past tolerance of zero should return current slot"
+        );
+        assert_eq!(
+            clock
+                .now_with_future_tolerance(Duration::from_millis(800))
+                .unwrap(),
+            Slot::new(2),
+            "significant future tolerance should return next slot"
+        );
+        assert_eq!(
+            clock
+                .now_with_past_tolerance(Duration::from_millis(201))
+                .unwrap(),
+            Slot::new(0),
+            "significant past tolerance should return previous slot"
+        );
     }
 }
