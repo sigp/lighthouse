@@ -24,11 +24,13 @@ const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 1;
 /// attest to is greater than this, we queue a discovery request for this many slots prior to
 /// subscribing.
 const TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 6;
-/// The time (in seconds) before a last seen validator is considered absent and we unsubscribe from the random
+/// The time (in slots) before a last seen validator is considered absent and we unsubscribe from the random
 /// gossip topics that we subscribed to due to the validator connection.
-const LAST_SEEN_VALIDATOR_TIMEOUT: u64 = 1800; // 30 mins
-/// The number of seconds in advance that we subscribe to a subnet before the required slot.
-const ADVANCE_SUBSCRIBE_SECS: u64 = 3;
+const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150; // 30 mins at a 12s slot time
+/// The fraction of a slot that we subscribe to a subnet before the required slot.
+///
+/// Note: The time is calculated as `time = milliseconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`
+const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 
 #[derive(Debug, PartialEq)]
 pub enum AttServiceMessage {
@@ -93,6 +95,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .saturating_mul(T::EthSpec::slots_per_epoch())
             .saturating_mul(spec.milliseconds_per_slot);
 
+        // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT is not too large.
+        let last_seen_val_timeout = Duration::from_millis(spec.milliseconds_per_slot)
+            .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT)
+            .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
         AttestationService {
             events: VecDeque::with_capacity(10),
             network_globals,
@@ -101,7 +107,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             discover_peers: HashSetDelay::default(),
             subscriptions: HashSetDelay::default(),
             unsubscriptions: HashSetDelay::default(),
-            known_validators: HashSetDelay::new(Duration::from_secs(LAST_SEEN_VALIDATOR_TIMEOUT)),
+            known_validators: HashSetDelay::new(last_seen_val_timeout),
             log,
         }
     }
@@ -239,7 +245,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             warn!(self.log, "Could not get the current slot");
         })?;
         let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
-        let advance_subscription_duration = Duration::from_secs(ADVANCE_SUBSCRIBE_SECS);
+        let advance_subscription_duration = slot_duration
+            .checked_div(ADVANCE_SUBSCRIBE_TIME)
+            .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
 
         // calculate the time to subscribe to the subnet
         let duration_to_subscribe = {
@@ -385,7 +393,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // we are subscribed via a random subnet, if this is to expire during the time we need
             // to be subscribed, just extend the expiry
             let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
-            let advance_subscription_duration = Duration::from_secs(ADVANCE_SUBSCRIBE_SECS);
+            let advance_subscription_duration = slot_duration
+                .checked_div(ADVANCE_SUBSCRIBE_TIME)
+                .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
             // we require the subnet subscription for at least a slot on top of the initial
             // subscription time
             let expected_end_subscription_duration = slot_duration + advance_subscription_duration;
