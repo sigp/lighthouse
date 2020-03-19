@@ -24,7 +24,7 @@ use store::{
 use tempfile::{tempdir, TempDir};
 use types::{
     AggregateSignature, Attestation, BeaconState, ChainSpec, Domain, EthSpec, Hash256, Keypair,
-    SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
+    SecretKey, Signature, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -283,6 +283,15 @@ where
         head_block_root.expect("did not produce any blocks")
     }
 
+    pub fn add_canonical_chain_blocks(&self, num_blocks: usize) -> SignedBeaconBlockHash {
+        let head_block_hash = self.extend_chain(
+            num_blocks,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        );
+        head_block_hash.into()
+    }
+
     /// Returns a newly created block, signed by the proposer for the given slot.
     fn build_block(
         &self,
@@ -460,6 +469,47 @@ where
         honest_fork_blocks: usize,
         faulty_fork_blocks: usize,
     ) -> (Hash256, Hash256) {
+        let initial_head_slot = self
+            .chain
+            .head()
+            .expect("should get head")
+            .beacon_block
+            .slot();
+
+        // Move to the next slot so we may produce some more blocks on the head.
+        self.advance_slot();
+
+        // Extend the chain with blocks where only honest validators agree.
+        let honest_head = self.extend_chain(
+            honest_fork_blocks,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(honest_validators.to_vec()),
+        );
+
+        // Go back to the last block where all agreed, and build blocks upon it where only faulty nodes
+        // agree.
+        let faulty_head = self.extend_chain(
+            faulty_fork_blocks,
+            BlockStrategy::ForkCanonicalChainAt {
+                previous_slot: initial_head_slot,
+                // `initial_head_slot + 2` means one slot is skipped.
+                first_slot: initial_head_slot + 2,
+            },
+            AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
+        );
+
+        assert!(honest_head != faulty_head, "forks should be distinct");
+
+        (honest_head, faulty_head)
+    }
+
+    pub fn fork_chain(
+        &self,
+        honest_validators: &[usize],
+        faulty_validators: &[usize],
+        honest_fork_blocks: usize,
+        faulty_fork_blocks: usize,
+    ) -> (SignedBeaconBlockHash, SignedBeaconBlockHash) {
         // Move to the next slot so we may produce some more blocks on the head.
         self.advance_slot();
 
@@ -494,7 +544,7 @@ where
 
         assert!(honest_head != faulty_head, "forks should be distinct");
 
-        (honest_head, faulty_head)
+        (honest_head.into(), faulty_head.into())
     }
 
     /// Returns the secret key for the given validator index.

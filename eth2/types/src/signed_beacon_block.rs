@@ -6,8 +6,7 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
-
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SignedBeaconBlockHash(Hash256);
 
 impl From<Hash256> for SignedBeaconBlockHash {
@@ -16,13 +15,11 @@ impl From<Hash256> for SignedBeaconBlockHash {
     }
 }
 
-
 impl From<SignedBeaconBlockHash> for Hash256 {
     fn from(signed_beacon_block_hash: SignedBeaconBlockHash) -> Hash256 {
         signed_beacon_block_hash.0
     }
 }
-
 
 /// A `BeaconBlock` and a signature from its proposer.
 ///

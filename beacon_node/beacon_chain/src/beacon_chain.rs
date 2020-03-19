@@ -1926,7 +1926,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
 
         if new_finalized_epoch != old_finalized_epoch {
-            self.after_finalization(old_finalized_epoch, finalized_root, old_finalized_root)?;
+            self.after_finalization(old_finalized_epoch, finalized_root, old_finalized_root.into())?;
         }
 
         let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
@@ -1940,45 +1940,77 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn prune_abandoned_forks(
         &self,
-        new_finalized_block_hash: &SignedBeaconBlockHash,
+        old_finalized_block_hash: SignedBeaconBlockHash,
+        new_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_slot: Slot,
     ) -> Result<(), Error> {
-        let mut abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> = HashSet::new();
+        let mut abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> =
+            HashSet::new();
+
+        let old_finalized_slot = self
+            .get_block(&old_finalized_block_hash.into())?
+            .ok_or_else(|| Error::MissingBeaconBlock(old_finalized_block_hash.into()))?
+            .message
+            .slot;
 
         for (head_hash, _) in self.heads() {
-            let mut potentially_abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> = HashSet::new();
+            let mut potentially_abandoned_blocks: HashSet<(
+                SignedBeaconBlockHash,
+                BeaconStateHash,
+                Slot,
+            )> = HashSet::new();
 
-            for (block_hash_, signed_beacon_block) in ParentRootBlockIterator::new(&*self.store, head_hash) {
+            for (block_hash_, signed_beacon_block) in
+                ParentRootBlockIterator::new(&*self.store, head_hash)
+            {
                 let block_hash: SignedBeaconBlockHash = block_hash_.into();
 
                 if signed_beacon_block.message.slot > new_finalized_slot {
                     // Tentatively schedule current block for deletion since it isn't know yet
                     // whether the head is valid or not.
-                    potentially_abandoned_blocks.insert((block_hash, signed_beacon_block.message.state_root.into(), signed_beacon_block.message.slot));
-                } else if signed_beacon_block.message.slot == new_finalized_slot {
-                    if block_hash == *new_finalized_block_hash {
-                        // The current head includes the newly finalized block, so we're either on
-                        // the canonical chain or on a legitimate candidate for the canonical
-                        // chain.  Do not remove any blocks.
-                        potentially_abandoned_blocks.clear();
-                    } else {
-                        // We've got a head which isn't based on the newly finalized block.  Delete
-                        // it and all its blocks.
-                        self.head_tracker.remove_head(head_hash);
-                        abandoned_blocks.extend(potentially_abandoned_blocks);
-                    }
+                    potentially_abandoned_blocks.insert((
+                        block_hash,
+                        signed_beacon_block.message.state_root.into(),
+                        signed_beacon_block.message.slot,
+                    ));
+                } else if signed_beacon_block.message.slot == new_finalized_slot
+                    && block_hash == new_finalized_block_hash
+                {
+                    // The current head includes the newly finalized block, so we're either on
+                    // the canonical chain or on a legitimate candidate for the canonical
+                    // chain.  Do not remove any blocks.
+                    potentially_abandoned_blocks.clear();
                     break;
                 } else {
-                    // We've got a head which isn't based on the newly finalized block.  Delete it
-                    // and all its blocks.
+                    // We've got a block which doesn't include the newly finalized block. Moreover,
+                    // its slot number is lower than the newly finalized block's one. This means
+                    // this is a "neglected" fork created by some peers.  By now, it can't be
+                    // extended to include the newly finalized block since necessary slot numbers
+                    // are already occupied by the canonical chain.  Therefore, we can safely get
+                    // rid of this head and its blocks.
+
+                    abandoned_blocks.extend(potentially_abandoned_blocks.drain());
+                    abandoned_blocks.extend(
+                        ParentRootBlockIterator::new(&*self.store, block_hash.into())
+                            .take_while(|(_, signed_beacon_block)| {
+                                signed_beacon_block.message.slot > old_finalized_slot
+                            })
+                            .map(|(block_hash, signed_beacon_block)| {
+                                (
+                                    block_hash.into(),
+                                    signed_beacon_block.message.state_root.into(),
+                                    signed_beacon_block.message.slot,
+                                )
+                            }),
+                    );
+
                     self.head_tracker.remove_head(head_hash);
-                    abandoned_blocks.extend(potentially_abandoned_blocks);
                     break;
                 }
             }
         }
 
-        for (block_hash, state_hash, slot) in abandoned_blocks {
+        for (block_hash, state_hash, slot) in abandoned_blocks.drain() {
             self.store.delete_block(&block_hash.into())?;
             self.store.delete_state(&state_hash.into(), slot)?;
         }
@@ -1993,6 +2025,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         old_finalized_epoch: Epoch,
         finalized_block_root: Hash256,
+        old_finalized_root: SignedBeaconBlockHash,
     ) -> Result<(), Error> {
         let finalized_block = self
             .store
@@ -2030,7 +2063,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
             self.prune_abandoned_forks(
-                &finalized_block_root.into(),
+                old_finalized_root,
+                finalized_block_root.into(),
                 finalized_block.slot,
             )?;
 
@@ -2122,18 +2156,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         write!(output, "\t_{}[label=\"{}\"];\n", genesis_block_hash, 0).unwrap();
 
         for (head_hash, _head_slot) in self.heads() {
-            for (block_hash, signed_beacon_block) in ParentRootBlockIterator::new(&*self.store, head_hash) {
+            for (block_hash, signed_beacon_block) in
+                ParentRootBlockIterator::new(&*self.store, head_hash)
+            {
                 if visited.contains(&block_hash) {
-                    break
+                    break;
                 }
                 visited.insert(block_hash);
-                if head_hash == canonical_head_hash {
-                    write!(output, "\t_{}[label=\"{}\" shape=box3d];\n", block_hash, signed_beacon_block.message.slot).unwrap();
+                if block_hash == canonical_head_hash {
+                    write!(
+                        output,
+                        "\t_{}[label=\"{}\" shape=box3d];\n",
+                        block_hash, signed_beacon_block.message.slot
+                    )
+                    .unwrap();
+                } else {
+                    write!(
+                        output,
+                        "\t_{}[label=\"{}\" shape=box];\n",
+                        block_hash, signed_beacon_block.message.slot
+                    )
+                    .unwrap();
                 }
-                else {
-                    write!(output, "\t_{}[label=\"{}\" shape=box];\n", block_hash, signed_beacon_block.message.slot).unwrap();
-                }
-                write!(output, "\t_{} -> _{};\n", block_hash, signed_beacon_block.message.parent_root).unwrap();
+                write!(
+                    output,
+                    "\t_{} -> _{};\n",
+                    block_hash, signed_beacon_block.message.parent_root
+                )
+                .unwrap();
             }
         }
 
