@@ -1,5 +1,5 @@
 #![cfg(test)]
-use enr::Enr;
+use eth2_libp2p::Enr;
 use eth2_libp2p::Multiaddr;
 use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
@@ -32,6 +32,9 @@ pub fn build_config(
 
     config.libp2p_port = port; // tcp port
     config.discovery_port = port; // udp port
+    config.enr_tcp_port = Some(port);
+    config.enr_udp_port = Some(port);
+    config.enr_address = Some("127.0.0.1".parse().unwrap());
     config.boot_nodes.append(&mut boot_nodes);
     config.secret_key_hex = secret_key;
     config.network_dir = path.into_path();
@@ -56,7 +59,9 @@ pub fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    node.swarm.discovery().local_enr().clone()
+    let enr = node.swarm.discovery().local_enr().clone();
+    dbg!(enr.multiaddr());
+    enr
 }
 
 // Returns `n` libp2p peers in fully connected topology.
@@ -66,7 +71,7 @@ pub fn build_full_mesh(
     n: usize,
     start_port: Option<u16>,
 ) -> Vec<LibP2PService<E>> {
-    let base_port = start_port.unwrap_or(9000);
+    let base_port = start_port.unwrap_or(10000);
     let mut nodes: Vec<LibP2PService<E>> = (base_port..base_port + n as u16)
         .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
         .collect();
