@@ -1940,19 +1940,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn prune_abandoned_forks(
         &self,
-        new_finalized_block_hash: &Hash256,
+        new_finalized_block_hash: &SignedBeaconBlockHash,
         new_finalized_slot: Slot,
     ) -> Result<(), Error> {
-        let mut abandoned_blocks: HashSet<(Hash256, Hash256, Slot)> = HashSet::new();
+        let mut abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> = HashSet::new();
 
         for (head_hash, _) in self.heads() {
-            let mut potentially_abandoned_blocks: HashSet<(Hash256, Hash256, Slot)> = HashSet::new();
+            let mut potentially_abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> = HashSet::new();
 
-            for (block_hash, signed_beacon_block) in ParentRootBlockIterator::new(&*self.store, head_hash) {
+            for (block_hash_, signed_beacon_block) in ParentRootBlockIterator::new(&*self.store, head_hash) {
+                let block_hash: SignedBeaconBlockHash = block_hash_.into();
+
                 if signed_beacon_block.message.slot > new_finalized_slot {
                     // Tentatively schedule current block for deletion since it isn't know yet
                     // whether the head is valid or not.
-                    potentially_abandoned_blocks.insert((block_hash, signed_beacon_block.message.state_root, signed_beacon_block.message.slot));
+                    potentially_abandoned_blocks.insert((block_hash, signed_beacon_block.message.state_root.into(), signed_beacon_block.message.slot));
                 } else if signed_beacon_block.message.slot == new_finalized_slot {
                     if block_hash == *new_finalized_block_hash {
                         // The current head includes the newly finalized block, so we're either on
@@ -1976,9 +1978,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        for (block_hash, state_root, slot) in abandoned_blocks {
-            self.store.delete_block(&block_hash)?;
-            self.store.delete_state(&state_root, slot)?;
+        for (block_hash, state_hash, slot) in abandoned_blocks {
+            self.store.delete_block(&block_hash.into())?;
+            self.store.delete_state(&state_hash.into(), slot)?;
         }
 
         Ok(())
@@ -2028,7 +2030,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
             self.prune_abandoned_forks(
-                &finalized_block_root,
+                &finalized_block_root.into(),
                 finalized_block.slot,
             )?;
 
