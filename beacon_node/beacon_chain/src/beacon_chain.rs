@@ -2107,6 +2107,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(dump)
     }
+
+    pub fn dump_as_dot<W: Write>(&self, output: &mut W) {
+        let canonical_head_hash = self
+            .canonical_head
+            .try_read_for(HEAD_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::CanonicalHeadLockTimeout)
+            .unwrap()
+            .beacon_block_root;
+        let mut visited: HashSet<Hash256> = HashSet::new();
+
+        let genesis_block_hash = Hash256::zero();
+        write!(output, "digraph beacon {{\n").unwrap();
+        write!(output, "\t_{}[label=\"{}\"];\n", genesis_block_hash, 0).unwrap();
+
+        for (head_hash, _head_slot) in self.heads() {
+            for (block_hash, signed_beacon_block) in ParentRootBlockIterator::new(&*self.store, head_hash) {
+                if visited.contains(&block_hash) {
+                    break
+                }
+                visited.insert(block_hash);
+                if head_hash == canonical_head_hash {
+                    write!(output, "\t_{}[label=\"{}\" shape=box3d];\n", block_hash, signed_beacon_block.message.slot).unwrap();
+                }
+                else {
+                    write!(output, "\t_{}[label=\"{}\" shape=box];\n", block_hash, signed_beacon_block.message.slot).unwrap();
+                }
+                write!(output, "\t_{} -> _{};\n", block_hash, signed_beacon_block.message.parent_root).unwrap();
+            }
+        }
+
+        write!(output, "}}\n").unwrap();
+    }
+
+    // Used for debugging
+    #[allow(dead_code)]
+    pub fn dump_dot_file(&self, file_name: &str) {
+        let mut file = std::fs::File::create(file_name).unwrap();
+        self.dump_as_dot(&mut file);
+    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
