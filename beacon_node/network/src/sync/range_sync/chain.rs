@@ -76,7 +76,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
 
     /// A random id given to a batch process request. This is None if there is no ongoing batch
     /// process.
-    current_processing_batch: Option<(u64, Batch<T::EthSpec>)>,
+    current_processing_batch: Option<Batch<T::EthSpec>>,
 
     /// A send channel to the sync manager. This is given to the batch processor thread to report
     /// back once batch processing has completed.
@@ -240,13 +240,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Sends a batch to the batch processor.
     fn process_batch(&mut self, mut batch: Batch<T::EthSpec>) {
-        // only spawn one instance at a time
-        let processing_id = rand::random();
         let downloaded_blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
-        self.current_processing_batch = Some((processing_id, batch));
+        let batch_id = ProcessId::RangeBatchId(batch.id.clone());
+        self.current_processing_batch = Some(batch);
         spawn_block_processor(
             self.chain.clone(),
-            ProcessId::RangeBatchId(processing_id),
+            batch_id,
             downloaded_blocks,
             self.sync_send.clone(),
             self.log.clone(),
@@ -258,12 +257,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn on_batch_process_result(
         &mut self,
         network: &mut SyncNetworkContext,
-        processing_id: u64,
+        batch_id: BatchId,
         downloaded_blocks: &mut Option<Vec<SignedBeaconBlock<T::EthSpec>>>,
         result: &BatchProcessResult,
     ) -> Option<ProcessingResult> {
-        if let Some((current_id, _)) = self.current_processing_batch {
-            if current_id != processing_id {
+        if let Some(current_batch) = &self.current_processing_batch {
+            if current_batch.id != batch_id {
                 // batch process does not belong to this chain
                 return None;
             }
@@ -282,7 +281,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         })?;
 
         // No longer waiting on a processing result
-        let (_, mut batch) = self.current_processing_batch.take().unwrap();
+        let mut batch = self.current_processing_batch.take().unwrap();
         // These are the blocks of this batch
         batch.downloaded_blocks = downloaded_blocks;
 

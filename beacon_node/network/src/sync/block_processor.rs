@@ -6,12 +6,13 @@ use slog::{debug, error, trace, warn};
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
 use types::SignedBeaconBlock;
+use crate::sync::range_sync::BatchId;
 
 /// Id associated to a block processing request, either a batch or a single block.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(u64),
+    RangeBatchId(BatchId),
     /// Processing Id of the parent lookup of a block
     ParentLookup(PeerId),
 }
@@ -26,7 +27,7 @@ pub enum BatchProcessResult {
     Failed,
 }
 
-/// Spawns a thread handling the block processing of a request: range syncing or arent lookup.
+/// Spawns a thread handling the block processing of a request: range syncing or parent lookup.
 pub fn spawn_block_processor<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     process_id: ProcessId,
@@ -35,18 +36,18 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
     log: slog::Logger,
 ) {
     match process_id {
-        ProcessId::RangeBatchId(id) => {
+        ProcessId::RangeBatchId(batch_id) => {
             std::thread::spawn(move || {
-                debug!(log, "Processing batch"; "id" => id);
+                debug!(log, "Processing batch"; "id" => *batch_id);
                 let result = match process_batch(chain, &mut downloaded_blocks, &log) {
                     Ok(_) => BatchProcessResult::Success,
                     Err(_) => BatchProcessResult::Failed,
                 };
 
-                debug!(log, "Batch processed"; "id" => id, "result" => format!("{:?}", result));
+                debug!(log, "Batch processed"; "id" => *batch_id, "result" => format!("{:?}", result));
                 let msg = SyncMessage::BatchProcessed {
-                    process_id: id,
-                    downloaded_blocks: Box::new(downloaded_blocks),
+                    batch_id: batch_id,
+                    downloaded_blocks: downloaded_blocks,
                     result,
                 };
                 sync_send.try_send(msg).unwrap_or_else(|_| {

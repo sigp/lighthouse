@@ -39,6 +39,7 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
+use super::BatchId;
 use super::chain::ProcessingResult;
 use super::chain_collection::{ChainCollection, SyncState};
 use crate::message_processor::PeerSyncInfo;
@@ -256,7 +257,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn handle_block_process_result(
         &mut self,
         network: &mut SyncNetworkContext,
-        processing_id: u64,
+        batch_id: BatchId,
         downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
         result: BatchProcessResult,
     ) {
@@ -264,7 +265,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         let mut downloaded_blocks = Some(downloaded_blocks);
 
         match self.chains.finalized_request(|chain| {
-            chain.on_batch_process_result(network, processing_id, &mut downloaded_blocks, &result)
+            chain.on_batch_process_result(network, batch_id, &mut downloaded_blocks, &result)
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
@@ -295,7 +296,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 match self.chains.head_request(|chain| {
                     chain.on_batch_process_result(
                         network,
-                        processing_id,
+                        batch_id,
                         &mut downloaded_blocks,
                         &result,
                     )
@@ -313,7 +314,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     None => {
                         // This can happen if a chain gets purged due to being out of date whilst a
                         // batch process is in progress.
-                        debug!(self.log, "No chains match the block processing id"; "id" => processing_id);
+                        debug!(self.log, "No chains match the block processing id"; "id" => *batch_id);
                     }
                 }
             }

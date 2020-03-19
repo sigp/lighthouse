@@ -7,4 +7,5 @@ mod chain_collection;
 mod range;
 
 pub use batch::Batch;
+pub use batch::BatchId;
 pub use range::RangeSync;
