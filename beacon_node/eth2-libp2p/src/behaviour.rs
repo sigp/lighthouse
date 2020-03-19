@@ -1,7 +1,7 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
+use crate::Enr;
 use crate::{error, GossipTopic, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
-use enr::Enr;
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,

@@ -89,7 +89,7 @@ fn test_gossipsub_forward() {
 #[test]
 fn test_gossipsub_full_mesh_publish() {
     // set up the logging. The level and enabled or not
-    let log = common::build_log(Level::Info, false);
+    let log = common::build_log(Level::Debug, false);
 
     // Note: This test does not propagate gossipsub messages.
     // Having `num_nodes` > `mesh_n_high` may give inconsistent results
