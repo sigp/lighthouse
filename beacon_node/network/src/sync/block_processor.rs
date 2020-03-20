@@ -31,7 +31,7 @@ pub enum BatchProcessResult {
 pub fn spawn_block_processor<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     process_id: ProcessId,
-    mut downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+    downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
@@ -40,7 +40,7 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
             // this a request from the range sync
             ProcessId::RangeBatchId(batch_id) => {
                 debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
-                let result = match process_blocks(chain, &mut downloaded_blocks, &log) {
+                let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                     Ok(_) => {
                         debug!(log, "Batch processed"; "id" => *batch_id );
                         BatchProcessResult::Success
@@ -66,7 +66,9 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
             // this a parent lookup request from the sync manager
             ProcessId::ParentLookup(peer_id) => {
                 debug!(log, "Processing parent lookup"; "last_peer_id" => format!("{}", peer_id), "blocks" => downloaded_blocks.len());
-                match process_blocks(chain, &mut downloaded_blocks, &log) {
+                // parent blocks are ordered from highest slot to lowest, so we need to process in
+                // reverse
+                match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
                     Err(e) => {
                         warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
                         sync_send
@@ -89,13 +91,17 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
 }
 
 /// Helper function to process blocks batches which only consumes the chain and blocks to process.
-fn process_blocks<T: BeaconChainTypes>(
+fn process_blocks<
+    'a,
+    T: BeaconChainTypes,
+    I: Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
+>(
     chain: Weak<BeaconChain<T>>,
-    downloaded_blocks: &mut Vec<SignedBeaconBlock<T::EthSpec>>,
+    downloaded_blocks: I,
     log: &slog::Logger,
 ) -> Result<(), String> {
     let mut successful_block_import = false;
-    for block in downloaded_blocks.iter() {
+    for block in downloaded_blocks {
         if let Some(chain) = chain.upgrade() {
             let processing_result = chain.process_block(block.clone());
 
