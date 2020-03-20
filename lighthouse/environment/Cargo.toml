@@ -20,3 +20,6 @@ ctrlc = { version = "3.1.1", features = ["termination"] }
 futures = "0.1.25"
 parking_lot = "0.7"
 slog-json = "2.3.0"
+
+[dev-dependencies]
+beacon_node = { path = "../../beacon_node" }
