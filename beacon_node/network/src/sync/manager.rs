@@ -35,7 +35,7 @@
 
 use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
-use super::range_sync::{RangeSync, BatchId};
+use super::range_sync::{BatchId, RangeSync};
 use crate::message_processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};

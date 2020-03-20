@@ -39,9 +39,9 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
-use super::BatchId;
 use super::chain::ProcessingResult;
 use super::chain_collection::{ChainCollection, SyncState};
+use super::BatchId;
 use crate::message_processor::PeerSyncInfo;
 use crate::sync::block_processor::BatchProcessResult;
 use crate::sync::manager::SyncMessage;

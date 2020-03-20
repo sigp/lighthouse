@@ -1,12 +1,12 @@
 use crate::message_processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
+use crate::sync::range_sync::BatchId;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
 use types::SignedBeaconBlock;
-use crate::sync::range_sync::BatchId;
 
 /// Id associated to a block processing request, either a batch or a single block.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,11 +35,22 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
     mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
-    match process_id {
-        ProcessId::RangeBatchId(batch_id) => {
-            std::thread::spawn(move || {
-                debug!(log, "Processing batch"; "id" => *batch_id);
-                let result = match process_batch(chain, &mut downloaded_blocks, &log) {
+    std::thread::spawn(move || {
+        match &process_id {
+            ProcessId::RangeBatchId(batch_id) => {
+                debug!(log, "Processing batch"; "id" => **batch_id);
+            }
+            ProcessId::ParentLookup(peer_id) => {
+                debug!(log, "Processing parent lookup"; "peer_id" => format!("{}", peer_id));
+            }
+        };
+
+        // process the blocks
+        let result = process_blocks(chain, &mut downloaded_blocks, &log);
+
+        match process_id {
+            ProcessId::RangeBatchId(batch_id) => {
+                let result = match result {
                     Ok(_) => BatchProcessResult::Success,
                     Err(_) => BatchProcessResult::Failed,
                 };
@@ -56,30 +67,31 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                         "Block processor could not inform range sync result. Likely shutting down."
                     );
                 });
-            });
-        }
-        ProcessId::ParentLookup(peer_id) => {
-            std::thread::spawn(move || {
-                match parent_lookup(chain, downloaded_blocks, &log) {
-                    Ok(_) => {
-                        // Do nothing on success
-                    },
-                    Err(_) => sync_send
+            }
+            ProcessId::ParentLookup(peer_id) => {
+                debug!(log, "Parent lookup finished"; "peer_id" => format!("{}", peer_id), "result" => format!("{:?}", result));
+                match result {
+                    Err(_) =>
+                        sync_send
                         .try_send(SyncMessage::ParentLookupFailed(peer_id))
                         .unwrap_or_else(|_| {
+                            // on failure, inform to downvote the peer
                             debug!(
                                 log,
                                 "Block processor could not inform parent lookup result. Likely shutting down."
                             );
                         }),
-                };
-            });
+                    Ok(_) => {
+                        // do nothing on success
+                    }
+                }
+            }
         }
-    }
+    });
 }
 
-/// Helper function to process block batches which only consumes the chain and blocks to process.
-fn process_batch<T: BeaconChainTypes>(
+/// Helper function to process blocks batches which only consumes the chain and blocks to process.
+fn process_blocks<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     downloaded_blocks: &mut Vec<SignedBeaconBlock<T::EthSpec>>,
     log: &slog::Logger,
@@ -199,67 +211,6 @@ fn process_batch<T: BeaconChainTypes>(
     // Batch completed successfully, run fork choice.
     if let Some(chain) = chain.upgrade() {
         run_fork_choice(chain, log);
-    }
-
-    Ok(())
-}
-
-/// Handles the parent lookup processing given a list of blocks.
-fn parent_lookup<T: BeaconChainTypes>(
-    chain: Weak<BeaconChain<T>>,
-    mut downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
-    log: &slog::Logger,
-) -> Result<(), String> {
-    let total_blocks_to_process = downloaded_blocks.len().saturating_add(1);
-    while let Some(block) = downloaded_blocks.pop() {
-        // check if the chain exists
-        if let Some(chain) = chain.upgrade() {
-            match chain.process_block(block) {
-                Ok(BlockProcessingOutcome::Processed { .. })
-                | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {} // continue to the next block
-                // all else is considered a failure
-                Ok(outcome) => {
-                    // the previous blocks have failed, notify the user the chain lookup has
-                    // failed and drop the parent queue
-                    debug!(
-                        log, "Invalid parent chain. Past blocks failure";
-                        "outcome" => format!("{:?}", outcome),
-                    );
-                    return Err("Parent lookup failed".to_string());
-                }
-                Err(e) => {
-                    warn!(
-                        log, "Parent chain processing error.";
-                        "error" => format!("{:?}", e)
-                    );
-                    return Err("Parent lookup failed".to_string());
-                }
-            }
-        } else {
-            // chain doesn't exist, end the processing
-            break;
-        }
-    }
-
-    // the last received block has been successfully processed, process all other blocks in the
-    // chain
-
-    // at least one block has been processed, run fork-choice
-    if let Some(chain) = chain.upgrade() {
-        match chain.fork_choice() {
-            Ok(()) => trace!(
-                log,
-                "Fork choice success";
-                "block_imports" => total_blocks_to_process - downloaded_blocks.len(),
-                "location" => "parent request"
-            ),
-            Err(e) => error!(
-                log,
-                "Fork choice failed";
-                "error" => format!("{:?}", e),
-                "location" => "parent request"
-            ),
-        };
     }
 
     Ok(())
