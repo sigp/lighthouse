@@ -181,36 +181,6 @@ fn chooses_fork() {
     );
 }
 
-// Ensure blocks from abandoned forks are pruned from the Hot DB
-#[test]
-fn prunes_abandoned_forks() {
-    let harness = get_harness(VALIDATOR_COUNT);
-    let honest_validator_count = (VALIDATOR_COUNT / 3) * 2;
-    let honest_validators: Vec<usize> = (0..honest_validator_count).collect();
-    let faulty_validators: Vec<usize> = (honest_validator_count..VALIDATOR_COUNT).collect();
-    let honest_blocks = (MinimalEthSpec::slots_per_epoch() * 5 + 1) as usize;
-    let faulty_blocks = 2;
-
-    let (_, faulty_head) = harness.fork_chain(
-        &honest_validators,
-        &faulty_validators,
-        honest_blocks,
-        faulty_blocks,
-    );
-
-    harness.advance_slot();
-    harness.add_canonical_chain_blocks(MinimalEthSpec::slots_per_epoch() as usize);
-
-    assert!(
-        harness
-            .chain
-            .get_block(&faulty_head.into())
-            .unwrap()
-            .is_none(),
-        "abandoned blocks should have been pruned"
-    );
-}
-
 #[test]
 fn finalizes_with_full_participation() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
