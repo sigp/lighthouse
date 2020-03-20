@@ -12,7 +12,7 @@ const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
     /// Reads the genesis state and other persisted data from the `Store`.
     Resume,

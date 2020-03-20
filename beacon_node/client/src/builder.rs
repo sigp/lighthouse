@@ -116,7 +116,7 @@ where
     /// called later in order to actually instantiate the `BeaconChain`.
     pub fn beacon_chain_builder(
         mut self,
-        client_genesis: ClientGenesis,
+        mut client_genesis: ClientGenesis,
         config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
         let store = self.store.clone();
@@ -151,6 +151,19 @@ where
                 Ok((builder, spec, context))
             })
             .and_then(move |(builder, spec, context)| {
+                if client_genesis == ClientGenesis::Resume
+                    && !builder
+                        .store_contains_beacon_chain()
+                        .unwrap_or_else(|_| false)
+                {
+                    client_genesis = ClientGenesis::default();
+                    info!(
+                        context.log,
+                        "Using default genesis method";
+                        "method" => format!("{:?}", client_genesis)
+                    );
+                }
+
                 let genesis_state_future: Box<dyn Future<Item = _, Error = _> + Send> =
                     match client_genesis {
                         ClientGenesis::Interop {
