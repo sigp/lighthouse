@@ -42,7 +42,7 @@ Requests the count of peers connected to the client.
 
 | Property | Specification |
 | --- |--- |
-Path | `/network/peer_id`
+Path | `/network/peer_count`
 Method | GET
 JSON Encoding | Number
 Query Parameters | None
