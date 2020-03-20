@@ -34,6 +34,7 @@ use store::iter::{
 };
 use store::{Error as DBError, Migrate, Store};
 use types::*;
+use fork::{next_fork_version, next_fork_epoch};
 
 // Text included in blocks.
 // Must be 32-bytes or panic.
@@ -160,6 +161,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache>,
+    /// A list of any hard-coded forks that have been disabled.
+    pub disabled_forks: Vec<String>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
 }
@@ -2044,6 +2047,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(dump)
     }
+
+
+    /// Gets the current EnrForkId.
+    ///
+    /// v0.11
+    pub fn enr_fork_id(&self) -> Result<EnrForkId, Error>  {
+        Ok(EnrForkId {
+            // TODO: To be implemented with v0.11 updates
+            fork_digest: [0,0,0,0],
+            next_fork_version: next_fork_version(self.slot()?, self.disabled_forks),
+            next_fork_epoch: next_fork_epoch(self.slot()?, self.disabled_forks)
+        })
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {

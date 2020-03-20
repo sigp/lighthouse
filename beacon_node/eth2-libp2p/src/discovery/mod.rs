@@ -11,6 +11,7 @@ use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 use slog::{debug, info, warn};
+use ssz::Encode;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -18,7 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
-use types::{EnrForkId, EthSpec};
+use types::{EnrForkId, EthSpec, FAR_FUTURE_EPOCH};
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
@@ -151,6 +152,24 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         self.discovery.enr_entries()
     }
 
+    /// Updates the `eth2` field of our local ENR.
+    pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
+        let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == FAR_FUTURE_EPOCH {
+            String::from("No other fork")
+        } else {
+            format!("{:?}", enr_fork_id.next_fork_epoch)
+        };
+
+        info!(self.log, "Updating the ENR fork version";
+            "fork_digest" => format!("{:?}", enr_fork_id.fork_digest),
+            "next_fork_version" => format!("{:?}", enr_fork_id.next_fork_version),
+            "next_fork_epoch" => next_fork_epoch_log,
+        );
+
+        self.discovery
+            .enr_insert("eth2".into(), enr_fork_id.as_ssz_bytes());
+    }
+
     /// Search for new peers using the underlying discovery mechanism.
     fn find_peers(&mut self) {
         // pick a random NodeId
@@ -255,7 +274,8 @@ where
             match self.discovery.poll(params) {
                 Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
                     match event {
-                        Discv5Event::Discovered(_enr) => {
+                        Discv5Event::Discovered(enr) => {
+
                             // not concerned about FINDNODE results, rather the result of an entire
                             // query.
                         }
@@ -272,6 +292,7 @@ where
                             });
                         }
                         Discv5Event::FindNodeResult { closer_peers, .. } => {
+                            // TODO: Modify once ENR predicate search is available
                             debug!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
                             // update the time to the next query
                             if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
