@@ -379,7 +379,8 @@ fn main() {
                         .value_name("HEX")
                         .takes_value(true)
                         .required(true)
-                        .help("A 0x-prefixed hex string of the deposit data"),
+                        .help("A 0x-prefixed hex string of the deposit data. Should include the
+                            function signature."),
                 )
         )
         .get_matches();
