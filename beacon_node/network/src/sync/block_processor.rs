@@ -31,31 +31,26 @@ pub enum BatchProcessResult {
 pub fn spawn_block_processor<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     process_id: ProcessId,
-    mut downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+    downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
     std::thread::spawn(move || {
-        match &process_id {
-            ProcessId::RangeBatchId(batch_id) => {
-                debug!(log, "Processing batch"; "id" => **batch_id);
-            }
-            ProcessId::ParentLookup(peer_id) => {
-                debug!(log, "Processing parent lookup"; "peer_id" => format!("{}", peer_id));
-            }
-        };
-
-        // process the blocks
-        let result = process_blocks(chain, &mut downloaded_blocks, &log);
-
         match process_id {
+            // this a request from the range sync
             ProcessId::RangeBatchId(batch_id) => {
-                let result = match result {
-                    Ok(_) => BatchProcessResult::Success,
-                    Err(_) => BatchProcessResult::Failed,
+                debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
+                let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
+                    Ok(_) => {
+                        debug!(log, "Batch processed"; "id" => *batch_id );
+                        BatchProcessResult::Success
+                    }
+                    Err(e) => {
+                        debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
+                        BatchProcessResult::Failed
+                    }
                 };
 
-                debug!(log, "Batch processed"; "id" => *batch_id, "result" => format!("{:?}", result));
                 let msg = SyncMessage::BatchProcessed {
                     batch_id: batch_id,
                     downloaded_blocks: downloaded_blocks,
@@ -68,10 +63,14 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                     );
                 });
             }
+            // this a parent lookup request from the sync manager
             ProcessId::ParentLookup(peer_id) => {
-                debug!(log, "Parent lookup finished"; "peer_id" => format!("{}", peer_id), "result" => format!("{:?}", result));
-                match result {
-                    Err(_) =>
+                debug!(log, "Processing parent lookup"; "last_peer_id" => format!("{}", peer_id), "blocks" => downloaded_blocks.len());
+                // parent blocks are ordered from highest slot to lowest, so we need to process in
+                // reverse
+                match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
+                    Err(e) => {
+                        warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
                         sync_send
                         .try_send(SyncMessage::ParentLookupFailed(peer_id))
                         .unwrap_or_else(|_| {
@@ -80,9 +79,10 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                                 log,
                                 "Block processor could not inform parent lookup result. Likely shutting down."
                             );
-                        }),
+                        });
+                    }
                     Ok(_) => {
-                        // do nothing on success
+                        debug!(log, "Parent lookup processed successfully");
                     }
                 }
             }
@@ -91,13 +91,17 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
 }
 
 /// Helper function to process blocks batches which only consumes the chain and blocks to process.
-fn process_blocks<T: BeaconChainTypes>(
+fn process_blocks<
+    'a,
+    T: BeaconChainTypes,
+    I: Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
+>(
     chain: Weak<BeaconChain<T>>,
-    downloaded_blocks: &mut Vec<SignedBeaconBlock<T::EthSpec>>,
+    downloaded_blocks: I,
     log: &slog::Logger,
 ) -> Result<(), String> {
     let mut successful_block_import = false;
-    for block in downloaded_blocks.iter() {
+    for block in downloaded_blocks {
         if let Some(chain) = chain.upgrade() {
             let processing_result = chain.process_block(block.clone());
 
@@ -114,6 +118,7 @@ fn process_blocks<T: BeaconChainTypes>(
                     }
                     BlockProcessingOutcome::ParentUnknown { parent, .. } => {
                         // blocks should be sequential and all parents should exist
+                        // this is a failure if blocks do not have parents
                         warn!(
                             log, "Parent block is unknown";
                             "parent_root" => format!("{}", parent),
