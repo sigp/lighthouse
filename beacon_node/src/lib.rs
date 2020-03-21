@@ -57,9 +57,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     ) -> impl Future<Item = Self, Error = String> + 'a {
         let log = context.log.clone();
 
-        // TODO: the eth2 config in the env is being modified.
-        //
-        // See https://github.com/sigp/lighthouse/issues/602
         get_config::<E>(&matches, context.eth2_config.clone(), log)
             .into_future()
             .and_then(move |client_config| Self::new(context, client_config))
