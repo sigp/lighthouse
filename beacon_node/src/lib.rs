@@ -55,9 +55,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
     ) -> impl Future<Item = Self, Error = String> + 'a {
-        let log = context.log.clone();
-
-        get_config::<E>(&matches, context.eth2_config.clone(), log)
+        get_config::<E>(&matches, context.eth2_config.clone(), context.log.clone())
             .into_future()
             .and_then(move |client_config| Self::new(context, client_config))
     }
