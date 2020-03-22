@@ -19,6 +19,16 @@ use types::{
     AggregateAndProof, AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, Slot,
 };
 
+/// The maximum number of epochs before some attestation at epoch `n` is no longer useful to be
+/// published.
+///
+/// The beacon chain refuses attestations that are more than two epochs prior to the current slot.
+/// As such, if we're halfway through epoch `n`, then we could submit an attestation for epochs
+/// `(n, n-1, n-2)`.
+///
+/// Do not set to zero.
+const ATTESTATION_PRODUCTION_DELAY_EPOCH: usize = 3;
+
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
     duties_service: Option<DutiesService<T, E>>,
@@ -89,7 +99,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
 }
 
 #[derive(Default)]
-struct StoredAttestationData(RwLock<HashMap<PublicKey, [Option<AttestationData>; 2]>>);
+struct StoredAttestationData(
+    RwLock<HashMap<PublicKey, [Option<AttestationData>; ATTESTATION_PRODUCTION_DELAY_EPOCH]>>,
+);
 
 impl StoredAttestationData {
     pub fn insert<E: EthSpec>(
@@ -111,18 +123,20 @@ impl StoredAttestationData {
                 return Err(());
             }
 
+            let delay = Epoch::from(ATTESTATION_PRODUCTION_DELAY_EPOCH - 1);
+
             let position = values[..]
                 .iter()
                 .position(|stored_data_opt| {
-                    stored_data_opt
-                        .as_ref()
-                        .map_or(true, |stored_data| epoch(stored_data) + 1 < epoch(&data))
+                    stored_data_opt.as_ref().map_or(true, |stored_data| {
+                        epoch(stored_data) + delay < epoch(&data)
+                    })
                 })
                 .ok_or_else(|| ())?;
 
             values[position] = Some(data);
         } else {
-            map.insert(validator_pubkey.clone(), [Some(data), None]);
+            map.insert(validator_pubkey.clone(), [Some(data), None, None]);
         }
 
         Ok(())
@@ -676,4 +690,17 @@ fn attestation_duties(duty: &ValidatorDuty) -> Option<(Slot, CommitteeIndex, usi
         duty.attestation_committee_position?,
         duty.validator_index?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_delay_constant() {
+        assert!(
+            ATTESTATION_PRODUCTION_DELAY_EPOCH > 1,
+            "an underflow will occur if ATTESTATION_PRODUCTION_DELAY_EPOCH is zero"
+        );
+    }
 }
