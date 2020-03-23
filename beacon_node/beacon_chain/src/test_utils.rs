@@ -293,13 +293,87 @@ where
         head_block_root.expect("did not produce any blocks")
     }
 
-    pub fn add_canonical_chain_blocks(&self, num_blocks: usize) -> SignedBeaconBlockHash {
-        let head_block_hash = self.extend_chain(
-            num_blocks,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
-        head_block_hash.into()
+    pub fn add_block(
+        &self,
+        state: &BeaconState<E>,
+        proposer_index: usize,
+        slot: Slot,
+    ) -> (SignedBeaconBlockHash, BeaconState<E>) {
+        while self.chain.slot().expect("should have a slot") < slot {
+            self.advance_slot();
+        }
+
+        let (block, new_state) = self.build_block(state.clone(), slot, proposer_index);
+
+        let outcome = self
+            .chain
+            .process_block(block)
+            .expect("should not error during block processing");
+
+        self.chain.fork_choice().expect("should find head");
+
+        if let BlockProcessingOutcome::Processed { block_root } = outcome {
+            (block_root.into(), new_state)
+        } else {
+            panic!("block should be successfully processed: {:?}", outcome);
+        }
+    }
+
+    pub fn add_blocks(
+        &self,
+        state_slot: Slot,
+        mut slot: Slot,
+        num_blocks: usize,
+    ) -> (Vec<(Slot, SignedBeaconBlockHash)>, Slot) {
+        let mut state = self.chain.state_at_slot(
+            state_slot,
+            StateSkipConfig::WithStateRoots,
+        ).unwrap();
+        let mut result: Vec<(Slot, SignedBeaconBlockHash)> = Vec::with_capacity(num_blocks);
+        for _ in 0..num_blocks {
+            let proposer_index = self.chain.block_proposer(slot).unwrap();
+            let (new_root_hash, new_state) = self.add_block(&state, proposer_index, slot);
+            result.push((slot, new_root_hash));
+            state = new_state;
+            slot += 1;
+        }
+        (result, slot)
+    }
+
+    pub fn add_canonical_chain_blocks(
+        &self,
+        num_blocks: usize,
+    ) -> (Vec<(Slot, SignedBeaconBlockHash)>, Slot) {
+        let slot = self.chain.slot().unwrap();
+        self.add_blocks(slot, slot + 1, num_blocks)
+    }
+
+    pub fn attest_to_block(
+        &self,
+        state: &BeaconState<E>,
+        slot: Slot,
+        block_hash: SignedBeaconBlockHash,
+        validators: &[usize],
+    ) {
+        let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
+        let current_epoch = self.chain.epoch().expect("chain should have a epoch");
+        if slot.epoch(E::slots_per_epoch()) + 1 >= current_epoch {
+            self.add_free_attestations(&attestation_strategy, state, block_hash.into(), slot);
+        }
+    }
+
+    pub fn attest_to_blocks(
+        &self,
+        blocks: &[(Slot, SignedBeaconBlockHash)],
+        validators: &[usize],
+    ) {
+        for &(slot, block_hash) in blocks {
+            let state = self.chain.state_at_slot(
+                slot + 1,
+                StateSkipConfig::WithStateRoots,
+            ).unwrap();
+            self.attest_to_block(&state, slot, block_hash, &validators);
+        }
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -337,7 +411,7 @@ where
         let (block, state) = self
             .chain
             .produce_block_on_state(state, slot, randao_reveal)
-            .expect("should produce block");
+            .unwrap();
 
         let signed_block = block.sign(sk, &state.fork, state.genesis_validators_root, &self.spec);
 
@@ -501,50 +575,6 @@ where
         assert!(honest_head != faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
-    }
-
-    pub fn fork_chain(
-        &self,
-        honest_validators: &[usize],
-        faulty_validators: &[usize],
-        honest_fork_blocks: usize,
-        faulty_fork_blocks: usize,
-    ) -> (SignedBeaconBlockHash, SignedBeaconBlockHash) {
-        // Move to the next slot so we may produce some more blocks on the head.
-        self.advance_slot();
-
-        // Extend the chain with blocks where only honest validators agree.
-        let honest_head = self.extend_chain(
-            honest_fork_blocks,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(honest_validators.to_vec()),
-        );
-
-        // Compute the slot on which to build on.  No point in using slot number smaller than
-        // last_finalized_slot because process_block will error out with WouldRevertFinalizedSlot.
-        let last_finalized_slot = self
-            .chain
-            .head_info()
-            .expect("should get head info")
-            .finalized_checkpoint
-            .epoch
-            .start_slot(E::slots_per_epoch());
-
-        // Go back to the last block where all agreed, and build blocks upon it where only faulty nodes
-        // agree.
-        let faulty_head = self.extend_chain(
-            faulty_fork_blocks,
-            BlockStrategy::ForkCanonicalChainAt {
-                previous_slot: last_finalized_slot,
-                // `last_finalized_slot + 2` means one slot is skipped.
-                first_slot: last_finalized_slot + 2,
-            },
-            AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
-        );
-
-        assert!(honest_head != faulty_head, "forks should be distinct");
-
-        (honest_head.into(), faulty_head.into())
     }
 
     /// Returns the secret key for the given validator index.

@@ -701,35 +701,36 @@ fn check_shuffling_compatible(
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[test]
-fn prunes_abandoned_forks() {
+fn prunes_abandoned_fork() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
     const SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let honest_validator_count = SUPERMAJORITY;
-    let honest_validators: Vec<usize> = (0..honest_validator_count).collect();
-    let faulty_validators: Vec<usize> = (honest_validator_count..VALIDATOR_COUNT).collect();
-    let honest_blocks = (MinimalEthSpec::slots_per_epoch() * 5 + 1) as usize;
-    let faulty_blocks = 2;
+    const HONEST_VALIDATOR_COUNT: usize = SUPERMAJORITY;
+    let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
+    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
 
-    let (_, faulty_head) = harness.fork_chain(
-        &honest_validators,
-        &faulty_validators,
-        honest_blocks,
-        faulty_blocks,
-    );
+    // (1) Produce justified blocks until we finalize first block
+    let blocks_to_trigger_finalization: u64 = MinimalEthSpec::slots_per_epoch() * 4;
+    let (initial_blocks, slot) = harness.add_canonical_chain_blocks(blocks_to_trigger_finalization as usize);
+    harness.attest_to_blocks(&initial_blocks, &honest_validators);
 
-    harness.advance_slot();
-    harness.add_canonical_chain_blocks(MinimalEthSpec::slots_per_epoch() as usize);
+    // Slot 16 is finalized
 
-    assert!(
-        harness
-            .chain
-            .get_block(&faulty_head.into())
-            .unwrap()
-            .is_none(),
-        "abandoned blocks should have been pruned"
-    );
+    // (2) Produce (not yet justified) blocks that will become the future canonical chain
+    let blocks_to_cross_epoch_boundary: u64 = MinimalEthSpec::slots_per_epoch() * 4;
+    let (legit_blocks, _) = harness.add_canonical_chain_blocks(blocks_to_cross_epoch_boundary as usize);
+
+    // (3) Produce (not justified) blocks that will become the abandoned chain
+    let abandoned_blocks_num: u64 = MinimalEthSpec::slots_per_epoch() - 1;
+    let (bogus_blocks, _) = harness.add_blocks(slot, slot + 2, abandoned_blocks_num as usize);
+
+    // (4) Justify the blocks from (2) so that epoch slots worth of them become finalized
+    harness.attest_to_blocks(&bogus_blocks, &faulty_validators);
+    harness.attest_to_blocks(&legit_blocks, &honest_validators);
+
+    // (5) Ensure all the blocks from (3) have been pruned
+    harness.chain.dump_dot_file("dump.dot");
 }
 
 /// Check that the head state's slot matches `expected_slot`.
