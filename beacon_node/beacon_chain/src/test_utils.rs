@@ -254,7 +254,17 @@ where
                 self.advance_slot();
             }
 
-            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+            let proposer_index = match block_strategy {
+                BlockStrategy::OnCanonicalHead => self
+                    .chain
+                    .block_proposer(slot)
+                    .expect("should get block proposer from chain"),
+                _ => state
+                    .get_beacon_proposer_index(slot, &self.spec)
+                    .expect("should get block proposer from state"),
+            };
+
+            let (block, new_state) = self.build_block(state.clone(), slot, proposer_index);
 
             let outcome = self
                 .chain
@@ -297,7 +307,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-        block_strategy: BlockStrategy,
+        proposer_index: usize,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
@@ -311,16 +321,6 @@ where
         state
             .build_all_caches(&self.spec)
             .expect("should build caches");
-
-        let proposer_index = match block_strategy {
-            BlockStrategy::OnCanonicalHead => self
-                .chain
-                .block_proposer(slot)
-                .expect("should get block proposer from chain"),
-            _ => state
-                .get_beacon_proposer_index(slot, &self.spec)
-                .expect("should get block proposer from state"),
-        };
 
         let sk = &self.keypairs[proposer_index].sk;
         let fork = &state.fork.clone();
