@@ -2150,6 +2150,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap()
             .beacon_block_root;
         let mut visited: HashSet<Hash256> = HashSet::new();
+        let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
 
         let genesis_block_hash = Hash256::zero();
         write!(output, "digraph beacon {{\n").unwrap();
@@ -2163,10 +2164,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     break;
                 }
                 visited.insert(block_hash);
+
+                let slot = signed_beacon_block.message.slot;
+                if slot.is_epoch_boundary_slot(T::EthSpec::slots_per_epoch()) {
+                    let state = self.state_at_slot(signed_beacon_block.message.slot, StateSkipConfig::WithStateRoots).unwrap();
+                    finalized_blocks.insert(state.finalized_checkpoint.root);
+                }
+
                 if block_hash == canonical_head_hash {
                     write!(
                         output,
                         "\t_{}[label=\"{}\" shape=box3d];\n",
+                        block_hash, signed_beacon_block.message.slot
+                    )
+                    .unwrap();
+                } else if finalized_blocks.contains(&block_hash) {
+                    write!(
+                        output,
+                        "\t_{}[label=\"{}\" shape=Msquare];\n",
                         block_hash, signed_beacon_block.message.slot
                     )
                     .unwrap();
