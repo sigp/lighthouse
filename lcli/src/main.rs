@@ -32,6 +32,7 @@ fn main() {
         .arg(
             Arg::with_name("spec")
                 .short("s")
+                .long("spec")
                 .value_name("STRING")
                 .takes_value(true)
                 .required(true)
