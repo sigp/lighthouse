@@ -67,14 +67,12 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         local_key: &Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
-        enr_fork_id: EnrForkId,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
 
         // checks if current ENR matches that found on disk
-        let local_enr =
-            enr_helpers::build_or_load_enr(local_key.clone(), config, enr_fork_id, &log)?;
+        let local_enr = enr_helpers::build_or_load_enr(local_key.clone(), config, &log)?;
 
         *network_globals.local_enr.write() = Some(local_enr.clone());
 
@@ -274,8 +272,7 @@ where
             match self.discovery.poll(params) {
                 Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
                     match event {
-                        Discv5Event::Discovered(enr) => {
-
+                        Discv5Event::Discovered(_enr) => {
                             // not concerned about FINDNODE results, rather the result of an entire
                             // query.
                         }

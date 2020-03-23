@@ -10,7 +10,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
-use types::EnrForkId;
 
 /// Loads an ENR from file if it exists and matches the current NodeId and sequence number. If none
 /// exists, generates a new one.
@@ -20,7 +19,6 @@ use types::EnrForkId;
 pub fn build_or_load_enr(
     local_key: Keypair,
     config: &NetworkConfig,
-    enr_fork_id: EnrForkId,
     log: &slog::Logger,
 ) -> Result<Enr, String> {
     // Build the local ENR.
@@ -30,7 +28,7 @@ pub fn build_or_load_enr(
         .try_into()
         .map_err(|_| "Invalid key type for ENR records")?;
 
-    let local_enr = build_enr(&enr_key, config, enr_fork_id)?;
+    let mut local_enr = build_enr(&enr_key, config)?;
 
     let enr_f = config.network_dir.join(ENR_FILENAME);
     if let Ok(mut enr_file) = File::open(enr_f.clone()) {
@@ -42,7 +40,7 @@ pub fn build_or_load_enr(
                     Ok(disk_enr) => {
                         // if the same node id, then we may need to update our sequence number
                         if local_enr.node_id() == disk_enr.node_id() {
-                            if compare_enr(local_enr, disk_enr) {
+                            if compare_enr(&local_enr, &disk_enr) {
                                 debug!(log, "ENR loaded from disk"; "file" => format!("{:?}", enr_f));
                                 // the stored ENR has the same configuration, use it
                                 return Ok(disk_enr);
@@ -70,11 +68,7 @@ pub fn build_or_load_enr(
 }
 
 /// Builds a lighthouse ENR given a `NetworkConfig`.
-fn build_enr(
-    enr_key: &CombinedKey,
-    config: &NetworkConfig,
-    enr_fork_id: EnrForkId,
-) -> Result<Enr, String> {
+fn build_enr(enr_key: &CombinedKey, config: &NetworkConfig) -> Result<Enr, String> {
     let mut builder = EnrBuilder::new("v4");
     if let Some(enr_address) = config.enr_address {
         builder.ip(enr_address);
@@ -88,7 +82,7 @@ fn build_enr(
     builder.tcp(tcp_port);
 
     // set the `eth2` field on our ENR
-    builder.add_value("eth2".into(), enr_fork_id.as_ssz_bytes());
+    builder.add_value("eth2".into(), config.enr_fork_id.as_ssz_bytes());
 
     builder
         .tcp(config.libp2p_port)
@@ -98,7 +92,7 @@ fn build_enr(
 
 /// Defines the conditions under which we use the locally built ENR or the one stored on disk.
 /// If this function returns true, we use the `disk_enr`.
-fn compare_enr(local_enr: Enr, disk_enr: Enr) -> bool {
+fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
     // take preference over disk_enr address if one is not specified
     (local_enr.ip().is_none() || local_enr.ip() == disk_enr.ip())
         // tcp ports must match

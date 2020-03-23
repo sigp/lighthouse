@@ -67,6 +67,8 @@ pub struct Config {
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
+    /// A list of hard-coded forks that will be disabled.
+    pub disabled_forks: Vec<String>,
 }
 
 impl Default for Config {
@@ -86,6 +88,7 @@ impl Default for Config {
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),
+            disabled_forks: Vec::new(),
         }
     }
 }

@@ -7,6 +7,7 @@ use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
+use types::EnrForkId;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -62,6 +63,9 @@ pub struct Config {
 
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipTopic>,
+
+    /// The initial ENR fork id.
+    pub enr_fork_id: EnrForkId,
 
     /// Introduces randomization in network propagation of messages. This should only be set for
     /// testing purposes and will likely be removed in future versions.
@@ -132,6 +136,7 @@ impl Default for Config {
             libp2p_nodes: vec![],
             client_version: version::version(),
             topics,
+            enr_fork_id: EnrForkId::default(),
             propagation_percentage: None,
         }
     }

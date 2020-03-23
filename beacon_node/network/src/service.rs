@@ -51,7 +51,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &NetworkConfig,
+        config: &mut NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
     ) -> error::Result<(
@@ -72,6 +72,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         let propagation_percentage = config.propagation_percentage;
+
+        // set the local enr_fork_id
+        config.enr_fork_id = beacon_chain
+            .enr_fork_id()
+            .map_err(|e| format!("Could not get the current ENR fork version: {:?}", e))?;
+
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(config, network_log.clone())?;
 
