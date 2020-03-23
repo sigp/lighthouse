@@ -101,7 +101,13 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 "node_id" => format!("{}", bootnode_enr.node_id()),
                 "peer_id" => format!("{}", bootnode_enr.peer_id())
             );
-            discovery.add_enr(bootnode_enr);
+            let _ = discovery.add_enr(bootnode_enr).map_err(|e| {
+                warn!(
+                    log,
+                    "Could not add peer to the local routing table";
+                    "error" => format!("{}", e)
+                )
+            });
         }
 
         Ok(Self {
@@ -131,7 +137,13 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
     /// Add an ENR to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
-        self.discovery.add_enr(enr);
+        let _ = self.discovery.add_enr(enr).map_err(|e| {
+            warn!(
+                self.log,
+                "Could not add peer to the local routing table";
+                "error" => format!("{}", e)
+            )
+        });
     }
 
     /// The peer has been banned. Add this peer to the banned list to prevent any future
@@ -164,8 +176,16 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             "next_fork_epoch" => next_fork_epoch_log,
         );
 
-        self.discovery
-            .enr_insert("eth2".into(), enr_fork_id.as_ssz_bytes());
+        let _ = self
+            .discovery
+            .enr_insert("eth2".into(), enr_fork_id.as_ssz_bytes())
+            .map_err(|e| {
+                warn!(
+                    self.log,
+                    "Could not update eth2 ENR field";
+                    "error" => format!("{:?}", e)
+                )
+            });
     }
 
     /// Search for new peers using the underlying discovery mechanism.

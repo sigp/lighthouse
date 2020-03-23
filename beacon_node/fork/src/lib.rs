@@ -1,5 +1,5 @@
 ///! Maintains a hard-coded list of known forks and their slots at which they were activated.
-use types::{Epoch, EthSpec, Slot, FAR_FUTURE_EPOCH};
+use types::{Epoch, EthSpec, Slot};
 
 mod forks;
 
@@ -66,6 +66,12 @@ pub fn next_fork_epoch<T: EthSpec>(slot: Slot, disabled_forks: &[String]) -> Epo
     if let Some(fork_slot) = next_fork_slot {
         fork_slot.epoch(T::slots_per_epoch())
     } else {
-        FAR_FUTURE_EPOCH
+        T::default_spec().far_future_epoch;
     }
 }
+
+/// Calculates the duration (in millis) to the next fork, if one exists.
+pub fn duration_to_next_fork<T:EthSpec>(slot: Slot, disabled_forks: &[String]) -> Option<Instant> { 
+
+
+
