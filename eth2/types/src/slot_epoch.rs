@@ -21,11 +21,11 @@ use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Slot(u64);
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);
