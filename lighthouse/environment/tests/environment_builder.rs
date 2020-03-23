@@ -62,26 +62,6 @@ mod setup_eth2_config {
     }
 
     #[test]
-    fn update_spec_for_prysm() {
-        // testnet, prysm
-        let cli_args = beacon_node::cli_app().get_matches_from(vec!["app", "testnet", "prysm"]);
-
-        let environment = builder()
-            .setup_eth2_config(dummy_data_dir(), eth2_testnet_config(), &cli_args)
-            .expect("should setup eth2_config")
-            .build()
-            .expect("should build environment");
-
-        let spec = &environment.eth2_config.spec;
-        assert_eq!(spec.min_deposit_amount, 100);
-        assert_eq!(spec.max_effective_balance, 3_200_000_000);
-        assert_eq!(spec.ejection_balance, 1_600_000_000);
-        assert_eq!(spec.effective_balance_increment, 100_000_000);
-        assert_eq!(spec.min_genesis_time, 0);
-        assert_eq!(spec.genesis_fork_version, [0, 0, 0, 2]);
-    }
-
-    #[test]
     fn update_spec_with_yaml_config() {
         let config_yaml = PathBuf::from("./tests/testnet_dir/config.yaml");
 

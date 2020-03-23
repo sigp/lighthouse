@@ -515,15 +515,6 @@ fn process_testnet_subcommand(
 
             client_config.genesis = start_method;
         }
-        ("prysm", Some(_)) => {
-            client_config.eth1.deposit_contract_address =
-                "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
-            client_config.eth1.deposit_contract_deploy_block = 1_487_270;
-            client_config.eth1.follow_distance = 16;
-            client_config.dummy_eth1_backend = false;
-
-            client_config.genesis = ClientGenesis::DepositContract;
-        }
         (cmd, Some(_)) => {
             return Err(format!(
                 "Invalid valid method specified: {}. See 'testnet --help'.",

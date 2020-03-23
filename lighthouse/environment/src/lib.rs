@@ -157,20 +157,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
                     self.eth2_config.spec.milliseconds_per_slot = slot_time;
                 }
-
-                match sub_cli_args.subcommand() {
-                    ("prysm", Some(_)) => {
-                        let mut spec = &mut self.eth2_config.spec;
-
-                        spec.min_deposit_amount = 100;
-                        spec.max_effective_balance = 3_200_000_000;
-                        spec.ejection_balance = 1_600_000_000;
-                        spec.effective_balance_increment = 100_000_000;
-                        spec.min_genesis_time = 0;
-                        spec.genesis_fork_version = [0, 0, 0, 2];
-                    }
-                    _ => {} // Nothing to do.
-                }
             }
             _ => {
                 if !datadir.exists() {
