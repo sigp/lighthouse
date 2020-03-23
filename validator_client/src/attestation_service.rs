@@ -14,17 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::{Delay, Interval};
-use types::{AggregateAndProof, ChainSpec, CommitteeIndex, EthSpec, SignedAggregateAndProof, Slot};
-
-/// The maximum number of epochs before some attestation at epoch `n` is no longer useful to be
-/// published.
-///
-/// The beacon chain refuses attestations that are more than two epochs prior to the current slot.
-/// As such, if we're halfway through epoch `n`, then we could submit an attestation for epochs
-/// `(n, n-1, n-2)`.
-///
-/// Do not set to zero.
-const ATTESTATION_PRODUCTION_DELAY_EPOCH: usize = 3;
+use types::{AggregateAndProof, Attestation, ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
@@ -371,16 +361,58 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         }
 
         let service_1 = self.clone();
-        let service_2 = self.clone();
-        let service_3 = self.clone();
-        let service_4 = self.clone();
-        let service_5 = self.clone();
         let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
-        let log_3 = self.context.log.clone();
-        let log_4 = self.context.log.clone();
         let validator_duties_1 = Arc::new(validator_duties);
         let validator_duties_2 = validator_duties_1.clone();
+
+        Box::new(
+            self.produce_and_publish_attestations(slot, committee_index, validator_duties_1)
+                .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(
+                    move |attestation_opt| {
+                        if let Some(attestation) = attestation_opt {
+                            Box::new(
+                                Delay::new(aggregate_production_instant)
+                                    .map_err(|e| {
+                                        format!(
+                                            "Unable to create aggregate production delay: {:?}",
+                                            e
+                                        )
+                                    })
+                                    .and_then(move |()| {
+                                        service_1.produce_and_publish_aggregates(
+                                            attestation,
+                                            validator_duties_2,
+                                        )
+                                    }),
+                            )
+                        } else {
+                            Box::new(future::ok(()))
+                        }
+                    },
+                )
+                .map_err(move |e| {
+                    crit!(
+                            log_1,
+                            "Error during attestation future";
+                            "error" => format!("{:?}", e)
+                    )
+                }),
+        )
+    }
+
+    fn produce_and_publish_attestations(
+        &self,
+        slot: Slot,
+        committee_index: CommitteeIndex,
+        validator_duties: Arc<Vec<DutyAndState>>,
+    ) -> Box<dyn Future<Item = Option<Attestation<E>>, Error = String> + Send> {
+        if validator_duties.is_empty() {
+            return Box::new(future::ok(None));
+        }
+
+        let service_1 = self.clone();
+        let service_2 = self.clone();
+        let log_1 = self.context.log.clone();
 
         Box::new(
             self.beacon_node
@@ -389,7 +421,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .produce_attestation(slot, committee_index)
                 .map_err(|e| format!("Failed to produce attestation: {:?}", e))
                 .map(move |attestation| {
-                    let signed_attestations = validator_duties_1
+                    validator_duties
                         .iter()
                         .filter_map(|duty| {
                             let log = service_1.context.log.clone();
@@ -446,91 +478,84 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 Some(attestation)
                             }
                         })
-                        .collect::<Vec<_>>();
+                        .collect::<Vec<_>>()
+                })
+                .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(
+                    move |signed_attestations| {
+                        if let Some(attestation) = signed_attestations.first().cloned() {
+                            let num_attestations = signed_attestations.len();
+                            let beacon_block_root = attestation.data.beacon_block_root;
 
-                    (attestation, signed_attestations)
-                })
-                .and_then(move |(unsigned_attestation, signed_attestations)| {
-                    let num_attestations = signed_attestations.len();
-                    let beacon_block_root = unsigned_attestation.data.beacon_block_root;
+                            Box::new(
+                                service_2
+                                    .beacon_node
+                                    .http
+                                    .validator()
+                                    .publish_attestations(signed_attestations)
+                                    .map_err(|e| format!("Failed to publish attestation: {:?}", e))
+                                    .map(move |publish_status| match publish_status {
+                                        PublishStatus::Valid => info!(
+                                            log_1,
+                                            "Successfully published attestations";
+                                            "count" => num_attestations,
+                                            "head_block" => format!("{:?}", beacon_block_root),
+                                            "committee_index" => committee_index,
+                                            "slot" => slot.as_u64(),
+                                        ),
+                                        PublishStatus::Invalid(msg) => crit!(
+                                            log_1,
+                                            "Published attestation was invalid";
+                                            "message" => msg,
+                                            "committee_index" => committee_index,
+                                            "slot" => slot.as_u64(),
+                                        ),
+                                        PublishStatus::Unknown => crit!(
+                                            log_1,
+                                            "Unknown condition when publishing attestation"
+                                        ),
+                                    })
+                                    .map(|()| Some(attestation)),
+                            )
+                        } else {
+                            Box::new(future::ok(None))
+                        }
+                    },
+                ),
+        )
+    }
 
-                    service_2
-                        .beacon_node
-                        .http
-                        .validator()
-                        .publish_attestations(signed_attestations)
-                        .then(move |result| {
-                            match result {
-                                Ok(publish_status) => match publish_status {
-                                    PublishStatus::Valid => info!(
-                                        log_1,
-                                        "Successfully published attestations";
-                                        "count" => num_attestations,
-                                        "head_block" => format!("{:?}", beacon_block_root),
-                                        "committee_index" => committee_index,
-                                        "slot" => slot.as_u64(),
-                                    ),
-                                    PublishStatus::Invalid(msg) => crit!(
-                                        log_1,
-                                        "Published attestation was invalid";
-                                        "message" => msg,
-                                        "committee_index" => committee_index,
-                                        "slot" => slot.as_u64(),
-                                    ),
-                                    PublishStatus::Unknown => crit!(
-                                        log_1,
-                                        "Unknown condition when publishing attestation"
-                                    ),
-                                },
-                                Err(e) => crit!(
-                                    log_2,
-                                    "Error during attestation publishing";
-                                    "error" => format!("{:?}", e)
-                                ),
-                            }
+    fn produce_and_publish_aggregates(
+        &self,
+        attestation: Attestation<E>,
+        validator_duties: Arc<Vec<DutyAndState>>,
+    ) -> impl Future<Item = (), Error = String> {
+        let service_1 = self.clone();
+        let log_1 = self.context.log.clone();
 
-                            // Suppress errors during attestation publishing so they don't stop the
-                            // futures chain.
-                            Ok(unsigned_attestation)
-                        })
-                        .map_err(|e: String| format!("Failed to publish attestations: {:?}", e))
-                })
-                .and_then(move |unsigned_attestation| {
-                    Delay::new(aggregate_production_instant)
-                        .map_err(|e| {
-                            format!("Unable to create aggregate production delay: {:?}", e)
-                        })
-                        .map(|()| unsigned_attestation)
-                })
-                .and_then(move |unsigned_attestation| {
-                    service_3
-                        .beacon_node
-                        .http
-                        .validator()
-                        .produce_aggregate_attestation(
-                            unsigned_attestation.data.slot,
-                            unsigned_attestation.data.index,
-                        )
-                        .map_err(|e| format!("Failed to produce an aggregate attestation: {:?}", e))
-                })
-                .map(move |aggregated_attestation| {
-                    validator_duties_2
+        self.beacon_node
+            .http
+            .validator()
+            .produce_aggregate_attestation(attestation.data.slot, attestation.data.index)
+            .map_err(|e| format!("Failed to produce an aggregate attestation: {:?}", e))
+            .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(
+                move |aggregated_attestation| {
+                    let signed_aggregate_and_proofs = validator_duties
                         .iter()
                         .filter_map(|duty_and_state| {
-                            let log = service_4.context.log.clone();
-
                             let selection_proof = duty_and_state.selection_proof()?;
 
                             let (duty_slot, duty_committee_index, _, validator_index) =
                                 duty_and_state.attestation_duties().or_else(|| {
-                                    crit!(log, "Missing duties when signing aggregate");
+                                    crit!(log_1, "Missing duties when signing aggregate");
                                     None
                                 })?;
 
                             let pubkey = &duty_and_state.duty.validator_pubkey;
+                            let slot = attestation.data.slot;
+                            let committee_index = attestation.data.index;
 
                             if duty_slot != slot || duty_committee_index != committee_index {
-                                crit!(log, "Inconsistent validator duties during signing");
+                                crit!(log_1, "Inconsistent validator duties during signing");
                                 return None;
                             }
 
@@ -541,24 +566,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 selection_proof,
                             };
 
-                            if let Some(signed_aggregate_and_proof) = service_4
+                            if let Some(signed_aggregate_and_proof) = service_1
                                 .validator_store
                                 .sign_aggregate_and_proof(pubkey, aggregate_and_proof)
                             {
                                 Some(signed_aggregate_and_proof)
                             } else {
-                                crit!(log, "Failed to sign attestation");
+                                crit!(log_1, "Failed to sign attestation");
                                 None
                             }
                         })
-                        .collect()
-                })
-                .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(
-                    move |signed_aggregate_and_proofs: Vec<SignedAggregateAndProof<E>>| {
-                        if let Some(first) = signed_aggregate_and_proofs.first().cloned() {
-                            let attestation = first.message.aggregate;
+                        .collect::<Vec<_>>();
 
-                            Box::new(service_5
+                    if let Some(first) = signed_aggregate_and_proofs.first().cloned() {
+                        let attestation = first.message.aggregate;
+
+                        Box::new(service_1
                         .beacon_node
                         .http
                         .validator()
@@ -567,7 +590,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         .map_err(|e| format!("Failed to publish aggregate and proofs: {:?}", e))
                         .map(move |(attestation, publish_status)| match publish_status {
                             PublishStatus::Valid => info!(
-                                log_3,
+                                log_1,
                                 "Successfully published aggregate attestations";
                                 "signatures" => attestation.aggregation_bits.num_set_bits(),
                                 "head_block" => format!("{}", attestation.data.beacon_block_root),
@@ -575,30 +598,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 "slot" => attestation.data.slot.as_u64(),
                             ),
                             PublishStatus::Invalid(msg) => crit!(
-                                log_3,
+                                log_1,
                                 "Published attestation was invalid";
                                 "message" => msg,
                                 "committee_index" => attestation.data.index,
                                 "slot" => attestation.data.slot.as_u64(),
                             ),
                             PublishStatus::Unknown => {
-                                crit!(log_3, "Unknown condition when publishing attestation")
+                                crit!(log_1, "Unknown condition when publishing attestation")
                             }
                         }))
-                        } else {
-                            debug!(log_3, "No aggregating validators");
-                            Box::new(future::ok(()))
-                        }
-                    },
-                )
-                .map_err(move |e| {
-                    crit!(
-                        log_4,
-                        "Error during attestation production";
-                        "error" => e
-                    )
-                }),
-        )
+                    } else {
+                        debug!(log_1, "No signed aggregates for publishing");
+                        Box::new(future::ok(()))
+                    }
+                },
+            )
     }
 }
 
@@ -607,14 +622,6 @@ mod tests {
     use super::*;
     use parking_lot::RwLock;
     use tokio::runtime::Builder as RuntimeBuilder;
-
-    #[test]
-    fn production_delay_constant() {
-        assert!(
-            ATTESTATION_PRODUCTION_DELAY_EPOCH > 1,
-            "an underflow will occur if ATTESTATION_PRODUCTION_DELAY_EPOCH is zero"
-        );
-    }
 
     /// This test is to ensure that a `tokio_timer::Delay` with an instant in the past will still
     /// trigger.
