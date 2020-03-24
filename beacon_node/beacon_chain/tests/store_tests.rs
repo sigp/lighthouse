@@ -4,11 +4,12 @@
 extern crate lazy_static;
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, CheckPoint, DiskHarnessType,
 };
 use beacon_chain::AttestationProcessingOutcome;
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
+use std::collections::HashSet;
 use std::sync::Arc;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
@@ -709,28 +710,58 @@ fn prunes_abandoned_fork() {
     const HONEST_VALIDATOR_COUNT: usize = SUPERMAJORITY;
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
 
-    // (1) Produce justified blocks until we finalize first block
-    let blocks_to_trigger_finalization: u64 = MinimalEthSpec::slots_per_epoch() * 4;
-    let (initial_blocks, slot) = harness.add_canonical_chain_blocks(blocks_to_trigger_finalization as usize);
-    harness.attest_to_blocks(&initial_blocks, &honest_validators);
+    let slot = harness.get_chain_slot();
+    let state = harness.get_chain_state(slot);
+    let (legit_blocks_pre_finalization, slot, state) =
+        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+    let (stray_blocks, _, _) = harness.add_stray_blocks(
+        harness.get_chain_state(slot),
+        slot,
+        slots_per_epoch - 1,
+        &faulty_validators,
+    );
 
-    // Slot 16 is finalized
+    // Precondition: Ensure all stray_blocks blocks are still known
+    for (_, block_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_block(&((*block_hash).into()))
+                .unwrap()
+                .is_some(),
+            "stray blocks should be still present",
+        );
+    }
 
-    // (2) Produce (not yet justified) blocks that will become the future canonical chain
-    let blocks_to_cross_epoch_boundary: u64 = MinimalEthSpec::slots_per_epoch() * 4;
-    let (legit_blocks, _) = harness.add_canonical_chain_blocks(blocks_to_cross_epoch_boundary as usize);
+    let (legit_blocks_post_finalization, _, _) =
+        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch * 5, &honest_validators);
 
-    // (3) Produce (not justified) blocks that will become the abandoned chain
-    let abandoned_blocks_num: u64 = MinimalEthSpec::slots_per_epoch() - 1;
-    let (bogus_blocks, _) = harness.add_blocks(slot, slot + 2, abandoned_blocks_num as usize);
+    let chain_dump = harness.chain.chain_dump().unwrap();
+    let finalized_blocks = get_dump_finalized_blocks(&chain_dump);
+    assert_eq!(
+        finalized_blocks,
+        vec![
+            Hash256::zero().into(),
+            legit_blocks_pre_finalization[&Slot::new(slots_per_epoch as u64)],
+            legit_blocks_post_finalization[&Slot::new((slots_per_epoch * 2) as u64)],
+        ]
+        .into_iter()
+        .collect()
+    );
 
-    // (4) Justify the blocks from (2) so that epoch slots worth of them become finalized
-    harness.attest_to_blocks(&bogus_blocks, &faulty_validators);
-    harness.attest_to_blocks(&legit_blocks, &honest_validators);
-
-    // (5) Ensure all the blocks from (3) have been pruned
-    harness.chain.dump_dot_file("dump.dot");
+    // Postcondition: Ensure all stray_blocks blocks have been pruned
+    for (_, block_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_block(&((*block_hash).into()))
+                .unwrap()
+                .is_none(),
+            "abandoned blocks should have been pruned",
+        );
+    }
 }
 
 /// Check that the head state's slot matches `expected_slot`.
@@ -855,4 +886,15 @@ fn check_iterators(harness: &TestHarness) {
             .map(|(_, slot)| slot),
         Some(Slot::new(0))
     );
+}
+
+fn get_dump_finalized_blocks(
+    dump: &[CheckPoint<MinimalEthSpec>],
+) -> HashSet<SignedBeaconBlockHash> {
+    let mut finalized_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
+
+    for checkpoint in dump {
+        finalized_blocks.insert(checkpoint.beacon_state.finalized_checkpoint.root.into());
+    }
+    finalized_blocks
 }

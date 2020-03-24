@@ -2167,7 +2167,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let slot = signed_beacon_block.message.slot;
                 if slot.is_epoch_boundary_slot(T::EthSpec::slots_per_epoch()) {
-                    let state = self.state_at_slot(signed_beacon_block.message.slot, StateSkipConfig::WithStateRoots).unwrap();
+                    let state = self
+                        .state_at_slot(
+                            signed_beacon_block.message.slot,
+                            StateSkipConfig::WithStateRoots,
+                        )
+                        .unwrap();
                     finalized_blocks.insert(state.finalized_checkpoint.root);
                 }
 

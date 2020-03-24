@@ -1,6 +1,7 @@
 pub use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
 };
+pub use crate::checkpoint::CheckPoint;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{
     builder::{BeaconChainBuilder, Witness},
@@ -15,6 +16,7 @@ use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
@@ -293,11 +295,22 @@ where
         head_block_root.expect("did not produce any blocks")
     }
 
+    pub fn get_chain_slot(&self) -> Slot {
+        self.chain.slot().unwrap()
+    }
+
+    pub fn get_chain_state(&self, slot: Slot) -> BeaconState<E> {
+        self.chain
+            .state_at_slot(slot, StateSkipConfig::WithStateRoots)
+            .unwrap()
+    }
+
     pub fn add_block(
         &self,
         state: &BeaconState<E>,
         proposer_index: usize,
         slot: Slot,
+        validators: &[usize],
     ) -> (SignedBeaconBlockHash, BeaconState<E>) {
         while self.chain.slot().expect("should have a slot") < slot {
             self.advance_slot();
@@ -313,67 +326,60 @@ where
         self.chain.fork_choice().expect("should find head");
 
         if let BlockProcessingOutcome::Processed { block_root } = outcome {
+            let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
+            self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
             (block_root.into(), new_state)
         } else {
             panic!("block should be successfully processed: {:?}", outcome);
         }
     }
 
-    pub fn add_blocks(
+    pub fn add_blocks<F: Fn(Slot, &BeaconState<E>) -> usize>(
         &self,
-        state_slot: Slot,
+        mut state: BeaconState<E>,
         mut slot: Slot,
         num_blocks: usize,
-    ) -> (Vec<(Slot, SignedBeaconBlockHash)>, Slot) {
-        let mut state = self.chain.state_at_slot(
-            state_slot,
-            StateSkipConfig::WithStateRoots,
-        ).unwrap();
-        let mut result: Vec<(Slot, SignedBeaconBlockHash)> = Vec::with_capacity(num_blocks);
+        attesting_validators: &[usize],
+        get_proposer_index: F,
+    ) -> (HashMap<Slot, SignedBeaconBlockHash>, Slot, BeaconState<E>) {
+        let mut result: HashMap<Slot, SignedBeaconBlockHash> = HashMap::with_capacity(num_blocks);
         for _ in 0..num_blocks {
-            let proposer_index = self.chain.block_proposer(slot).unwrap();
-            let (new_root_hash, new_state) = self.add_block(&state, proposer_index, slot);
-            result.push((slot, new_root_hash));
+            let proposer_index = get_proposer_index(slot, &state);
+            let (new_root_hash, new_state) =
+                self.add_block(&state, proposer_index, slot, attesting_validators);
+            result.insert(slot, new_root_hash);
             state = new_state;
             slot += 1;
         }
-        (result, slot)
+        (result, slot, state)
     }
 
     pub fn add_canonical_chain_blocks(
         &self,
-        num_blocks: usize,
-    ) -> (Vec<(Slot, SignedBeaconBlockHash)>, Slot) {
-        let slot = self.chain.slot().unwrap();
-        self.add_blocks(slot, slot + 1, num_blocks)
-    }
-
-    pub fn attest_to_block(
-        &self,
-        state: &BeaconState<E>,
+        state: BeaconState<E>,
         slot: Slot,
-        block_hash: SignedBeaconBlockHash,
-        validators: &[usize],
-    ) {
-        let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
-        let current_epoch = self.chain.epoch().expect("chain should have a epoch");
-        if slot.epoch(E::slots_per_epoch()) + 1 >= current_epoch {
-            self.add_free_attestations(&attestation_strategy, state, block_hash.into(), slot);
-        }
+        num_blocks: usize,
+        attesting_validators: &[usize],
+    ) -> (HashMap<Slot, SignedBeaconBlockHash>, Slot, BeaconState<E>) {
+        self.add_blocks(state, slot, num_blocks, attesting_validators, |slot, _| {
+            self.chain.block_proposer(slot).unwrap()
+        })
     }
 
-    pub fn attest_to_blocks(
+    pub fn add_stray_blocks(
         &self,
-        blocks: &[(Slot, SignedBeaconBlockHash)],
-        validators: &[usize],
-    ) {
-        for &(slot, block_hash) in blocks {
-            let state = self.chain.state_at_slot(
-                slot + 1,
-                StateSkipConfig::WithStateRoots,
-            ).unwrap();
-            self.attest_to_block(&state, slot, block_hash, &validators);
-        }
+        state: BeaconState<E>,
+        slot: Slot,
+        num_blocks: usize,
+        attesting_validators: &[usize],
+    ) -> (HashMap<Slot, SignedBeaconBlockHash>, Slot, BeaconState<E>) {
+        self.add_blocks(
+            state,
+            slot + 2,
+            num_blocks,
+            attesting_validators,
+            |slot, state| state.get_beacon_proposer_index(slot, &self.spec).unwrap(),
+        )
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
