@@ -2,7 +2,17 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use types::{Attestation, AttestationData, EthSpec, Slot};
 
+/// The number of slots that will be stored in the pool.
+///
+/// For example, if `SLOTS_RETAINED == 3` and the pool is pruned at slot `6`, then all attestations
+/// at slots less than `4` will be dropped and any future attestation with a slot less than `4`
+/// will be refused.
 const SLOTS_RETAINED: usize = 3;
+
+/// The maximum number of distinct `AttestationData` that will be stored in each slot.
+///
+/// This is a DoS protection measure.
+const MAX_ATTESTATIONS_PER_SLOT: usize = 16_384;
 
 /// Returned upon successfully inserting an attestation into the pool.
 #[derive(Debug)]
@@ -29,6 +39,9 @@ pub enum Error {
     /// The given `attestation.aggregation_bits` field had more than one signature. The number of
     /// signatures found is included.
     MoreThanOneAggregationBitSet(usize),
+    /// We have reached the maximum number of unique `AttestationData` that can be stored in a
+    /// slot. This is a DoS protection function.
+    ReachedMaxAttestationsPerSlot(usize),
     /// The given `attestation.aggregation_bits` field had a different length to the one currently
     /// stored. This indicates a fairly serious error somewhere in the code that called this
     /// function.
@@ -96,6 +109,12 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
                 Ok(InsertOutcome::SignatureAggregated { committee_index })
             }
         } else {
+            if self.map.len() >= MAX_ATTESTATIONS_PER_SLOT {
+                return Err(Error::ReachedMaxAttestationsPerSlot(
+                    MAX_ATTESTATIONS_PER_SLOT,
+                ));
+            }
+
             self.map.insert(a.data.clone(), a.clone());
             Ok(InsertOutcome::NewAttestationData { committee_index })
         }
