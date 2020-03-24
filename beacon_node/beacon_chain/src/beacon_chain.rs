@@ -8,6 +8,7 @@ use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
+use crate::naive_aggregation_pool::NaiveAggregationPool;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -141,6 +142,12 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
     /// inclusion in a block.
     pub op_pool: OperationPool<T::EthSpec>,
+    /// A pool of attestations dedicated to the "naive aggregation strategy" defined in the eth2
+    /// specs.
+    ///
+    /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
+    /// a method to get an aggregated `Attestation` for some `AttestationData`.
+    pub naive_aggregation_pool: NaiveAggregationPool<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.

@@ -5,9 +5,9 @@ use types::{Attestation, AttestationData, EthSpec, Slot};
 const SLOTS_RETAINED: usize = 3;
 
 pub enum InsertOutcome {
-    NewAttestationData,
-    SignatureAlreadyKnown,
-    SignatureAggregated,
+    NewAttestationData { committee_index: usize },
+    SignatureAlreadyKnown { committee_index: usize },
+    SignatureAggregated { committee_index: usize },
 }
 
 pub enum Error {
@@ -44,9 +44,10 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
             .iter()
             .enumerate()
             .filter(|(_i, bit)| *bit)
+            .map(|(i, _bit)| i)
             .collect::<Vec<_>>();
 
-        let (committee_index, validator_index) = set_bits
+        let committee_index = set_bits
             .first()
             .copied()
             .ok_or_else(|| Error::NoAggregationBitsSet)?;
@@ -61,14 +62,14 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
                 .get(committee_index)
                 .map_err(|_| Error::InconsistentBitfieldLengths)?
             {
-                Ok(InsertOutcome::SignatureAlreadyKnown)
+                Ok(InsertOutcome::SignatureAlreadyKnown { committee_index })
             } else {
                 existing_attestation.aggregate(a);
-                Ok(InsertOutcome::SignatureAggregated)
+                Ok(InsertOutcome::SignatureAggregated { committee_index })
             }
         } else {
             self.map.insert(a.data.clone(), a.clone());
-            Ok(InsertOutcome::NewAttestationData)
+            Ok(InsertOutcome::NewAttestationData { committee_index })
         }
     }
 
