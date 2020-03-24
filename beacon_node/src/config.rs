@@ -188,6 +188,19 @@ pub fn get_configs<E: EthSpec>(
     }
 
     /*
+     * Chain specification
+     */
+    if let Some(disabled_forks_str) = cli_args.value_of("disabled-forks") {
+        client_config.disabled_forks = disabled_forks_str
+            .split(',')
+            .map(|fork_name| {
+                fork_name
+                    .parse()
+                    .map_err(|_| format!("Invalid fork name: {}", fork_name))
+            })
+            .collect::<Result<Vec<String>>>()?;
+    }
+    /*
      * Http server
      */
 

@@ -117,7 +117,7 @@ fn build_secio_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMux
 fn test_secio_noise_fallback() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
-    let enable_logging = true;
+    let enable_logging = false;
 
     let log = common::build_log(log_level, enable_logging);
 

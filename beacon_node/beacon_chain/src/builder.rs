@@ -87,6 +87,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     pubkey_cache_path: Option<PathBuf>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
+    disabled_forks: Vec<String>,
     log: Option<Logger>,
 }
 
@@ -121,6 +122,7 @@ where
             head_tracker: None,
             pubkey_cache_path: None,
             data_dir: None,
+            disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             log: None,
@@ -164,6 +166,12 @@ where
     pub fn data_dir(mut self, path: PathBuf) -> Self {
         self.pubkey_cache_path = Some(path.join(PUBKEY_CACHE_FILENAME));
         self.data_dir = Some(path);
+        self
+    }
+
+    /// Sets a list of hard-coded forks that will not be activated.
+    pub fn disabled_forks(mut self, disabled_forks: Vec<String>) -> Self {
+        self.disabled_forks = disabled_forks;
         self
     }
 
@@ -425,6 +433,7 @@ where
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            disabled_forks: self.disabled_forks,
             log: log.clone(),
         };
 

@@ -150,6 +150,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        automatically.")
                 .takes_value(true),
         )
+        /* Client/chain related arguments */
+        .arg(
+            Arg::with_name("disabled-forks")
+                .long("disabled-forks")
+                .value_name("STRING")
+                .help("A comma separated list of forks that will be disabled.")
+                .takes_value(true),
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

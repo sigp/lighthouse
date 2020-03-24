@@ -27,6 +27,8 @@ const BAN_PEER_TIMEOUT: u64 = 30;
 
 /// Service that handles communication between internal services and the `eth2_libp2p` network service.
 pub struct NetworkService<T: BeaconChainTypes> {
+    /// A reference to the underlying beacon chain.
+    beacon_chain: Arc<BeaconChain<T>>,
     /// The underlying libp2p service that drives all the network interactions.
     libp2p: LibP2PService<T::EthSpec>,
     /// An attestation and subnet manager service.
@@ -42,6 +44,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// An initial delay to update variables after the libp2p service has started.
     initial_delay: Delay,
+    /// A delay that expires when a new fork takes place.
+    next_fork_update: Option<Delay>,
     /// The logger for the network service.
     log: slog::Logger,
     /// A probability of propagation.
@@ -51,7 +55,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &NetworkConfig,
+        config: &mut NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
     ) -> error::Result<(
@@ -72,6 +76,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         let propagation_percentage = config.propagation_percentage;
+
+        // set the local enr_fork_id
+        config.enr_fork_id = beacon_chain
+            .enr_fork_id()
+            .map_err(|e| format!("Could not get the current ENR fork version: {:?}", e))?;
+
+        // keep track of when our fork_id needs to be updated
+        let next_fork_update = beacon_chain
+            .duration_to_next_fork()
+            .map_err(|e| format!("Could not get the next fork update duration: {:?}", e))?;
+
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(config, network_log.clone())?;
 
@@ -85,10 +100,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // create the attestation service
         let attestation_service =
-            AttestationService::new(beacon_chain, network_globals.clone(), &network_log);
+            AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
 
         // create the network service and spawn the task
         let network_service = NetworkService {
+            beacon_chain,
             libp2p,
             attestation_service,
             network_recv,
@@ -96,6 +112,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             store,
             network_globals: network_globals.clone(),
             initial_delay,
+            next_fork_update,
             log: network_log,
             propagation_percentage,
         };
@@ -118,6 +135,7 @@ fn spawn_service<T: BeaconChainTypes>(
 
         let log = &service.log;
 
+        // handles any logic which requires an initial delay
         if !service.initial_delay.is_elapsed() {
             if let Ok(Async::Ready(_)) = service.initial_delay.poll() {
                         let multi_addrs = Swarm::listeners(&service.libp2p.swarm).cloned().collect();
@@ -304,6 +322,18 @@ fn spawn_service<T: BeaconChainTypes>(
                 peer_id.clone(),
                 std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
             );
+        }
+
+        // if we have just forked, update inform the libp2p layer
+        if let Some(mut update_fork_delay) =  service.next_fork_update.take() {
+            if !update_fork_delay.is_elapsed() {
+                if let Ok(Async::Ready(_)) = update_fork_delay.poll() {
+                        if let Ok(enr_fork_id) = service.beacon_chain.enr_fork_id() {
+                            service.libp2p.swarm.update_fork_version(enr_fork_id);
+                        }
+                        service.next_fork_update = service.beacon_chain.duration_to_next_fork().unwrap_or_else(|_| None);
+                }
+            }
         }
 
         Ok(Async::NotReady)

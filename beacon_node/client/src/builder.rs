@@ -125,6 +125,7 @@ where
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
         let data_dir = config.data_dir.clone();
+        let disabled_forks = config.disabled_forks.clone();
 
         future::ok(())
             .and_then(move |()| {
@@ -146,7 +147,8 @@ where
                     .store(store)
                     .store_migrator(store_migrator)
                     .data_dir(data_dir)
-                    .custom_spec(spec.clone());
+                    .custom_spec(spec.clone())
+                    .disabled_forks(disabled_forks);
 
                 Ok((builder, spec, context))
             })
@@ -250,7 +252,7 @@ where
     }
 
     /// Immediately starts the networking stack.
-    pub fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    pub fn network(mut self, config: &mut NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()

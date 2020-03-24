@@ -58,6 +58,8 @@ pub struct Config {
     /// This is the method used for the 2019 client interop in Canada.
     pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
+    /// A list of hard-coded forks that will be disabled.
+    pub disabled_forks: Vec<String>,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -86,6 +88,7 @@ impl Default for Config {
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),
+            disabled_forks: Vec::new(),
         }
     }
 }
