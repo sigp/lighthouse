@@ -22,6 +22,8 @@ use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
+pub const FAR_FUTURE_EPOCH: Epoch = Epoch(u64::max_value());
+
 #[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Slot(u64);
