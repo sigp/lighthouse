@@ -4,12 +4,14 @@ use types::{Attestation, AttestationData, EthSpec, Slot};
 
 const SLOTS_RETAINED: usize = 3;
 
+#[derive(Debug)]
 pub enum InsertOutcome {
     NewAttestationData { committee_index: usize },
     SignatureAlreadyKnown { committee_index: usize },
     SignatureAggregated { committee_index: usize },
 }
 
+#[derive(Debug)]
 pub enum Error {
     IncorrectSlot { expected: Slot, attestation: Slot },
     NoAggregationBitsSet,
@@ -85,51 +87,59 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     }
 }
 
-#[derive(Default)]
 pub struct NaiveAggregationPool<E: EthSpec> {
-    maps: Vec<RwLock<AggregatedAttestationMap<E>>>,
+    maps: RwLock<Vec<AggregatedAttestationMap<E>>>,
+}
+
+impl<E: EthSpec> Default for NaiveAggregationPool<E> {
+    fn default() -> Self {
+        Self {
+            maps: RwLock::new(vec![]),
+        }
+    }
 }
 
 impl<E: EthSpec> NaiveAggregationPool<E> {
-    pub fn insert(&mut self, attestation: &Attestation<E>) -> Result<InsertOutcome, Error> {
+    pub fn insert(&self, attestation: &Attestation<E>) -> Result<InsertOutcome, Error> {
         let index = self.get_map_index(attestation.data.slot);
 
         self.maps
-            .get(index)
-            .ok_or_else(|| Error::InvalidMapIndex(index))?
             .write()
+            .get_mut(index)
+            .ok_or_else(|| Error::InvalidMapIndex(index))?
             .insert(attestation)
     }
 
     pub fn get(&self, data: &AttestationData) -> Result<Option<Attestation<E>>, Error> {
         self.maps
+            .read()
             .iter()
-            .find(|map| map.read().slot == data.slot)
-            .map(|map| map.read().get(data))
+            .find(|map| map.slot == data.slot)
+            .map(|map| map.get(data))
             .unwrap_or_else(|| Ok(None))
     }
 
-    fn get_map_index(&mut self, slot: Slot) -> usize {
-        if self.maps.len() < SLOTS_RETAINED || self.maps.is_empty() {
-            let index = self.maps.len();
-            self.maps
-                .push(RwLock::new(AggregatedAttestationMap::new(slot)));
+    fn get_map_index(&self, slot: Slot) -> usize {
+        let mut maps = self.maps.write();
+
+        if maps.len() < SLOTS_RETAINED || maps.is_empty() {
+            let index = maps.len();
+            maps.push(AggregatedAttestationMap::new(slot));
             return index;
         }
 
-        if let Some(index) = self.maps.iter().position(|map| map.read().slot == slot) {
+        if let Some(index) = maps.iter().position(|map| map.slot == slot) {
             return index;
         }
 
-        let index = self
-            .maps
+        let index = maps
             .iter()
             .enumerate()
-            .min_by_key(|(_i, map)| map.read().slot)
+            .min_by_key(|(_i, map)| map.slot)
             .map(|(i, _map)| i)
             .expect("maps cannot be empty due to previous .is_empty() check");
 
-        self.maps[index] = RwLock::new(AggregatedAttestationMap::new(slot));
+        maps[index] = AggregatedAttestationMap::new(slot);
 
         index
     }
