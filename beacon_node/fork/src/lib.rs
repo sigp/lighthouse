@@ -1,5 +1,5 @@
 ///! Maintains a hard-coded list of known forks and their slots at which they were activated.
-use types::{Epoch, EthSpec, Slot};
+use types::{ChainSpec, Epoch, EthSpec, Slot};
 
 mod forks;
 
@@ -48,7 +48,11 @@ pub fn next_fork_version(slot: Slot, disabled_forks: &[String]) -> [u8; 4] {
     }
 }
 
-pub fn next_fork_epoch<T: EthSpec>(slot: Slot, disabled_forks: &[String]) -> Epoch {
+pub fn next_fork_epoch<T: EthSpec>(
+    spec: &ChainSpec,
+    slot: Slot,
+    disabled_forks: &[String],
+) -> Epoch {
     let mut next_fork_slot = None;
     for (fork_name, fork_slot_no, _fork_version) in forks::KNOWN_FORKS.iter() {
         if *fork_slot_no > slot.as_u64() {
@@ -66,12 +70,6 @@ pub fn next_fork_epoch<T: EthSpec>(slot: Slot, disabled_forks: &[String]) -> Epo
     if let Some(fork_slot) = next_fork_slot {
         fork_slot.epoch(T::slots_per_epoch())
     } else {
-        T::default_spec().far_future_epoch;
+        Epoch::from(spec.far_future_epoch)
     }
 }
-
-/// Calculates the duration (in millis) to the next fork, if one exists.
-pub fn duration_to_next_fork<T:EthSpec>(slot: Slot, disabled_forks: &[String]) -> Option<Instant> { 
-
-
-

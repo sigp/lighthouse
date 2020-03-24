@@ -2056,8 +2056,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // TODO: To be implemented with v0.11 updates
             fork_digest: [0, 0, 0, 0],
             next_fork_version: next_fork_version(self.slot()?, &self.disabled_forks),
-            next_fork_epoch: next_fork_epoch::<T::EthSpec>(self.slot()?, &self.disabled_forks),
+            next_fork_epoch: next_fork_epoch::<T::EthSpec>(
+                &self.spec,
+                self.slot()?,
+                &self.disabled_forks,
+            ),
         })
+    }
+
+    /// Calculates the duration (in millis) to the next fork, if one exists.
+    ///
+    /// This is required by the network thread to instantiate timeouts to update networking
+    /// constants
+    pub fn duration_to_next_fork(&self) -> Result<Option<tokio::timer::Delay>, Error> {
+        let current_slot = self.slot()?;
+        let next_fork_epoch =
+            next_fork_epoch::<T::EthSpec>(&self.spec, current_slot, &self.disabled_forks);
+        if next_fork_epoch != self.spec.far_future_epoch {
+            // There is an upcoming fork
+            let current_epoch = self.slot()?.epoch(T::EthSpec::slots_per_epoch());
+            let epochs_until_fork = next_fork_epoch
+                .saturating_sub(current_epoch)
+                .saturating_sub(1u64);
+            let millis_until_fork = T::EthSpec::slots_per_epoch()
+                * self.spec.milliseconds_per_slot
+                * epochs_until_fork.as_u64();
+            Ok(Some(tokio::timer::Delay::new(
+                Instant::now()
+                    + self
+                        .slot_clock
+                        .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
+                        .unwrap_or_else(|| Duration::from_secs(0))
+                    + Duration::from_millis(millis_until_fork)
+                    // add a short timeout to start within the new fork period
+                    + Duration::from_millis(200),
+            )))
+        } else {
+            Ok(None)
+        }
     }
 }
 

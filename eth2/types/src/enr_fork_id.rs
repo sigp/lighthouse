@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::utils::{fork_from_hex_str, fork_to_hex_str};
-use crate::{Epoch, FAR_FUTURE_EPOCH};
+use crate::Epoch;
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -11,7 +11,9 @@ use tree_hash_derive::TreeHash;
 /// a nodes local ENR.
 ///
 /// Spec v0.11
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 pub struct EnrForkId {
     #[serde(
         serialize_with = "fork_to_hex_str",
@@ -24,16 +26,6 @@ pub struct EnrForkId {
     )]
     pub next_fork_version: [u8; 4],
     pub next_fork_epoch: Epoch,
-}
-
-impl Default for EnrForkId {
-    fn default() -> Self {
-        EnrForkId {
-            fork_digest: [0; 4],
-            next_fork_version: [0; 4],
-            next_fork_epoch: FAR_FUTURE_EPOCH,
-        }
-    }
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
-use types::{EnrForkId, EthSpec, FAR_FUTURE_EPOCH};
+use types::{EnrForkId, EthSpec};
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
@@ -164,7 +164,9 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
     /// Updates the `eth2` field of our local ENR.
     pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
-        let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == FAR_FUTURE_EPOCH {
+        // to avoid having a reference to the spec constant, for the logging we assume
+        // FAR_FUTURE_EPOCH is u64::max_value()
+        let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == u64::max_value() {
             String::from("No other fork")
         } else {
             format!("{:?}", enr_fork_id.next_fork_epoch)
