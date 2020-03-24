@@ -550,7 +550,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         )
                     } else {
                         debug!(
-                            log_1,
+                            log,
                             "No attestations to publish";
                             "committee_index" => committee_index,
                             "slot" => slot.as_u64(),
@@ -666,8 +666,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         debug!(
                             log_1,
                             "No signed aggregates to publish";
-                            "committee_index" => committee_index,
-                            "slot" => slot.as_u64(),
+                            "committee_index" => attestation.data.index,
+                            "slot" => attestation.data.slot.as_u64(),
                         );
                         Box::new(future::ok(()))
                     }
