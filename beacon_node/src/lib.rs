@@ -72,7 +72,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// Client behaviour is defined by the given `client_config`.
     pub fn new(
         context: RuntimeContext<E>,
-        client_config: ClientConfig,
+        mut client_config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
         let http_eth2_config = context.eth2_config().clone();
         let spec = context.eth2_config().spec.clone();
@@ -124,7 +124,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .system_time_slot_clock()?
                     .websocket_event_handler(client_config.websocket_server.clone())?
                     .build_beacon_chain()?
-                    .network(&client_config.network)?
+                    .network(&mut client_config.network)?
                     .notifier()?;
 
                 let builder = if client_config.rest_api.enabled {

@@ -15,7 +15,7 @@ use libp2p::{
 use lru::LruCache;
 use slog::{debug, o, warn};
 use std::sync::Arc;
-use types::EthSpec;
+use types::{EnrForkId, EthSpec};
 
 const MAX_IDENTIFY_ADDRESSES: usize = 20;
 
@@ -84,6 +84,96 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 
     pub fn gs(&self) -> &Gossipsub<TSubstream> {
         &self.gossipsub
+    }
+}
+
+/// Implements the combined behaviour for the libp2p service.
+impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
+    /* Pubsub behaviour functions */
+
+    /// Subscribes to a gossipsub topic.
+    pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
+        if !self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .contains(&topic)
+        {
+            self.network_globals
+                .gossipsub_subscriptions
+                .write()
+                .push(topic.clone());
+        }
+        self.gossipsub.subscribe(topic.into())
+    }
+
+    /// Unsubscribe from a gossipsub topic.
+    pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
+        let pos = self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .iter()
+            .position(|s| s == &topic);
+        if let Some(pos) = pos {
+            self.network_globals
+                .gossipsub_subscriptions
+                .write()
+                .swap_remove(pos);
+        }
+        self.gossipsub.unsubscribe(topic.into())
+    }
+
+    /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
+    pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
+        for message in messages {
+            for topic in message.topics() {
+                let message_data = message.encode();
+                self.gossipsub.publish(&topic.into(), message_data);
+            }
+        }
+    }
+
+    /// Forwards a message that is waiting in gossipsub's mcache. Messages are only propagated
+    /// once validated by the beacon chain.
+    pub fn propagate_message(&mut self, propagation_source: &PeerId, message_id: MessageId) {
+        self.gossipsub
+            .propagate_message(&message_id, propagation_source);
+    }
+
+    /* Eth2 RPC behaviour functions */
+
+    /// Sends an RPC Request/Response via the RPC protocol.
+    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
+        self.eth2_rpc.send_rpc(peer_id, rpc_event);
+    }
+
+    /* Discovery / Peer management functions */
+
+    /// Notify discovery that the peer has been banned.
+    pub fn peer_banned(&mut self, peer_id: PeerId) {
+        self.discovery.peer_banned(peer_id);
+    }
+
+    /// Notify discovery that the peer has been unbanned.
+    pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
+        self.discovery.peer_unbanned(peer_id);
+    }
+
+    /// Returns an iterator over all enr entries in the DHT.
+    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
+        self.discovery.enr_entries()
+    }
+
+    /// Add an ENR to the routing table of the discovery mechanism.
+    pub fn add_enr(&mut self, enr: Enr) {
+        self.discovery.add_enr(enr);
+    }
+
+    /// Updates the local ENR's "eth2" field with the latest EnrForkId.
+    pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
+        self.discovery.update_eth2_enr(enr_fork_id);
+        // TODO: Handle gossipsub fork update
     }
 }
 
@@ -191,95 +281,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventPr
 {
     fn inject_event(&mut self, _event: Discv5Event) {
         // discv5 has no events to inject
-    }
-}
-
-/// Implements the combined behaviour for the libp2p service.
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
-    /* Pubsub behaviour functions */
-
-    /// Subscribes to a gossipsub topic.
-    pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
-        if !self
-            .network_globals
-            .gossipsub_subscriptions
-            .read()
-            .contains(&topic)
-        {
-            self.network_globals
-                .gossipsub_subscriptions
-                .write()
-                .push(topic.clone());
-        }
-        self.gossipsub.subscribe(topic.into())
-    }
-
-    /// Unsubscribe from a gossipsub topic.
-    pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
-        let pos = self
-            .network_globals
-            .gossipsub_subscriptions
-            .read()
-            .iter()
-            .position(|s| s == &topic);
-        if let Some(pos) = pos {
-            self.network_globals
-                .gossipsub_subscriptions
-                .write()
-                .swap_remove(pos);
-        }
-        self.gossipsub.unsubscribe(topic.into())
-    }
-
-    /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
-    pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
-        for message in messages {
-            for topic in message.topics() {
-                let message_data = message.encode();
-                self.gossipsub.publish(&topic.into(), message_data);
-            }
-        }
-    }
-
-    /// Forwards a message that is waiting in gossipsub's mcache. Messages are only propagated
-    /// once validated by the beacon chain.
-    pub fn propagate_message(&mut self, propagation_source: &PeerId, message_id: MessageId) {
-        self.gossipsub
-            .propagate_message(&message_id, propagation_source);
-    }
-
-    /* Eth2 RPC behaviour functions */
-
-    /// Sends an RPC Request/Response via the RPC protocol.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
-        self.eth2_rpc.send_rpc(peer_id, rpc_event);
-    }
-
-    /* Discovery / Peer management functions */
-
-    /// The current number of connected libp2p peers.
-    pub fn connected_peers(&self) -> usize {
-        self.network_globals.connected_peers()
-    }
-
-    /// Notify discovery that the peer has been banned.
-    pub fn peer_banned(&mut self, peer_id: PeerId) {
-        self.discovery.peer_banned(peer_id);
-    }
-
-    /// Notify discovery that the peer has been unbanned.
-    pub fn peer_unbanned(&mut self, peer_id: &PeerId) {
-        self.discovery.peer_unbanned(peer_id);
-    }
-
-    /// Returns an iterator over all enr entries in the DHT.
-    pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
-        self.discovery.enr_entries()
-    }
-
-    /// Add an ENR to the routing table of the discovery mechanism.
-    pub fn add_enr(&mut self, enr: Enr) {
-        self.discovery.add_enr(enr);
     }
 }
 
