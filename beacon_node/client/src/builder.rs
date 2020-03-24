@@ -252,7 +252,7 @@ where
     }
 
     /// Immediately starts the networking stack.
-    pub fn network(mut self, config: &mut NetworkConfig) -> Result<Self, String> {
+    pub fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()

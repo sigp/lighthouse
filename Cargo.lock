@@ -1210,6 +1210,7 @@ dependencies = [
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "eth2_ssz_types",
  "fnv",
  "futures",
  "hex 0.3.2",

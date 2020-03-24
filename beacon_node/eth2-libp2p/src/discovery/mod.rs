@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
-use types::{EnrForkId, EthSpec};
+use types::{EnrForkId, EthSpec, SubnetId};
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
@@ -66,13 +66,15 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     pub fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
+        enr_fork_id: EnrForkId,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
 
         // checks if current ENR matches that found on disk
-        let local_enr = enr_helpers::build_or_load_enr(local_key.clone(), config, &log)?;
+        let local_enr =
+            enr_helpers::build_or_load_enr::<TSpec>(local_key.clone(), config, enr_fork_id, &log)?;
 
         *network_globals.local_enr.write() = Some(local_enr.clone());
 
@@ -161,6 +163,12 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
         self.discovery.enr_entries()
     }
+
+    /// Adds a subnet to our ENR bitfield.
+    pub fn add_enr_subnet(&mut self, subnet_id: SubnetId) {}
+
+    /// Removes a subnet from our ENR bitfield.
+    pub fn remove_enr_subnet(&mut self, subnet_id: SubnetId) {}
 
     /// Updates the `eth2` field of our local ENR.
     pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {

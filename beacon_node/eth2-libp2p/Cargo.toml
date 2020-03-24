@@ -10,6 +10,7 @@ hex = "0.3"
 # `libp2p/rust-libp2p` repository.
 libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "8c272a9a4d115d9a1d33791479527cdcba781829" }
 types = { path =  "../../eth2/types" }
+eth2_ssz_types = { path =  "../../eth2/utils/ssz_types" }
 serde = "1.0.102"
 serde_derive = "1.0.102"
 eth2_ssz = "0.1.2"

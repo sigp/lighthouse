@@ -55,7 +55,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &mut NetworkConfig,
+        config: &NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
     ) -> error::Result<(
@@ -77,8 +77,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         let propagation_percentage = config.propagation_percentage;
 
-        // set the local enr_fork_id
-        config.enr_fork_id = beacon_chain
+        // build the current enr_fork_id for adding to our local ENR
+        let enr_fork_id = beacon_chain
             .enr_fork_id()
             .map_err(|e| format!("Could not get the current ENR fork version: {:?}", e))?;
 
@@ -88,7 +88,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             .map_err(|e| format!("Could not get the next fork update duration: {:?}", e))?;
 
         // launch libp2p service
-        let (network_globals, mut libp2p) = LibP2PService::new(config, network_log.clone())?;
+        let (network_globals, mut libp2p) = LibP2PService::new(config, enr_fork_id, network_log.clone())?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -262,9 +262,14 @@ fn spawn_service<T: BeaconChainTypes>(
         while let Ok(Async::Ready(Some(attestation_service_message))) = service.attestation_service.poll() {
             match attestation_service_message {
                 // TODO: Implement
-                AttServiceMessage::Subscribe(_subnet) => { },
-                AttServiceMessage::Unsubscribe(_subnet) => { },
-                AttServiceMessage::EnrAdd(_subnet) => { },
+                AttServiceMessage::Subscribe(subnet_id) => {
+                    service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                },
+                AttServiceMessage::Unsubscribe(subnet_id) => {
+                    service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                 },
+                AttServiceMessage::EnrAdd(subnet_id) => { 
+                },
                 AttServiceMessage::EnrRemove(_subnet) => { },
                 AttServiceMessage::DiscoverPeers(_subnet) => { },
                 AttServiceMessage::Propagate(source, message_id) => {

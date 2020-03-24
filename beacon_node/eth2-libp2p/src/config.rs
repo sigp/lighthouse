@@ -64,9 +64,6 @@ pub struct Config {
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipTopic>,
 
-    /// The initial ENR fork id.
-    pub enr_fork_id: EnrForkId,
-
     /// Introduces randomization in network propagation of messages. This should only be set for
     /// testing purposes and will likely be removed in future versions.
     // TODO: Remove this functionality for mainnet
@@ -136,7 +133,6 @@ impl Default for Config {
             libp2p_nodes: vec![],
             client_version: version::version(),
             topics,
-            enr_fork_id: EnrForkId::default(),
             propagation_percentage: None,
         }
     }
