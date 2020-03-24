@@ -63,6 +63,23 @@ pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 #[derive(Debug, PartialEq)]
+pub enum AttestationType {
+    /// An attestation with a single-signature that has been published in accordance with the naive
+    /// aggregation strategy.
+    ///
+    /// These attestations may have come from a `committee_index{subnet_id}_beacon_attestation`
+    /// gossip subnet or they have have come directly from a validator attached to our API.
+    ///
+    /// If `should_store == true`, the attestation will be added to the `NaiveAggregationPool`.
+    Unaggregated { should_store: bool },
+    /// An attestation with one more more signatures that has passed through the aggregation phase
+    /// of the naive aggregation scheme.
+    ///
+    /// These attestations must have come from the `beacon_aggregate_and_proof` gossip subnet.
+    Aggregated,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
     Processed,
     EmptyAggregationBitfield,
@@ -828,12 +845,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_attestation(
         &self,
         attestation: Attestation<T::EthSpec>,
-        store_raw: Option<bool>,
+        attestation_type: AttestationType,
     ) -> Result<AttestationProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
         let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
 
-        let outcome = self.process_attestation_internal(attestation.clone(), store_raw);
+        let outcome = self.process_attestation_internal(attestation.clone(), attestation_type);
 
         match &outcome {
             Ok(outcome) => match outcome {
@@ -887,7 +904,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_attestation_internal(
         &self,
         attestation: Attestation<T::EthSpec>,
-        store_raw: Option<bool>,
+        attestation_type: AttestationType,
     ) -> Result<AttestationProcessingOutcome, Error> {
         let initial_validation_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_INITIAL_VALIDATION_TIMES);
@@ -1124,20 +1141,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // subnet without a validator responsible for aggregating it, we don't store it in the
             // op pool.
             if self.eth1_chain.is_some() {
-                if let Some(is_raw) = store_raw {
-                    if is_raw {
-                        // This is a raw un-aggregated attestation received from a subnet with a
-                        // connected validator required to aggregate and publish these attestations
-                        self.op_pool
-                            .insert_raw_attestation(attestation, &fork, &self.spec)?;
-                    } else {
-                        // This an aggregate attestation received from the aggregate attestation
-                        // channel
-                        self.op_pool.insert_aggregate_attestation(
+                match attestation_type {
+                    AttestationType::Unaggregated { should_store } if should_store => {
+                        match self.naive_aggregation_pool.insert(&attestation) {
+                            Ok(outcome) => trace!(
+                                self.log,
+                                "Stored unaggregated attestation";
+                                "outcome" => format!("{:?}", outcome),
+                                "index" => attestation.data.index,
+                                "slot" => attestation.data.slot.as_u64(),
+                            ),
+                            Err(e) => {
+                                error!(
+                                    self.log,
+                                    "Failed to store unaggregated attestation";
+                                    "error" => format!("{:?}", e),
+                                    "index" => attestation.data.index,
+                                    "slot" => attestation.data.slot.as_u64(),
+                                );
+                            }
+                        }
+                    }
+                    AttestationType::Unaggregated { .. } => trace!(
+                        self.log,
+                        "Did not store unaggregated attestation";
+                        "index" => attestation.data.index,
+                        "slot" => attestation.data.slot.as_u64(),
+                    ),
+                    AttestationType::Aggregated => {
+                        let index = attestation.data.index;
+                        let slot = attestation.data.slot;
+
+                        match self.op_pool.insert_aggregate_attestation(
                             attestation,
                             &fork,
                             &self.spec,
-                        )?;
+                        ) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!(
+                                    self.log,
+                                    "Failed to add attestation to op pool";
+                                    "error" => format!("{:?}", e),
+                                    "index" => index,
+                                    "slot" => slot.as_u64(),
+                                );
+                            }
+                        }
                     }
                 }
             }

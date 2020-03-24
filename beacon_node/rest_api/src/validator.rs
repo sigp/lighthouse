@@ -5,7 +5,8 @@ use crate::helpers::{
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockError, StateSkipConfig,
+    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
+    StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use futures::{Future, Stream};
@@ -497,7 +498,11 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                 // to be stored in the op-pool. This is minimal however as the op_pool gets pruned
                 // every slot
             attestations.par_iter().try_for_each(|attestation| {
-                match beacon_chain.process_attestation(attestation.clone(), Some(true)) {
+                // TODO: we only need to store these attestations if we're aggregating for the
+                // given subnet.
+                let attestation_type = AttestationType::Unaggregated { should_store: true };
+
+                match beacon_chain.process_attestation(attestation.clone(), attestation_type) {
                     Ok(AttestationProcessingOutcome::Processed) => {
                         // Block was processed, publish via gossipsub
                         info!(
@@ -589,7 +594,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                     })?;
                     if signed_proof.is_valid(validator_pubkey, fork) {
                 let attestation = &agg_proof.aggregate;
-                match beacon_chain.process_attestation(attestation.clone(), Some(false)) {
+                match beacon_chain.process_attestation(attestation.clone(), AttestationType::Aggregated) {
                     Ok(AttestationProcessingOutcome::Processed) => {
                         // Block was processed, publish via gossipsub
                         info!(

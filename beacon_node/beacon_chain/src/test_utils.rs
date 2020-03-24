@@ -6,7 +6,7 @@ use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
+    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
@@ -342,7 +342,7 @@ where
         .for_each(|attestation| {
             match self
                 .chain
-                .process_attestation(attestation, Some(false))
+                .process_attestation(attestation, AttestationType::Aggregated)
                 .expect("should not error during attestation processing")
             {
                 AttestationProcessingOutcome::Processed => (),
