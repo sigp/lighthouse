@@ -134,7 +134,31 @@ fn validator_produce_attestation() {
         .expect("should fetch duties from http api");
     let duties = &duties[0];
 
-    // Try publishing the attestation without a signature, ensure it is flagged as invalid.
+    // Try publishing the attestation without a signature or a committee bit set, ensure it is
+    // raises an error.
+    let publish_result = env.runtime().block_on(
+        remote_node
+            .http
+            .validator()
+            .publish_attestations(vec![attestation.clone()]),
+    );
+    assert!(
+        publish_result.is_err(),
+        "the unsigned published attestation should return error"
+    );
+
+    // Set the aggregation bit.
+    attestation
+        .aggregation_bits
+        .set(
+            duties
+                .attestation_committee_position
+                .expect("should have committee position"),
+            true,
+        )
+        .expect("should set attestation bit");
+
+    // Try publishing with an aggreagation bit set, but an invalid signature.
     let publish_status = env
         .runtime()
         .block_on(
@@ -143,11 +167,22 @@ fn validator_produce_attestation() {
                 .validator()
                 .publish_attestations(vec![attestation.clone()]),
         )
-        .expect("should publish attestation");
+        .expect("should publish attestation with invalid signature");
     assert!(
         !publish_status.is_valid(),
         "the unsigned published attestation should not be valid"
     );
+
+    // Un-set the aggregation bit, so signing doesn't error.
+    attestation
+        .aggregation_bits
+        .set(
+            duties
+                .attestation_committee_position
+                .expect("should have committee position"),
+            false,
+        )
+        .expect("should un-set attestation bit");
 
     attestation
         .sign(
