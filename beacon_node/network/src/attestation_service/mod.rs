@@ -3,19 +3,17 @@
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{types::GossipKind, NetworkGlobals};
+use eth2_libp2p::{types::GossipKind, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use hashmap_delay::HashSetDelay;
 use rand::seq::SliceRandom;
 use rest_types::ValidatorSubscription;
 use slog::{crit, debug, error, o, warn};
 use slot_clock::SlotClock;
-use std::boxed::Box;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use types::{Attestation, SubnetId};
-use types::{EthSpec, Slot};
+use types::{Attestation, EthSpec, SignedAggregateAndProof, Slot, SubnetId};
 
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
 /// slot is less than this number, skip the peer discovery process.
@@ -44,6 +42,8 @@ pub enum AttServiceMessage {
     EnrRemove(SubnetId),
     /// Discover peers for a particular subnet.
     DiscoverPeers(SubnetId),
+    /// Propagate an attestation if it's deemed valid.
+    Propagate(PeerId, MessageId),
 }
 
 pub struct AttestationService<T: BeaconChainTypes> {
@@ -152,11 +152,29 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(())
     }
 
-    pub fn handle_attestation(
+    /// Handles un-aggregated attestations from the network.
+    pub fn handle_unaggregated_attestation(
         &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
         subnet: SubnetId,
-        attestation: Box<Attestation<T::EthSpec>>,
+        attestation: Attestation<T::EthSpec>,
     ) {
+        // TODO: Handle attestation processing
+        self.events
+            .push_back(AttServiceMessage::Propagate(peer_id, message_id));
+    }
+
+    /// Handles aggregate attestations from the network.
+    pub fn handle_aggregate_attestation(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: SignedAggregateAndProof<T::EthSpec>,
+    ) {
+        // TODO: Handle attestation processing
+        self.events
+            .push_back(AttServiceMessage::Propagate(peer_id, message_id));
     }
 
     /* Internal private functions */
