@@ -697,27 +697,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Produce an aggregate attestation that has been collected for this slot and committee.
-    // TODO: Check and optimize
-    pub fn return_aggregate_attestation(
+    /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
+    ///
+    /// The attestation will be obtained from `self.naive_aggregation_pool`.
+    pub fn get_aggregated_attestation(
         &self,
-        slot: Slot,
-        index: CommitteeIndex,
-    ) -> Result<Attestation<T::EthSpec>, Error> {
-        let epoch = |slot: Slot| slot.epoch(T::EthSpec::slots_per_epoch());
-        let head_state = &self.head()?.beacon_state;
-
-        let state = if epoch(slot) == epoch(head_state.slot) {
-            self.head()?.beacon_state
-        } else {
-            // The block proposer shuffling is not affected by the state roots, so we don't need to
-            // calculate them.
-            self.state_at_slot(slot, StateSkipConfig::WithoutStateRoots)?
-        };
-
-        self.op_pool
-            .get_raw_aggregated_attestations(&slot, &index, &state, &self.spec)
-            .map_err(Error::from)
+        data: &AttestationData,
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        self.naive_aggregation_pool.get(data).map_err(Into::into)
     }
 
     /// Produce a raw unsigned `Attestation` that is valid for the given `slot` and `index`.

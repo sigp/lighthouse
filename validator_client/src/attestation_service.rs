@@ -585,7 +585,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         self.beacon_node
             .http
             .validator()
-            .produce_aggregate_attestation(attestation.data.slot, attestation.data.index)
+            .produce_aggregate_attestation(&attestation.data)
             .map_err(|e| format!("Failed to produce an aggregate attestation: {:?}", e))
             .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(
                 move |aggregated_attestation| {

@@ -27,7 +27,7 @@ pub enum InsertOutcome {
     SignatureAggregated { committee_index: usize },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// The given `attestation.data.slot` was too low to be stored. No changes were made.
     SlotTooLow {

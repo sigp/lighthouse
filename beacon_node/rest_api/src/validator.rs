@@ -457,14 +457,18 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 ) -> ApiResult {
     let query = UrlQuery::from_request(&req)?;
 
-    let slot = query.slot()?;
-    let index = query.committee_index()?;
+    let attestation_data = query.attestation_data()?;
 
-    let aggregate_attestation = beacon_chain
-        .return_aggregate_attestation(slot, index)
-        .map_err(|e| ApiError::BadRequest(format!("Unable to produce attestation: {:?}", e)))?;
-
-    ResponseBuilder::new(&req)?.body(&aggregate_attestation)
+    match beacon_chain.get_aggregated_attestation(&attestation_data) {
+        Ok(Some(attestation)) => ResponseBuilder::new(&req)?.body(&attestation),
+        Ok(None) => Err(ApiError::NotFound(
+            "No matching aggregate attestation is known".into(),
+        )),
+        Err(e) => Err(ApiError::ServerError(format!(
+            "Unable to obtain attestation: {:?}",
+            e
+        ))),
+    }
 }
 
 /// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.
