@@ -367,7 +367,9 @@ Typical Responses | 200/202
 
 ### Request Body
 
-Expects a JSON encoded signed`Attestation` object in the POST request body:
+Expects a JSON encoded signed `Attestation` object in the POST request body. In
+accordance with the naive aggregation scheme, the attestation _must_ have
+exactly one of the `attestation.aggregation_bits` fields set.
 
 ### Returns
 

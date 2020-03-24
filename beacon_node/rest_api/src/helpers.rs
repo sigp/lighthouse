@@ -10,7 +10,7 @@ use network::NetworkMessage;
 use ssz::Decode;
 use store::{iter::AncestorIter, Store};
 use types::{
-    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, Signature,
+    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
     SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
