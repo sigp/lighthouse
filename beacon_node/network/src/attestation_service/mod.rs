@@ -140,10 +140,14 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     % self.beacon_chain.spec.attestation_subnet_count,
             );
             // determine if we should run a discovery lookup request and request it if required
-            let _ = self.discover_peers_request(subnet_id, subscription.slot);
+            if let Err(e) = self.discover_peers_request(subnet_id, subscription.slot) {
+                warn!(self.log, "Discovery lookup request error"; "error" => e);
+            }
 
             // set the subscription timer to subscribe to the next subnet if required
-            let _ = self.subscribe_to_subnet(subnet_id, subscription.slot);
+            if let Err(e) = self.subscribe_to_subnet(subnet_id, subscription.slot) {
+                warn!(self.log, "Subscription to subnet error"; "error" => e);
+            }
         }
         Ok(())
     }
@@ -166,10 +170,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subnet_id: SubnetId,
         subscription_slot: Slot,
-    ) -> Result<(), ()> {
-        let current_slot = self.beacon_chain.slot_clock.now().ok_or_else(|| {
-            warn!(self.log, "Could not get the current slot");
-        })?;
+    ) -> Result<(), &'static str> {
+        let current_slot = self
+            .beacon_chain
+            .slot_clock
+            .now()
+            .ok_or_else(|| "Could not get the current slot")?;
         let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
 
         // if there is enough time to perform a discovery lookup
@@ -211,9 +217,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                         .beacon_chain
                         .slot_clock
                         .duration_to_next_slot()
-                        .ok_or_else(|| {
-                            warn!(self.log, "Unable to determine duration to next slot");
-                        })?;
+                        .ok_or_else(|| "Unable to determine duration to next slot")?;
                     // The -1 is done here to exclude the current slot duration, as we will use
                     // `duration_to_next_slot`.
                     let slots_until_discover = subscription_slot
@@ -239,38 +243,50 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subnet_id: SubnetId,
         subscription_slot: Slot,
-    ) -> Result<(), ()> {
+    ) -> Result<(), &'static str> {
         // initialise timing variables
-        let current_slot = self.beacon_chain.slot_clock.now().ok_or_else(|| {
-            warn!(self.log, "Could not get the current slot");
-        })?;
+        let current_slot = self
+            .beacon_chain
+            .slot_clock
+            .now()
+            .ok_or_else(|| "Could not get the current slot")?;
+
+        // Ignore a subscription to the current slot.
+        if current_slot >= subscription_slot {
+            return Err("Could not subscribe to current slot, insufficient time");
+        }
+
         let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
         let advance_subscription_duration = slot_duration
             .checked_div(ADVANCE_SUBSCRIBE_TIME)
             .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
+        let duration_to_next_slot = self
+            .beacon_chain
+            .slot_clock
+            .duration_to_next_slot()
+            .ok_or_else(|| "Unable to determine duration to next slot")?;
 
         // calculate the time to subscribe to the subnet
         let duration_to_subscribe = {
-            let duration_to_next_slot = self
-                .beacon_chain
-                .slot_clock
-                .duration_to_next_slot()
-                .ok_or_else(|| {
-                    warn!(self.log, "Unable to determine duration to next slot");
-                })?;
             // The -1 is done here to exclude the current slot duration, as we will use
             // `duration_to_next_slot`.
             let slots_until_subscribe = subscription_slot
                 .saturating_sub(current_slot)
                 .saturating_sub(1u64);
 
-            duration_to_next_slot + slot_duration * (slots_until_subscribe.as_u64() as u32)
-                - advance_subscription_duration
+            duration_to_next_slot
+                .checked_add(slot_duration)
+                .ok_or_else(|| "Overflow in adding slot_duration attestation time")?
+                .checked_mul(slots_until_subscribe.as_u64() as u32)
+                .ok_or_else(|| "Overflow in multiplying number of slots in attestation time")?
+                .checked_sub(advance_subscription_duration)
+                .unwrap_or_else(|| Duration::from_secs(0))
         };
         // the duration until we no longer need this subscription. We assume a single slot is
         // sufficient.
-        let expected_end_subscription_duration =
-            duration_to_subscribe + slot_duration + advance_subscription_duration;
+        let expected_end_subscription_duration = duration_to_subscribe
+            + slot_duration
+            + std::cmp::min(advance_subscription_duration, duration_to_next_slot);
 
         // Checks on current subscriptions
         // Note: We may be connected to a long-lived random subnet. In this case we still add the
