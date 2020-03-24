@@ -1978,6 +1978,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn per_slot_task(&self) {
         trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
+            self.naive_aggregation_pool.prune(slot);
             self.op_pool.prune_committee_attestations(&slot)
         }
     }
