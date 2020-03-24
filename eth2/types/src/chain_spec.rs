@@ -44,6 +44,9 @@ pub struct ChainSpec {
     pub shuffle_round_count: u8,
     pub min_genesis_active_validator_count: u64,
     pub min_genesis_time: u64,
+    pub hysteresis_quotient: u64,
+    pub hysteresis_downward_multiplier: u64,
+    pub hysteresis_upward_multiplier: u64,
 
     /*
      *  Gwei values
@@ -179,6 +182,9 @@ impl ChainSpec {
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 16_384,
             min_genesis_time: 1_578_009_600, // Jan 3, 2020
+            hysteresis_quotient: 4,
+            hysteresis_downward_multiplier: 1,
+            hysteresis_upward_multiplier: 5,
 
             /*
              *  Gwei values
@@ -352,6 +358,9 @@ pub struct YamlConfig {
     max_effective_balance: u64,
     ejection_balance: u64,
     effective_balance_increment: u64,
+    hysteresis_quotient: u64,
+    hysteresis_downward_multiplier: u64,
+    hysteresis_upward_multiplier: u64,
     genesis_slot: u64,
     #[serde(
         serialize_with = "fork_to_hex_str",
@@ -483,6 +492,9 @@ impl YamlConfig {
             max_effective_balance: spec.max_effective_balance,
             ejection_balance: spec.ejection_balance,
             effective_balance_increment: spec.effective_balance_increment,
+            hysteresis_quotient: spec.hysteresis_quotient,
+            hysteresis_downward_multiplier: spec.hysteresis_downward_multiplier,
+            hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
             genesis_slot: spec.genesis_slot.into(),
             bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
             seconds_per_slot: spec.milliseconds_per_slot / 1000,
@@ -589,6 +601,9 @@ impl YamlConfig {
             min_deposit_amount: self.min_deposit_amount,
             min_genesis_delay: self.min_genesis_delay,
             max_effective_balance: self.max_effective_balance,
+            hysteresis_quotient: self.hysteresis_quotient,
+            hysteresis_downward_multiplier: self.hysteresis_downward_multiplier,
+            hysteresis_upward_multiplier: self.hysteresis_upward_multiplier,
             ejection_balance: self.ejection_balance,
             effective_balance_increment: self.effective_balance_increment,
             genesis_slot: Slot::from(self.genesis_slot),

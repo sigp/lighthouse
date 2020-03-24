@@ -150,9 +150,12 @@ pub fn process_final_updates<T: EthSpec>(
     // Update effective balances with hysteresis (lag).
     for (index, validator) in state.validators.iter_mut().enumerate() {
         let balance = state.balances[index];
-        let half_increment = spec.effective_balance_increment / 2;
-        if balance < validator.effective_balance
-            || validator.effective_balance + 3 * half_increment < balance
+        let hysteresis_increment = spec.effective_balance_increment / spec.hysteresis_quotient;
+        let downward_threshold = hysteresis_increment * spec.hysteresis_downward_multiplier;
+        let upward_threshold = hysteresis_increment * spec.hysteresis_upward_multiplier;
+
+        if balance + downward_threshold < validator.effective_balance
+            || validator.effective_balance + upward_threshold < balance
         {
             validator.effective_balance = std::cmp::min(
                 balance - balance % spec.effective_balance_increment,
