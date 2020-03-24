@@ -8,7 +8,7 @@ use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
-use crate::naive_aggregation_pool::NaiveAggregationPool;
+use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -1151,15 +1151,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 "index" => attestation.data.index,
                                 "slot" => attestation.data.slot.as_u64(),
                             ),
-                            Err(e) => {
-                                error!(
+                            Err(NaiveAggregationError::SlotTooLow {
+                                slot,
+                                lowest_permissible_slot,
+                            }) => {
+                                trace!(
+                                    self.log,
+                                    "Refused to store unaggregated attestation";
+                                    "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                                    "slot" => slot.as_u64(),
+                                );
+                            }
+                            Err(e) => error!(
                                     self.log,
                                     "Failed to store unaggregated attestation";
                                     "error" => format!("{:?}", e),
                                     "index" => attestation.data.index,
                                     "slot" => attestation.data.slot.as_u64(),
-                                );
-                            }
+                            ),
                         }
                     }
                     AttestationType::Unaggregated { .. } => trace!(

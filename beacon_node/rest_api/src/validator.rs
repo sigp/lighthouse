@@ -498,6 +498,12 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                 // to be stored in the op-pool. This is minimal however as the op_pool gets pruned
                 // every slot
             attestations.par_iter().try_for_each(|attestation| {
+                // In accordance with the naive aggregation strategy, the validator client should
+                // only publish attestations to this endpoint with a single signature.
+                if attestation.aggregation_bits.num_set_bits() != 1 {
+                    return Err(ApiError::BadRequest(format!("Attestation should have exactly one aggregation bit set")))
+                }
+
                 // TODO: we only need to store these attestations if we're aggregating for the
                 // given subnet.
                 let attestation_type = AttestationType::Unaggregated { should_store: true };
