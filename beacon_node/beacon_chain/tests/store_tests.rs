@@ -716,9 +716,9 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
     let slot = harness.get_chain_slot();
     let state = harness.get_chain_state(slot);
-    let (canonical_blocks_pre_finalization, slot, state) =
+    let (canonical_blocks_pre_finalization, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
-    let (stray_blocks, _, _) = harness.add_stray_blocks(
+    let (stray_blocks, _, stray_head, _) = harness.add_stray_blocks(
         harness.get_chain_state(slot),
         slot,
         slots_per_epoch - 1,
@@ -744,7 +744,10 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         vec![Hash256::zero().into()].into_iter().collect(),
     );
 
-    let (canonical_blocks_post_finalization, _, _) =
+    assert!(harness.chain.knows_head(&stray_head));
+
+    // Trigger finalization
+    let (canonical_blocks_post_finalization, _, _, _) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch * 5, &honest_validators);
 
     // Postcondition: New blocks got finalized
@@ -772,6 +775,8 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
             "abandoned blocks should have been pruned",
         );
     }
+
+    assert!(!harness.chain.knows_head(&stray_head));
 }
 
 // Forks post finalization: check that they aren't pruned
@@ -788,11 +793,11 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     // Fill up 0th epoch with canonical chain blocks
     let slot = harness.get_chain_slot();
     let state = harness.get_chain_state(slot);
-    let (canonical_blocks_zeroth_epoch, slot, state) =
+    let (canonical_blocks_zeroth_epoch, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
     // Fill up 1st epoch.  Contains a fork.
-    let (stray_blocks, _, _) =
+    let (stray_blocks, _, stray_head, _) =
         harness.add_stray_blocks(state.clone(), slot, slots_per_epoch - 1, &faulty_validators);
 
     // Preconditions
@@ -814,7 +819,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     );
 
     // Trigger finalization
-    let (_, _, _) =
+    let (_, _, _, _) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch * 4, &honest_validators);
 
     // Postconditions
@@ -840,6 +845,8 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
             "stray blocks should be still present",
         );
     }
+
+    assert!(harness.chain.knows_head(&stray_head));
 }
 
 // Forks that run from a block between the finalized checkpoints, past the
@@ -860,18 +867,18 @@ fn prunes_fork_running_past_finalized_checkpoint() {
     // Fill up 0th epoch with canonical chain blocks
     let slot = harness.get_chain_slot();
     let state = harness.get_chain_state(slot);
-    let (canonical_blocks_zeroth_epoch, slot, state) =
+    let (canonical_blocks_zeroth_epoch, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
     // Fill up 1st epoch.  Contains a fork.
-    let (stray_blocks_first_epoch, stray_slot, stray_state) =
+    let (stray_blocks_first_epoch, stray_slot, _, stray_state) =
         harness.add_stray_blocks(state.clone(), slot, slots_per_epoch, &faulty_validators);
 
-    let (canonical_blocks_first_epoch, canonical_slot, canonical_state) =
+    let (canonical_blocks_first_epoch, canonical_slot, _, canonical_state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
-    let (stray_blocks_second_epoch, _, _) = harness.add_stray_blocks(
+    let (stray_blocks_second_epoch, _, stray_head, _) = harness.add_stray_blocks(
         stray_state,
         stray_slot,
         slots_per_epoch - 1,
@@ -901,13 +908,17 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         vec![Hash256::zero().into()].into_iter().collect(),
     );
 
-    let (canonical_blocks_second_epoch, _, _) = harness.add_canonical_chain_blocks(
+    assert!(harness.chain.knows_head(&stray_head));
+
+    // Trigger finalization
+    let (canonical_blocks_second_epoch, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
         slots_per_epoch * 4,
         &honest_validators,
     );
 
+    // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
         .into_iter()
         .chain(canonical_blocks_first_epoch.into_iter())
@@ -939,6 +950,8 @@ fn prunes_fork_running_past_finalized_checkpoint() {
             "abandoned blocks should have been pruned",
         );
     }
+
+    assert!(!harness.chain.knows_head(&stray_head));
 }
 
 /// Check that the head state's slot matches `expected_slot`.

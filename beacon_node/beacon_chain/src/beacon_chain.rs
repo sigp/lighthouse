@@ -500,6 +500,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.head_tracker.heads()
     }
 
+    pub fn knows_head(&self, block_hash: &SignedBeaconBlockHash) -> bool {
+        self.head_tracker.contains_head((*block_hash).into())
+    }
+
     /// Returns the `BeaconState` at the given slot.
     ///
     /// Returns `None` when the state is not found in the database or there is an error skipping

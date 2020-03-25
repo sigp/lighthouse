@@ -341,7 +341,12 @@ where
         num_blocks: usize,
         attesting_validators: &[usize],
         get_proposer_index: F,
-    ) -> (HashMap<Slot, SignedBeaconBlockHash>, Slot, BeaconState<E>) {
+    ) -> (
+        HashMap<Slot, SignedBeaconBlockHash>,
+        Slot,
+        SignedBeaconBlockHash,
+        BeaconState<E>,
+    ) {
         let mut result: HashMap<Slot, SignedBeaconBlockHash> = HashMap::with_capacity(num_blocks);
         for _ in 0..num_blocks {
             let proposer_index = get_proposer_index(slot, &state);
@@ -351,7 +356,8 @@ where
             state = new_state;
             slot += 1;
         }
-        (result, slot, state)
+        let head_hash = result[&(slot - 1)];
+        (result, slot, head_hash, state)
     }
 
     pub fn add_canonical_chain_blocks(
@@ -360,7 +366,12 @@ where
         slot: Slot,
         num_blocks: usize,
         attesting_validators: &[usize],
-    ) -> (HashMap<Slot, SignedBeaconBlockHash>, Slot, BeaconState<E>) {
+    ) -> (
+        HashMap<Slot, SignedBeaconBlockHash>,
+        Slot,
+        SignedBeaconBlockHash,
+        BeaconState<E>,
+    ) {
         self.add_blocks(state, slot, num_blocks, attesting_validators, |slot, _| {
             self.chain.block_proposer(slot).unwrap()
         })
@@ -372,7 +383,12 @@ where
         slot: Slot,
         num_blocks: usize,
         attesting_validators: &[usize],
-    ) -> (HashMap<Slot, SignedBeaconBlockHash>, Slot, BeaconState<E>) {
+    ) -> (
+        HashMap<Slot, SignedBeaconBlockHash>,
+        Slot,
+        SignedBeaconBlockHash,
+        BeaconState<E>,
+    ) {
         self.add_blocks(
             state,
             slot + 2,

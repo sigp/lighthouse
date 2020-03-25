@@ -35,6 +35,10 @@ impl HeadTracker {
         map.remove(&block_root);
     }
 
+    pub fn contains_head(&self, block_root: Hash256) -> bool {
+        self.0.read().contains_key(&block_root)
+    }
+
     /// Returns the list of heads in the chain.
     pub fn heads(&self) -> Vec<(Hash256, Slot)> {
         self.0
