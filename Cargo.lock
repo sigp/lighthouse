@@ -2971,7 +2971,7 @@ dependencies = [
 
 [[package]]
 name = "operation_pool"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",

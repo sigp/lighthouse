@@ -14,7 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
-use types::{ChainSpec, Epoch, EthSpec, PublicKey, Slot};
+use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -25,14 +25,6 @@ const PRUNE_DEPTH: u64 = 4;
 type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, DutyAndState>>;
 
 #[derive(Debug, Clone)]
-pub struct DutyAndState {
-    /// The validator duty.
-    pub duty: ValidatorDuty,
-    /// The current state of the validator duty.
-    state: DutyState,
-}
-
-#[derive(Debug, Clone)]
 pub enum DutyState {
     /// This duty has not been subscribed to the beacon node.
     NotSubscribed,
@@ -41,6 +33,14 @@ pub enum DutyState {
     /// The duty has been subscribed and the validator is an aggregator for this duty. The
     /// selection proof is provided to construct the `AggregateAndProof` struct.
     SubscribedAggregator(Signature),
+}
+
+#[derive(Debug, Clone)]
+pub struct DutyAndState {
+    /// The validator duty.
+    pub duty: ValidatorDuty,
+    /// The current state of the validator duty.
+    state: DutyState,
 }
 
 impl DutyAndState {
@@ -69,6 +69,21 @@ impl DutyAndState {
             DutyState::Subscribed => true,
             DutyState::SubscribedAggregator(_) => true,
         }
+    }
+
+    /// Returns the information required for an attesting validator, if they are scheduled to
+    /// attest.
+    pub fn attestation_duties(&self) -> Option<(Slot, CommitteeIndex, usize, u64)> {
+        Some((
+            self.duty.attestation_slot?,
+            self.duty.attestation_committee_index?,
+            self.duty.attestation_committee_position?,
+            self.duty.validator_index?,
+        ))
+    }
+
+    pub fn validator_pubkey(&self) -> &PublicKey {
+        &self.duty.validator_pubkey
     }
 }
 
@@ -166,7 +181,7 @@ impl DutiesStore {
     /// Gets a list of validator duties for an epoch that have not yet been subscribed
     /// to the beacon node.
     // Note: Potentially we should modify the data structure to store the unsubscribed epoch duties for validator clients with a large number of validators. This currently adds an O(N) search each slot.
-    fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<ValidatorDuty> {
+    fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<DutyAndState> {
         self.store
             .read()
             .iter()
@@ -179,7 +194,7 @@ impl DutiesStore {
                     }
                 })
             })
-            .map(|duties| duties.duty.clone())
+            .cloned()
             .collect()
     }
 
@@ -403,7 +418,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Returns all `ValidatorDuty` that have not been registered with the beacon node.
-    pub fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<ValidatorDuty> {
+    pub fn unsubscribed_epoch_duties(&self, epoch: &Epoch) -> Vec<DutyAndState> {
         self.store.unsubscribed_epoch_duties(epoch)
     }
 

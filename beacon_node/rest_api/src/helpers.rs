@@ -10,7 +10,7 @@ use network::NetworkMessage;
 use ssz::Decode;
 use store::{iter::AncestorIter, Store};
 use types::{
-    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, Signature,
+    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
     SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
@@ -58,19 +58,21 @@ pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> 
     }
 }
 
-/// Parse a signature from a `0x` prefixed string.
-pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
+/// Parse an SSZ object from some hex-encoded bytes.
+///
+/// E.g., A signature is `"0x0000000000000000000000000000000000000000000000000000000000000000"`
+pub fn parse_hex_ssz_bytes<T: Decode>(string: &str) -> Result<T, ApiError> {
     const PREFIX: &str = "0x";
 
     if string.starts_with(PREFIX) {
         let trimmed = string.trim_start_matches(PREFIX);
         let bytes = hex::decode(trimmed)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature hex: {:?}", e)))?;
-        Signature::from_ssz_bytes(&bytes)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature bytes: {:?}", e)))
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ hex: {:?}", e)))?;
+        T::from_ssz_bytes(&bytes)
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ bytes: {:?}", e)))
     } else {
         Err(ApiError::BadRequest(
-            "Signature must have a 0x prefix".to_string(),
+            "Hex bytes must have a 0x prefix".to_string(),
         ))
     }
 }
