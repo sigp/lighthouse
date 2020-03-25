@@ -5,7 +5,7 @@ use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
 use slog::{debug, error, o, Drain};
 use std::time::Duration;
-use types::MinimalEthSpec;
+use types::{EnrForkId, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 use tempdir::TempDir;
@@ -52,7 +52,7 @@ pub fn build_libp2p_instance(
 ) -> LibP2PService<E> {
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
-    LibP2PService::new(&config, log.clone())
+    LibP2PService::new(&config, EnrForkId::default(), log.clone())
         .expect("should build libp2p instance")
         .1
 }
