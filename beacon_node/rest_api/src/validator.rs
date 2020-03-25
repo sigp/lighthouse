@@ -5,7 +5,8 @@ use crate::helpers::{
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockError, StateSkipConfig,
+    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
+    StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use futures::{Future, Stream};
@@ -456,14 +457,18 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 ) -> ApiResult {
     let query = UrlQuery::from_request(&req)?;
 
-    let slot = query.slot()?;
-    let index = query.committee_index()?;
+    let attestation_data = query.attestation_data()?;
 
-    let aggregate_attestation = beacon_chain
-        .return_aggregate_attestation(slot, index)
-        .map_err(|e| ApiError::BadRequest(format!("Unable to produce attestation: {:?}", e)))?;
-
-    ResponseBuilder::new(&req)?.body(&aggregate_attestation)
+    match beacon_chain.get_aggregated_attestation(&attestation_data) {
+        Ok(Some(attestation)) => ResponseBuilder::new(&req)?.body(&attestation),
+        Ok(None) => Err(ApiError::NotFound(
+            "No matching aggregate attestation is known".into(),
+        )),
+        Err(e) => Err(ApiError::ServerError(format!(
+            "Unable to obtain attestation: {:?}",
+            e
+        ))),
+    }
 }
 
 /// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.
@@ -497,7 +502,17 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                 // to be stored in the op-pool. This is minimal however as the op_pool gets pruned
                 // every slot
             attestations.par_iter().try_for_each(|attestation| {
-                match beacon_chain.process_attestation(attestation.clone(), Some(true)) {
+                // In accordance with the naive aggregation strategy, the validator client should
+                // only publish attestations to this endpoint with a single signature.
+                if attestation.aggregation_bits.num_set_bits() != 1 {
+                    return Err(ApiError::BadRequest(format!("Attestation should have exactly one aggregation bit set")))
+                }
+
+                // TODO: we only need to store these attestations if we're aggregating for the
+                // given subnet.
+                let attestation_type = AttestationType::Unaggregated { should_store: true };
+
+                match beacon_chain.process_attestation(attestation.clone(), attestation_type) {
                     Ok(AttestationProcessingOutcome::Processed) => {
                         // Block was processed, publish via gossipsub
                         info!(
@@ -569,7 +584,6 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                 })
             })
             .and_then(move |signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>| {
-
                 // Verify the signatures for the aggregate and proof and if valid process the
                 // aggregate
                 // TODO: Double check speed and logic consistency of handling current fork vs
@@ -587,48 +601,57 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
 
                         ApiError::ProcessingError(format!("The validator is known"))
                     })?;
-                    if signed_proof.is_valid(validator_pubkey, fork) {
-                let attestation = &agg_proof.aggregate;
-                match beacon_chain.process_attestation(attestation.clone(), Some(false)) {
-                    Ok(AttestationProcessingOutcome::Processed) => {
-                        // Block was processed, publish via gossipsub
-                        info!(
-                            log,
-                            "Attestation from local validator";
-                            "target" => attestation.data.source.epoch,
-                            "source" => attestation.data.source.epoch,
-                            "index" => attestation.data.index,
-                            "slot" => attestation.data.slot,
-                        );
-                        Ok(())
-                    }
-                    Ok(outcome) => {
-                        warn!(
-                            log,
-                            "Invalid attestation from local validator";
-                            "outcome" => format!("{:?}", outcome)
-                        );
 
-                        Err(ApiError::ProcessingError(format!(
-                            "The Attestation could not be processed and has not been published: {:?}",
-                            outcome
-                        )))
-                    }
-                    Err(e) => {
-                        error!(
-                            log,
-                            "Error whilst processing attestation";
-                            "error" => format!("{:?}", e)
-                        );
+                    /*
+                     * TODO: checking that `signed_proof.is_valid()` is not sufficient. It
+                     * is also necessary to check that the validator is actually designated as an
+                     * aggregator for this attestation.
+                     *
+                     * I (Paul H) will pick this up in a future PR.
+                     */
 
-                        Err(ApiError::ServerError(format!(
-                            "Error while processing attestation: {:?}",
-                            e
-                        )))
-                    }
-                }
+                    if signed_proof.is_valid(validator_pubkey, fork, &beacon_chain.spec) {
+                        let attestation = &agg_proof.aggregate;
 
-                } else {
+                        match beacon_chain.process_attestation(attestation.clone(), AttestationType::Aggregated) {
+                            Ok(AttestationProcessingOutcome::Processed) => {
+                                // Block was processed, publish via gossipsub
+                                info!(
+                                    log,
+                                    "Attestation from local validator";
+                                    "target" => attestation.data.source.epoch,
+                                    "source" => attestation.data.source.epoch,
+                                    "index" => attestation.data.index,
+                                    "slot" => attestation.data.slot,
+                                );
+                                Ok(())
+                            }
+                            Ok(outcome) => {
+                                warn!(
+                                    log,
+                                    "Invalid attestation from local validator";
+                                    "outcome" => format!("{:?}", outcome)
+                                );
+
+                                Err(ApiError::ProcessingError(format!(
+                                    "The Attestation could not be processed and has not been published: {:?}",
+                                    outcome
+                                )))
+                            }
+                            Err(e) => {
+                                error!(
+                                    log,
+                                    "Error whilst processing attestation";
+                                    "error" => format!("{:?}", e)
+                                );
+
+                                Err(ApiError::ServerError(format!(
+                                    "Error while processing attestation: {:?}",
+                                    e
+                                )))
+                            }
+                        }
+                    } else {
                         error!(
                             log,
                             "Invalid AggregateAndProof Signature"
@@ -636,12 +659,12 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                         Err(ApiError::ServerError(format!(
                             "Invalid AggregateAndProof Signature"
                         )))
-                }
-                    })?;
+                    }
+                })?;
                 Ok(signed_proofs)
             })
             .and_then(move |signed_proofs| {
-                   publish_aggregate_attestations_to_network::<T>(network_chan, signed_proofs)
+                publish_aggregate_attestations_to_network::<T>(network_chan, signed_proofs)
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )

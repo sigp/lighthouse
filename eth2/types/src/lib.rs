@@ -31,6 +31,7 @@ pub mod indexed_attestation;
 pub mod pending_attestation;
 pub mod proposer_slashing;
 pub mod relative_epoch;
+pub mod signed_aggregate_and_proof;
 pub mod signed_beacon_block;
 pub mod signed_beacon_block_header;
 pub mod signed_voluntary_exit;
@@ -46,7 +47,7 @@ mod tree_hash_impls;
 
 use ethereum_types::{H160, H256};
 
-pub use crate::aggregate_and_proof::{AggregateAndProof, SignedAggregateAndProof};
+pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
@@ -70,6 +71,7 @@ pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
+pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::SignedBeaconBlock;
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
