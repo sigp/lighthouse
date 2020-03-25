@@ -15,7 +15,7 @@ const SLOTS_RETAINED: usize = 3;
 const MAX_ATTESTATIONS_PER_SLOT: usize = 16_384;
 
 /// Returned upon successfully inserting an attestation into the pool.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InsertOutcome {
     /// The `attestation.data` had not been seen before and was added to the pool.
     NewAttestationData { committee_index: usize },
@@ -233,13 +233,13 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     fn get_map_index(&self, slot: Slot) -> usize {
         let mut maps = self.maps.write();
 
-        if maps.len() < SLOTS_RETAINED || maps.is_empty() {
-            let index = maps.len();
-            maps.push(AggregatedAttestationMap::new(slot));
+        if let Some(index) = maps.iter().position(|map| map.slot == slot) {
             return index;
         }
 
-        if let Some(index) = maps.iter().position(|map| map.slot == slot) {
+        if maps.len() < SLOTS_RETAINED || maps.is_empty() {
+            let index = maps.len();
+            maps.push(AggregatedAttestationMap::new(slot));
             return index;
         }
 
@@ -253,5 +253,70 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         maps[index] = AggregatedAttestationMap::new(slot);
 
         index
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ssz_types::BitList;
+    use types::test_utils::{generate_deterministic_keypair, test_random_instance};
+
+    type E = types::MainnetEthSpec;
+
+    fn get_attestation(slot: Slot) -> Attestation<E> {
+        let mut a: Attestation<E> = test_random_instance();
+        a.data.slot = slot;
+        a.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
+        a
+    }
+
+    fn set_bit(a: &mut Attestation<E>, i: usize) {
+        a.aggregation_bits
+            .set(i, true)
+            .expect("should set aggregation bit")
+    }
+
+    #[test]
+    fn single_attestation() {
+        let mut a = get_attestation(Slot::new(0));
+
+        let pool = NaiveAggregationPool::default();
+
+        assert_eq!(
+            pool.insert(&a),
+            Err(Error::NoAggregationBitsSet),
+            "should not accept attestation without any signatures"
+        );
+
+        set_bit(&mut a, 0);
+
+        assert_eq!(
+            pool.insert(&a),
+            Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
+            "should accept new attestation"
+        );
+        assert_eq!(
+            pool.insert(&a),
+            Ok(InsertOutcome::SignatureAlreadyKnown { committee_index: 0 }),
+            "should acknowledge duplicate signature"
+        );
+
+        let retrieved = pool
+            .get(&a.data)
+            .expect("should not error while getting attestation")
+            .expect("should get an attestation");
+        assert_eq!(
+            retrieved, a,
+            "retrieved attestation should equal the one inserted"
+        );
+
+        set_bit(&mut a, 1);
+
+        assert_eq!(
+            pool.insert(&a),
+            Err(Error::MoreThanOneAggregationBitSet(2)),
+            "should not accept attestation with multiple signatures"
+        );
     }
 }
