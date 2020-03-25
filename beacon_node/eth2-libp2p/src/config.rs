@@ -7,7 +7,6 @@ use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::EnrForkId;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -64,9 +63,6 @@ pub struct Config {
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipTopic>,
 
-    /// The initial ENR fork id.
-    pub enr_fork_id: EnrForkId,
-
     /// Introduces randomization in network propagation of messages. This should only be set for
     /// testing purposes and will likely be removed in future versions.
     // TODO: Remove this functionality for mainnet
@@ -112,10 +108,11 @@ impl Default for Config {
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
             .request_timeout(Duration::from_secs(4))
-            .request_retries(1)
+            .request_retries(2)
             .enr_update(true) // update IP based on PONG responses
             .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
             .query_parallelism(5)
+            .query_timeout(Duration::from_secs(2))
             .ip_limit(false) // limits /24 IP's in buckets. Enable for mainnet
             .ping_interval(Duration::from_secs(300))
             .build();
@@ -136,7 +133,6 @@ impl Default for Config {
             libp2p_nodes: vec![],
             client_version: version::version(),
             topics,
-            enr_fork_id: EnrForkId::default(),
             propagation_percentage: None,
         }
     }

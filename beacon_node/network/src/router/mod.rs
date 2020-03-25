@@ -16,7 +16,7 @@ use eth2_libp2p::{
 use futures::future::Future;
 use futures::stream::Stream;
 use processor::Processor;
-use slog::{debug, o, trace, warn};
+use slog::{crit, debug, o, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -224,19 +224,6 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
                 self.processor.on_block_gossip(peer_id, block);
             }
-            PubsubData::AggregateAndProofAttestation(_agg_attestation) => {
-                // TODO: Handle propagation conditions
-                self.propagate_message(id, peer_id);
-                // TODO Handle aggregate attestion
-                // self.processor
-                //    .on_attestation_gossip(peer_id.clone(), &agg_attestation);
-            }
-            PubsubData::Attestation(boxed_shard_attestation) => {
-                // TODO: Handle propagation conditions
-                self.propagate_message(id, peer_id.clone());
-                self.processor
-                    .on_attestation_gossip(peer_id, boxed_shard_attestation.1);
-            }
             PubsubData::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
@@ -254,6 +241,19 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle attester slashings
                 debug!(self.log, "Received an attester slashing"; "peer_id" => format!("{}", peer_id) );
+            }
+            // Attestations should never reach the router.
+            PubsubData::AggregateAndProofAttestation(_agg_attestation) => {
+                crit!(
+                    self.log,
+                    "Attestations should always be handled by the attestation service"
+                );
+            }
+            PubsubData::Attestation(_boxed_subnet_attestation) => {
+                crit!(
+                    self.log,
+                    "Attestations should always be handled by the attestation service"
+                );
             }
         }
     }

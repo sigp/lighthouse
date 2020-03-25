@@ -2,8 +2,10 @@
 mod enr_helpers;
 
 use crate::metrics;
+use crate::types::EnrBitfield;
 use crate::Enr;
 use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
+use enr_helpers::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::discv5::enr::NodeId;
@@ -11,7 +13,8 @@ use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
 use slog::{debug, info, warn};
-use ssz::Encode;
+use ssz::{Decode, Encode};
+use ssz_types::BitVector;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -19,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
-use types::{EnrForkId, EthSpec};
+use types::{EnrForkId, EthSpec, SubnetId};
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
@@ -27,6 +30,8 @@ const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
 const INITIAL_SEARCH_DELAY: u64 = 5;
 /// Local ENR storage filename.
 const ENR_FILENAME: &str = "enr.dat";
+/// Number of peers we'd like to have connected to a given long-lived subnet.
+const TARGET_SUBNET_PEERS: u64 = 3;
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
@@ -66,13 +71,15 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     pub fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
+        enr_fork_id: EnrForkId,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
 
         // checks if current ENR matches that found on disk
-        let local_enr = enr_helpers::build_or_load_enr(local_key.clone(), config, &log)?;
+        let local_enr =
+            enr_helpers::build_or_load_enr::<TSpec>(local_key.clone(), config, enr_fork_id, &log)?;
 
         *network_globals.local_enr.write() = Some(local_enr.clone());
 
@@ -162,6 +169,51 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         self.discovery.enr_entries()
     }
 
+    /// Adds/Removes a subnet from the ENR Bitfield
+    pub fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
+        let id = *subnet_id as usize;
+
+        let local_enr = self.discovery.local_enr();
+        let bitfield_bytes = local_enr
+            .get(BITFIELD_ENR_KEY)
+            .ok_or_else(|| "ENR bitfield non-existent")?;
+
+        let mut current_bitfield =
+            BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
+                .map_err(|_| "Could not decode local ENR SSZ bitfield")?;
+
+        if id >= current_bitfield.len() {
+            return Err(format!(
+                "Subnet id: {} is outside the ENR bitfield length: {}",
+                id,
+                current_bitfield.len()
+            ));
+        }
+
+        if current_bitfield
+            .get(id)
+            .map_err(|_| String::from("Subnet ID out of bounds"))?
+            == value
+        {
+            return Err(format!(
+                "Subnet id: {} already in the local ENR already has value: {}",
+                id, value
+            ));
+        }
+
+        // set the subnet bitfield in the ENR
+        current_bitfield
+            .set(id, value)
+            .map_err(|_| String::from("Subnet ID out of bounds, could not set subnet ID"))?;
+
+        // insert the bitfield into the ENR record
+        let _ = self
+            .discovery
+            .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
+
+        Ok(())
+    }
+
     /// Updates the `eth2` field of our local ENR.
     pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
         // to avoid having a reference to the spec constant, for the logging we assume
@@ -180,7 +232,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
         let _ = self
             .discovery
-            .enr_insert("eth2".into(), enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -189,6 +241,39 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 )
             });
     }
+
+    /// A request to find peers on a given subnet.
+    // TODO: This logic should be improved with added sophistication in peer management
+    // This currently checks for currently connected peers and if we don't have
+    // PEERS_WANTED_BEFORE_DISCOVERY connected to a given subnet we search for more.
+    pub fn peers_request(&mut self, subnet_id: SubnetId) {
+        // TODO: Add PeerManager struct to do this loop for us
+
+        let peers_on_subnet = self
+            .network_globals
+            .connected_peer_set
+            .read()
+            .values()
+            .fold(0, |found_peers, peer_info| {
+                if peer_info.on_subnet(subnet_id) {
+                    found_peers + 1
+                } else {
+                    found_peers
+                }
+            });
+
+        if peers_on_subnet < TARGET_SUBNET_PEERS {
+            debug!(self.log, "Searching for peers for subnet";
+                "subnet_id" => *subnet_id,
+                "connected_peers_on_subnet" => peers_on_subnet,
+                "target_subnet_peers" => TARGET_SUBNET_PEERS
+            );
+            // TODO: Update to predicate search
+            self.find_peers();
+        }
+    }
+
+    /* Internal Functions */
 
     /// Search for new peers using the underlying discovery mechanism.
     fn find_peers(&mut self) {
@@ -217,11 +302,35 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
-        // TODO: Search for a known ENR once discv5 is updated.
+        // Find ENR info about a peer if possible.
+        let mut peer_info = PeerInfo::new();
+        if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
+            let bitfield = match enr.get(BITFIELD_ENR_KEY) {
+                Some(bitfield_bytes) => {
+                    match EnrBitfield::<TSpec>::from_ssz_bytes(bitfield_bytes) {
+                        Ok(bitfield) => bitfield,
+                        Err(e) => {
+                            warn!(self.log, "Peer had invalid ENR bitfield"; 
+                            "peer_id" => format!("{}", peer_id),
+                            "error" => format!("{:?}", e));
+                            return;
+                        }
+                    }
+                }
+                None => {
+                    warn!(self.log, "Peer has no ENR bitfield"; 
+                    "peer_id" => format!("{}", peer_id));
+                    return;
+                }
+            };
+
+            peer_info.enr_bitfield = Some(bitfield);
+        }
+
         self.network_globals
             .connected_peer_set
             .write()
-            .insert(peer_id, PeerInfo::new());
+            .insert(peer_id, peer_info);
         // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
