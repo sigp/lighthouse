@@ -774,6 +774,74 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     }
 }
 
+// Forks post finalization: check that they aren't pruned
+#[test]
+fn pruning_does_not_touch_blocks_prior_to_finalization() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
+    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+    let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
+    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+
+    // Fill up 0th epoch with canonical chain blocks
+    let slot = harness.get_chain_slot();
+    let state = harness.get_chain_state(slot);
+    let (canonical_blocks_zeroth_epoch, slot, state) =
+        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+
+    // Fill up 1st epoch.  Contains a fork.
+    let (stray_blocks, _, _) =
+        harness.add_stray_blocks(state.clone(), slot, slots_per_epoch - 1, &faulty_validators);
+
+    // Preconditions
+    for (_, block_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_block(&((*block_hash).into()))
+                .unwrap()
+                .is_some(),
+            "stray blocks should be still present",
+        );
+    }
+
+    let chain_dump = harness.chain.chain_dump().unwrap();
+    assert_eq!(
+        get_finalized_blocks(&chain_dump),
+        vec![Hash256::zero().into()].into_iter().collect(),
+    );
+
+    // Trigger finalization
+    let (_, _, _) =
+        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch * 4, &honest_validators);
+
+    // Postconditions
+    let chain_dump = harness.chain.chain_dump().unwrap();
+    let finalized_blocks = get_finalized_blocks(&chain_dump);
+    assert_eq!(
+        finalized_blocks,
+        vec![
+            Hash256::zero().into(),
+            canonical_blocks_zeroth_epoch[&Slot::new(slots_per_epoch as u64)],
+        ]
+        .into_iter()
+        .collect()
+    );
+
+    for (_, block_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_block(&((*block_hash).into()))
+                .unwrap()
+                .is_some(),
+            "stray blocks should be still present",
+        );
+    }
+}
+
 // Forks that run from a block between the finalized checkpoints, past the
 // slot of the new finalized slot: check that they're fully pruned
 
