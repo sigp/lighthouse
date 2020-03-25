@@ -290,16 +290,6 @@ mod tests {
             .expect("should unset aggregation bit")
     }
 
-    fn assert_bits_set(a: &Attestation<E>, bits: &[usize]) {
-        for i in bits {
-            assert!(
-                a.aggregation_bits.get(*i).expect("should get bit"),
-                "bit {} should be set",
-                i
-            );
-        }
-    }
-
     #[test]
     fn single_attestation() {
         let mut a = get_attestation(Slot::new(0));
@@ -453,6 +443,35 @@ mod tests {
                         expected_slot
                     )
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn max_attestations() {
+        let mut base = get_attestation(Slot::new(0));
+        sign(&mut base, 0);
+
+        let pool = NaiveAggregationPool::default();
+
+        for i in 0..=MAX_ATTESTATIONS_PER_SLOT {
+            let mut a = base.clone();
+            a.data.beacon_block_root = Hash256::from_low_u64_be(i as u64);
+
+            if i < MAX_ATTESTATIONS_PER_SLOT {
+                assert_eq!(
+                    pool.insert(&a),
+                    Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
+                    "should accept attestation below limit"
+                );
+            } else {
+                assert_eq!(
+                    pool.insert(&a),
+                    Err(Error::ReachedMaxAttestationsPerSlot(
+                        MAX_ATTESTATIONS_PER_SLOT
+                    )),
+                    "should not accept attestation above limit"
+                );
             }
         }
     }
