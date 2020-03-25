@@ -16,8 +16,9 @@ use types::{
         build_double_vote_attester_slashing, build_proposer_slashing,
         generate_deterministic_keypair, AttesterSlashingTestTask, ProposerSlashingTestTask,
     },
-    AggregateAndProof, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec,
-    PublicKey, RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot, Slot, Validator,
+    BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
+    RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    Validator,
 };
 use version;
 
@@ -228,6 +229,21 @@ fn validator_produce_attestation() {
         &keypair.sk,
         &state.fork,
         spec,
+    );
+
+    // Publish the signed aggregate.
+    let publish_status = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .publish_aggregate_and_proof(vec![signed_aggregate_and_proof]),
+        )
+        .expect("should publish aggregate and proof");
+    assert!(
+        publish_status.is_valid(),
+        "the signed aggregate and proof should be valid"
     );
 }
 
