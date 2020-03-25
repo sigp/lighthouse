@@ -260,7 +260,10 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
 mod tests {
     use super::*;
     use ssz_types::BitList;
-    use types::test_utils::{generate_deterministic_keypair, test_random_instance};
+    use types::{
+        test_utils::{generate_deterministic_keypair, test_random_instance},
+        Fork, Hash256,
+    };
 
     type E = types::MainnetEthSpec;
 
@@ -271,10 +274,30 @@ mod tests {
         a
     }
 
-    fn set_bit(a: &mut Attestation<E>, i: usize) {
+    fn sign(a: &mut Attestation<E>, i: usize) {
+        a.sign(
+            &generate_deterministic_keypair(i).sk,
+            i,
+            &Fork::default(),
+            &E::default_spec(),
+        )
+        .expect("should sign attestation");
+    }
+
+    fn unset_bit(a: &mut Attestation<E>, i: usize) {
         a.aggregation_bits
-            .set(i, true)
-            .expect("should set aggregation bit")
+            .set(i, false)
+            .expect("should unset aggregation bit")
+    }
+
+    fn assert_bits_set(a: &Attestation<E>, bits: &[usize]) {
+        for i in bits {
+            assert!(
+                a.aggregation_bits.get(*i).expect("should get bit"),
+                "bit {} should be set",
+                i
+            );
+        }
     }
 
     #[test]
@@ -289,7 +312,7 @@ mod tests {
             "should not accept attestation without any signatures"
         );
 
-        set_bit(&mut a, 0);
+        sign(&mut a, 0);
 
         assert_eq!(
             pool.insert(&a),
@@ -311,12 +334,126 @@ mod tests {
             "retrieved attestation should equal the one inserted"
         );
 
-        set_bit(&mut a, 1);
+        sign(&mut a, 1);
 
         assert_eq!(
             pool.insert(&a),
             Err(Error::MoreThanOneAggregationBitSet(2)),
             "should not accept attestation with multiple signatures"
         );
+    }
+
+    #[test]
+    fn multiple_attestations() {
+        let mut a_0 = get_attestation(Slot::new(0));
+        let mut a_1 = a_0.clone();
+
+        sign(&mut a_0, 0);
+        sign(&mut a_1, 1);
+
+        let pool = NaiveAggregationPool::default();
+
+        assert_eq!(
+            pool.insert(&a_0),
+            Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
+            "should accept a_0"
+        );
+        assert_eq!(
+            pool.insert(&a_1),
+            Ok(InsertOutcome::SignatureAggregated { committee_index: 1 }),
+            "should accept a_1"
+        );
+
+        let retrieved = pool
+            .get(&a_0.data)
+            .expect("should not error while getting attestation")
+            .expect("should get an attestation");
+
+        let mut a_01 = a_0.clone();
+        a_01.aggregate(&a_1);
+
+        assert_eq!(
+            retrieved, a_01,
+            "retrieved attestation should be aggregated"
+        );
+
+        /*
+         * Throw a different attestation data in there and ensure it isn't aggregated
+         */
+
+        let mut a_different = a_0.clone();
+        let different_root = Hash256::from_low_u64_be(1337);
+        unset_bit(&mut a_different, 0);
+        sign(&mut a_different, 2);
+        assert!(a_different.data.beacon_block_root != different_root);
+        a_different.data.beacon_block_root = different_root;
+
+        assert_eq!(
+            pool.insert(&a_different),
+            Ok(InsertOutcome::NewAttestationData { committee_index: 2 }),
+            "should accept a_different"
+        );
+
+        assert_eq!(
+            pool.get(&a_0.data)
+                .expect("should not error while getting attestation")
+                .expect("should get an attestation"),
+            retrieved,
+            "should not have aggregated different attestation data"
+        );
+    }
+
+    #[test]
+    fn auto_pruning() {
+        let mut base = get_attestation(Slot::new(0));
+        sign(&mut base, 0);
+
+        let pool = NaiveAggregationPool::default();
+
+        for i in 0..SLOTS_RETAINED * 2 {
+            let slot = Slot::from(i);
+            let mut a = base.clone();
+            a.data.slot = slot;
+
+            assert_eq!(
+                pool.insert(&a),
+                Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
+                "should accept new attestation"
+            );
+
+            if i < SLOTS_RETAINED {
+                let len = i + 1;
+                assert_eq!(
+                    pool.maps.read().len(),
+                    len,
+                    "the pool should have length {}",
+                    len
+                );
+            } else {
+                assert_eq!(
+                    pool.maps.read().len(),
+                    SLOTS_RETAINED,
+                    "the pool should have length SLOTS_RETAINED"
+                );
+
+                let mut pool_slots = pool
+                    .maps
+                    .read()
+                    .iter()
+                    .map(|map| map.slot)
+                    .collect::<Vec<_>>();
+
+                pool_slots.sort_unstable();
+
+                for (j, pool_slot) in pool_slots.iter().enumerate() {
+                    let expected_slot = slot - (SLOTS_RETAINED - 1 - j) as u64;
+                    assert_eq!(
+                        *pool_slot, expected_slot,
+                        "the slot of the map should be {}",
+                        expected_slot
+                    )
+                }
+            }
+        }
     }
 }
