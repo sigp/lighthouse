@@ -2,6 +2,7 @@
 mod enr_helpers;
 
 use crate::metrics;
+use crate::types::EnrBitfield;
 use crate::Enr;
 use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
 use enr_helpers::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
@@ -11,7 +12,7 @@ use libp2p::discv5::enr::NodeId;
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
-use slog::{crit, debug, info, warn};
+use slog::{debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::collections::HashSet;
@@ -29,6 +30,8 @@ const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
 const INITIAL_SEARCH_DELAY: u64 = 5;
 /// Local ENR storage filename.
 const ENR_FILENAME: &str = "enr.dat";
+/// Number of peers we'd like to have connected to a given long-lived subnet.
+const TARGET_SUBNET_PEERS: u64 = 3;
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
@@ -166,52 +169,8 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         self.discovery.enr_entries()
     }
 
-    /// Adds a subnet to our ENR bitfield.
-    pub fn add_enr_subnet(&mut self, subnet_id: SubnetId) {
-        if let Err(e) = self.update_enr_bitfield(subnet_id, true) {
-            crit!(self.log, "Could not update ENR bitfield"; "error" => e);
-        }
-    }
-
-    /// Removes a subnet from our ENR bitfield.
-    pub fn remove_enr_subnet(&mut self, subnet_id: SubnetId) {
-        if let Err(e) = self.update_enr_bitfield(subnet_id, false) {
-            crit!(self.log, "Could not update ENR bitfield"; "error" => e);
-        }
-    }
-
-    /// Updates the `eth2` field of our local ENR.
-    pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
-        // to avoid having a reference to the spec constant, for the logging we assume
-        // FAR_FUTURE_EPOCH is u64::max_value()
-        let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == u64::max_value() {
-            String::from("No other fork")
-        } else {
-            format!("{:?}", enr_fork_id.next_fork_epoch)
-        };
-
-        info!(self.log, "Updating the ENR fork version";
-            "fork_digest" => format!("{:?}", enr_fork_id.fork_digest),
-            "next_fork_version" => format!("{:?}", enr_fork_id.next_fork_version),
-            "next_fork_epoch" => next_fork_epoch_log,
-        );
-
-        let _ = self
-            .discovery
-            .enr_insert(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes())
-            .map_err(|e| {
-                warn!(
-                    self.log,
-                    "Could not update eth2 ENR field";
-                    "error" => format!("{:?}", e)
-                )
-            });
-    }
-
-    /* Internal Functions */
-
     /// Adds/Removes a subnet from the ENR Bitfield
-    fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
+    pub fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
         let id = *subnet_id as usize;
 
         let local_enr = self.discovery.local_enr();
@@ -255,6 +214,67 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         Ok(())
     }
 
+    /// Updates the `eth2` field of our local ENR.
+    pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
+        // to avoid having a reference to the spec constant, for the logging we assume
+        // FAR_FUTURE_EPOCH is u64::max_value()
+        let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == u64::max_value() {
+            String::from("No other fork")
+        } else {
+            format!("{:?}", enr_fork_id.next_fork_epoch)
+        };
+
+        info!(self.log, "Updating the ENR fork version";
+            "fork_digest" => format!("{:?}", enr_fork_id.fork_digest),
+            "next_fork_version" => format!("{:?}", enr_fork_id.next_fork_version),
+            "next_fork_epoch" => next_fork_epoch_log,
+        );
+
+        let _ = self
+            .discovery
+            .enr_insert(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes())
+            .map_err(|e| {
+                warn!(
+                    self.log,
+                    "Could not update eth2 ENR field";
+                    "error" => format!("{:?}", e)
+                )
+            });
+    }
+
+    /// A request to find peers on a given subnet.
+    // TODO: This logic should be improved with added sophistication in peer management
+    // This currently checks for currently connected peers and if we don't have
+    // PEERS_WANTED_BEFORE_DISCOVERY connected to a given subnet we search for more.
+    pub fn peers_request(&mut self, subnet_id: SubnetId) {
+        // TODO: Add PeerManager struct to do this loop for us
+
+        let peers_on_subnet = self
+            .network_globals
+            .connected_peer_set
+            .read()
+            .values()
+            .fold(0, |found_peers, peer_info| {
+                if peer_info.on_subnet(subnet_id) {
+                    found_peers + 1
+                } else {
+                    found_peers
+                }
+            });
+
+        if peers_on_subnet < TARGET_SUBNET_PEERS {
+            debug!(self.log, "Searching for peers for subnet";
+                "subnet_id" => *subnet_id,
+                "connected_peers_on_subnet" => peers_on_subnet,
+                "target_subnet_peers" => TARGET_SUBNET_PEERS
+            );
+            // TODO: Update to predicate search
+            self.find_peers();
+        }
+    }
+
+    /* Internal Functions */
+
     /// Search for new peers using the underlying discovery mechanism.
     fn find_peers(&mut self) {
         // pick a random NodeId
@@ -282,11 +302,35 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
-        // TODO: Search for a known ENR once discv5 is updated.
+        // Find ENR info about a peer if possible.
+        let mut peer_info = PeerInfo::new();
+        if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
+            let bitfield = match enr.get(BITFIELD_ENR_KEY) {
+                Some(bitfield_bytes) => {
+                    match EnrBitfield::<TSpec>::from_ssz_bytes(bitfield_bytes) {
+                        Ok(bitfield) => bitfield,
+                        Err(e) => {
+                            warn!(self.log, "Peer had invalid ENR bitfield"; 
+                            "peer_id" => format!("{}", peer_id),
+                            "error" => format!("{:?}", e));
+                            return;
+                        }
+                    }
+                }
+                None => {
+                    warn!(self.log, "Peer has no ENR bitfield"; 
+                    "peer_id" => format!("{}", peer_id));
+                    return;
+                }
+            };
+
+            peer_info.enr_bitfield = Some(bitfield);
+        }
+
         self.network_globals
             .connected_peer_set
             .write()
-            .insert(peer_id, PeerInfo::new());
+            .insert(peer_id, peer_info);
         // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);

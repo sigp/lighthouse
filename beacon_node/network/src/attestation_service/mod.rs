@@ -249,6 +249,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 self.discover_peers
                     .insert_at((subnet_id, subscription_slot), duration_to_discover);
             }
+        } else {
+            // TODO: Send the time frame needed to have a peer connected, so that we can
+            // maintain peers for a least this duration.
+            // We may want to check the global PeerInfo to see estimated timeouts for each
+            // peer before they can be removed.
+            return Err("Not enough time for a discovery search");
         }
         Ok(())
     }

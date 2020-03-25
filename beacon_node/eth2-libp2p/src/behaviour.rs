@@ -14,7 +14,7 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use lru::LruCache;
-use slog::{debug, o, warn};
+use slog::{crit, debug, o, warn};
 use std::sync::Arc;
 use types::{EnrForkId, EthSpec, SubnetId};
 
@@ -190,14 +190,18 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         self.discovery.add_enr(enr);
     }
 
-    /// Adds a subnet to the ENR bitfield.
-    pub fn add_enr_subnet(&mut self, subnet_id: SubnetId) {
-        self.discovery.add_enr_subnet(subnet_id);
+    /// Updates a subnet value to the ENR bitfield.
+    ///
+    /// The `value` is `true` if a subnet is being added and false otherwise.
+    pub fn update_enr_subnet(&mut self, subnet_id: SubnetId, value: bool) {
+        if let Err(e) = self.discovery.update_enr_bitfield(subnet_id, value) {
+            crit!(self.log, "Could not update ENR bitfield"; "error" => e);
+        }
     }
 
-    /// Removes a subnet from the ENR bitfield.
-    pub fn remove_enr_subnet(&mut self, subnet_id: SubnetId) {
-        self.discovery.remove_enr_subnet(subnet_id);
+    /// A request to search for peers connected to a long-lived subnet.
+    pub fn peers_request(&mut self, subnet_id: SubnetId) {
+        self.discovery.peers_request(subnet_id);
     }
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.
