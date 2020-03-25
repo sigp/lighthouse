@@ -584,7 +584,6 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                 })
             })
             .and_then(move |signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>| {
-
                 // Verify the signatures for the aggregate and proof and if valid process the
                 // aggregate
                 // TODO: Double check speed and logic consistency of handling current fork vs
@@ -602,48 +601,57 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
 
                         ApiError::ProcessingError(format!("The validator is known"))
                     })?;
+
+                    /*
+                     * TODO: checking that `signed_proof.is_valid()` is not sufficient. It
+                     * is also necessary to check that the validator is actually designated as an
+                     * aggregator for this attestation.
+                     *
+                     * I (Paul H) will pick this up in a future PR.
+                     */
+
                     if signed_proof.is_valid(validator_pubkey, fork) {
-                let attestation = &agg_proof.aggregate;
-                match beacon_chain.process_attestation(attestation.clone(), AttestationType::Aggregated) {
-                    Ok(AttestationProcessingOutcome::Processed) => {
-                        // Block was processed, publish via gossipsub
-                        info!(
-                            log,
-                            "Attestation from local validator";
-                            "target" => attestation.data.source.epoch,
-                            "source" => attestation.data.source.epoch,
-                            "index" => attestation.data.index,
-                            "slot" => attestation.data.slot,
-                        );
-                        Ok(())
-                    }
-                    Ok(outcome) => {
-                        warn!(
-                            log,
-                            "Invalid attestation from local validator";
-                            "outcome" => format!("{:?}", outcome)
-                        );
+                        let attestation = &agg_proof.aggregate;
 
-                        Err(ApiError::ProcessingError(format!(
-                            "The Attestation could not be processed and has not been published: {:?}",
-                            outcome
-                        )))
-                    }
-                    Err(e) => {
-                        error!(
-                            log,
-                            "Error whilst processing attestation";
-                            "error" => format!("{:?}", e)
-                        );
+                        match beacon_chain.process_attestation(attestation.clone(), AttestationType::Aggregated) {
+                            Ok(AttestationProcessingOutcome::Processed) => {
+                                // Block was processed, publish via gossipsub
+                                info!(
+                                    log,
+                                    "Attestation from local validator";
+                                    "target" => attestation.data.source.epoch,
+                                    "source" => attestation.data.source.epoch,
+                                    "index" => attestation.data.index,
+                                    "slot" => attestation.data.slot,
+                                );
+                                Ok(())
+                            }
+                            Ok(outcome) => {
+                                warn!(
+                                    log,
+                                    "Invalid attestation from local validator";
+                                    "outcome" => format!("{:?}", outcome)
+                                );
 
-                        Err(ApiError::ServerError(format!(
-                            "Error while processing attestation: {:?}",
-                            e
-                        )))
-                    }
-                }
+                                Err(ApiError::ProcessingError(format!(
+                                    "The Attestation could not be processed and has not been published: {:?}",
+                                    outcome
+                                )))
+                            }
+                            Err(e) => {
+                                error!(
+                                    log,
+                                    "Error whilst processing attestation";
+                                    "error" => format!("{:?}", e)
+                                );
 
-                } else {
+                                Err(ApiError::ServerError(format!(
+                                    "Error while processing attestation: {:?}",
+                                    e
+                                )))
+                            }
+                        }
+                    } else {
                         error!(
                             log,
                             "Invalid AggregateAndProof Signature"
@@ -651,12 +659,12 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                         Err(ApiError::ServerError(format!(
                             "Invalid AggregateAndProof Signature"
                         )))
-                }
-                    })?;
+                    }
+                })?;
                 Ok(signed_proofs)
             })
             .and_then(move |signed_proofs| {
-                   publish_aggregate_attestations_to_network::<T>(network_chan, signed_proofs)
+                publish_aggregate_attestations_to_network::<T>(network_chan, signed_proofs)
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )
