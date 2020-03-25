@@ -2154,9 +2154,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let genesis_block_hash = Hash256::zero();
         write!(output, "digraph beacon {{\n").unwrap();
-        write!(output, "\t_{}[label=\"{}\"];\n", genesis_block_hash, 0).unwrap();
+        write!(output, "\t_{:?}[label=\"{}\"];\n", genesis_block_hash, 0).unwrap();
 
-        for (head_hash, _head_slot) in self.heads() {
+        // Canonical head needs to be processed first as otherwise finalized blocks aren't detected
+        // properly.
+        let heads = {
+            let mut heads = self.heads();
+            let canonical_head_index = heads
+                .iter()
+                .position(|(block_hash, _)| *block_hash == canonical_head_hash)
+                .unwrap();
+            let (canonical_head_hash, canonical_head_slot) =
+                heads.swap_remove(canonical_head_index);
+            heads.insert(0, (canonical_head_hash, canonical_head_slot));
+            heads
+        };
+
+        for (head_hash, _head_slot) in heads {
             for (block_hash, signed_beacon_block) in
                 ParentRootBlockIterator::new(&*self.store, head_hash)
             {
@@ -2165,8 +2179,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 visited.insert(block_hash);
 
-                let slot = signed_beacon_block.message.slot;
-                if slot.is_epoch_boundary_slot(T::EthSpec::slots_per_epoch()) {
+                if signed_beacon_block
+                    .message
+                    .slot
+                    .is_epoch_boundary_slot(T::EthSpec::slots_per_epoch())
+                {
                     let state = self
                         .state_at_slot(
                             signed_beacon_block.message.slot,
@@ -2179,28 +2196,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if block_hash == canonical_head_hash {
                     write!(
                         output,
-                        "\t_{}[label=\"{}\" shape=box3d];\n",
+                        "\t_{:?}[label=\"{}\" shape=box3d];\n",
                         block_hash, signed_beacon_block.message.slot
                     )
                     .unwrap();
                 } else if finalized_blocks.contains(&block_hash) {
                     write!(
                         output,
-                        "\t_{}[label=\"{}\" shape=Msquare];\n",
+                        "\t_{:?}[label=\"{}\" shape=Msquare];\n",
                         block_hash, signed_beacon_block.message.slot
                     )
                     .unwrap();
                 } else {
                     write!(
                         output,
-                        "\t_{}[label=\"{}\" shape=box];\n",
+                        "\t_{:?}[label=\"{}\" shape=box];\n",
                         block_hash, signed_beacon_block.message.slot
                     )
                     .unwrap();
                 }
                 write!(
                     output,
-                    "\t_{} -> _{};\n",
+                    "\t_{:?} -> _{:?};\n",
                     block_hash, signed_beacon_block.message.parent_root
                 )
                 .unwrap();
