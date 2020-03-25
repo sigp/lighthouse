@@ -735,6 +735,12 @@ fn prunes_abandoned_fork() {
         );
     }
 
+    let chain_dump = harness.chain.chain_dump().unwrap();
+    assert_eq!(
+        get_dump_finalized_blocks(&chain_dump),
+        vec![Hash256::zero().into()].into_iter().collect(),
+    );
+
     let (legit_blocks_post_finalization, _, _) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch * 5, &honest_validators);
 
