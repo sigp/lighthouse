@@ -88,7 +88,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             .map_err(|e| format!("Could not get the next fork update duration: {:?}", e))?;
 
         // launch libp2p service
-        let (network_globals, mut libp2p) = LibP2PService::new(config, enr_fork_id, network_log.clone())?;
+        let (network_globals, mut libp2p) =
+            LibP2PService::new(config, enr_fork_id, network_log.clone())?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -268,10 +269,10 @@ fn spawn_service<T: BeaconChainTypes>(
                 AttServiceMessage::Unsubscribe(subnet_id) => {
                     service.libp2p.swarm.subscribe_to_subnet(subnet_id);
                  },
-                AttServiceMessage::EnrAdd(subnet_id) => { 
+                AttServiceMessage::EnrAdd(subnet_id) => {
                     service.libp2p.swarm.update_enr_subnet(subnet_id, true);
                 },
-                AttServiceMessage::EnrRemove(subnet_id) => { 
+                AttServiceMessage::EnrRemove(subnet_id) => {
                     service.libp2p.swarm.update_enr_subnet(subnet_id, false);
                 },
                 AttServiceMessage::DiscoverPeers(subnet_id) => {
