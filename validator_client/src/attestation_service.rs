@@ -594,6 +594,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     let signed_aggregate_and_proofs = validator_duties
                         .iter()
                         .filter_map(|duty_and_state| {
+                            // Do not produce a signed aggregator for validators that are not
+                            // subscribed aggregators.
+                            //
+                            // Note: this function returns `false` if the validator is required to
+                            // be an aggregator but has not yet subscribed.
+                            if !duty_and_state.is_aggregator() {
+                                return None;
+                            }
+
                             let (duty_slot, duty_committee_index, _, validator_index) =
                                 duty_and_state.attestation_duties().or_else(|| {
                                     crit!(log_1, "Missing duties when signing aggregate");

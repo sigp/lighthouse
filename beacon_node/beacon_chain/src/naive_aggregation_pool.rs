@@ -138,6 +138,11 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
 /// A pool of `Attestation` that is specially designed to store "unaggregated" attestations from
 /// the native aggregation scheme.
 ///
+/// **The `NaiveAggregationPool` does not do any signature or attestation verification. It assumes
+/// that all `Attestation` objects provided are valid.**
+///
+/// ## Details
+///
 /// The pool sorts the `Attestation` by `attestation.data.slot`, then by `attestation.data`.
 ///
 /// As each unaggregated attestation is added it is aggregated with any existing `attestation` with
@@ -199,8 +204,6 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     }
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
-    ///
-    /// The given `a.data.slot` must match the slot that `self` was initialized with.
     pub fn get(&self, data: &AttestationData) -> Result<Option<Attestation<E>>, Error> {
         self.maps
             .read()
