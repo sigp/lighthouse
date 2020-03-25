@@ -1,7 +1,7 @@
 #![cfg(test)]
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::multiaddr::Protocol;
-use ::types::MinimalEthSpec;
+use ::types::{EnrForkId, MinimalEthSpec};
 use eth2_libp2p::*;
 use futures::prelude::*;
 use libp2p::core::identity::Keypair;
@@ -42,7 +42,13 @@ fn build_secio_swarm(
         // Set up the transport - tcp/ws with secio and mplex/yamux
         let transport = build_secio_transport(local_keypair.clone());
         // Lighthouse network behaviour
-        let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
+        let behaviour = Behaviour::new(
+            &local_keypair,
+            config,
+            network_globals.clone(),
+            EnrForkId::default(),
+            &log,
+        )?;
         Swarm::new(transport, behaviour, local_peer_id.clone())
     };
 
@@ -122,7 +128,7 @@ fn test_secio_noise_fallback() {
     let log = common::build_log(log_level, enable_logging);
 
     let noisy_config = common::build_config(56010, vec![], None);
-    let mut noisy_node = Service::new(&noisy_config, log.clone())
+    let mut noisy_node = Service::new(&noisy_config, EnrForkId::default(), log.clone())
         .expect("should build a libp2p instance")
         .1;
 

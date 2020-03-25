@@ -24,7 +24,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::DelayQueue;
-use types::EthSpec;
+use types::{EnrForkId, EthSpec};
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
@@ -56,6 +56,7 @@ pub struct Service<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
         config: &NetworkConfig,
+        enr_fork_id: EnrForkId,
         log: slog::Logger,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         trace!(log, "Libp2p Service starting");
@@ -81,7 +82,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
             // Set up the transport - tcp/ws with noise/secio and mplex/yamux
             let transport = build_transport(local_keypair.clone());
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
+            let behaviour = Behaviour::new(
+                &local_keypair,
+                config,
+                network_globals.clone(),
+                enr_fork_id,
+                &log,
+            )?;
             Swarm::new(transport, behaviour, local_peer_id.clone())
         };
 

@@ -119,6 +119,12 @@ impl Into<String> for GossipTopic {
     }
 }
 
+impl From<SubnetId> for GossipKind {
+    fn from(subnet_id: SubnetId) -> Self {
+        GossipKind::CommitteeIndex(subnet_id)
+    }
+}
+
 // helper functions
 
 // Determines if a string is a committee topic.

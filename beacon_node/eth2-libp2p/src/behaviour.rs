@@ -1,5 +1,6 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
+use crate::types::GossipEncoding;
 use crate::Enr;
 use crate::{error, GossipTopic, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -13,9 +14,9 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use lru::LruCache;
-use slog::{debug, o, warn};
+use slog::{crit, debug, o, warn};
 use std::sync::Arc;
-use types::{EnrForkId, EthSpec};
+use types::{EnrForkId, EthSpec, SubnetId};
 
 const MAX_IDENTIFY_ADDRESSES: usize = 20;
 
@@ -55,6 +56,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         local_key: &Keypair,
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
+        enr_fork_id: EnrForkId,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let local_peer_id = local_key.public().into_peer_id();
@@ -69,7 +71,13 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
             gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
-            discovery: Discovery::new(local_key, net_conf, network_globals.clone(), log)?,
+            discovery: Discovery::new(
+                local_key,
+                net_conf,
+                enr_fork_id,
+                network_globals.clone(),
+                log,
+            )?,
             identify,
             events: Vec::new(),
             seen_gossip_messages: LruCache::new(100_000),
@@ -107,6 +115,12 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         self.gossipsub.subscribe(topic.into())
     }
 
+    /// Subscribes to a specific subnet id;
+    pub fn subscribe_to_subnet(&mut self, subnet_id: SubnetId) {
+        let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::SSZ);
+        self.subscribe(topic);
+    }
+
     /// Unsubscribe from a gossipsub topic.
     pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
         let pos = self
@@ -122,6 +136,12 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
                 .swap_remove(pos);
         }
         self.gossipsub.unsubscribe(topic.into())
+    }
+
+    /// Un-Subscribes from a specific subnet id;
+    pub fn unsubscribe_from_subnet(&mut self, subnet_id: SubnetId) {
+        let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::SSZ);
+        self.unsubscribe(topic);
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
@@ -168,6 +188,20 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     /// Add an ENR to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
         self.discovery.add_enr(enr);
+    }
+
+    /// Updates a subnet value to the ENR bitfield.
+    ///
+    /// The `value` is `true` if a subnet is being added and false otherwise.
+    pub fn update_enr_subnet(&mut self, subnet_id: SubnetId, value: bool) {
+        if let Err(e) = self.discovery.update_enr_bitfield(subnet_id, value) {
+            crit!(self.log, "Could not update ENR bitfield"; "error" => e);
+        }
+    }
+
+    /// A request to search for peers connected to a long-lived subnet.
+    pub fn peers_request(&mut self, subnet_id: SubnetId) {
+        self.discovery.peers_request(subnet_id);
     }
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.

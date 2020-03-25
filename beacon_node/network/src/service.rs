@@ -8,7 +8,7 @@ use crate::{
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, NetworkGlobals, PeerId, Swarm};
-use eth2_libp2p::{PubsubMessage, RPCEvent};
+use eth2_libp2p::{PubsubData, PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
 use rest_types::ValidatorSubscription;
@@ -55,7 +55,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &mut NetworkConfig,
+        config: &NetworkConfig,
         executor: &TaskExecutor,
         network_log: slog::Logger,
     ) -> error::Result<(
@@ -77,8 +77,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         let propagation_percentage = config.propagation_percentage;
 
-        // set the local enr_fork_id
-        config.enr_fork_id = beacon_chain
+        // build the current enr_fork_id for adding to our local ENR
+        let enr_fork_id = beacon_chain
             .enr_fork_id()
             .map_err(|e| format!("Could not get the current ENR fork version: {:?}", e))?;
 
@@ -88,7 +88,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             .map_err(|e| format!("Could not get the next fork update duration: {:?}", e))?;
 
         // launch libp2p service
-        let (network_globals, mut libp2p) = LibP2PService::new(config, network_log.clone())?;
+        let (network_globals, mut libp2p) =
+            LibP2PService::new(config, enr_fork_id, network_log.clone())?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -262,11 +263,26 @@ fn spawn_service<T: BeaconChainTypes>(
         while let Ok(Async::Ready(Some(attestation_service_message))) = service.attestation_service.poll() {
             match attestation_service_message {
                 // TODO: Implement
-                AttServiceMessage::Subscribe(_subnet) => { },
-                AttServiceMessage::Unsubscribe(_subnet) => { },
-                AttServiceMessage::EnrAdd(_subnet) => { },
-                AttServiceMessage::EnrRemove(_subnet) => { },
-                AttServiceMessage::DiscoverPeers(_subnet) => { },
+                AttServiceMessage::Subscribe(subnet_id) => {
+                    service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                },
+                AttServiceMessage::Unsubscribe(subnet_id) => {
+                    service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                 },
+                AttServiceMessage::EnrAdd(subnet_id) => {
+                    service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                },
+                AttServiceMessage::EnrRemove(subnet_id) => {
+                    service.libp2p.swarm.update_enr_subnet(subnet_id, false);
+                },
+                AttServiceMessage::DiscoverPeers(subnet_id) => {
+                    service.libp2p.swarm.peers_request(subnet_id);
+                },
+                AttServiceMessage::Propagate(source, message_id) => {
+                            service.libp2p
+                                .swarm
+                                .propagate_message(&source, message_id);
+                    }
             }
         }
 
@@ -276,8 +292,6 @@ fn spawn_service<T: BeaconChainTypes>(
             match service.libp2p.poll() {
                 Ok(Async::Ready(Some(event))) => match event {
                     Libp2pEvent::RPC(peer_id, rpc_event) => {
-                        // trace!(log, "Received RPC"; "rpc" => format!("{}", rpc_event));
-
                         // if we received a Goodbye message, drop and ban the peer
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
                             peers_to_ban.push(peer_id.clone());
@@ -304,9 +318,24 @@ fn spawn_service<T: BeaconChainTypes>(
                         message,
                         ..
                     } => {
-                       service.router_send
-                            .try_send(RouterMessage::PubsubMessage(id, source, message))
-                            .map_err(|_| { debug!(log, "Failed to send pubsub message to router");})?;
+
+                        match message.data {
+                            // attestation information gets processed in the attestation service
+                            PubsubData::AggregateAndProofAttestation(signed_aggregate_and_proof) => {
+                                service.attestation_service.handle_aggregate_attestation(id, source, *signed_aggregate_and_proof);
+                            },
+                            PubsubData::Attestation(subnet_and_attestation) => {
+                                let subnet = subnet_and_attestation.0;
+                                let attestation = subnet_and_attestation.1;
+                                service.attestation_service.handle_unaggregated_attestation(id, source, subnet, attestation);
+                            }
+                            _ => {
+                                // all else is sent to the router
+                           service.router_send
+                                .try_send(RouterMessage::PubsubMessage(id, source, message))
+                                .map_err(|_| { debug!(log, "Failed to send pubsub message to router");})?;
+                            }
+                        }
                     }
                     Libp2pEvent::PeerSubscribed(_, _) => {}
                 },
