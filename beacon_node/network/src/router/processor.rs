@@ -1,6 +1,8 @@
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use beacon_chain::{
+    BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
+};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
@@ -468,10 +470,11 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Template function to be called on a block to determine if the block should be propagated
     /// across the network.
-    pub fn should_forward_block(&mut self, _block: &Box<SignedBeaconBlock<T::EthSpec>>) -> bool {
-        // TODO: Propagate error once complete
-        // self.chain.should_forward_block(block).is_ok()
-        true
+    pub fn should_forward_block(
+        &mut self,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+        self.chain.verify_block_for_gossip(*block)
     }
 
     /// Template function to be called on an attestation to determine if the attestation should be propagated
@@ -490,9 +493,10 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_block_gossip(
         &mut self,
         peer_id: PeerId,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        verified_block: GossipVerifiedBlock<T>,
     ) -> bool {
-        match BlockProcessingOutcome::shim(self.chain.process_block(*block.clone())) {
+        let block = Box::new(verified_block.block.clone());
+        match BlockProcessingOutcome::shim(self.chain.process_block(verified_block)) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";

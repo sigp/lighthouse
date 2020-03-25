@@ -218,12 +218,16 @@ impl<T: BeaconChainTypes> Router<T> {
         gossip_message: PubsubMessage<T::EthSpec>,
     ) {
         match gossip_message.data {
-            PubsubData::BeaconBlock(block) => {
-                if self.processor.should_forward_block(&block) {
+            PubsubData::BeaconBlock(block) => match self.processor.should_forward_block(block) {
+                Ok(verified_block) => {
                     self.propagate_message(id, peer_id.clone());
+                    self.processor.on_block_gossip(peer_id, verified_block);
                 }
-                self.processor.on_block_gossip(peer_id, block);
-            }
+                Err(e) => {
+                    warn!(self.log, "Could not verify block for gossip";
+                            "error" => format!("{:?}", e));
+                }
+            },
             PubsubData::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
