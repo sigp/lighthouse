@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::TaskExecutor;
 use tokio::timer::Interval;
-use types::EthSpec;
 
 /// A collection of timers that can execute actions on the beacon node.
 ///
@@ -51,10 +50,6 @@ impl<T: BeaconChainTypes> Timer<T> {
     pub fn per_slot_task(&self) {
         self.beacon_chain.per_slot_task();
     }
-
-    pub fn per_epoch_task(&self) {
-        self.beacon_chain.per_epoch_task();
-    }
 }
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
@@ -64,7 +59,6 @@ pub fn spawn<T: BeaconChainTypes>(
     milliseconds_per_slot: u64,
     log: slog::Logger,
 ) -> Result<tokio::sync::oneshot::Sender<()>, &'static str> {
-    //let thread_log = log.clone();
     let mut timer = Timer::new(beacon_chain, milliseconds_per_slot, log)?;
     let (exit_signal, mut exit) = tokio::sync::oneshot::channel();
 
@@ -80,15 +74,6 @@ pub fn spawn<T: BeaconChainTypes>(
             .map_err(|e| warn!(timer.log, "Per slot timer error"; "error" => format!("{:?}", e)))?
         {
             timer.per_slot_task();
-            match timer
-                .beacon_chain
-                .slot_clock
-                .now()
-                .map(|slot| (slot % T::EthSpec::slots_per_epoch()).as_u64())
-            {
-                Some(0) => timer.per_epoch_task(),
-                _ => {}
-            }
         }
         Ok(Async::NotReady)
     }));

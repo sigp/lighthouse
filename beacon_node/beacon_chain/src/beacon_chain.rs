@@ -1168,11 +1168,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let index = attestation.data.index;
                         let slot = attestation.data.slot;
 
-                        match self.op_pool.insert_aggregate_attestation(
-                            attestation,
-                            &fork,
-                            &self.spec,
-                        ) {
+                        match self
+                            .op_pool
+                            .insert_attestation(attestation, &fork, &self.spec)
+                        {
                             Ok(_) => {}
                             Err(e) => {
                                 error!(
@@ -1966,18 +1965,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
             self.naive_aggregation_pool.prune(slot);
-            self.op_pool.prune_committee_attestations(&slot)
-        }
-    }
-
-    /// Called by the timer on every epoch.
-    ///
-    /// Performs epoch-based pruning.
-    pub fn per_epoch_task(&self) {
-        trace!(self.log, "Running beacon chain per epoch tasks");
-        if let Some(slot) = self.slot_clock.now() {
-            let current_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-            self.op_pool.prune_attestations(&current_epoch);
         }
     }
 
