@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
-    AggregateAndProof, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
-    PublicKey, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 #[derive(Clone)]
@@ -199,6 +199,28 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             })
     }
 
+    /// Signs an `AggregateAndProof` for a given validator.
+    ///
+    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
+    /// modified by actors other than the signing validator.
+    pub fn produce_signed_aggregate_and_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        validator_index: u64,
+        aggregate: Attestation<E>,
+    ) -> Option<SignedAggregateAndProof<E>> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+
+        Some(SignedAggregateAndProof::from_aggregate(
+            validator_index,
+            aggregate,
+            &voting_keypair.sk,
+            &self.fork()?,
+            &self.spec,
+        ))
+    }
+
     /// Signs a slot for a given validator.
     ///
     /// This is used to subscribe a validator to a beacon node and is used to determine if the
@@ -216,20 +238,5 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let message = slot.signing_root(domain);
 
         Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
-    }
-
-    /// Signs an `AggregateAndProof` for a given validator.
-    ///
-    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
-    /// modified by actors other than the signing validator.
-    pub fn sign_aggregate_and_proof(
-        &self,
-        validator_pubkey: &PublicKey,
-        aggregate_and_proof: AggregateAndProof<E>,
-    ) -> Option<SignedAggregateAndProof<E>> {
-        let validators = self.validators.read();
-        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
-
-        Some(aggregate_and_proof.into_signed(&voting_keypair.sk, &self.fork()?))
     }
 }

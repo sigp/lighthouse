@@ -2,12 +2,13 @@ use crate::block_verification::{
     check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
     FullyVerifiedBlock, GossipVerifiedBlock, IntoFullyVerifiedBlock,
 };
-use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::errors::{AttestationDropReason, BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
+use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -61,6 +62,23 @@ pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
 pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
 pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
+
+#[derive(Debug, PartialEq)]
+pub enum AttestationType {
+    /// An attestation with a single-signature that has been published in accordance with the naive
+    /// aggregation strategy.
+    ///
+    /// These attestations may have come from a `committee_index{subnet_id}_beacon_attestation`
+    /// gossip subnet or they have have come directly from a validator attached to our API.
+    ///
+    /// If `should_store == true`, the attestation will be added to the `NaiveAggregationPool`.
+    Unaggregated { should_store: bool },
+    /// An attestation with one more more signatures that has passed through the aggregation phase
+    /// of the naive aggregation scheme.
+    ///
+    /// These attestations must have come from the `beacon_aggregate_and_proof` gossip subnet.
+    Aggregated,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
@@ -142,6 +160,12 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
     /// inclusion in a block.
     pub op_pool: OperationPool<T::EthSpec>,
+    /// A pool of attestations dedicated to the "naive aggregation strategy" defined in the eth2
+    /// specs.
+    ///
+    /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
+    /// a method to get an aggregated `Attestation` for some `AttestationData`.
+    pub naive_aggregation_pool: NaiveAggregationPool<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
@@ -676,27 +700,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Produce an aggregate attestation that has been collected for this slot and committee.
-    // TODO: Check and optimize
-    pub fn return_aggregate_attestation(
+    /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
+    ///
+    /// The attestation will be obtained from `self.naive_aggregation_pool`.
+    pub fn get_aggregated_attestation(
         &self,
-        slot: Slot,
-        index: CommitteeIndex,
-    ) -> Result<Attestation<T::EthSpec>, Error> {
-        let epoch = |slot: Slot| slot.epoch(T::EthSpec::slots_per_epoch());
-        let head_state = &self.head()?.beacon_state;
-
-        let state = if epoch(slot) == epoch(head_state.slot) {
-            self.head()?.beacon_state
-        } else {
-            // The block proposer shuffling is not affected by the state roots, so we don't need to
-            // calculate them.
-            self.state_at_slot(slot, StateSkipConfig::WithoutStateRoots)?
-        };
-
-        self.op_pool
-            .get_raw_aggregated_attestations(&slot, &index, &state, &self.spec)
-            .map_err(Error::from)
+        data: &AttestationData,
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        self.naive_aggregation_pool.get(data).map_err(Into::into)
     }
 
     /// Produce a raw unsigned `Attestation` that is valid for the given `slot` and `index`.
@@ -824,12 +835,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_attestation(
         &self,
         attestation: Attestation<T::EthSpec>,
-        store_raw: Option<bool>,
+        attestation_type: AttestationType,
     ) -> Result<AttestationProcessingOutcome, Error> {
         metrics::inc_counter(&metrics::ATTESTATION_PROCESSING_REQUESTS);
         let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_TIMES);
 
-        let outcome = self.process_attestation_internal(attestation.clone(), store_raw);
+        let outcome = self.process_attestation_internal(attestation.clone(), attestation_type);
 
         match &outcome {
             Ok(outcome) => match outcome {
@@ -883,7 +894,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_attestation_internal(
         &self,
         attestation: Attestation<T::EthSpec>,
-        store_raw: Option<bool>,
+        attestation_type: AttestationType,
     ) -> Result<AttestationProcessingOutcome, Error> {
         let initial_validation_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_INITIAL_VALIDATION_TIMES);
@@ -1120,20 +1131,61 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // subnet without a validator responsible for aggregating it, we don't store it in the
             // op pool.
             if self.eth1_chain.is_some() {
-                if let Some(is_raw) = store_raw {
-                    if is_raw {
-                        // This is a raw un-aggregated attestation received from a subnet with a
-                        // connected validator required to aggregate and publish these attestations
-                        self.op_pool
-                            .insert_raw_attestation(attestation, &fork, &self.spec)?;
-                    } else {
-                        // This an aggregate attestation received from the aggregate attestation
-                        // channel
-                        self.op_pool.insert_aggregate_attestation(
-                            attestation,
-                            &fork,
-                            &self.spec,
-                        )?;
+                match attestation_type {
+                    AttestationType::Unaggregated { should_store } if should_store => {
+                        match self.naive_aggregation_pool.insert(&attestation) {
+                            Ok(outcome) => trace!(
+                                self.log,
+                                "Stored unaggregated attestation";
+                                "outcome" => format!("{:?}", outcome),
+                                "index" => attestation.data.index,
+                                "slot" => attestation.data.slot.as_u64(),
+                            ),
+                            Err(NaiveAggregationError::SlotTooLow {
+                                slot,
+                                lowest_permissible_slot,
+                            }) => {
+                                trace!(
+                                    self.log,
+                                    "Refused to store unaggregated attestation";
+                                    "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                                    "slot" => slot.as_u64(),
+                                );
+                            }
+                            Err(e) => error!(
+                                    self.log,
+                                    "Failed to store unaggregated attestation";
+                                    "error" => format!("{:?}", e),
+                                    "index" => attestation.data.index,
+                                    "slot" => attestation.data.slot.as_u64(),
+                            ),
+                        }
+                    }
+                    AttestationType::Unaggregated { .. } => trace!(
+                        self.log,
+                        "Did not store unaggregated attestation";
+                        "index" => attestation.data.index,
+                        "slot" => attestation.data.slot.as_u64(),
+                    ),
+                    AttestationType::Aggregated => {
+                        let index = attestation.data.index;
+                        let slot = attestation.data.slot;
+
+                        match self
+                            .op_pool
+                            .insert_attestation(attestation, &fork, &self.spec)
+                        {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!(
+                                    self.log,
+                                    "Failed to add attestation to op pool";
+                                    "error" => format!("{:?}", e),
+                                    "index" => index,
+                                    "slot" => slot.as_u64(),
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -1144,6 +1196,90 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(AttestationProcessingOutcome::Processed)
         } else {
             Ok(AttestationProcessingOutcome::InvalidSignature)
+        }
+    }
+
+    /// Check that the `aggregator_index` in an aggregate attestation is as it should be.
+    // TODO: Check for optimisation/relevance
+    fn check_attestation_aggregator(
+        &self,
+        signed_aggregate_and_proof: &SignedAggregateAndProof<T::EthSpec>,
+        indexed_attestation: &IndexedAttestation<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<(), AttestationDropReason> {
+        let aggregate_and_proof = &signed_aggregate_and_proof.message;
+        let attestation = &aggregate_and_proof.aggregate;
+
+        // Check that aggregator index is part of the committee attesting (quick).
+        if !indexed_attestation
+            .attesting_indices
+            .contains(&aggregate_and_proof.aggregator_index)
+        {
+            return Err(AttestationDropReason::AggregatorNotInAttestingIndices);
+        }
+        // Check that the aggregator is allowed to be aggregating (medium, one hash).
+        else if !state
+            .is_aggregator(
+                attestation.data.slot,
+                attestation.data.index,
+                &aggregate_and_proof.selection_proof,
+                &self.spec,
+            )
+            .unwrap_or(false)
+        {
+            return Err(AttestationDropReason::AggregatorNotSelected);
+        }
+        // Check that the signature is valid and the aggregator's selection proof is valid (slow-ish). Two sig verifications
+        if let Ok(Some(pubkey)) =
+            self.validator_pubkey(aggregate_and_proof.aggregator_index as usize)
+        {
+            if !signed_aggregate_and_proof.is_valid(&pubkey, &state.fork, &self.spec) {
+                Err(AttestationDropReason::AggregatorSignatureInvalid)
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(AttestationDropReason::AggregatorNotInAttestingIndices)
+        }
+    }
+
+    /// Check that an attestation's slot doesn't make it ineligible for gossip.
+    fn check_attestation_slot_for_gossip(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+    ) -> Result<(), AttestationDropReason> {
+        // `now_low_slot` is the slot of the current time minus MAXIMUM_GOSSIP_CLOCK_DISPARITY
+        // `now_high_slot` is the slot of the current time plus MAXIMUM_GOSSIP_CLOCK_DISPARITY
+        let (now_low_slot, now_high_slot) = self
+            .slot_clock
+            .now_duration()
+            .and_then(|now| {
+                let maximum_clock_disparity =
+                    Duration::from_millis(self.spec.maximum_gossip_clock_disparity_millis);
+                let now_low_duration = now.checked_sub(maximum_clock_disparity)?;
+                let now_high_duration = now.checked_add(maximum_clock_disparity)?;
+                Some((
+                    self.slot_clock.slot_of(now_low_duration)?,
+                    self.slot_clock.slot_of(now_high_duration)?,
+                ))
+            })
+            .ok_or_else(|| AttestationDropReason::SlotClockError)?;
+
+        let min_slot = attestation.data.slot;
+        let max_slot = min_slot + self.spec.attestation_propagation_slot_range;
+
+        if now_high_slot < min_slot {
+            Err(AttestationDropReason::TooNew {
+                attestation_slot: min_slot,
+                now: now_high_slot,
+            })
+        } else if now_low_slot > max_slot {
+            Err(AttestationDropReason::TooOld {
+                attestation_slot: min_slot,
+                now: now_low_slot,
+            })
+        } else {
+            Ok(())
         }
     }
 
@@ -1831,18 +1967,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn per_slot_task(&self) {
         trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
-            self.op_pool.prune_committee_attestations(&slot)
-        }
-    }
-
-    /// Called by the timer on every epoch.
-    ///
-    /// Performs epoch-based pruning.
-    pub fn per_epoch_task(&self) {
-        trace!(self.log, "Running beacon chain per epoch tasks");
-        if let Some(slot) = self.slot_clock.now() {
-            let current_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-            self.op_pool.prune_attestations(&current_epoch);
+            self.naive_aggregation_pool.prune(slot);
         }
     }
 

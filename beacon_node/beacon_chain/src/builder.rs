@@ -415,6 +415,8 @@ where
             op_pool: self
                 .op_pool
                 .ok_or_else(|| "Cannot build without op pool".to_string())?,
+            // TODO: allow for persisting and loading the pool from disk.
+            naive_aggregation_pool: <_>::default(),
             eth1_chain: self.eth1_chain,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root: self

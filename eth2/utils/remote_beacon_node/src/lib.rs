@@ -14,9 +14,9 @@ use ssz::Encode;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork,
-    Hash256, ProposerSlashing, PublicKey, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    Slot,
+    Attestation, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex,
+    Epoch, EthSpec, Fork, Hash256, ProposerSlashing, PublicKey, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, Slot,
 };
 use url::Url;
 
@@ -213,13 +213,12 @@ impl<E: EthSpec> Validator<E> {
     /// Produces an aggregate attestation.
     pub fn produce_aggregate_attestation(
         &self,
-        slot: Slot,
-        committee_index: CommitteeIndex,
+        attestation_data: &AttestationData,
     ) -> impl Future<Item = Attestation<E>, Error = Error> {
-        let query_params = vec![
-            ("slot".into(), format!("{}", slot)),
-            ("committee_index".into(), format!("{}", committee_index)),
-        ];
+        let query_params = vec![(
+            "attestation_data".into(),
+            as_ssz_hex_string(attestation_data),
+        )];
 
         let client = self.0.clone();
         self.url("aggregate_attestation")
@@ -337,7 +336,7 @@ impl<E: EthSpec> Validator<E> {
                 url,
                 vec![
                     ("slot".into(), format!("{}", slot.as_u64())),
-                    ("randao_reveal".into(), signature_as_string(&randao_reveal)),
+                    ("randao_reveal".into(), as_ssz_hex_string(&randao_reveal)),
                 ],
             )
         })
@@ -693,8 +692,8 @@ fn root_as_string(root: Hash256) -> String {
     format!("0x{:?}", root)
 }
 
-fn signature_as_string(signature: &Signature) -> String {
-    format!("0x{}", hex::encode(signature.as_ssz_bytes()))
+fn as_ssz_hex_string<T: Encode>(item: &T) -> String {
+    format!("0x{}", hex::encode(item.as_ssz_bytes()))
 }
 
 impl From<reqwest::Error> for Error {

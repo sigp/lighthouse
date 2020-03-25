@@ -6,7 +6,7 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
-use beacon_chain::AttestationProcessingOutcome;
+use beacon_chain::{AttestationProcessingOutcome, AttestationType};
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
@@ -306,7 +306,7 @@ fn epoch_boundary_state_attestation_processing() {
             .epoch;
         let res = harness
             .chain
-            .process_attestation_internal(attestation.clone(), Some(true));
+            .process_attestation_internal(attestation.clone(), AttestationType::Aggregated);
 
         let current_epoch = harness.chain.epoch().expect("should get epoch");
         let attestation_epoch = attestation.data.target.epoch;
