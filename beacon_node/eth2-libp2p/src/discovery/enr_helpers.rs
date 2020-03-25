@@ -13,6 +13,11 @@ use std::path::Path;
 use std::str::FromStr;
 use types::{EnrForkId, EthSpec};
 
+/// The ENR field specifying the fork id.
+pub const ETH2_ENR_KEY: &'static str = "eth2";
+/// The ENR field specifying the subnet bitfield.
+pub const BITFIELD_ENR_KEY: &'static str = "attnets";
+
 /// Loads an ENR from file if it exists and matches the current NodeId and sequence number. If none
 /// exists, generates a new one.
 ///
@@ -89,12 +94,12 @@ fn build_enr<T: EthSpec>(
     builder.tcp(tcp_port);
 
     // set the `eth2` field on our ENR
-    builder.add_value("eth2".into(), enr_fork_id.as_ssz_bytes());
+    builder.add_value(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes());
 
     // set the "attnets" field on our ENR
     let bitfield = BitVector::<T::SubnetBitfieldLength>::new();
 
-    builder.add_value("attnets".into(), bitfield.as_ssz_bytes());
+    builder.add_value(BITFIELD_ENR_KEY.into(), bitfield.as_ssz_bytes());
 
     builder
         .tcp(config.libp2p_port)
@@ -109,9 +114,13 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
     (local_enr.ip().is_none() || local_enr.ip() == disk_enr.ip())
         // tcp ports must match
         && local_enr.tcp() == disk_enr.tcp()
-        && local_enr.get("eth2") == disk_enr.get("eth2")
+        // must match on the same fork
+        && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
         && (local_enr.udp().is_none() || local_enr.udp() == disk_enr.udp())
+        // we need the BITFIELD_ENR_KEY key to match, otherwise we use a new ENR. This will likely only
+        // be true for non-validating nodes
+        && local_enr.get(BITFIELD_ENR_KEY) == disk_enr.get(BITFIELD_ENR_KEY)
 }
 
 /// Saves an ENR to disk

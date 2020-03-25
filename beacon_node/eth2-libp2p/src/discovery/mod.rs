@@ -4,14 +4,16 @@ mod enr_helpers;
 use crate::metrics;
 use crate::Enr;
 use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
+use enr_helpers::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::discv5::enr::NodeId;
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
-use slog::{debug, info, warn};
-use ssz::Encode;
+use slog::{crit, debug, info, warn};
+use ssz::{Decode, Encode};
+use ssz_types::BitVector;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -165,10 +167,18 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 
     /// Adds a subnet to our ENR bitfield.
-    pub fn add_enr_subnet(&mut self, subnet_id: SubnetId) {}
+    pub fn add_enr_subnet(&mut self, subnet_id: SubnetId) {
+        if let Err(e) = self.update_enr_bitfield(subnet_id, true) {
+            crit!(self.log, "Could not update ENR bitfield"; "error" => e);
+        }
+    }
 
     /// Removes a subnet from our ENR bitfield.
-    pub fn remove_enr_subnet(&mut self, subnet_id: SubnetId) {}
+    pub fn remove_enr_subnet(&mut self, subnet_id: SubnetId) {
+        if let Err(e) = self.update_enr_bitfield(subnet_id, false) {
+            crit!(self.log, "Could not update ENR bitfield"; "error" => e);
+        }
+    }
 
     /// Updates the `eth2` field of our local ENR.
     pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
@@ -188,7 +198,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
         let _ = self
             .discovery
-            .enr_insert("eth2".into(), enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -196,6 +206,53 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                     "error" => format!("{:?}", e)
                 )
             });
+    }
+
+    /* Internal Functions */
+
+    /// Adds/Removes a subnet from the ENR Bitfield
+    fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
+        let id = *subnet_id as usize;
+
+        let local_enr = self.discovery.local_enr();
+        let bitfield_bytes = local_enr
+            .get(BITFIELD_ENR_KEY)
+            .ok_or_else(|| "ENR bitfield non-existent")?;
+
+        let mut current_bitfield =
+            BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
+                .map_err(|_| "Could not decode local ENR SSZ bitfield")?;
+
+        if id >= current_bitfield.len() {
+            return Err(format!(
+                "Subnet id: {} is outside the ENR bitfield length: {}",
+                id,
+                current_bitfield.len()
+            ));
+        }
+
+        if current_bitfield
+            .get(id)
+            .map_err(|_| String::from("Subnet ID out of bounds"))?
+            == value
+        {
+            return Err(format!(
+                "Subnet id: {} already in the local ENR already has value: {}",
+                id, value
+            ));
+        }
+
+        // set the subnet bitfield in the ENR
+        current_bitfield
+            .set(id, value)
+            .map_err(|_| String::from("Subnet ID out of bounds, could not set subnet ID"))?;
+
+        // insert the bitfield into the ENR record
+        let _ = self
+            .discovery
+            .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
+
+        Ok(())
     }
 
     /// Search for new peers using the underlying discovery mechanism.
