@@ -156,11 +156,11 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
         let yaml_config = optional_load_from_file!(YAML_CONFIG_FILE);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
-        let file = base_dir.join(GENESIS_STATE_FILE);
-        let genesis_state = if base_dir.join(&file).exists() {
+        let genesis_file_path = base_dir.join(GENESIS_STATE_FILE);
+        let genesis_state = if genesis_file_path.exists() {
             Some(
-                File::open(base_dir.join(&file))
-                    .map_err(|e| format!("Unable to open {:?}: {:?}", file, e))
+                File::open(&genesis_file_path)
+                    .map_err(|e| format!("Unable to open {:?}: {:?}", genesis_file_path, e))
                     .and_then(|mut file| {
                         let mut bytes = vec![];
                         file.read_to_end(&mut bytes)
