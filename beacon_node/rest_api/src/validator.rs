@@ -610,7 +610,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                      * I (Paul H) will pick this up in a future PR.
                      */
 
-                    if signed_proof.is_valid(validator_pubkey, fork) {
+                    if signed_proof.is_valid(validator_pubkey, fork, &beacon_chain.spec) {
                         let attestation = &agg_proof.aggregate;
 
                         match beacon_chain.process_attestation(attestation.clone(), AttestationType::Aggregated) {

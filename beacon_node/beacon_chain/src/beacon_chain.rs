@@ -1231,7 +1231,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Ok(Some(pubkey)) =
             self.validator_pubkey(aggregate_and_proof.aggregator_index as usize)
         {
-            if !signed_aggregate_and_proof.is_valid(&pubkey, &state.fork) {
+            if !signed_aggregate_and_proof.is_valid(&pubkey, &state.fork, &self.spec) {
                 Err(AttestationDropReason::AggregatorSignatureInvalid)
             } else {
                 Ok(())

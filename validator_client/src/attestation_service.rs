@@ -14,7 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::{Delay, Interval};
-use types::{AggregateAndProof, Attestation, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use types::{Attestation, ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
@@ -594,8 +594,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     let signed_aggregate_and_proofs = validator_duties
                         .iter()
                         .filter_map(|duty_and_state| {
-                            let selection_proof = duty_and_state.selection_proof()?;
-
                             let (duty_slot, duty_committee_index, _, validator_index) =
                                 duty_and_state.attestation_duties().or_else(|| {
                                     crit!(log_1, "Missing duties when signing aggregate");
@@ -611,16 +609,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 return None;
                             }
 
-                            // Build the `AggregateAndProof` struct for each validator
-                            let aggregate_and_proof = AggregateAndProof {
-                                aggregator_index: validator_index,
-                                aggregate: aggregated_attestation.clone(),
-                                selection_proof,
-                            };
-
                             if let Some(signed_aggregate_and_proof) = service_1
                                 .validator_store
-                                .sign_aggregate_and_proof(pubkey, aggregate_and_proof)
+                                .produce_signed_aggregate_and_proof(
+                                    pubkey,
+                                    validator_index,
+                                    aggregated_attestation.clone(),
+                                )
                             {
                                 Some(signed_aggregate_and_proof)
                             } else {

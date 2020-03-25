@@ -16,8 +16,8 @@ use types::{
         build_double_vote_attester_slashing, build_proposer_slashing,
         generate_deterministic_keypair, AttesterSlashingTestTask, ProposerSlashingTestTask,
     },
-    BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
-    RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot, Slot, Validator,
+    AggregateAndProof, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec,
+    PublicKey, RelativeEpoch, Signature, SignedBeaconBlock, SignedRoot, Slot, Validator,
 };
 use version;
 
@@ -202,12 +202,32 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestations(vec![attestation]),
+                .publish_attestations(vec![attestation.clone()]),
         )
         .expect("should publish attestation");
     assert!(
         publish_status.is_valid(),
         "the signed published attestation should be valid"
+    );
+
+    // Try obtaining an aggregated attestation with a matching attestation data to the previous
+    // one.
+    let aggregated_attestation = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .produce_aggregate_attestation(&attestation.data),
+        )
+        .expect("should fetch aggregated attestation from http api");
+
+    let signed_aggregate_and_proof = SignedAggregateAndProof::from_aggregate(
+        validator_index as u64,
+        aggregated_attestation,
+        &keypair.sk,
+        &state.fork,
+        spec,
     );
 }
 
