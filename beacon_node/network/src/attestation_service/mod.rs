@@ -279,43 +279,52 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .now()
             .ok_or_else(|| "Could not get the current slot")?;
 
-        // Ignore a subscription to the current slot.
-        if current_slot >= exact_subnet.slot {
-            return Err("Could not subscribe to current slot, insufficient time");
-        }
+        // Calculate the duration to the subscription event and the duration to the end event.
+        // There are two main cases. Attempting to subscribe to the current slot and all others.
+        let (duration_to_subscribe, expected_end_subscription_duration) = {
+            let duration_to_next_slot = self
+                .beacon_chain
+                .slot_clock
+                .duration_to_next_slot()
+                .ok_or_else(|| "Unable to determine duration to next slot")?;
 
-        let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
-        let advance_subscription_duration = slot_duration
-            .checked_div(ADVANCE_SUBSCRIBE_TIME)
-            .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
-        let duration_to_next_slot = self
-            .beacon_chain
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else(|| "Unable to determine duration to next slot")?;
+            if current_slot >= exact_subnet.slot {
+                (Duration::from_secs(0), duration_to_next_slot)
+            } else {
+                let slot_duration =
+                    Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+                let advance_subscription_duration = slot_duration
+                    .checked_div(ADVANCE_SUBSCRIBE_TIME)
+                    .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
 
-        // calculate the time to subscribe to the subnet
-        let duration_to_subscribe = {
-            // The -1 is done here to exclude the current slot duration, as we will use
-            // `duration_to_next_slot`.
-            let slots_until_subscribe = exact_subnet
-                .slot
-                .saturating_sub(current_slot)
-                .saturating_sub(1u64);
+                // calculate the time to subscribe to the subnet
+                let duration_to_subscribe = {
+                    // The -1 is done here to exclude the current slot duration, as we will use
+                    // `duration_to_next_slot`.
+                    let slots_until_subscribe = exact_subnet
+                        .slot
+                        .saturating_sub(current_slot)
+                        .saturating_sub(1u64);
 
-            duration_to_next_slot
-                .checked_add(slot_duration)
-                .ok_or_else(|| "Overflow in adding slot_duration attestation time")?
-                .checked_mul(slots_until_subscribe.as_u64() as u32)
-                .ok_or_else(|| "Overflow in multiplying number of slots in attestation time")?
-                .checked_sub(advance_subscription_duration)
-                .unwrap_or_else(|| Duration::from_secs(0))
+                    duration_to_next_slot
+                        .checked_add(slot_duration)
+                        .ok_or_else(|| "Overflow in adding slot_duration attestation time")?
+                        .checked_mul(slots_until_subscribe.as_u64() as u32)
+                        .ok_or_else(|| {
+                            "Overflow in multiplying number of slots in attestation time"
+                        })?
+                        .checked_sub(advance_subscription_duration)
+                        .unwrap_or_else(|| Duration::from_secs(0))
+                };
+                // the duration until we no longer need this subscription. We assume a single slot is
+                // sufficient.
+                let expected_end_subscription_duration = duration_to_subscribe
+                    + slot_duration
+                    + std::cmp::min(advance_subscription_duration, duration_to_next_slot);
+
+                (duration_to_subscribe, expected_end_subscription_duration)
+            }
         };
-        // the duration until we no longer need this subscription. We assume a single slot is
-        // sufficient.
-        let expected_end_subscription_duration = duration_to_subscribe
-            + slot_duration
-            + std::cmp::min(advance_subscription_duration, duration_to_next_slot);
 
         // Checks on current subscriptions
         // Note: We may be connected to a long-lived random subnet. In this case we still add the
