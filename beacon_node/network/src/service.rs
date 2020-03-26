@@ -78,14 +78,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let propagation_percentage = config.propagation_percentage;
 
         // build the current enr_fork_id for adding to our local ENR
-        let enr_fork_id = beacon_chain
-            .enr_fork_id()
-            .map_err(|e| format!("Could not get the current ENR fork version: {:?}", e))?;
+        let enr_fork_id = beacon_chain.enr_fork_id();
 
         // keep track of when our fork_id needs to be updated
-        let next_fork_update = beacon_chain
-            .duration_to_next_fork()
-            .map_err(|e| format!("Could not get the next fork update duration: {:?}", e))?;
+        let next_fork_update = next_fork_delay(&beacon_chain);
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
@@ -357,10 +353,8 @@ fn spawn_service<T: BeaconChainTypes>(
         if let Some(mut update_fork_delay) =  service.next_fork_update.take() {
             if !update_fork_delay.is_elapsed() {
                 if let Ok(Async::Ready(_)) = update_fork_delay.poll() {
-                        if let Ok(enr_fork_id) = service.beacon_chain.enr_fork_id() {
-                            service.libp2p.swarm.update_fork_version(enr_fork_id);
-                        }
-                        service.next_fork_update = service.beacon_chain.duration_to_next_fork().unwrap_or_else(|_| None);
+                        service.libp2p.swarm.update_fork_version(service.beacon_chain.enr_fork_id());
+                        service.next_fork_update = next_fork_delay(&service.beacon_chain);
                 }
             }
         }
@@ -371,6 +365,18 @@ fn spawn_service<T: BeaconChainTypes>(
     );
 
     Ok(network_exit)
+}
+
+/// Returns a `Delay` that triggers shortly after the next change in the beacon chain fork version.
+/// If there is no scheduled fork, `None` is returned.
+fn next_fork_delay<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+) -> Option<tokio::timer::Delay> {
+    beacon_chain.duration_to_next_fork().map(|until_fork| {
+        // Add a short time-out to start within the new fork period.
+        let delay = Duration::from_millis(200);
+        tokio::timer::Delay::new(Instant::now() + until_fork + delay)
+    })
 }
 
 /// Types of messages that the network service can receive.

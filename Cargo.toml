@@ -34,7 +34,6 @@ members = [
     "beacon_node/client",
     "beacon_node/eth1",
     "beacon_node/eth2-libp2p",
-    "beacon_node/fork",
     "beacon_node/network",
     "beacon_node/rest_api",
     "beacon_node/store",
