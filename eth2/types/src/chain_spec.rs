@@ -3,6 +3,7 @@ use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::Path;
+use tree_hash::TreeHash;
 use utils::{
     fork_from_hex_str, fork_to_hex_str, u32_from_hex_str, u32_to_hex_str, u8_from_hex_str,
     u8_to_hex_str,
@@ -123,6 +124,21 @@ pub struct ChainSpec {
 }
 
 impl ChainSpec {
+    pub fn enr_fork_id(&self, _slot: Slot) -> EnrForkId {
+        // TODO: set this to something sensible once v0.11.0 is ready.
+        let genesis_validators_root = Hash256::zero();
+
+        EnrForkId {
+            fork_digest: Self::compute_fork_digest(
+                self.genesis_fork_version,
+                genesis_validators_root,
+            )
+            .to_le_bytes(),
+            next_fork_version: self.genesis_fork_version,
+            next_fork_epoch: self.far_future_epoch,
+        }
+    }
+
     /// Get the domain number, unmodified by the fork.
     ///
     /// Spec v0.10.1
@@ -154,6 +170,35 @@ impl ChainSpec {
     /// Spec v0.10.1
     pub fn get_deposit_domain(&self) -> u64 {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version)
+    }
+
+    /// Return the 32-byte fork data root for the `current_version` and `genesis_validators_root`.
+    ///
+    /// This is used primarily in signature domains to avoid collisions across forks/chains.
+    ///
+    /// Spec v0.11.0
+    pub fn compute_fork_data_root(
+        current_version: [u8; 4],
+        genesis_validators_root: Hash256,
+    ) -> Hash256 {
+        ForkData {
+            current_version,
+            genesis_validators_root,
+        }
+        .tree_hash_root()
+    }
+
+    /// Return the 4-byte fork digest for the `current_version` and `genesis_validators_root`.
+    ///
+    /// This is a digest primarily used for domain separation on the p2p layer.
+    /// 4-bytes suffices for practical separation of forks/chains.
+    pub fn compute_fork_digest(current_version: [u8; 4], genesis_validators_root: Hash256) -> u32 {
+        let fork_data_root = Self::compute_fork_data_root(current_version, genesis_validators_root);
+
+        let mut bytes = [0; 4];
+        bytes.copy_from_slice(&fork_data_root[0..4]);
+
+        u32::from_le_bytes(bytes)
     }
 
     /// Compute a domain by applying the given `fork_version`.

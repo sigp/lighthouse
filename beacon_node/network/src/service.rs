@@ -78,9 +78,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let propagation_percentage = config.propagation_percentage;
 
         // build the current enr_fork_id for adding to our local ENR
-        let enr_fork_id = beacon_chain
-            .enr_fork_id()
-            .map_err(|e| format!("Could not get the current ENR fork version: {:?}", e))?;
+        let enr_fork_id = beacon_chain.enr_fork_id();
 
         // keep track of when our fork_id needs to be updated
         let next_fork_update = beacon_chain
@@ -357,9 +355,7 @@ fn spawn_service<T: BeaconChainTypes>(
         if let Some(mut update_fork_delay) =  service.next_fork_update.take() {
             if !update_fork_delay.is_elapsed() {
                 if let Ok(Async::Ready(_)) = update_fork_delay.poll() {
-                        if let Ok(enr_fork_id) = service.beacon_chain.enr_fork_id() {
-                            service.libp2p.swarm.update_fork_version(enr_fork_id);
-                        }
+                        service.libp2p.swarm.update_fork_version(service.beacon_chain.enr_fork_id());
                         service.next_fork_update = service.beacon_chain.duration_to_next_fork().unwrap_or_else(|_| None);
                 }
             }

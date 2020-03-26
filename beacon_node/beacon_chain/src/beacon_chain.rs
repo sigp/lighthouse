@@ -2092,17 +2092,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gets the current EnrForkId.
     ///
     /// v0.11
-    pub fn enr_fork_id(&self) -> Result<EnrForkId, Error> {
-        Ok(EnrForkId {
-            // TODO: To be implemented with v0.11 updates
-            fork_digest: [0, 0, 0, 0],
-            next_fork_version: next_fork_version(self.slot()?, &self.disabled_forks),
-            next_fork_epoch: next_fork_epoch::<T::EthSpec>(
-                &self.spec,
-                self.slot()?,
-                &self.disabled_forks,
-            ),
-        })
+    pub fn enr_fork_id(&self) -> EnrForkId {
+        // If we are unable to read the slot clock we assume that it is prior to genesis and
+        // therefore use the genesis slot.
+        let slot = self.slot().unwrap_or_else(|_| self.spec.genesis_slot);
+        self.spec.enr_fork_id(slot)
     }
 
     /// Calculates the duration (in millis) to the next fork, if one exists.

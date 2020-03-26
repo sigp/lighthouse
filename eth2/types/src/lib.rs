@@ -25,6 +25,7 @@ pub mod enr_fork_id;
 pub mod eth1_data;
 pub mod eth_spec;
 pub mod fork;
+pub mod fork_data;
 pub mod free_attestation;
 pub mod historical_batch;
 pub mod indexed_attestation;
@@ -80,6 +81,7 @@ pub use crate::slot_epoch::{Epoch, Slot, FAR_FUTURE_EPOCH};
 pub use crate::subnet_id::SubnetId;
 pub use crate::validator::Validator;
 pub use crate::voluntary_exit::VoluntaryExit;
+pub use fork_data::ForkData;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
