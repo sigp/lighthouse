@@ -80,6 +80,11 @@ pub enum AttestationType {
     Aggregated,
 }
 
+/// The accepted clock drift for nodes gossiping blocks and attestations (spec v0.11.0). See:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.11.0/specs/phase0/p2p-interface.md#configuration
+pub const MAXIMUM_GOSSIP_CLOCK_DISPARITY: Duration = Duration::from_millis(500);
+
 #[derive(Debug, PartialEq)]
 pub enum AttestationProcessingOutcome {
     Processed,
