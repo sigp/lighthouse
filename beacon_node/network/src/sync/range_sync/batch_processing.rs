@@ -68,6 +68,8 @@ fn process_batch<T: BeaconChainTypes>(
                     log, "Parent block is unknown";
                     "parent_root" => format!("{}", parent),
                 );
+
+                return Err(format!("Block has an unknown parent: {}", parent));
             }
             Err(BlockError::BlockIsAlreadyKnown) => {
                 // this block is already known to us, move to the next
@@ -97,6 +99,11 @@ fn process_batch<T: BeaconChainTypes>(
                         "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
                     );
                 }
+
+                return Err(format!(
+                    "Block with slot {} is higher than the current slot {}",
+                    block_slot, present_slot
+                ));
             }
             Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
                 debug!(
@@ -115,6 +122,8 @@ fn process_batch<T: BeaconChainTypes>(
                     "msg" => "unexpected condition in processing block.",
                     "outcome" => format!("{:?}", e)
                 );
+
+                return Err(format!("Internal error whilst processing block: {:?}", e));
             }
             other => {
                 warn!(
@@ -122,6 +131,8 @@ fn process_batch<T: BeaconChainTypes>(
                     "msg" => "peer sent invalid block",
                     "outcome" => format!("{:?}", other),
                 );
+
+                return Err(format!("Peer sent invalid block. Reason: {:?}", other));
             }
         }
     } else {
