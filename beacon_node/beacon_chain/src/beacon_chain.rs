@@ -15,7 +15,6 @@ use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconSnapshot;
-use ::fork::{next_fork_epoch, next_fork_version};
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -2095,51 +2094,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Gets the current EnrForkId.
-    ///
-    /// v0.11
-    pub fn enr_fork_id(&self) -> Result<EnrForkId, Error> {
-        Ok(EnrForkId {
-            // TODO: To be implemented with v0.11 updates
-            fork_digest: [0, 0, 0, 0],
-            next_fork_version: next_fork_version(self.slot()?, &self.disabled_forks),
-            next_fork_epoch: next_fork_epoch::<T::EthSpec>(
-                &self.spec,
-                self.slot()?,
-                &self.disabled_forks,
-            ),
-        })
+    pub fn enr_fork_id(&self) -> EnrForkId {
+        // If we are unable to read the slot clock we assume that it is prior to genesis and
+        // therefore use the genesis slot.
+        let slot = self.slot().unwrap_or_else(|_| self.spec.genesis_slot);
+        self.spec.enr_fork_id(slot)
     }
 
-    /// Calculates the duration (in millis) to the next fork, if one exists.
-    ///
-    /// This is required by the network thread to instantiate timeouts to update networking
-    /// constants
-    pub fn duration_to_next_fork(&self) -> Result<Option<tokio::timer::Delay>, Error> {
-        let current_slot = self.slot()?;
-        let next_fork_epoch =
-            next_fork_epoch::<T::EthSpec>(&self.spec, current_slot, &self.disabled_forks);
-        if next_fork_epoch != self.spec.far_future_epoch {
-            // There is an upcoming fork
-            let current_epoch = self.slot()?.epoch(T::EthSpec::slots_per_epoch());
-            let epochs_until_fork = next_fork_epoch
-                .saturating_sub(current_epoch)
-                .saturating_sub(1u64);
-            let millis_until_fork = T::EthSpec::slots_per_epoch()
-                * self.spec.milliseconds_per_slot
-                * epochs_until_fork.as_u64();
-            Ok(Some(tokio::timer::Delay::new(
-                Instant::now()
-                    + self
-                        .slot_clock
-                        .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
-                        .unwrap_or_else(|| Duration::from_secs(0))
-                    + Duration::from_millis(millis_until_fork)
-                    // add a short timeout to start within the new fork period
-                    + Duration::from_millis(200),
-            )))
-        } else {
-            Ok(None)
-        }
+    /// Calculates the `Duration` to the next fork, if one exists.
+    pub fn duration_to_next_fork(&self) -> Option<Duration> {
+        let epoch = self.spec.next_fork_epoch()?;
+        self.slot_clock
+            .duration_to_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
     }
 }
 
