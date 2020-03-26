@@ -124,6 +124,10 @@ pub struct ChainSpec {
 }
 
 impl ChainSpec {
+    /// Returns an `EnrForkId` for the given `slot`.
+    ///
+    /// Presently, we don't have any forks so we just ignore the slot. In the future this function
+    /// may return something different based upon the slot.
     pub fn enr_fork_id(&self, _slot: Slot) -> EnrForkId {
         // TODO: set this to something sensible once v0.11.0 is ready.
         let genesis_validators_root = Hash256::zero();
@@ -137,6 +141,14 @@ impl ChainSpec {
             next_fork_version: self.genesis_fork_version,
             next_fork_epoch: self.far_future_epoch,
         }
+    }
+
+    /// Returns the epoch of the next scheduled change in the `fork.current_version`.
+    ///
+    /// There are no future forks scheduled so this function always returns `None`. This may not
+    /// always be the case in the future, though.
+    pub fn next_fork_epoch(&self) -> Option<Epoch> {
+        None
     }
 
     /// Get the domain number, unmodified by the fork.
