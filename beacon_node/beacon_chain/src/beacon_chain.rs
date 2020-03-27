@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io::prelude::*;
+use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
@@ -1948,14 +1949,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_slot: Slot,
     ) -> Result<(), Error> {
-        let mut abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> =
-            HashSet::new();
-
         let old_finalized_slot = self
             .get_block(&old_finalized_block_hash.into())?
             .ok_or_else(|| Error::MissingBeaconBlock(old_finalized_block_hash.into()))?
             .message
             .slot;
+
+        // Collect hashes from new_finalized_block up to old_finalized_block
+        let newly_finalized_blocks: HashSet<Hash256> = HashSet::from_iter(
+            ParentRootBlockIterator::new(&*self.store, new_finalized_block_hash.into())
+                .take_while(|(block_hash, _)| *block_hash != old_finalized_block_hash.into())
+                .map(|(block_hash, _)| block_hash),
+        );
+
+        let mut abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> =
+            HashSet::new();
 
         for (head_hash, _) in self.heads() {
             let mut potentially_abandoned_blocks: HashSet<(
@@ -1980,24 +1988,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 } else if signed_beacon_block.message.slot == new_finalized_slot
                     && block_hash == new_finalized_block_hash
                 {
-                    // The current head includes the newly finalized block, so we're either on
-                    // the canonical chain or on a legitimate candidate for the canonical
+                    // The current head includes the newly finalized epoch boundary block, so we're
+                    // either on the canonical chain or on a legitimate candidate for the canonical
                     // chain.  Do not remove any blocks.
+
                     potentially_abandoned_blocks.clear();
                     break;
                 } else {
-                    // We've got a block which doesn't include the newly finalized block. Moreover,
-                    // its slot number is lower than the newly finalized block's one. This means
-                    // this is a "neglected" fork created by some peers.  By now, it can't be
-                    // extended to include the newly finalized block since necessary slot numbers
-                    // are already occupied by the canonical chain.  Therefore, we can safely get
-                    // rid of this head and its blocks.
+                    // We've got a block which doesn't include the newly finalized epoch boundary
+                    // block. Moreover, its slot number is lower than the newly finalized epoch
+                    // boundary block's one. This means this is a "neglected" fork created by some
+                    // peers.  By now, it can't be extended to include the newly finalized epoch
+                    // boundary block since necessary slot numbers are already occupied by the
+                    // canonical chain.  Therefore, we can safely get rid of this head and its
+                    // blocks.
 
                     abandoned_blocks.extend(potentially_abandoned_blocks.drain());
                     abandoned_blocks.extend(
                         ParentRootBlockIterator::new(&*self.store, block_hash.into())
-                            .take_while(|(_, signed_beacon_block)| {
+                            .take_while(|(block_hash, signed_beacon_block)| {
                                 signed_beacon_block.message.slot > old_finalized_slot
+                                    && !newly_finalized_blocks.contains(&block_hash)
                             })
                             .map(|(block_hash, signed_beacon_block)| {
                                 (

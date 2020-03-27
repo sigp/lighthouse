@@ -827,7 +827,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 
     // Trigger finalization
-    let (_, _, _, _) = harness.add_canonical_chain_blocks(
+    let (canonical_blocks, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
         slots_per_epoch * 5,
@@ -842,6 +842,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         vec![
             Hash256::zero().into(),
             canonical_blocks_zeroth_epoch[&Slot::new(slots_per_epoch as u64)],
+            canonical_blocks[&Slot::new((slots_per_epoch * 2) as u64)],
         ]
         .into_iter()
         .collect()
