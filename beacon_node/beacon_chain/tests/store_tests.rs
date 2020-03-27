@@ -779,6 +779,89 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     assert!(!harness.chain.knows_head(&stray_head));
 }
 
+#[test]
+fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
+    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
+    let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
+    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
+    let all_validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+
+    // Fill up 0th epoch
+    let slot = harness.get_chain_slot();
+    let state = harness.get_chain_state(slot);
+    let (canonical_blocks_zeroth_epoch, slot, _, state) =
+        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+
+    // Fill up 1st epoch
+    let (_, canonical_slot, shared_head, canonical_state) =
+        harness.add_canonical_chain_blocks(state, slot, 1, &all_validators);
+    let (stray_blocks, _, stray_head, _) = harness.add_stray_blocks(
+        canonical_state.clone(),
+        canonical_slot,
+        1,
+        &faulty_validators,
+    );
+
+    // Preconditions
+    for (_, block_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_block(&((*block_hash).into()))
+                .unwrap()
+                .is_some(),
+            "stray blocks should be still present",
+        );
+    }
+
+    let chain_dump = harness.chain.chain_dump().unwrap();
+    assert_eq!(
+        get_finalized_blocks(&chain_dump),
+        vec![Hash256::zero().into()].into_iter().collect(),
+    );
+
+    assert!(get_blocks(&chain_dump).contains(&shared_head));
+
+    // Trigger finalization
+    let (_, _, _, _) = harness.add_canonical_chain_blocks(
+        canonical_state,
+        canonical_slot,
+        slots_per_epoch * 5,
+        &honest_validators,
+    );
+
+    // Postconditions
+    let chain_dump = harness.chain.chain_dump().unwrap();
+    let finalized_blocks = get_finalized_blocks(&chain_dump);
+    assert_eq!(
+        finalized_blocks,
+        vec![
+            Hash256::zero().into(),
+            canonical_blocks_zeroth_epoch[&Slot::new(slots_per_epoch as u64)],
+        ]
+        .into_iter()
+        .collect()
+    );
+
+    for (_, block_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_block(&((*block_hash).into()))
+                .unwrap()
+                .is_none(),
+            "stray blocks should have been pruned",
+        );
+    }
+
+    assert!(!harness.chain.knows_head(&stray_head));
+    assert!(get_blocks(&chain_dump).contains(&shared_head));
+}
+
 // Forks post finalization: check that they aren't pruned
 #[test]
 fn pruning_does_not_touch_blocks_prior_to_finalization() {
@@ -1082,5 +1165,12 @@ fn get_finalized_blocks(dump: &[CheckPoint<MinimalEthSpec>]) -> HashSet<SignedBe
     dump.iter()
         .cloned()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint.root.into())
+        .collect()
+}
+
+fn get_blocks(dump: &[CheckPoint<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
+    dump.iter()
+        .cloned()
+        .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
 }
