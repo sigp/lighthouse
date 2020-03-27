@@ -135,6 +135,10 @@ impl SlotClock for ManualSlotClock {
         self.slot_duration
     }
 
+    fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
+        self.duration_to_slot(slot, *self.current_time.read())
+    }
+
     fn genesis_slot(&self) -> Slot {
         self.genesis_slot
     }
