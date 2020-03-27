@@ -25,7 +25,7 @@ pub use self::beacon_chain::{
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::errors::{BeaconChainError, BlockProductionError};
-pub use block_verification::{BlockError, BlockProcessingOutcome};
+pub use block_verification::{BlockError, BlockProcessingOutcome, GossipVerifiedBlock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::EventHandler;
 pub use fork_choice::ForkChoice;

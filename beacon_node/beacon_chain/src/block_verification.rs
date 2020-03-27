@@ -209,7 +209,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
-    block: SignedBeaconBlock<T::EthSpec>,
+    pub block: SignedBeaconBlock<T::EthSpec>,
     block_root: Hash256,
     parent: BeaconSnapshot<T::EthSpec>,
 }
