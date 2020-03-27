@@ -2,7 +2,7 @@ use crate::block_verification::{
     check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
     FullyVerifiedBlock, GossipVerifiedBlock, IntoFullyVerifiedBlock,
 };
-use crate::errors::{AttestationDropReason, BeaconChainError as Error, BlockProductionError};
+use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
@@ -1200,90 +1200,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(AttestationProcessingOutcome::Processed)
         } else {
             Ok(AttestationProcessingOutcome::InvalidSignature)
-        }
-    }
-
-    /// Check that the `aggregator_index` in an aggregate attestation is as it should be.
-    // TODO: Check for optimisation/relevance
-    fn check_attestation_aggregator(
-        &self,
-        signed_aggregate_and_proof: &SignedAggregateAndProof<T::EthSpec>,
-        indexed_attestation: &IndexedAttestation<T::EthSpec>,
-        state: &BeaconState<T::EthSpec>,
-    ) -> Result<(), AttestationDropReason> {
-        let aggregate_and_proof = &signed_aggregate_and_proof.message;
-        let attestation = &aggregate_and_proof.aggregate;
-
-        // Check that aggregator index is part of the committee attesting (quick).
-        if !indexed_attestation
-            .attesting_indices
-            .contains(&aggregate_and_proof.aggregator_index)
-        {
-            return Err(AttestationDropReason::AggregatorNotInAttestingIndices);
-        }
-        // Check that the aggregator is allowed to be aggregating (medium, one hash).
-        else if !state
-            .is_aggregator(
-                attestation.data.slot,
-                attestation.data.index,
-                &aggregate_and_proof.selection_proof,
-                &self.spec,
-            )
-            .unwrap_or(false)
-        {
-            return Err(AttestationDropReason::AggregatorNotSelected);
-        }
-        // Check that the signature is valid and the aggregator's selection proof is valid (slow-ish). Two sig verifications
-        if let Ok(Some(pubkey)) =
-            self.validator_pubkey(aggregate_and_proof.aggregator_index as usize)
-        {
-            if !signed_aggregate_and_proof.is_valid(&pubkey, &state.fork, &self.spec) {
-                Err(AttestationDropReason::AggregatorSignatureInvalid)
-            } else {
-                Ok(())
-            }
-        } else {
-            Err(AttestationDropReason::AggregatorNotInAttestingIndices)
-        }
-    }
-
-    /// Check that an attestation's slot doesn't make it ineligible for gossip.
-    fn check_attestation_slot_for_gossip(
-        &self,
-        attestation: &Attestation<T::EthSpec>,
-    ) -> Result<(), AttestationDropReason> {
-        // `now_low_slot` is the slot of the current time minus MAXIMUM_GOSSIP_CLOCK_DISPARITY
-        // `now_high_slot` is the slot of the current time plus MAXIMUM_GOSSIP_CLOCK_DISPARITY
-        let (now_low_slot, now_high_slot) = self
-            .slot_clock
-            .now_duration()
-            .and_then(|now| {
-                let maximum_clock_disparity =
-                    Duration::from_millis(self.spec.maximum_gossip_clock_disparity_millis);
-                let now_low_duration = now.checked_sub(maximum_clock_disparity)?;
-                let now_high_duration = now.checked_add(maximum_clock_disparity)?;
-                Some((
-                    self.slot_clock.slot_of(now_low_duration)?,
-                    self.slot_clock.slot_of(now_high_duration)?,
-                ))
-            })
-            .ok_or_else(|| AttestationDropReason::SlotClockError)?;
-
-        let min_slot = attestation.data.slot;
-        let max_slot = min_slot + self.spec.attestation_propagation_slot_range;
-
-        if now_high_slot < min_slot {
-            Err(AttestationDropReason::TooNew {
-                attestation_slot: min_slot,
-                now: now_high_slot,
-            })
-        } else if now_low_slot > max_slot {
-            Err(AttestationDropReason::TooOld {
-                attestation_slot: min_slot,
-                now: now_low_slot,
-            })
-        } else {
-            Ok(())
         }
     }
 

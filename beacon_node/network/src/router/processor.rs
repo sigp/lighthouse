@@ -1,6 +1,9 @@
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use beacon_chain::{
+    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
+    BlockProcessingOutcome, GossipVerifiedBlock,
+};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
@@ -9,7 +12,9 @@ use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
-use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    Attestation, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, Slot,
+};
 
 //TODO: Rate limit requests
 
@@ -468,18 +473,11 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Template function to be called on a block to determine if the block should be propagated
     /// across the network.
-    pub fn should_forward_block(&mut self, _block: &Box<SignedBeaconBlock<T::EthSpec>>) -> bool {
-        // TODO: Propagate error once complete
-        // self.chain.should_forward_block(block).is_ok()
-        true
-    }
-
-    /// Template function to be called on an attestation to determine if the attestation should be propagated
-    /// across the network.
-    pub fn _should_forward_attestation(&mut self, _attestation: &Attestation<T::EthSpec>) -> bool {
-        // TODO: Propagate error once complete
-        //self.chain.should_forward_attestation(attestation).is_ok()
-        true
+    pub fn should_forward_block(
+        &mut self,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+        self.chain.verify_block_for_gossip(*block)
     }
 
     /// Process a gossip message declaring a new block.
@@ -490,9 +488,10 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_block_gossip(
         &mut self,
         peer_id: PeerId,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        verified_block: GossipVerifiedBlock<T>,
     ) -> bool {
-        match BlockProcessingOutcome::shim(self.chain.process_block(*block.clone())) {
+        let block = Box::new(verified_block.block.clone());
+        match BlockProcessingOutcome::shim(self.chain.process_block(verified_block)) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
@@ -550,6 +549,79 @@ impl<T: BeaconChainTypes> Processor<T> {
         }
         // TODO: Update with correct block gossip checking
         true
+    }
+
+    /// Verifies the Aggregate attestation before propagating.
+    pub fn should_forward_aggregate_attestation(
+        &self,
+        _aggregate_and_proof: &Box<SignedAggregateAndProof<T::EthSpec>>,
+    ) -> bool {
+        // TODO: Implement
+        true
+    }
+
+    /// Verifies the attestation before propagating.
+    pub fn should_forward_attestation(&self, _aggregate: &Attestation<T::EthSpec>) -> bool {
+        // TODO: Implement
+        true
+    }
+
+    /// Process a new attestation received from gossipsub.
+    pub fn process_attestation_gossip(
+        &mut self,
+        peer_id: PeerId,
+        msg: Attestation<T::EthSpec>,
+        attestation_type: AttestationType,
+    ) {
+        match self
+            .chain
+            .process_attestation(msg.clone(), attestation_type)
+        {
+            Ok(outcome) => match outcome {
+                AttestationProcessingOutcome::Processed => {
+                    debug!(
+                        self.log,
+                        "Processed attestation";
+                        "source" => "gossip",
+                        "peer" => format!("{:?}",peer_id),
+                        "block_root" => format!("{}", msg.data.beacon_block_root),
+                        "slot" => format!("{}", msg.data.slot),
+                    );
+                }
+                AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {
+                    // TODO: Maintain this attestation and re-process once sync completes
+                    trace!(
+                    self.log,
+                    "Attestation for unknown block";
+                    "peer_id" => format!("{:?}", peer_id),
+                    "block" => format!("{}", beacon_block_root)
+                    );
+                    // we don't know the block, get the sync manager to handle the block lookup
+                    self.send_to_sync(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root));
+                }
+                AttestationProcessingOutcome::FutureEpoch { .. }
+                | AttestationProcessingOutcome::PastEpoch { .. }
+                | AttestationProcessingOutcome::UnknownTargetRoot { .. }
+                | AttestationProcessingOutcome::FinalizedSlot { .. } => {} // ignore the attestation
+                AttestationProcessingOutcome::Invalid { .. }
+                | AttestationProcessingOutcome::EmptyAggregationBitfield { .. }
+                | AttestationProcessingOutcome::AttestsToFutureBlock { .. }
+                | AttestationProcessingOutcome::InvalidSignature
+                | AttestationProcessingOutcome::NoCommitteeForSlotAndIndex { .. }
+                | AttestationProcessingOutcome::BadTargetEpoch { .. } => {
+                    // the peer has sent a bad attestation. Remove them.
+                    self.network.disconnect(peer_id, GoodbyeReason::Fault);
+                }
+            },
+            Err(_) => {
+                // error is logged during the processing therefore no error is logged here
+                trace!(
+                    self.log,
+                    "Erroneous gossip attestation ssz";
+                    "ssz" => format!("0x{}", hex::encode(msg.as_ssz_bytes())),
+                );
+            }
+        };
     }
 }
 
