@@ -3,7 +3,7 @@ use eth2_hashing::hash;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use types::{ChainSpec, CommitteeIndex, Domain, Epoch, Fork, SignedRoot, Slot};
+use types::{CommitteeIndex, Epoch, Slot};
 
 /// A Validator duty with the validator public key represented a `PublicKeyBytes`.
 pub type ValidatorDutyBytes = ValidatorDutyBase<PublicKeyBytes>;
@@ -64,45 +64,9 @@ pub struct ValidatorSubscription {
     /// The index of the committee within `slot` of which the validator is a member. Used by the
     /// beacon node to quickly evaluate the associated `SubnetId`.
     pub attestation_committee_index: CommitteeIndex,
-    /// The slot the validator is signing.
+    /// The slot in which to subscribe.
     pub slot: Slot,
-    /// The signature of the slot by the validator.
-    pub slot_signature: Signature,
-}
-
-impl ValidatorSubscription {
-    pub fn new(
-        validator_index: u64,
-        attestation_committee_index: CommitteeIndex,
-        slot: Slot,
-        slot_signature: Signature,
-    ) -> Self {
-        ValidatorSubscription {
-            validator_index,
-            attestation_committee_index,
-            slot,
-            slot_signature,
-        }
-    }
-
-    /// Verifies the subscription signature.
-    pub fn verify(
-        &self,
-        pubkey: &PublicKey,
-        spec: &ChainSpec,
-        fork: &Fork,
-        slots_per_epoch: u64,
-    ) -> bool {
-        let domain = spec.get_domain(
-            self.slot.epoch(slots_per_epoch),
-            Domain::SelectionProof,
-            &fork,
-        );
-        let message = self.slot.signing_root(domain);
-        if self.slot_signature.verify(message.as_bytes(), pubkey) {
-            true
-        } else {
-            false
-        }
-    }
+    /// If true, the validator is an aggregator and the beacon node should aggregate attestations
+    /// for this slot.
+    pub is_aggregator: bool,
 }
