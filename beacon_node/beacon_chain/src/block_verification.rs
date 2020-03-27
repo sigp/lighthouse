@@ -42,10 +42,14 @@
 //! ```
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    beacon_chain::{BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
+    beacon_chain::{
+        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+        VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+    },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
 };
 use parking_lot::RwLockReadGuard;
+use slot_clock::SlotClock;
 use state_processing::{
     block_signature_verifier::{
         BlockSignatureVerifier, Error as BlockSignatureVerifierError, G1Point,
@@ -259,19 +263,18 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         // Do not gossip or process blocks from future slots.
-        //
-        // TODO: adjust this to allow for clock disparity tolerance.
-        let present_slot = chain.slot()?;
-        if block.slot() > present_slot {
+        let present_slot_with_tolerance = chain
+            .slot_clock
+            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+            .ok_or_else(|| BeaconChainError::UnableToReadSlot)?;
+        if block.slot() > present_slot_with_tolerance {
             return Err(BlockError::FutureSlot {
-                present_slot,
+                present_slot: present_slot_with_tolerance,
                 block_slot: block.slot(),
             });
         }
 
         // Do not gossip a block from a finalized slot.
-        //
-        // TODO: adjust this to allow for clock disparity tolerance.
         check_block_against_finalized_slot(&block.message, chain)?;
 
         // TODO: add check for the `(block.proposer_index, block.slot)` tuple once we have v0.11.0

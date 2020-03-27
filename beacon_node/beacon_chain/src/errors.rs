@@ -72,8 +72,8 @@ easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
 easy_from_to!(OpPoolError, BeaconChainError);
-easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(NaiveAggregationError, BeaconChainError);
+easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]
 pub enum BlockProductionError {
