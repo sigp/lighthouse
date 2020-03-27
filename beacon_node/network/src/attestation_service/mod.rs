@@ -29,6 +29,8 @@ const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150; // 30 mins at a 12s slot time
 ///
 /// Note: The time is calculated as `time = milliseconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`
 const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
+/// The the default number of slots before items in hash delay sets used by this class should expire
+const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3; // 36s at 12s slot time
 
 #[derive(Debug, PartialEq)]
 pub enum AttServiceMessage {
@@ -90,23 +92,28 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         // calculate the random subnet duration from the spec constants
         let spec = &beacon_chain.spec;
+        let slot_duration = beacon_chain.slot_clock.slot_duration();
         let random_subnet_duration_millis = spec
             .epochs_per_random_subnet_subscription
             .saturating_mul(T::EthSpec::slots_per_epoch())
-            .saturating_mul(spec.milliseconds_per_slot);
+            .saturating_mul(slot_duration.as_millis() as u64);
 
         // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT is not too large.
-        let last_seen_val_timeout = Duration::from_millis(spec.milliseconds_per_slot)
+        let last_seen_val_timeout = slot_duration
             .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT)
             .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
+        let default_timeout = slot_duration
+            .checked_mul(DEFAULT_EXPIRATION_TIMEOUT)
+            .expect("DEFAULT_EXPIRATION_TIMEOUT must not be ridiculoustly large");
+
         AttestationService {
             events: VecDeque::with_capacity(10),
             network_globals,
             beacon_chain,
             random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
-            discover_peers: HashSetDelay::default(),
-            subscriptions: HashSetDelay::default(),
-            unsubscriptions: HashSetDelay::default(),
+            discover_peers: HashSetDelay::new(default_timeout),
+            subscriptions: HashSetDelay::new(default_timeout),
+            unsubscriptions: HashSetDelay::new(default_timeout),
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             log,
         }
@@ -194,7 +201,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .slot_clock
             .now()
             .ok_or_else(|| "Could not get the current slot")?;
-        let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+        let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
         // if there is enough time to perform a discovery lookup
         if subscription_slot >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD) {
@@ -280,7 +287,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             return Err("Could not subscribe to current slot, insufficient time");
         }
 
-        let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+        let slot_duration = self.beacon_chain.slot_clock.slot_duration();
         let advance_subscription_duration = slot_duration
             .checked_div(ADVANCE_SUBSCRIBE_TIME)
             .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
@@ -432,7 +439,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         if let Some(expiry) = self.random_subnets.get(&subnet_id) {
             // we are subscribed via a random subnet, if this is to expire during the time we need
             // to be subscribed, just extend the expiry
-            let slot_duration = Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+            let slot_duration = self.beacon_chain.slot_clock.slot_duration();
             let advance_subscription_duration = slot_duration
                 .checked_div(ADVANCE_SUBSCRIBE_TIME)
                 .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
@@ -552,8 +559,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     .ok_or_else(|| {
                         warn!(self.log, "Unable to determine duration to next slot");
                     })?;
-                let slot_duration =
-                    Duration::from_millis(self.beacon_chain.spec.milliseconds_per_slot);
+                let slot_duration = self.beacon_chain.slot_clock.slot_duration();
                 // Set the unsubscription timeout
                 let unsubscription_duration = duration_to_next_slot + slot_duration * 2;
                 self.unsubscriptions
