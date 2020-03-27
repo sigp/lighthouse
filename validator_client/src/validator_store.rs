@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, SelectionProof,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 #[derive(Clone)]
@@ -215,6 +215,24 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Some(SignedAggregateAndProof::from_aggregate(
             validator_index,
             aggregate,
+            &voting_keypair.sk,
+            &self.fork()?,
+            &self.spec,
+        ))
+    }
+
+    /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
+    /// `validator_pubkey`.
+    pub fn produce_selection_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        slot: Slot,
+    ) -> Option<SelectionProof> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+
+        Some(SelectionProof::new::<E>(
+            slot,
             &voting_keypair.sk,
             &self.fork()?,
             &self.spec,
