@@ -309,4 +309,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .help("A file from which to read the state"))
             )
         )
+        /*
+         * The "purge" sub-command.
+         *
+         * Allows user to purge beacon database
+         */
+        .subcommand(SubCommand::with_name("purge")
+            .about("Purge the beacon chain database.")
+        )
 }
