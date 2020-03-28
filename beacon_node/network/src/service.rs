@@ -274,11 +274,6 @@ fn spawn_service<T: BeaconChainTypes>(
                 AttServiceMessage::DiscoverPeers(subnet_id) => {
                     service.libp2p.swarm.peers_request(subnet_id);
                 },
-                AttServiceMessage::Propagate(source, message_id) => {
-                            service.libp2p
-                                .swarm
-                                .propagate_message(&source, message_id);
-                    }
             }
         }
 
@@ -317,13 +312,16 @@ fn spawn_service<T: BeaconChainTypes>(
 
                         match message.data {
                             // attestation information gets processed in the attestation service
-                            PubsubData::AggregateAndProofAttestation(signed_aggregate_and_proof) => {
-                                service.attestation_service.handle_aggregate_attestation(id, source, *signed_aggregate_and_proof);
-                            },
-                            PubsubData::Attestation(subnet_and_attestation) => {
-                                let subnet = subnet_and_attestation.0;
-                                let attestation = subnet_and_attestation.1;
-                                service.attestation_service.handle_unaggregated_attestation(id, source, subnet, attestation);
+                            PubsubData::Attestation(ref subnet_and_attestation) => {
+                                let subnet = &subnet_and_attestation.0;
+                                let attestation = &subnet_and_attestation.1;
+                                // checks if we have an aggregator for the slot. If so, we process
+                                // the attestation
+                                if service.attestation_service.should_process_attestation(&id, &source, subnet, attestation) {
+                           service.router_send
+                                .try_send(RouterMessage::PubsubMessage(id, source, message))
+                                .map_err(|_| { debug!(log, "Failed to send pubsub message to router");})?;
+                            }
                             }
                             _ => {
                                 // all else is sent to the router

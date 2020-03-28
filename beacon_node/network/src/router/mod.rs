@@ -8,7 +8,7 @@ pub mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
     MessageId, PeerId, PubsubData, PubsubMessage, RPCEvent,
@@ -16,7 +16,7 @@ use eth2_libp2p::{
 use futures::future::Future;
 use futures::stream::Stream;
 use processor::Processor;
-use slog::{crit, debug, o, trace, warn};
+use slog::{debug, o, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -218,12 +218,43 @@ impl<T: BeaconChainTypes> Router<T> {
         gossip_message: PubsubMessage<T::EthSpec>,
     ) {
         match gossip_message.data {
-            PubsubData::BeaconBlock(block) => {
-                if self.processor.should_forward_block(&block) {
+            // Attestations should never reach the router.
+            PubsubData::AggregateAndProofAttestation(aggregate_and_proof) => {
+                if self
+                    .processor
+                    .should_forward_aggregate_attestation(&aggregate_and_proof)
+                {
                     self.propagate_message(id, peer_id.clone());
                 }
-                self.processor.on_block_gossip(peer_id, block);
+                self.processor.process_attestation_gossip(
+                    peer_id,
+                    aggregate_and_proof.message.aggregate,
+                    AttestationType::Aggregated,
+                );
             }
+            PubsubData::Attestation(subnet_attestation) => {
+                if self
+                    .processor
+                    .should_forward_attestation(&subnet_attestation.1)
+                {
+                    self.propagate_message(id, peer_id.clone());
+                }
+                self.processor.process_attestation_gossip(
+                    peer_id,
+                    subnet_attestation.1,
+                    AttestationType::Unaggregated { should_store: true },
+                );
+            }
+            PubsubData::BeaconBlock(block) => match self.processor.should_forward_block(block) {
+                Ok(verified_block) => {
+                    self.propagate_message(id, peer_id.clone());
+                    self.processor.on_block_gossip(peer_id, verified_block);
+                }
+                Err(e) => {
+                    warn!(self.log, "Could not verify block for gossip";
+                            "error" => format!("{:?}", e));
+                }
+            },
             PubsubData::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
@@ -241,19 +272,6 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle attester slashings
                 debug!(self.log, "Received an attester slashing"; "peer_id" => format!("{}", peer_id) );
-            }
-            // Attestations should never reach the router.
-            PubsubData::AggregateAndProofAttestation(_agg_attestation) => {
-                crit!(
-                    self.log,
-                    "Attestations should always be handled by the attestation service"
-                );
-            }
-            PubsubData::Attestation(_boxed_subnet_attestation) => {
-                crit!(
-                    self.log,
-                    "Attestations should always be handled by the attestation service"
-                );
             }
         }
     }
