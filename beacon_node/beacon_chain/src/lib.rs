@@ -2,6 +2,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod attestation_verification;
 mod beacon_chain;
 mod beacon_snapshot;
 mod block_verification;
