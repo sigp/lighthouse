@@ -756,7 +756,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     root: target_root,
                 },
             },
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty_signature(),
         })
     }
 
