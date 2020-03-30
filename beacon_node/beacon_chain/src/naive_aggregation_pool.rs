@@ -61,10 +61,10 @@ struct AggregatedAttestationMap<E: EthSpec> {
 
 impl<E: EthSpec> AggregatedAttestationMap<E> {
     /// Create an empty collection that will only contain attestation for the given `slot`.
-    pub fn new(slot: Slot) -> Self {
+    pub fn new(slot: Slot, initial_capacity: usize) -> Self {
         Self {
             slot,
-            map: <_>::default(),
+            map: HashMap::with_capacity(initial_capacity),
         }
     }
 
@@ -132,6 +132,10 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
         }
 
         Ok(self.map.get(data).cloned())
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
     }
 }
 
@@ -237,9 +241,22 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             return index;
         }
 
+        // To avoid re-allocations, try and determine a rough initial capacity for the new map by
+        // obtaining the mean size of all maps in earlier slots.
+        let initial_capacity = maps
+            .iter()
+            // Only include slots that are less than the given slot in the average. This should
+            // generally avoid including recent slots that are still "filling up".
+            .filter(|map| map.slot < slot)
+            .map(|map| map.len())
+            .sum::<usize>()
+            .checked_div(maps.len())
+            // If we are unable to determine an average, just use 8 as a stab in the dark.
+            .unwrap_or_else(|| 8);
+
         if maps.len() < SLOTS_RETAINED || maps.is_empty() {
             let index = maps.len();
-            maps.push(AggregatedAttestationMap::new(slot));
+            maps.push(AggregatedAttestationMap::new(slot, initial_capacity));
             return index;
         }
 
@@ -250,7 +267,7 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             .map(|(i, _map)| i)
             .expect("maps cannot be empty due to previous .is_empty() check");
 
-        maps[index] = AggregatedAttestationMap::new(slot);
+        maps[index] = AggregatedAttestationMap::new(slot, initial_capacity);
 
         index
     }

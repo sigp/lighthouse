@@ -14,6 +14,7 @@ mod fork_choice;
 mod head_tracker;
 mod metrics;
 mod naive_aggregation_pool;
+mod observed_attestations;
 mod persisted_beacon_chain;
 mod shuffling_cache;
 mod snapshot_cache;
