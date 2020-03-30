@@ -122,12 +122,7 @@ pub fn route<T: BeaconChainTypes>(
                 into_boxfut(response)
             }
             (&Method::POST, "/validator/subscribe") => {
-                validator::post_validator_subscriptions::<T>(
-                    req,
-                    beacon_chain,
-                    network_channel,
-                    log,
-                )
+                validator::post_validator_subscriptions::<T>(req, network_channel)
             }
             (&Method::GET, "/validator/duties/all") => {
                 into_boxfut(validator::get_all_validator_duties::<T>(req, beacon_chain))
