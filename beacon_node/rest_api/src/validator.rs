@@ -59,9 +59,7 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
 /// organise peer discovery and topic subscription for known validators.
 pub fn post_validator_subscriptions<T: BeaconChainTypes>(
     req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
     mut network_chan: NetworkChannel<T::EthSpec>,
-    log: Logger,
 ) -> BoxFut {
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
@@ -79,41 +77,6 @@ pub fn post_validator_subscriptions<T: BeaconChainTypes>(
                 })
             })
             .and_then(move |subscriptions: Vec<ValidatorSubscription>| {
-                let fork = beacon_chain
-                    .wall_clock_state()
-                    .map(|state| state.fork.clone())
-                    .map_err(|e| {
-                        error!(log, "Unable to get current beacon state");
-                        ApiError::ServerError(format!("Error getting current beacon state {:?}", e))
-                    })?;
-
-                // verify the signatures in parallel
-                subscriptions.par_iter().try_for_each(|subscription| {
-                    if let Some(pubkey) =
-                        &beacon_chain.validator_pubkey(subscription.validator_index as usize)?
-                    {
-                        if subscription.verify(
-                            pubkey,
-                            &beacon_chain.spec,
-                            &fork,
-                            T::EthSpec::slots_per_epoch(),
-                        ) {
-                            Ok(())
-                        } else {
-                            error!(log, "HTTP RPC sent invalid signatures");
-                            Err(ApiError::ProcessingError(format!(
-                                "Could not verify signatures"
-                            )))
-                        }
-                    } else {
-                        error!(log, "HTTP RPC sent unknown validator");
-                        Err(ApiError::ProcessingError(format!(
-                            "Could not verify signatures"
-                        )))
-                    }
-                })?;
-
-                // subscriptions are verified, send them to the network thread
                 network_chan
                     .try_send(NetworkMessage::Subscribe { subscriptions })
                     .map_err(|e| {
