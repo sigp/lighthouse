@@ -11,7 +11,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PartialBeaconState<T>
 where

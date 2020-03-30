@@ -25,7 +25,7 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
@@ -121,7 +121,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Get the domain number, unmodified by the fork.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn get_domain_constant(&self, domain: Domain) -> u32 {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
@@ -136,7 +136,7 @@ impl ChainSpec {
 
     /// Get the domain that represents the fork meta and signature domain.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn get_domain(
         &self,
         epoch: Epoch,
@@ -153,7 +153,7 @@ impl ChainSpec {
     /// Deposits are valid across forks, thus the deposit domain is computed
     /// with the genesis fork version.
     ///
-    /// Spec v0.11.0
+    /// Spec v0.11.1
     pub fn get_deposit_domain(&self) -> Hash256 {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
     }
@@ -162,7 +162,7 @@ impl ChainSpec {
     ///
     /// This is used primarily in signature domains to avoid collisions across forks/chains.
     ///
-    /// Spec v0.11.0
+    /// Spec v0.11.1
     pub fn compute_fork_data_root(
         current_version: [u8; 4],
         genesis_validators_root: Hash256,
@@ -176,7 +176,7 @@ impl ChainSpec {
 
     /// Compute a domain by applying the given `fork_version`.
     ///
-    /// Spec v0.11.0
+    /// Spec v0.11.1
     pub fn compute_domain(
         &self,
         domain: Domain,
@@ -196,7 +196,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn mainnet() -> Self {
         Self {
             /*
@@ -288,7 +288,7 @@ impl ChainSpec {
 
     /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
@@ -506,7 +506,7 @@ impl Default for YamlConfig {
     }
 }
 
-/// Spec v0.10.1
+/// Spec v0.11.1
 impl YamlConfig {
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {

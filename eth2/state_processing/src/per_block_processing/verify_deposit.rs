@@ -14,7 +14,7 @@ fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) -> Result<()> {
     let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data, spec)
         .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
@@ -46,7 +46,7 @@ pub fn get_existing_validator_index<T: EthSpec>(
 /// The deposit index is provided as a parameter so we can check proofs
 /// before they're due to be processed, and in parallel.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
