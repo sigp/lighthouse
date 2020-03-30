@@ -238,23 +238,4 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             &self.spec,
         ))
     }
-
-    /// Signs a slot for a given validator.
-    ///
-    /// This is used to subscribe a validator to a beacon node and is used to determine if the
-    /// validator is to aggregate attestations for this slot.
-    pub fn sign_slot(&self, validator_pubkey: &PublicKey, slot: Slot) -> Option<Signature> {
-        let validators = self.validators.read();
-        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
-
-        let domain = self.spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
-            Domain::SelectionProof,
-            &self.fork()?,
-        );
-
-        let message = slot.signing_root(domain);
-
-        Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
-    }
 }
