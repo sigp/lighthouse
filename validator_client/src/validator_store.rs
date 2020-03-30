@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, SelectionProof,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 #[derive(Clone)]
@@ -221,22 +221,21 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         ))
     }
 
-    /// Signs a slot for a given validator.
-    ///
-    /// This is used to subscribe a validator to a beacon node and is used to determine if the
-    /// validator is to aggregate attestations for this slot.
-    pub fn sign_slot(&self, validator_pubkey: &PublicKey, slot: Slot) -> Option<Signature> {
+    /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
+    /// `validator_pubkey`.
+    pub fn produce_selection_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        slot: Slot,
+    ) -> Option<SelectionProof> {
         let validators = self.validators.read();
         let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
 
-        let domain = self.spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
-            Domain::SelectionProof,
+        Some(SelectionProof::new::<E>(
+            slot,
+            &voting_keypair.sk,
             &self.fork()?,
-        );
-
-        let message = slot.signing_root(domain);
-
-        Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
+            &self.spec,
+        ))
     }
 }

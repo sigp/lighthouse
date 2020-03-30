@@ -1,5 +1,6 @@
 use super::{
-    Attestation, ChainSpec, Domain, EthSpec, Fork, PublicKey, SecretKey, Signature, SignedRoot,
+    Attestation, ChainSpec, Domain, EthSpec, Fork, PublicKey, SecretKey, SelectionProof, Signature,
+    SignedRoot,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -32,20 +33,13 @@ impl<T: EthSpec> AggregateAndProof<T> {
         fork: &Fork,
         spec: &ChainSpec,
     ) -> Self {
-        let slot = aggregate.data.slot;
-
-        let domain = spec.get_domain(
-            slot.epoch(T::slots_per_epoch()),
-            Domain::SelectionProof,
-            fork,
-        );
-
-        let message = slot.signing_root(domain);
+        let selection_proof =
+            SelectionProof::new::<T>(aggregate.data.slot, secret_key, fork, spec).into();
 
         Self {
             aggregator_index,
             aggregate,
-            selection_proof: Signature::new(message.as_bytes(), secret_key),
+            selection_proof,
         }
     }
 
