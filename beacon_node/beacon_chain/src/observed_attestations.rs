@@ -70,11 +70,21 @@ impl SlotHashSet {
         if self.set.contains(&root) {
             Ok(ObserveOutcome::AlreadyKnown)
         } else {
+            // Here we check to see if this slot has reached the maximum observation count.
+            //
+            // The resulting behaviour is that we are no longer able to successfully observe new
+            // attestations, however we will continue to return `is_known` values. We could also
+            // disable `is_known`, however then we would stop forwarding attestations across the
+            // gossip network and I think that this is a worse case than sending some invalid ones.
+            // The underlying libp2p network is responsible for removing duplicate messages, so
+            // this doesn't risk a broadcast loop.
             if self.set.len() >= MAX_OBSERVATIONS_PER_SLOT {
                 return Err(Error::ReachedMaxObservationsPerSlot(
                     MAX_OBSERVATIONS_PER_SLOT,
                 ));
             }
+
+            self.set.insert(root);
 
             Ok(ObserveOutcome::New)
         }
@@ -113,12 +123,12 @@ impl<E: EthSpec> Default for ObservedAttestations<E> {
 }
 
 impl<E: EthSpec> ObservedAttestations<E> {
-    pub fn observe(&mut self, a: &Attestation<E>, root: Hash256) -> Result<ObserveOutcome, Error> {
+    pub fn observe(&self, a: &Attestation<E>, root: Hash256) -> Result<ObserveOutcome, Error> {
         let index = self.get_set_index(a.data.slot)?;
 
         self.sets
             .write()
-            .get(index)
+            .get_mut(index)
             .ok_or_else(|| Error::InvalidSetIndex(index))
             .and_then(|set| set.observe(a, root))
     }
@@ -133,7 +143,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
             .and_then(|set| set.is_known(a, root))
     }
 
-    fn max_capacity() -> u64 {
+    fn max_capacity(&self) -> u64 {
         // We add `2` in order to account for one slot either side of the range due to
         // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
         E::slots_per_epoch() + 2
@@ -143,7 +153,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
     /// attestations with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&self, current_slot: Slot) {
         // Taking advantage of saturating subtraction on `Slot`.
-        let lowest_permissible_slot = current_slot - Self::max_capacity();
+        let lowest_permissible_slot = current_slot - self.max_capacity();
 
         self.sets
             .write()
@@ -186,7 +196,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
             // but considering it's approx. 128 * 32 bytes we're not wasting much.
             .unwrap_or_else(|| 128);
 
-        if sets.len() < Self::max_capacity() as usize || sets.is_empty() {
+        if sets.len() < self.max_capacity() as usize || sets.is_empty() {
             let index = sets.len();
             sets.push(SlotHashSet::new(slot, initial_capacity));
             return Ok(index);
@@ -209,12 +219,15 @@ impl<E: EthSpec> ObservedAttestations<E> {
 mod tests {
     use super::*;
     use ssz_types::BitList;
+    use tree_hash::TreeHash;
     use types::{
         test_utils::{generate_deterministic_keypair, test_random_instance},
         Fork, Hash256,
     };
 
     type E = types::MainnetEthSpec;
+
+    const NUM_ELEMENTS: usize = 8;
 
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
         let mut a: Attestation<E> = test_random_instance();
@@ -223,189 +236,200 @@ mod tests {
         a
     }
 
-    #[test]
-    fn single_attestation() {
-        let mut a = get_attestation(Slot::new(0));
+    fn single_slot_test(store: &ObservedAttestations<E>, slot: Slot) {
+        let attestations = (0..NUM_ELEMENTS as u64)
+            .map(|i| get_attestation(slot, i))
+            .collect::<Vec<_>>();
 
-        let pool = ObservedAttestations::default();
-
-        assert_eq!(
-            pool.insert(&a),
-            Err(Error::NoAggregationBitsSet),
-            "should not accept attestation without any signatures"
-        );
-
-        sign(&mut a, 0);
-
-        assert_eq!(
-            pool.insert(&a),
-            Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
-            "should accept new attestation"
-        );
-        assert_eq!(
-            pool.insert(&a),
-            Ok(InsertOutcome::SignatureAlreadyKnown { committee_index: 0 }),
-            "should acknowledge duplicate signature"
-        );
-
-        let retrieved = pool
-            .get(&a.data)
-            .expect("should not error while getting attestation")
-            .expect("should get an attestation");
-        assert_eq!(
-            retrieved, a,
-            "retrieved attestation should equal the one inserted"
-        );
-
-        sign(&mut a, 1);
-
-        assert_eq!(
-            pool.insert(&a),
-            Err(Error::MoreThanOneAggregationBitSet(2)),
-            "should not accept attestation with multiple signatures"
-        );
-    }
-
-    #[test]
-    fn multiple_attestations() {
-        let mut a_0 = get_attestation(Slot::new(0));
-        let mut a_1 = a_0.clone();
-
-        sign(&mut a_0, 0);
-        sign(&mut a_1, 1);
-
-        let pool = ObservedAttestations::default();
-
-        assert_eq!(
-            pool.insert(&a_0),
-            Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
-            "should accept a_0"
-        );
-        assert_eq!(
-            pool.insert(&a_1),
-            Ok(InsertOutcome::SignatureAggregated { committee_index: 1 }),
-            "should accept a_1"
-        );
-
-        let retrieved = pool
-            .get(&a_0.data)
-            .expect("should not error while getting attestation")
-            .expect("should get an attestation");
-
-        let mut a_01 = a_0.clone();
-        a_01.aggregate(&a_1);
-
-        assert_eq!(
-            retrieved, a_01,
-            "retrieved attestation should be aggregated"
-        );
-
-        /*
-         * Throw a different attestation data in there and ensure it isn't aggregated
-         */
-
-        let mut a_different = a_0.clone();
-        let different_root = Hash256::from_low_u64_be(1337);
-        unset_bit(&mut a_different, 0);
-        sign(&mut a_different, 2);
-        assert!(a_different.data.beacon_block_root != different_root);
-        a_different.data.beacon_block_root = different_root;
-
-        assert_eq!(
-            pool.insert(&a_different),
-            Ok(InsertOutcome::NewAttestationData { committee_index: 2 }),
-            "should accept a_different"
-        );
-
-        assert_eq!(
-            pool.get(&a_0.data)
-                .expect("should not error while getting attestation")
-                .expect("should get an attestation"),
-            retrieved,
-            "should not have aggregated different attestation data"
-        );
-    }
-
-    #[test]
-    fn auto_pruning() {
-        let mut base = get_attestation(Slot::new(0));
-        sign(&mut base, 0);
-
-        let pool = ObservedAttestations::default();
-
-        for i in 0..SLOTS_RETAINED * 2 {
-            let slot = Slot::from(i);
-            let mut a = base.clone();
-            a.data.slot = slot;
-
+        for a in &attestations {
             assert_eq!(
-                pool.insert(&a),
-                Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
-                "should accept new attestation"
+                store.is_known(a, a.tree_hash_root()),
+                Ok(false),
+                "should indicate an unknown attestation is unknown"
             );
+            assert_eq!(
+                store.observe(a, a.tree_hash_root()),
+                Ok(ObserveOutcome::New),
+                "should observe new attestation"
+            );
+        }
 
-            if i < SLOTS_RETAINED {
-                let len = i + 1;
-                assert_eq!(
-                    pool.maps.read().len(),
-                    len,
-                    "the pool should have length {}",
-                    len
-                );
-            } else {
-                assert_eq!(
-                    pool.maps.read().len(),
-                    SLOTS_RETAINED,
-                    "the pool should have length SLOTS_RETAINED"
-                );
-
-                let mut pool_slots = pool
-                    .maps
-                    .read()
-                    .iter()
-                    .map(|map| map.slot)
-                    .collect::<Vec<_>>();
-
-                pool_slots.sort_unstable();
-
-                for (j, pool_slot) in pool_slots.iter().enumerate() {
-                    let expected_slot = slot - (SLOTS_RETAINED - 1 - j) as u64;
-                    assert_eq!(
-                        *pool_slot, expected_slot,
-                        "the slot of the map should be {}",
-                        expected_slot
-                    )
-                }
-            }
+        for a in &attestations {
+            assert_eq!(
+                store.is_known(a, a.tree_hash_root()),
+                Ok(true),
+                "should indicate a known attestation is known"
+            );
+            assert_eq!(
+                store.observe(a, a.tree_hash_root()),
+                Ok(ObserveOutcome::AlreadyKnown),
+                "should acknowledge an existing attestation"
+            );
         }
     }
 
     #[test]
-    fn max_attestations() {
-        let mut base = get_attestation(Slot::new(0));
-        sign(&mut base, 0);
+    fn single_slot() {
+        let store = ObservedAttestations::default();
 
-        let pool = ObservedAttestations::default();
+        single_slot_test(&store, Slot::new(0));
 
-        for i in 0..=MAX_ATTESTATIONS_PER_SLOT {
-            let mut a = base.clone();
-            a.data.beacon_block_root = Hash256::from_low_u64_be(i as u64);
+        assert_eq!(
+            store.sets.read().len(),
+            1,
+            "should have a single set stored"
+        );
+        assert_eq!(
+            store.sets.read()[0].len(),
+            NUM_ELEMENTS,
+            "set should have NUM_ELEMENTS elements"
+        );
+    }
 
-            if i < MAX_ATTESTATIONS_PER_SLOT {
+    #[test]
+    fn mulitple_contiguous_slots() {
+        let store = ObservedAttestations::default();
+        let max_cap = store.max_capacity();
+
+        for i in 0..max_cap * 3 {
+            let slot = Slot::new(i);
+
+            single_slot_test(&store, slot);
+
+            /*
+             * Ensure that the number of sets is correct.
+             */
+
+            if i < max_cap {
                 assert_eq!(
-                    pool.insert(&a),
-                    Ok(InsertOutcome::NewAttestationData { committee_index: 0 }),
-                    "should accept attestation below limit"
+                    store.sets.read().len(),
+                    i as usize + 1,
+                    "should have a {} sets stored",
+                    i + 1
                 );
             } else {
                 assert_eq!(
-                    pool.insert(&a),
-                    Err(Error::ReachedMaxAttestationsPerSlot(
-                        MAX_ATTESTATIONS_PER_SLOT
-                    )),
-                    "should not accept attestation above limit"
+                    store.sets.read().len(),
+                    max_cap as usize,
+                    "should have max_capacity sets stored"
                 );
             }
+
+            /*
+             * Ensure that each set contains the correct number of elements.
+             */
+
+            for set in &store.sets.read()[..] {
+                assert_eq!(
+                    set.len(),
+                    NUM_ELEMENTS,
+                    "each store should have NUM_ELEMENTS elements"
+                )
+            }
+
+            /*
+             *  Ensure that all the sets have the expected slots
+             */
+
+            let mut store_slots = store
+                .sets
+                .read()
+                .iter()
+                .map(|set| set.slot)
+                .collect::<Vec<_>>();
+
+            store_slots.sort_unstable();
+
+            let expected_slots = (i.saturating_sub(max_cap - 1)..=i)
+                .map(Slot::new)
+                .collect::<Vec<_>>();
+
+            assert_eq!(expected_slots, store_slots, "should have expected slots");
+        }
+    }
+
+    #[test]
+    fn mulitple_non_contiguous_slots() {
+        let store = ObservedAttestations::default();
+        let max_cap = store.max_capacity();
+
+        let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
+        let slots = (0..max_cap * 3)
+            .into_iter()
+            .filter(|i| !to_skip.contains(i))
+            .collect::<Vec<_>>();
+
+        let mut counter = 0;
+
+        for &i in &slots {
+            if to_skip.contains(&i) {
+                continue;
+            }
+
+            counter += 1;
+
+            let slot = Slot::from(i);
+
+            single_slot_test(&store, slot);
+
+            /*
+             * Ensure that the number of sets is correct.
+             */
+
+            if counter < max_cap {
+                assert_eq!(
+                    store.sets.read().len(),
+                    counter as usize,
+                    "should have a {} sets stored",
+                    counter
+                );
+            } else {
+                assert_eq!(
+                    store.sets.read().len(),
+                    max_cap as usize,
+                    "should have max_capacity sets stored"
+                );
+            }
+
+            /*
+             * Ensure that each set contains the correct number of elements.
+             */
+
+            for set in &store.sets.read()[..] {
+                assert_eq!(
+                    set.len(),
+                    NUM_ELEMENTS,
+                    "each store should have NUM_ELEMENTS elements"
+                )
+            }
+
+            /*
+             *  Ensure that all the sets have the expected slots
+             */
+
+            let mut store_slots = store
+                .sets
+                .read()
+                .iter()
+                .map(|set| set.slot)
+                .collect::<Vec<_>>();
+
+            store_slots.sort_unstable();
+
+            dbg!(store_slots.len());
+
+            let lowest = store.lowest_permissible_slot.read().as_u64();
+            let highest = slot.as_u64();
+            let expected_slots = (lowest..=highest)
+                .filter(|i| !to_skip.contains(i))
+                .map(Slot::new)
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                expected_slots,
+                &store_slots[..],
+                "should have expected slots"
+            );
         }
     }
 }

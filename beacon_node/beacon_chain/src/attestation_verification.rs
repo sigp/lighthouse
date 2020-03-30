@@ -1,4 +1,6 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use crate::{
+    beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
+};
 use slot_clock::SlotClock;
 use types::{Attestation, EthSpec, Slot};
 
