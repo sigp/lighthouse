@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, SecretKey, Signature, SignedRoot,
-    SignedVoluntaryExit,
+    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, Hash256, SecretKey, Signature,
+    SignedRoot, SignedVoluntaryExit,
 };
 
 use serde_derive::{Deserialize, Serialize};
@@ -25,9 +25,15 @@ impl VoluntaryExit {
         self,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedVoluntaryExit {
-        let domain = spec.get_domain(self.epoch, Domain::VoluntaryExit, fork);
+        let domain = spec.get_domain(
+            self.epoch,
+            Domain::VoluntaryExit,
+            fork,
+            genesis_validators_root,
+        );
         let message = self.signing_root(domain);
         let signature = Signature::new(message.as_bytes(), &secret_key);
         SignedVoluntaryExit {

@@ -42,6 +42,9 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
 
+    // Set genesis validators root for domain separation and chain versioning
+    state.genesis_validators_root = state.update_validators_tree_hash_cache()?;
+
     Ok(state)
 }
 

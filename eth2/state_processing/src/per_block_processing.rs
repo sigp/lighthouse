@@ -142,7 +142,19 @@ pub fn process_block_header<T: EthSpec>(
     block: &BeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
+    // Verify that the slots match
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
+
+    // Verify that proposer index is the correct index
+    let proposer_index = block.proposer_index as usize;
+    let state_proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    verify!(
+        proposer_index == state_proposer_index,
+        HeaderInvalid::ProposerIndexMismatch {
+            block_proposer_index: proposer_index,
+            state_proposer_index,
+        }
+    );
 
     let expected_previous_block_root = state.latest_block_header.tree_hash_root();
     verify!(
@@ -156,11 +168,10 @@ pub fn process_block_header<T: EthSpec>(
     state.latest_block_header = block.temporary_block_header();
 
     // Verify proposer is not slashed
-    let proposer_idx = state.get_beacon_proposer_index(block.slot, spec)?;
-    let proposer = &state.validators[proposer_idx];
+    let proposer = &state.validators[proposer_index];
     verify!(
         !proposer.slashed,
-        HeaderInvalid::ProposerSlashed(proposer_idx)
+        HeaderInvalid::ProposerSlashed(proposer_index)
     );
 
     Ok(())
@@ -268,7 +279,12 @@ pub fn process_proposer_slashings<T: EthSpec>(
 
     // Update the state.
     for proposer_slashing in proposer_slashings {
-        slash_validator(state, proposer_slashing.proposer_index as usize, None, spec)?;
+        slash_validator(
+            state,
+            proposer_slashing.signed_header_1.message.proposer_index as usize,
+            None,
+            spec,
+        )?;
     }
 
     Ok(())

@@ -3,6 +3,7 @@ use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::Path;
+use tree_hash::TreeHash;
 use utils::{
     fork_from_hex_str, fork_to_hex_str, u32_from_hex_str, u32_to_hex_str, u8_from_hex_str,
     u8_to_hex_str,
@@ -10,13 +11,16 @@ use utils::{
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Domain {
     BeaconProposer,
     BeaconAttester,
     Randao,
     Deposit,
     VoluntaryExit,
+    SelectionProof,
+    AggregateAndProof,
 }
 
 /// Holds all the "constants" for a BeaconChain.
@@ -96,6 +100,8 @@ pub struct ChainSpec {
     domain_randao: u32,
     domain_deposit: u32,
     domain_voluntary_exit: u32,
+    domain_selection_proof: u32,
+    domain_aggregate_and_proof: u32,
 
     /*
      * Fork choice
@@ -123,15 +129,23 @@ impl ChainSpec {
             Domain::Randao => self.domain_randao,
             Domain::Deposit => self.domain_deposit,
             Domain::VoluntaryExit => self.domain_voluntary_exit,
+            Domain::SelectionProof => self.domain_selection_proof,
+            Domain::AggregateAndProof => self.domain_aggregate_and_proof,
         }
     }
 
-    /// Get the domain number that represents the fork meta and signature domain.
+    /// Get the domain that represents the fork meta and signature domain.
     ///
     /// Spec v0.10.1
-    pub fn get_domain(&self, epoch: Epoch, domain: Domain, fork: &Fork) -> u64 {
+    pub fn get_domain(
+        &self,
+        epoch: Epoch,
+        domain: Domain,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+    ) -> Hash256 {
         let fork_version = fork.get_fork_version(epoch);
-        self.compute_domain(domain, fork_version)
+        self.compute_domain(domain, fork_version, genesis_validators_root)
     }
 
     /// Get the domain for a deposit signature.
@@ -139,24 +153,45 @@ impl ChainSpec {
     /// Deposits are valid across forks, thus the deposit domain is computed
     /// with the genesis fork version.
     ///
-    /// Spec v0.10.1
-    pub fn get_deposit_domain(&self) -> u64 {
-        self.compute_domain(Domain::Deposit, self.genesis_fork_version)
+    /// Spec v0.11.0
+    pub fn get_deposit_domain(&self) -> Hash256 {
+        self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
+    }
+
+    /// Return the 32-byte fork data root for the `current_version` and `genesis_validators_root`.
+    ///
+    /// This is used primarily in signature domains to avoid collisions across forks/chains.
+    ///
+    /// Spec v0.11.0
+    pub fn compute_fork_data_root(
+        current_version: [u8; 4],
+        genesis_validators_root: Hash256,
+    ) -> Hash256 {
+        ForkData {
+            current_version,
+            genesis_validators_root,
+        }
+        .tree_hash_root()
     }
 
     /// Compute a domain by applying the given `fork_version`.
     ///
-    /// Spec v0.10.1
-    pub fn compute_domain(&self, domain: Domain, fork_version: [u8; 4]) -> u64 {
+    /// Spec v0.11.0
+    pub fn compute_domain(
+        &self,
+        domain: Domain,
+        fork_version: [u8; 4],
+        genesis_validators_root: Hash256,
+    ) -> Hash256 {
         let domain_constant = self.get_domain_constant(domain);
 
-        let mut bytes: Vec<u8> = int_to_bytes4(domain_constant);
-        bytes.append(&mut fork_version.to_vec());
+        let mut domain = [0; 32];
+        domain[0..4].copy_from_slice(&int_to_bytes4(domain_constant));
+        domain[4..].copy_from_slice(
+            &Self::compute_fork_data_root(fork_version, genesis_validators_root)[..28],
+        );
 
-        let mut fork_and_domain = [0; 8];
-        fork_and_domain.copy_from_slice(&bytes);
-
-        u64::from_le_bytes(fork_and_domain)
+        Hash256::from(domain)
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -229,6 +264,8 @@ impl ChainSpec {
             domain_randao: 2,
             domain_deposit: 3,
             domain_voluntary_exit: 4,
+            domain_selection_proof: 5,
+            domain_aggregate_and_proof: 6,
 
             /*
              * Fork choice
@@ -263,6 +300,7 @@ impl ChainSpec {
             min_genesis_active_validator_count: 64,
             eth1_follow_distance: 16,
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
+            persistent_committee_period: 128,
             min_genesis_delay: 300,
             milliseconds_per_slot: 6_000,
             network_id: 2, // lighthouse testnet network id
@@ -297,7 +335,6 @@ impl Default for ChainSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use int_to_bytes::int_to_bytes8;
 
     #[test]
     fn test_mainnet_spec_can_be_constructed() {
@@ -305,19 +342,27 @@ mod tests {
     }
 
     fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
+        let previous_version = [0, 0, 0, 1];
+        let current_version = [0, 0, 0, 2];
+        let genesis_validators_root = Hash256::from_low_u64_le(77);
+        let fork_epoch = Epoch::new(1024);
         let fork = Fork {
-            previous_version: spec.genesis_fork_version,
-            current_version: spec.genesis_fork_version,
-            epoch: MinimalEthSpec::genesis_epoch(),
+            previous_version,
+            current_version,
+            epoch: fork_epoch,
         };
-        let epoch = Epoch::new(0);
 
-        let domain = spec.get_domain(epoch, domain_type, &fork);
+        for (epoch, version) in vec![
+            (fork_epoch - 1, previous_version),
+            (fork_epoch, current_version),
+            (fork_epoch + 1, current_version),
+        ] {
+            let domain1 = spec.get_domain(epoch, domain_type, &fork, genesis_validators_root);
+            let domain2 = spec.compute_domain(domain_type, version, genesis_validators_root);
 
-        let mut expected = int_to_bytes4(raw_domain);
-        expected.append(&mut fork.get_fork_version(epoch).to_vec());
-
-        assert_eq!(int_to_bytes8(domain), expected);
+            assert_eq!(domain1, domain2);
+            assert_eq!(&domain1.as_bytes()[0..4], &int_to_bytes4(raw_domain)[..]);
+        }
     }
 
     #[test]
@@ -329,18 +374,25 @@ mod tests {
         test_domain(Domain::Randao, spec.domain_randao, &spec);
         test_domain(Domain::Deposit, spec.domain_deposit, &spec);
         test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
+        test_domain(Domain::SelectionProof, spec.domain_selection_proof, &spec);
+        test_domain(
+            Domain::AggregateAndProof,
+            spec.domain_aggregate_and_proof,
+            &spec,
+        );
     }
 }
 
 /// Union of a ChainSpec struct and an EthSpec struct that holds constants used for the configs
 /// from the Ethereum 2 specs repo (https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
 ///
-/// Spec v0.10.1
+/// Doesn't include fields of the YAML that we don't need yet (e.g. Phase 1 stuff).
+///
+/// Spec v0.11.1
 // Yaml Config is declared here in order to access domain fields of ChainSpec which are private.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
-#[serde(deny_unknown_fields)]
 pub struct YamlConfig {
     // ChainSpec
     far_future_epoch: u64,
@@ -412,12 +464,22 @@ pub struct YamlConfig {
         deserialize_with = "u32_from_hex_str",
         serialize_with = "u32_to_hex_str"
     )]
+    domain_selection_proof: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
+    domain_aggregate_and_proof: u32,
+    #[serde(
+        deserialize_with = "u32_from_hex_str",
+        serialize_with = "u32_to_hex_str"
+    )]
     // EthSpec
     justification_bits_length: u32,
     max_validators_per_committee: u32,
     genesis_epoch: Epoch,
     slots_per_epoch: u64,
-    slots_per_eth1_voting_period: usize,
+    epochs_per_eth1_voting_period: u64,
     slots_per_historical_root: usize,
     epochs_per_historical_vector: usize,
     epochs_per_slashings_vector: usize,
@@ -435,34 +497,6 @@ pub struct YamlConfig {
     random_subnets_per_validator: u64,
     epochs_per_random_subnet_subscription: u64,
     seconds_per_eth1_block: u64,
-
-    // Deposit Contract (unused)
-    #[serde(skip_serializing)]
-    deposit_contract_address: String,
-
-    // Phase 1
-    #[serde(skip_serializing)]
-    epochs_per_custody_period: u32,
-    #[serde(skip_serializing)]
-    custody_period_to_randao_padding: u32,
-    #[serde(skip_serializing)]
-    shard_slots_per_beacon_slot: u32,
-    #[serde(skip_serializing)]
-    epochs_per_shard_period: u32,
-    #[serde(skip_serializing)]
-    phase_1_fork_epoch: u32,
-    #[serde(skip_serializing)]
-    phase_1_fork_slot: u32,
-    #[serde(skip_serializing)]
-    domain_custody_bit_challenge: u32,
-    #[serde(skip_serializing)]
-    domain_shard_proposer: u32,
-    #[serde(skip_serializing)]
-    domain_shard_attester: u32,
-    #[serde(skip_serializing)]
-    max_epochs_per_crosslink: u64,
-    #[serde(skip_serializing)]
-    early_derived_secret_penalty_max_future_epochs: u32,
 }
 
 impl Default for YamlConfig {
@@ -516,13 +550,15 @@ impl YamlConfig {
             domain_randao: spec.domain_randao,
             domain_deposit: spec.domain_deposit,
             domain_voluntary_exit: spec.domain_voluntary_exit,
+            domain_selection_proof: spec.domain_selection_proof,
+            domain_aggregate_and_proof: spec.domain_aggregate_and_proof,
 
             // EthSpec
             justification_bits_length: T::JustificationBitsLength::to_u32(),
             max_validators_per_committee: T::MaxValidatorsPerCommittee::to_u32(),
             genesis_epoch: T::genesis_epoch(),
             slots_per_epoch: T::slots_per_epoch(),
-            slots_per_eth1_voting_period: T::slots_per_eth1_voting_period(),
+            epochs_per_eth1_voting_period: T::EpochsPerEth1VotingPeriod::to_u64(),
             slots_per_historical_root: T::slots_per_historical_root(),
             epochs_per_historical_vector: T::epochs_per_historical_vector(),
             epochs_per_slashings_vector: T::EpochsPerSlashingsVector::to_usize(),
@@ -540,22 +576,6 @@ impl YamlConfig {
             random_subnets_per_validator: 0,
             epochs_per_random_subnet_subscription: 0,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
-
-            // Deposit Contract (unused)
-            deposit_contract_address: String::new(),
-
-            // Phase 1
-            epochs_per_custody_period: 0,
-            custody_period_to_randao_padding: 0,
-            shard_slots_per_beacon_slot: 0,
-            epochs_per_shard_period: 0,
-            phase_1_fork_epoch: 0,
-            phase_1_fork_slot: 0,
-            domain_custody_bit_challenge: 0,
-            domain_shard_proposer: 0,
-            domain_shard_attester: 0,
-            max_epochs_per_crosslink: 0,
-            early_derived_secret_penalty_max_future_epochs: 0,
         }
     }
 
@@ -572,7 +592,7 @@ impl YamlConfig {
             || self.max_validators_per_committee != T::MaxValidatorsPerCommittee::to_u32()
             || self.genesis_epoch != T::genesis_epoch()
             || self.slots_per_epoch != T::slots_per_epoch()
-            || self.slots_per_eth1_voting_period != T::slots_per_eth1_voting_period()
+            || self.epochs_per_eth1_voting_period != T::EpochsPerEth1VotingPeriod::to_u64()
             || self.slots_per_historical_root != T::slots_per_historical_root()
             || self.epochs_per_historical_vector != T::epochs_per_historical_vector()
             || self.epochs_per_slashings_vector != T::EpochsPerSlashingsVector::to_usize()
@@ -623,6 +643,7 @@ impl YamlConfig {
             inactivity_penalty_quotient: self.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: self.min_slashing_penalty_quotient,
             domain_beacon_proposer: self.domain_beacon_proposer,
+            domain_beacon_attester: self.domain_beacon_attester,
             domain_randao: self.domain_randao,
             domain_deposit: self.domain_deposit,
             domain_voluntary_exit: self.domain_voluntary_exit,

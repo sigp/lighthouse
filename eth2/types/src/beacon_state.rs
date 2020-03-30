@@ -111,6 +111,7 @@ where
 {
     // Versioning
     pub genesis_time: u64,
+    pub genesis_validators_root: Hash256,
     pub slot: Slot,
     pub fork: Fork,
 
@@ -187,6 +188,7 @@ impl<T: EthSpec> BeaconState<T> {
         BeaconState {
             // Versioning
             genesis_time,
+            genesis_validators_root: Hash256::zero(), // Set later.
             slot: spec.genesis_slot,
             fork: Fork {
                 previous_version: spec.genesis_fork_version,
@@ -925,7 +927,26 @@ impl<T: EthSpec> BeaconState<T> {
         if let Some(mut cache) = cache {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_tree_hash_root(self)?;
+            let root = cache.recalculate_tree_hash_root(&self)?;
+            self.tree_hash_cache = Some(cache);
+            Ok(root)
+        } else {
+            Err(Error::TreeHashCacheNotInitialized)
+        }
+    }
+
+    /// Compute the tree hash root of the validators using the tree hash cache.
+    ///
+    /// Initialize the tree hash cache if it isn't already initialized.
+    pub fn update_validators_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
+        self.initialize_tree_hash_cache();
+
+        let cache = self.tree_hash_cache.take();
+
+        if let Some(mut cache) = cache {
+            // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
+            // None. There's no need to keep a cache that fails.
+            let root = cache.recalculate_validators_tree_hash_root(&self.validators)?;
             self.tree_hash_cache = Some(cache);
             Ok(root)
         } else {
@@ -959,6 +980,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn clone_with(&self, config: CloneConfig) -> Self {
         BeaconState {
             genesis_time: self.genesis_time,
+            genesis_validators_root: self.genesis_validators_root,
             slot: self.slot,
             fork: self.fork.clone(),
             latest_block_header: self.latest_block_header.clone(),

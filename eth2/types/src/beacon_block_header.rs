@@ -9,10 +9,11 @@ use tree_hash_derive::TreeHash;
 
 /// A header of a `BeaconBlock`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.0
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlockHeader {
     pub slot: Slot,
+    pub proposer_index: u64,
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub body_root: Hash256,
@@ -34,6 +35,7 @@ impl BeaconBlockHeader {
     pub fn into_block<T: EthSpec>(self, body: BeaconBlockBody<T>) -> BeaconBlock<T> {
         BeaconBlock {
             slot: self.slot,
+            proposer_index: self.proposer_index,
             parent_root: self.parent_root,
             state_root: self.state_root,
             body,
@@ -45,10 +47,11 @@ impl BeaconBlockHeader {
         self,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedBeaconBlockHeader {
         let epoch = self.slot.epoch(E::slots_per_epoch());
-        let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
+        let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork, genesis_validators_root);
         let message = self.signing_root(domain);
         let signature = Signature::new(message.as_bytes(), secret_key);
         SignedBeaconBlockHeader {

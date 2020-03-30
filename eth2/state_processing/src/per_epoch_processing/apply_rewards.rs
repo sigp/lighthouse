@@ -83,7 +83,7 @@ fn get_proposer_deltas<T: EthSpec>(
             let base_reward = get_base_reward(
                 state,
                 index,
-                validator_statuses.total_balances.current_epoch,
+                validator_statuses.total_balances.current_epoch(),
                 spec,
             )?;
 
@@ -113,7 +113,7 @@ fn get_attestation_deltas<T: EthSpec>(
         let base_reward = get_base_reward(
             state,
             index,
-            validator_statuses.total_balances.current_epoch,
+            validator_statuses.total_balances.current_epoch(),
             spec,
         )?;
 
@@ -157,13 +157,13 @@ fn get_attestation_delta<T: EthSpec>(
     // - increment = EFFECTIVE_BALANCE_INCREMENT
     // - reward_numerator = get_base_reward(state, index) * (attesting_balance // increment)
     // - rewards[index] = reward_numerator // (total_balance // increment)
-    let total_balance_ebi = total_balances.current_epoch / spec.effective_balance_increment;
+    let total_balance_ebi = total_balances.current_epoch() / spec.effective_balance_increment;
     let total_attesting_balance_ebi =
-        total_balances.previous_epoch_attesters / spec.effective_balance_increment;
+        total_balances.previous_epoch_attesters() / spec.effective_balance_increment;
     let matching_target_balance_ebi =
-        total_balances.previous_epoch_target_attesters / spec.effective_balance_increment;
+        total_balances.previous_epoch_target_attesters() / spec.effective_balance_increment;
     let matching_head_balance_ebi =
-        total_balances.previous_epoch_head_attesters / spec.effective_balance_increment;
+        total_balances.previous_epoch_head_attesters() / spec.effective_balance_increment;
 
     // Expected FFG source.
     // Spec:

@@ -37,13 +37,13 @@ pub struct VoteCount {
 impl Into<VoteCount> for TotalBalances {
     fn into(self) -> VoteCount {
         VoteCount {
-            current_epoch_active_gwei: self.current_epoch,
-            previous_epoch_active_gwei: self.previous_epoch,
-            current_epoch_attesting_gwei: self.current_epoch_attesters,
-            current_epoch_target_attesting_gwei: self.current_epoch_target_attesters,
-            previous_epoch_attesting_gwei: self.previous_epoch_attesters,
-            previous_epoch_target_attesting_gwei: self.previous_epoch_target_attesters,
-            previous_epoch_head_attesting_gwei: self.previous_epoch_head_attesters,
+            current_epoch_active_gwei: self.current_epoch(),
+            previous_epoch_active_gwei: self.previous_epoch(),
+            current_epoch_attesting_gwei: self.current_epoch_attesters(),
+            current_epoch_target_attesting_gwei: self.current_epoch_target_attesters(),
+            previous_epoch_attesting_gwei: self.previous_epoch_attesters(),
+            previous_epoch_target_attesting_gwei: self.previous_epoch_target_attesters(),
+            previous_epoch_head_attesting_gwei: self.previous_epoch_head_attesters(),
         }
     }
 }
