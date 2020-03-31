@@ -562,6 +562,31 @@ fn genesis_time() {
 }
 
 #[test]
+fn genesis_validators_root() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let genesis_validators_root = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_genesis_validators_root())
+        .expect("should fetch genesis time from http api");
+
+    assert_eq!(
+        node.client
+            .beacon_chain()
+            .expect("should have beacon chain")
+            .head()
+            .expect("should get head")
+            .beacon_state
+            .genesis_validators_root,
+        genesis_validators_root,
+        "should match genesis time from head state"
+    );
+}
+
+#[test]
 fn fork() {
     let mut env = build_env();
 

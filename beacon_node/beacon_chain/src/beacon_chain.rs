@@ -153,6 +153,8 @@ pub struct HeadInfo {
     pub current_justified_checkpoint: types::Checkpoint,
     pub finalized_checkpoint: types::Checkpoint,
     pub fork: Fork,
+    pub genesis_time: u64,
+    pub genesis_validators_root: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -492,6 +494,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             current_justified_checkpoint: head.beacon_state.current_justified_checkpoint.clone(),
             finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
             fork: head.beacon_state.fork.clone(),
+            genesis_time: head.beacon_state.genesis_time,
+            genesis_validators_root: head.beacon_state.genesis_validators_root,
         })
     }
 
