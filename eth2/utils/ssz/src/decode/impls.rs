@@ -597,6 +597,10 @@ mod tests {
             <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 9, 0, 0, 0]),
             Err(DecodeError::OutOfBoundsByte { i: 9 })
         );
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 16, 0, 0, 0]),
+            Err(DecodeError::OutOfBoundsByte { i: 16 })
+        );
     }
 
     #[test]
