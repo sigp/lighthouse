@@ -406,26 +406,34 @@ impl_for_vec!(SmallVec<[T; 8]>);
 pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
 ) -> Result<Vec<T>, DecodeError> {
-    let mut next_variable_byte = read_offset(bytes)?;
+    let first_variable_length_byte = read_offset(bytes)?;
+
+    // Capture a slice of the offsets. This ensures that the first offset does not point outside of
+    // the given bytes.
+    let offsets =
+        bytes
+            .get(0..first_variable_length_byte)
+            .ok_or_else(|| DecodeError::OutOfBoundsByte {
+                i: first_variable_length_byte,
+            })?;
 
     // The value of the first offset must not point back into the same bytes that defined
     // it.
-    if next_variable_byte < BYTES_PER_LENGTH_OFFSET {
-        return Err(DecodeError::OutOfBoundsByte {
-            i: next_variable_byte,
-        });
+    if offsets.len() < BYTES_PER_LENGTH_OFFSET {
+        return Err(DecodeError::OutOfBoundsByte { i: offsets.len() });
     }
 
-    let num_items = next_variable_byte / BYTES_PER_LENGTH_OFFSET;
+    let num_items = offsets.len() / BYTES_PER_LENGTH_OFFSET;
 
     // The fixed-length section must be a clean multiple of `BYTES_PER_LENGTH_OFFSET`.
-    if next_variable_byte != num_items * BYTES_PER_LENGTH_OFFSET {
+    if offsets.len() % BYTES_PER_LENGTH_OFFSET != 0 {
         return Err(DecodeError::InvalidByteLength {
-            len: next_variable_byte,
+            len: offsets.len(),
             expected: num_items * BYTES_PER_LENGTH_OFFSET,
         });
     }
 
+    let mut next_variable_byte = first_variable_length_byte;
     let mut values = Vec::with_capacity(num_items);
     for i in 1..=num_items {
         let slice_option = if i == num_items {
