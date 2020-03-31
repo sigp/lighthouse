@@ -1,4 +1,5 @@
 use enr::Enr;
+use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
@@ -57,83 +58,95 @@ fn main() {
     let log = build_log(log_level, enable_logging);
     let service_log = log.clone();
     let args: Vec<String> = std::env::args().collect();
-    let enr_text = "enr:-Iu4QFKG1suBpEE7ZvlGkPcrs9X0C_epWIX_1bvbsvoG3xF5X8Rc43n4Kj3WysUELA4BAaN0trsQ-iSsfkYS5L1xxoiAgmlkgnY0gmlwhKwSAAGJc2VjcDI1NmsxoQIeBk9GK-K12BydByZoNivFhXlvHyX2TdOq_6rzmeHaQIN0Y3CCIyiDdWRwgiMo";
 
     // 2nd argument must be enr if supplied
-    let enrs = match args.len() {
-        2 => match args[1].parse::<Enr>() {
-            Ok(enr) => vec![enr],
+    let (enrs, request_type) = match args.len() {
+        3 => match args[1].parse::<Enr>() {
+            Ok(enr) => (vec![enr], args[2].clone()),
             Err(_) => panic!("Pass valid enr"),
         },
-        _ => vec![enr_text.parse::<Enr>().expect("should be valid enr")],
+        _ => panic!("Provide arguments"),
+    };
+
+    let rpc_request = match request_type.as_str() {
+        "status" => RPCRequest::<E>::Status(StatusMessage {
+            fork_version: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        }),
+        "goodbye" => RPCRequest::Goodbye(GoodbyeReason::Unknown),
+        "root" => RPCRequest::BlocksByRoot(BlocksByRootRequest {
+            block_roots: vec![Hash256::from_low_u64_be(0), Hash256::from_low_u64_be(0)],
+        }),
+        _ => panic!("Invalid rpc request type"),
     };
     let mut service = build_libp2p_instance(9001, enrs, None, log);
 
-    // Dummy STATUS RPC message
-    let status_response = RPCResponse::Status(StatusMessage {
-        fork_version: [0; 4],
-        finalized_root: Hash256::from_low_u64_be(0),
-        finalized_epoch: Epoch::new(1),
-        head_root: Hash256::from_low_u64_be(0),
-        head_slot: Slot::new(1),
-    });
-    let spec = E::default_spec();
+    // let spec = E::default_spec();
     // Dummy BLOCKS_BY_RANGE response
-    let blocks_range_response = RPCResponse::BlocksByRange(Box::new(BeaconBlock::empty(&spec)));
 
     let service_future = future::poll_fn(move || -> Poll<bool, ()> {
         loop {
             match service.poll().unwrap() {
-                Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))) => match event {
-                    RPCEvent::Request(id, request) => {
-                        match request {
-                            RPCRequest::Status(m) => {
-                                // send the response
-                                warn!(service_log, "Receiver Received status request");
-                                dbg!(m);
-                                service.swarm.send_rpc(
-                                    peer_id,
-                                    RPCEvent::Response(
-                                        id,
-                                        RPCErrorResponse::Success(status_response.clone()),
-                                    ),
-                                );
-                            }
-                            RPCRequest::Goodbye(m) => {
-                                warn!(service_log, "Receiver Received goodbye request");
-                                dbg!(m);
-                                return Ok(Async::Ready(true));
-                            }
-                            RPCRequest::BlocksByRange(m) => {
-                                warn!(service_log, "Receiver Received block by range request");
-                                dbg!(&m);
-                                for _ in 0..m.count {
-                                    service.swarm.send_rpc(
-                                        peer_id.clone(),
-                                        RPCEvent::Response(
-                                            id,
-                                            RPCErrorResponse::Success(
-                                                blocks_range_response.clone(),
-                                            ),
-                                        ),
-                                    );
-                                }
-                                // send the stream termination
-                                service.swarm.send_rpc(
-                                    peer_id,
-                                    RPCEvent::Response(
-                                        id,
-                                        RPCErrorResponse::StreamTermination(
-                                            ResponseTermination::BlocksByRange,
-                                        ),
-                                    ),
-                                );
-                            }
-                            _ => (),
-                        }
-                    }
-                    e => panic!("Received invalid RPC message {}", e),
-                },
+                Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))) => {
+                    // Send a STATUS message
+                    warn!(service_log, "Sending RPC");
+                    service
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(1, rpc_request.clone()));
+                }
+                // Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))) => match event {
+                //     RPCEvent::Request(id, request) => {
+                //         match request {
+                //             RPCRequest::Status(m) => {
+                //                 // send the response
+                //                 warn!(service_log, "Receiver Received status request");
+                //                 dbg!(m);
+                //                 service.swarm.send_rpc(
+                //                     peer_id,
+                //                     RPCEvent::Response(
+                //                         id,
+                //                         RPCErrorResponse::Success(status_response.clone()),
+                //                     ),
+                //                 );
+                //             }
+                //             RPCRequest::Goodbye(m) => {
+                //                 warn!(service_log, "Receiver Received goodbye request");
+                //                 dbg!(m);
+                //                 return Ok(Async::Ready(true));
+                //             }
+                //             RPCRequest::BlocksByRange(m) => {
+                //                 warn!(service_log, "Receiver Received block by range request");
+                //                 dbg!(&m);
+                //                 for _ in 0..m.count {
+                //                     service.swarm.send_rpc(
+                //                         peer_id.clone(),
+                //                         RPCEvent::Response(
+                //                             id,
+                //                             RPCErrorResponse::Success(
+                //                                 blocks_range_response.clone(),
+                //                             ),
+                //                         ),
+                //                     );
+                //                 }
+                //                 // send the stream termination
+                //                 service.swarm.send_rpc(
+                //                     peer_id,
+                //                     RPCEvent::Response(
+                //                         id,
+                //                         RPCErrorResponse::StreamTermination(
+                //                             ResponseTermination::BlocksByRange,
+                //                         ),
+                //                     ),
+                //                 );
+                //             }
+                //             _ => (),
+                //         }
+                //     }
+                //     e => panic!("Received invalid RPC message {}", e),
+                // },
                 Async::Ready(Some(_)) => println!("Here"),
                 Async::Ready(None) | Async::NotReady => {
                     return Ok(Async::NotReady);
