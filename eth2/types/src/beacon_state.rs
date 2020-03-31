@@ -98,7 +98,7 @@ impl AllowNextEpoch {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct BeaconStateHash(Hash256);
 
 impl From<Hash256> for BeaconStateHash {

@@ -24,9 +24,11 @@ use store::{
     DiskStore, MemoryStore, Migrate, Store,
 };
 use tempfile::{tempdir, TempDir};
+use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, BeaconState, ChainSpec, Domain, EthSpec, Hash256, Keypair,
-    SecretKey, Signature, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot,
+    AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, EthSpec,
+    Hash256, Keypair, SecretKey, Signature, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot,
+    Slot,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -343,21 +345,24 @@ where
         get_proposer_index: F,
     ) -> (
         HashMap<Slot, SignedBeaconBlockHash>,
+        HashMap<Slot, BeaconStateHash>,
         Slot,
         SignedBeaconBlockHash,
         BeaconState<E>,
     ) {
-        let mut result: HashMap<Slot, SignedBeaconBlockHash> = HashMap::with_capacity(num_blocks);
+        let mut blocks: HashMap<Slot, SignedBeaconBlockHash> = HashMap::with_capacity(num_blocks);
+        let mut states: HashMap<Slot, BeaconStateHash> = HashMap::with_capacity(num_blocks);
         for _ in 0..num_blocks {
             let proposer_index = get_proposer_index(slot, &state);
             let (new_root_hash, new_state) =
                 self.add_block(&state, proposer_index, slot, attesting_validators);
-            result.insert(slot, new_root_hash);
+            blocks.insert(slot, new_root_hash);
+            states.insert(slot, new_state.tree_hash_root().into());
             state = new_state;
             slot += 1;
         }
-        let head_hash = result[&(slot - 1)];
-        (result, slot, head_hash, state)
+        let head_hash = blocks[&(slot - 1)];
+        (blocks, states, slot, head_hash, state)
     }
 
     pub fn add_canonical_chain_blocks(
@@ -368,6 +373,7 @@ where
         attesting_validators: &[usize],
     ) -> (
         HashMap<Slot, SignedBeaconBlockHash>,
+        HashMap<Slot, BeaconStateHash>,
         Slot,
         SignedBeaconBlockHash,
         BeaconState<E>,
@@ -385,6 +391,7 @@ where
         attesting_validators: &[usize],
     ) -> (
         HashMap<Slot, SignedBeaconBlockHash>,
+        HashMap<Slot, BeaconStateHash>,
         Slot,
         SignedBeaconBlockHash,
         BeaconState<E>,
