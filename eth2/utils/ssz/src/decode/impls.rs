@@ -406,13 +406,17 @@ impl_for_vec!(SmallVec<[T; 8]>);
 pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
 ) -> Result<Vec<T>, DecodeError> {
-    let num_fixed_bytes = read_offset(bytes)?;
-
     /*
      * Note: the indexed exploits listed throughout this function are sourced from:
      *
      * https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA
      */
+
+    // TODO: what if bytes.is_empty()?
+
+    // The first offset is not vulnerable to exploit #3 (offsets are decreasing) since it has no
+    // prior offset to compare with.
+    let num_fixed_bytes = read_offset(bytes)?;
 
     // Protects the first offset against exploit #1 (offset into fixed portion) by ensuring that it
     // does not point into itself.
@@ -434,11 +438,7 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
 
     let num_items = num_fixed_bytes / BYTES_PER_LENGTH_OFFSET;
 
-    // Since we have derived `num_items` based upon the length of the fixed section then it is
-    // safe* to instantiate a `Vec` of this capacity.
-    //
-    // There is a case where
-    let mut values = Vec::with_capacity(num_items);
+    let mut values = vec![];
 
     let mut fixed_ptr = num_fixed_bytes;
     for i in 1..=num_items {
@@ -454,7 +454,7 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
             // - #1 (offset into fixed portion)
             // - #3 (offsets are decreasing)
             // - #4 (offsets are out-of-bounds)
-            if next_fixed_ptr > num_fixed_bytes
+            if next_fixed_ptr < num_fixed_bytes
                 || next_fixed_ptr < fixed_ptr
                 || next_fixed_ptr > bytes.len()
             {
