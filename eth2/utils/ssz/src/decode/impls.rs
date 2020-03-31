@@ -542,6 +542,13 @@ mod tests {
     }
 
     #[test]
+    fn empty_list() {
+        let vec: Vec<Vec<u16>> = vec![];
+        let bytes = vec.as_ssz_bytes();
+        assert_eq!(Vec::from_ssz_bytes(&bytes), Ok(vec),);
+    }
+
+    #[test]
     fn first_length_points_backwards() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[0, 0, 0, 0]),
@@ -576,10 +583,7 @@ mod tests {
     fn awkward_fixed_length_portion() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[10, 0, 0, 0, 10, 0, 0, 0, 0, 0]),
-            Err(DecodeError::InvalidByteLength {
-                len: 10,
-                expected: 8
-            })
+            Err(DecodeError::OutOfBoundsByte { i: 10 })
         );
     }
 
@@ -587,10 +591,7 @@ mod tests {
     fn length_out_of_bounds() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[5, 0, 0, 0]),
-            Err(DecodeError::InvalidByteLength {
-                len: 5,
-                expected: 4
-            })
+            Err(DecodeError::OutOfBoundsByte { i: 5 })
         );
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 9, 0, 0, 0]),
