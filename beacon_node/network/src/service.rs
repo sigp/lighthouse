@@ -8,7 +8,7 @@ use crate::{
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, NetworkGlobals, PeerId, Swarm};
-use eth2_libp2p::{PubsubData, PubsubMessage, RPCEvent};
+use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
 use rest_types::ValidatorSubscription;
@@ -217,15 +217,13 @@ fn spawn_service<T: BeaconChainTypes>(
                         if !should_send {
                             info!(log, "Random filter did not publish messages");
                         } else {
-                            let mut unique_topics = Vec::new();
+                            let mut topic_kinds = Vec::new();
                             for message in &messages {
-                                for topic in message.topics() {
-                                    if !unique_topics.contains(&topic) {
-                                        unique_topics.push(topic);
+                                    if !topic_kinds.contains(&message.kind()) {
+                                        topic_kinds.push(message.kind());
                                     }
                                 }
-                            }
-                            debug!(log, "Sending pubsub messages"; "count" => messages.len(), "topics" => format!("{:?}", unique_topics));
+                            debug!(log, "Sending pubsub messages"; "count" => messages.len(), "topics" => format!("{:?}", topic_kinds));
                             service.libp2p.swarm.publish(messages);
                         }
                     }
@@ -310,9 +308,9 @@ fn spawn_service<T: BeaconChainTypes>(
                         ..
                     } => {
 
-                        match message.data {
+                        match message {
                             // attestation information gets processed in the attestation service
-                            PubsubData::Attestation(ref subnet_and_attestation) => {
+                            PubsubMessage::Attestation(ref subnet_and_attestation) => {
                                 let subnet = &subnet_and_attestation.0;
                                 let attestation = &subnet_and_attestation.1;
                                 // checks if we have an aggregator for the slot. If so, we process

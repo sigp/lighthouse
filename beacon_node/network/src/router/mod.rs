@@ -11,7 +11,7 @@ use crate::service::NetworkMessage;
 use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
-    MessageId, PeerId, PubsubData, PubsubMessage, RPCEvent,
+    MessageId, PeerId, PubsubMessage, RPCEvent,
 };
 use futures::future::Future;
 use futures::stream::Stream;
@@ -217,9 +217,9 @@ impl<T: BeaconChainTypes> Router<T> {
         peer_id: PeerId,
         gossip_message: PubsubMessage<T::EthSpec>,
     ) {
-        match gossip_message.data {
+        match gossip_message {
             // Attestations should never reach the router.
-            PubsubData::AggregateAndProofAttestation(aggregate_and_proof) => {
+            PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
                 if self
                     .processor
                     .should_forward_aggregate_attestation(&aggregate_and_proof)
@@ -232,7 +232,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     AttestationType::Aggregated,
                 );
             }
-            PubsubData::Attestation(subnet_attestation) => {
+            PubsubMessage::Attestation(subnet_attestation) => {
                 if self
                     .processor
                     .should_forward_attestation(&subnet_attestation.1)
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     AttestationType::Unaggregated { should_store: true },
                 );
             }
-            PubsubData::BeaconBlock(block) => match self.processor.should_forward_block(block) {
+            PubsubMessage::BeaconBlock(block) => match self.processor.should_forward_block(block) {
                 Ok(verified_block) => {
                     self.propagate_message(id, peer_id.clone());
                     self.processor.on_block_gossip(peer_id, verified_block);
@@ -255,19 +255,19 @@ impl<T: BeaconChainTypes> Router<T> {
                             "error" => format!("{:?}", e));
                 }
             },
-            PubsubData::VoluntaryExit(_exit) => {
+            PubsubMessage::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle exits
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id) );
             }
-            PubsubData::ProposerSlashing(_proposer_slashing) => {
+            PubsubMessage::ProposerSlashing(_proposer_slashing) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle proposer slashings
                 debug!(self.log, "Received a proposer slashing"; "peer_id" => format!("{}", peer_id) );
             }
-            PubsubData::AttesterSlashing(_attester_slashing) => {
+            PubsubMessage::AttesterSlashing(_attester_slashing) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle attester slashings

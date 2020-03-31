@@ -10,17 +10,8 @@ use types::{
     SignedBeaconBlock, VoluntaryExit,
 };
 
-/// Messages that are passed to and from the pubsub (Gossipsub) behaviour.
 #[derive(Debug, Clone, PartialEq)]
-pub struct PubsubMessage<T: EthSpec> {
-    /// The encoding to be used to encode/decode the message
-    pub encoding: GossipEncoding,
-    /// The actual message being sent.
-    pub data: PubsubData<T>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PubsubData<T: EthSpec> {
+pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Box<SignedBeaconBlock<T>>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
@@ -36,36 +27,30 @@ pub enum PubsubData<T: EthSpec> {
 }
 
 impl<T: EthSpec> PubsubMessage<T> {
-    pub fn new(encoding: GossipEncoding, data: PubsubData<T>) -> Self {
-        PubsubMessage { encoding, data }
+    /// Returns the topics that each pubsub message will be sent across, given a supported
+    /// gossipsub encoding and fork version.
+    pub fn topics(&self, encoding: GossipEncoding, fork_version: [u8; 4]) -> Vec<GossipTopic> {
+        vec![GossipTopic::new(self.kind(), encoding, fork_version)]
     }
 
-    /// Returns the topics that each pubsub message will be sent across, given a supported
-    /// gossipsub encoding.
-    pub fn topics(&self) -> Vec<GossipTopic> {
-        let encoding = self.encoding.clone();
-        match &self.data {
-            PubsubData::BeaconBlock(_) => vec![GossipTopic::new(GossipKind::BeaconBlock, encoding)],
-            PubsubData::AggregateAndProofAttestation(_) => vec![GossipTopic::new(
-                GossipKind::BeaconAggregateAndProof,
-                encoding,
-            )],
-            PubsubData::Attestation(attestation_data) => vec![GossipTopic::new(
-                GossipKind::CommitteeIndex(attestation_data.0),
-                encoding,
-            )],
-            PubsubData::VoluntaryExit(_) => {
-                vec![GossipTopic::new(GossipKind::VoluntaryExit, encoding)]
+    /// Returns the kind of gossipsub topic associated with the message.
+    pub fn kind(&self) -> GossipKind {
+        match self {
+            PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
+            PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
+            PubsubMessage::Attestation(attestation_data) => {
+                GossipKind::CommitteeIndex(attestation_data.0)
             }
-            PubsubData::ProposerSlashing(_) => {
-                vec![GossipTopic::new(GossipKind::ProposerSlashing, encoding)]
-            }
-            PubsubData::AttesterSlashing(_) => {
-                vec![GossipTopic::new(GossipKind::AttesterSlashing, encoding)]
-            }
+            PubsubMessage::VoluntaryExit(_) => GossipKind::VoluntaryExit,
+            PubsubMessage::ProposerSlashing(_) => GossipKind::ProposerSlashing,
+            PubsubMessage::AttesterSlashing(_) => GossipKind::AttesterSlashing,
         }
     }
 
+    /// This decodes `data` into a `PubsubMessage` given a list of topics.
+    ///
+    /// The topics are checked
+    /// in order and as soon as one topic matches the decoded data, we return the data.
     /* Note: This is assuming we are not hashing topics. If we choose to hash topics, these will
      * need to be modified.
      *
@@ -85,61 +70,48 @@ impl<T: EthSpec> PubsubMessage<T> {
                         // group each part by encoding type
                         GossipEncoding::SSZ => {
                             // the ssz decoders
-                            let encoding = GossipEncoding::SSZ;
                             match gossip_topic.kind() {
                                 GossipKind::BeaconAggregateAndProof => {
                                     let agg_and_proof =
                                         SignedAggregateAndProof::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?;
-                                    return Ok(PubsubMessage::new(
-                                        encoding,
-                                        PubsubData::AggregateAndProofAttestation(Box::new(
-                                            agg_and_proof,
-                                        )),
+                                    return Ok(PubsubMessage::AggregateAndProofAttestation(
+                                        Box::new(agg_and_proof),
                                     ));
                                 }
                                 GossipKind::CommitteeIndex(subnet_id) => {
                                     let attestation = Attestation::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
-                                    return Ok(PubsubMessage::new(
-                                        encoding,
-                                        PubsubData::Attestation(Box::new((
-                                            *subnet_id,
-                                            attestation,
-                                        ))),
-                                    ));
+                                    return Ok(PubsubMessage::Attestation(Box::new((
+                                        *subnet_id,
+                                        attestation,
+                                    ))));
                                 }
                                 GossipKind::BeaconBlock => {
                                     let beacon_block = SignedBeaconBlock::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
-                                    return Ok(PubsubMessage::new(
-                                        encoding,
-                                        PubsubData::BeaconBlock(Box::new(beacon_block)),
-                                    ));
+                                    return Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)));
                                 }
                                 GossipKind::VoluntaryExit => {
                                     let voluntary_exit = VoluntaryExit::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
-                                    return Ok(PubsubMessage::new(
-                                        encoding,
-                                        PubsubData::VoluntaryExit(Box::new(voluntary_exit)),
-                                    ));
+                                    return Ok(PubsubMessage::VoluntaryExit(Box::new(
+                                        voluntary_exit,
+                                    )));
                                 }
                                 GossipKind::ProposerSlashing => {
                                     let proposer_slashing = ProposerSlashing::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
-                                    return Ok(PubsubMessage::new(
-                                        encoding,
-                                        PubsubData::ProposerSlashing(Box::new(proposer_slashing)),
-                                    ));
+                                    return Ok(PubsubMessage::ProposerSlashing(Box::new(
+                                        proposer_slashing,
+                                    )));
                                 }
                                 GossipKind::AttesterSlashing => {
                                     let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
-                                    return Ok(PubsubMessage::new(
-                                        encoding,
-                                        PubsubData::AttesterSlashing(Box::new(attester_slashing)),
-                                    ));
+                                    return Ok(PubsubMessage::AttesterSlashing(Box::new(
+                                        attester_slashing,
+                                    )));
                                 }
                             }
                         }
@@ -150,19 +122,19 @@ impl<T: EthSpec> PubsubMessage<T> {
         Err(format!("Unknown gossipsub topics: {:?}", unknown_topics))
     }
 
-    /// Encodes a pubsub message based on the topic encodings. The first known encoding is used. If
+    /// Encodes a `PubsubMessage` based on the topic encodings. The first known encoding is used. If
     /// no encoding is known, and error is returned.
-    pub fn encode(&self) -> Vec<u8> {
-        match self.encoding {
+    pub fn encode(&self, encoding: GossipEncoding) -> Vec<u8> {
+        match encoding {
             GossipEncoding::SSZ => {
                 // SSZ Encodings
-                return match &self.data {
-                    PubsubData::BeaconBlock(data) => data.as_ssz_bytes(),
-                    PubsubData::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
-                    PubsubData::VoluntaryExit(data) => data.as_ssz_bytes(),
-                    PubsubData::ProposerSlashing(data) => data.as_ssz_bytes(),
-                    PubsubData::AttesterSlashing(data) => data.as_ssz_bytes(),
-                    PubsubData::Attestation(data) => data.1.as_ssz_bytes(),
+                return match &self {
+                    PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
+                    PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
+                    PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
+                    PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
+                    PubsubMessage::AttesterSlashing(data) => data.as_ssz_bytes(),
+                    PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
                 };
             }
         }
