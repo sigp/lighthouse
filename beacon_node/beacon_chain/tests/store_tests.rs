@@ -718,7 +718,7 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let state = harness.get_chain_state(slot);
     let (canonical_blocks_pre_finalization, _, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
-    let (stray_blocks, _, _, stray_head, _) = harness.add_stray_blocks(
+    let (stray_blocks, stray_states, _, stray_head, _) = harness.add_stray_blocks(
         harness.get_chain_state(slot),
         slot,
         slots_per_epoch - 1,
@@ -734,6 +734,17 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
                 .unwrap()
                 .is_some(),
             "stray blocks should be still present",
+        );
+    }
+
+    for (&slot, &state_hash) in &stray_states {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_some(),
+            "stray states should be still present",
         );
     }
 
@@ -776,6 +787,17 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         );
     }
 
+    for (&slot, &state_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_none(),
+            "stray states should have been deleted",
+        );
+    }
+
     assert!(!harness.chain.knows_head(&stray_head));
 }
 
@@ -799,7 +821,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     // Fill up 1st epoch
     let (_, _, canonical_slot, shared_head, canonical_state) =
         harness.add_canonical_chain_blocks(state, slot, 1, &all_validators);
-    let (stray_blocks, _, _, stray_head, _) = harness.add_stray_blocks(
+    let (stray_blocks, stray_states, _, stray_head, _) = harness.add_stray_blocks(
         canonical_state.clone(),
         canonical_slot,
         1,
@@ -815,6 +837,17 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
                 .unwrap()
                 .is_some(),
             "stray blocks should be still present",
+        );
+    }
+
+    for (&slot, &state_hash) in &stray_states {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_some(),
+            "stray states should be still present",
         );
     }
 
@@ -859,6 +892,17 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         );
     }
 
+    for (&slot, &state_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_none(),
+            "stray states should have been deleted",
+        );
+    }
+
     assert!(!harness.chain.knows_head(&stray_head));
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 }
@@ -880,7 +924,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
     // Fill up 1st epoch.  Contains a fork.
-    let (stray_blocks, _, _, stray_head, _) =
+    let (stray_blocks, stray_states, _, stray_head, _) =
         harness.add_stray_blocks(state.clone(), slot, slots_per_epoch - 1, &faulty_validators);
 
     // Preconditions
@@ -892,6 +936,17 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
                 .unwrap()
                 .is_some(),
             "stray blocks should be still present",
+        );
+    }
+
+    for (&slot, &state_hash) in &stray_states {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_some(),
+            "stray states should be still present",
         );
     }
 
@@ -929,6 +984,17 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
         );
     }
 
+    for (&slot, &state_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_none(),
+            "stray states should have been deleted",
+        );
+    }
+
     assert!(harness.chain.knows_head(&stray_head));
 }
 
@@ -951,24 +1017,30 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
     // Fill up 1st epoch.  Contains a fork.
-    let (stray_blocks_first_epoch, _, stray_slot, _, stray_state) =
+    let (stray_blocks_first_epoch, stray_states_first_epoch, stray_slot, _, stray_state) =
         harness.add_stray_blocks(state.clone(), slot, slots_per_epoch, &faulty_validators);
 
     let (canonical_blocks_first_epoch, _, canonical_slot, _, canonical_state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
-    let (stray_blocks_second_epoch, _, _, stray_head, _) = harness.add_stray_blocks(
-        stray_state,
-        stray_slot,
-        slots_per_epoch - 1,
-        &faulty_validators,
-    );
+    let (stray_blocks_second_epoch, stray_states_second_epoch, _, stray_head, _) = harness
+        .add_stray_blocks(
+            stray_state,
+            stray_slot,
+            slots_per_epoch - 1,
+            &faulty_validators,
+        );
 
     // Precondition: Ensure all stray_blocks blocks are still known
     let stray_blocks: HashMap<Slot, SignedBeaconBlockHash> = stray_blocks_first_epoch
         .into_iter()
         .chain(stray_blocks_second_epoch.into_iter())
+        .collect();
+
+    let stray_states: HashMap<Slot, BeaconStateHash> = stray_states_first_epoch
+        .into_iter()
+        .chain(stray_states_second_epoch.into_iter())
         .collect();
 
     for &block_hash in stray_blocks.values() {
@@ -979,6 +1051,17 @@ fn prunes_fork_running_past_finalized_checkpoint() {
                 .unwrap()
                 .is_some(),
             "stray blocks should be still present",
+        );
+    }
+
+    for (&slot, &state_hash) in &stray_states {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_some(),
+            "stray states should be still present",
         );
     }
 
@@ -1032,11 +1115,21 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         );
     }
 
+    for (&slot, &state_hash) in &stray_blocks {
+        assert!(
+            harness
+                .chain
+                .get_state(&state_hash.into(), Some(slot))
+                .unwrap()
+                .is_none(),
+            "stray states should have been deleted",
+        );
+    }
+
     assert!(!harness.chain.knows_head(&stray_head));
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
-
 #[test]
 fn prunes_skipped_slots_states() {
     let db_path = tempdir().unwrap();
