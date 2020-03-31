@@ -406,64 +406,31 @@ impl_for_vec!(SmallVec<[T; 8]>);
 pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
 ) -> Result<Vec<T>, DecodeError> {
-    /*
-     * Note: the indexed exploits listed throughout this function are sourced from:
-     *
-     * https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA
-     */
+    let first_offset = read_offset(bytes)?;
+    sanitize_offset(first_offset, None, bytes.len(), first_offset)?;
 
-    // TODO: what if bytes.is_empty()?
-
-    // The first offset is not vulnerable to exploit #3 (offsets are decreasing) since it has no
-    // prior offset to compare with.
-    let num_fixed_bytes = read_offset(bytes)?;
-
-    // Protects the first offset against exploit #1 (offset into fixed portion) by ensuring that it
-    // does not point into itself.
-    if num_fixed_bytes < BYTES_PER_LENGTH_OFFSET {
-        return Err(DecodeError::OutOfBoundsByte { i: num_fixed_bytes });
+    if first_offset % BYTES_PER_LENGTH_OFFSET != 0 || first_offset < BYTES_PER_LENGTH_OFFSET {
+        return Err(DecodeError::InvalidListFixedBytesLen(first_offset));
     }
 
-    // Protects the first offset against exploit #4 (offsets are out of bounds) by ensuring that
-    // `num_fixed_bytes <= bytes.len()`.
-    if num_fixed_bytes > bytes.len() {
-        return Err(DecodeError::OutOfBoundsByte { i: num_fixed_bytes });
-    }
-
-    // The fixed-length section must not be empty and be a clean multiple of
-    // `BYTES_PER_LENGTH_OFFSET`.
-    if num_fixed_bytes == 0 || num_fixed_bytes % BYTES_PER_LENGTH_OFFSET != 0 {
-        return Err(DecodeError::OutOfBoundsByte { i: num_fixed_bytes });
-    }
-
-    let num_items = num_fixed_bytes / BYTES_PER_LENGTH_OFFSET;
+    let num_items = first_offset / BYTES_PER_LENGTH_OFFSET;
 
     let mut values = vec![];
 
-    let mut ptr = num_fixed_bytes;
+    let mut offset = first_offset;
     for i in 1..=num_items {
         let slice_option = if i == num_items {
-            bytes.get(ptr..)
+            bytes.get(offset..)
         } else {
-            let start = ptr;
+            let start = offset;
 
-            let next_ptr = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+            let next_offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+            offset = sanitize_offset(next_offset, Some(offset), bytes.len(), first_offset)?;
 
-            // Protect against the following exploits:
-            //
-            // - #1 (offset into fixed portion)
-            // - #3 (offsets are decreasing)
-            // - #4 (offsets are out-of-bounds)
-            if next_ptr < num_fixed_bytes || next_ptr < ptr || next_ptr > bytes.len() {
-                return Err(DecodeError::OutOfBoundsByte { i: next_ptr });
-            } else {
-                ptr = next_ptr
-            }
-
-            bytes.get(start..ptr)
+            bytes.get(start..offset)
         };
 
-        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte { i: ptr })?;
+        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte { i: offset })?;
 
         values.push(T::from_ssz_bytes(slice)?);
     }
@@ -552,22 +519,22 @@ mod tests {
     fn first_length_points_backwards() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[0, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 0 })
+            Err(DecodeError::InvalidListFixedBytesLen(0))
         );
 
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[1, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 1 })
+            Err(DecodeError::InvalidListFixedBytesLen(1))
         );
 
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[2, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 2 })
+            Err(DecodeError::InvalidListFixedBytesLen(2))
         );
 
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[3, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 3 })
+            Err(DecodeError::InvalidListFixedBytesLen(3))
         );
     }
 
@@ -575,7 +542,7 @@ mod tests {
     fn lengths_are_decreasing() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[12, 0, 0, 0, 14, 0, 0, 0, 12, 0, 0, 0, 1, 0, 1, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 12 })
+            Err(DecodeError::OffsetsAreDecreasing(12))
         );
     }
 
@@ -583,7 +550,7 @@ mod tests {
     fn awkward_fixed_length_portion() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[10, 0, 0, 0, 10, 0, 0, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 10 })
+            Err(DecodeError::InvalidListFixedBytesLen(10))
         );
     }
 
@@ -591,15 +558,15 @@ mod tests {
     fn length_out_of_bounds() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[5, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 5 })
+            Err(DecodeError::OffsetOutOfBounds(5))
         );
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 9, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 9 })
+            Err(DecodeError::OffsetOutOfBounds(9))
         );
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 16, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 16 })
+            Err(DecodeError::OffsetOutOfBounds(16))
         );
     }
 

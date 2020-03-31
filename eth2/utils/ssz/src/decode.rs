@@ -21,8 +21,49 @@ pub enum DecodeError {
     /// length items (i.e., `length[0] < BYTES_PER_LENGTH_OFFSET`).
     /// - When decoding variable-length items, the `n`'th offset was less than the `n-1`'th offset.
     OutOfBoundsByte { i: usize },
+    /// An offset points “backwards” into the fixed-bytes portion of the message, essentially
+    /// double-decoding bytes that will also be decoded as fixed-length.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#1-Offset-into-fixed-portion
+    OffsetIntoFixedPortion(usize),
+    /// The first offset does not point to the byte that follows the fixed byte portion,
+    /// essentially skipping a variable-length byte.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#2-Skip-first-variable-byte
+    OffsetSkipsVariableBytes(usize),
+    /// An offset points to bytes prior to the previous offset. Depending on how you look at it,
+    /// this either double-decodes bytes or makes the first offset a negative-length.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#3-Offsets-are-decreasing
+    OffsetsAreDecreasing(usize),
+    /// An offset references byte indices that do not exist in the source bytes.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#4-Offsets-are-out-of-bounds
+    OffsetOutOfBounds(usize),
+    /// A variable-length list does not have a fixed portion that is cleanly divisible by
+    /// `BYTES_PER_LENGTH_OFFSET`.
+    InvalidListFixedBytesLen(usize),
     /// The given bytes were invalid for some application-level reason.
     BytesInvalid(String),
+}
+
+pub fn sanitize_offset(
+    offset: usize,
+    previous_offset: Option<usize>,
+    num_bytes: usize,
+    num_fixed_bytes: usize,
+) -> Result<usize, DecodeError> {
+    if offset < num_fixed_bytes {
+        Err(DecodeError::OffsetIntoFixedPortion(offset))
+    } else if previous_offset.is_none() && offset != num_fixed_bytes {
+        Err(DecodeError::OffsetSkipsVariableBytes(offset))
+    } else if offset > num_bytes {
+        Err(DecodeError::OffsetOutOfBounds(offset))
+    } else if previous_offset.map_or(false, |prev| prev > offset) {
+        Err(DecodeError::OffsetsAreDecreasing(offset))
+    } else {
+        Ok(offset)
+    }
 }
 
 /// Provides SSZ decoding (de-serialization) via the `from_ssz_bytes(&bytes)` method.
