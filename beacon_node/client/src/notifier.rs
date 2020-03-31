@@ -1,8 +1,8 @@
+use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
-use exit_future::Signal;
+use eth2_libp2p::NetworkGlobals;
 use futures::{Future, Stream};
-use network::Service as NetworkService;
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -29,9 +29,9 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 pub fn spawn_notifier<T: BeaconChainTypes>(
     context: RuntimeContext<T::EthSpec>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
-) -> Result<Signal, String> {
+) -> Result<tokio::sync::oneshot::Sender<()>, String> {
     let log_1 = context.log.clone();
     let log_2 = context.log.clone();
     let log_3 = context.log.clone();
@@ -82,6 +82,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             let mut speedo = speedo.lock();
             speedo.observe(head_slot, Instant::now());
+
+            metrics::set_gauge(&metrics::SYNC_SLOTS_PER_SECOND, speedo.slots_per_second().unwrap_or_else(|| 0_f64) as i64);
 
             // The next two lines take advantage of saturating subtraction on `Slot`.
             let head_distance = current_slot - head_slot;
@@ -164,10 +166,11 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 Ok(())
             } } });
 
-    let (exit_signal, exit) = exit_future::signal();
+    let (exit_signal, exit) = tokio::sync::oneshot::channel();
+
     context
         .executor
-        .spawn(exit.until(interval_future).map(|_| ()));
+        .spawn(interval_future.select(exit).map(|_| ()).map_err(|_| ()));
 
     Ok(exit_signal)
 }

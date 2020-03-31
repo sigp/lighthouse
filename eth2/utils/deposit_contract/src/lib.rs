@@ -7,14 +7,14 @@ pub use ethabi::Error;
 
 pub const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
 pub const DEPOSIT_GAS: usize = 4_000_000;
-pub const ABI: &[u8] = include_bytes!("../contracts/v0.9.2_validator_registration.json");
-pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.9.2_validator_registration.bytecode");
+pub const ABI: &[u8] = include_bytes!("../contracts/v0.10.1_validator_registration.json");
+pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.10.1_validator_registration.bytecode");
 
 pub mod testnet {
     pub const ABI: &[u8] =
-        include_bytes!("../contracts/v0.9.2_testnet_validator_registration.json");
+        include_bytes!("../contracts/v0.10.1_testnet_validator_registration.json");
     pub const BYTECODE: &[u8] =
-        include_bytes!("../contracts/v0.9.2_testnet_validator_registration.bytecode");
+        include_bytes!("../contracts/v0.10.1_testnet_validator_registration.bytecode");
 }
 
 pub fn eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {

@@ -14,8 +14,9 @@ use ssz::Encode;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork, Hash256,
-    PublicKey, Signature, SignedAggregateAndProof, Slot,
+    Attestation, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex,
+    Epoch, EthSpec, Fork, Hash256, ProposerSlashing, PublicKey, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, Slot,
 };
 use url::Url;
 
@@ -23,7 +24,7 @@ pub use operation_pool::PersistedOperationPool;
 pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_types::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDutyBytes,
-    ValidatorRequest, ValidatorResponse, ValidatorSubscriptions,
+    ValidatorRequest, ValidatorResponse, ValidatorSubscription,
 };
 
 // Setting a long timeout for debug ensures that crypto-heavy operations can still succeed.
@@ -212,13 +213,12 @@ impl<E: EthSpec> Validator<E> {
     /// Produces an aggregate attestation.
     pub fn produce_aggregate_attestation(
         &self,
-        slot: Slot,
-        committee_index: CommitteeIndex,
+        attestation_data: &AttestationData,
     ) -> impl Future<Item = Attestation<E>, Error = Error> {
-        let query_params = vec![
-            ("slot".into(), format!("{}", slot)),
-            ("committee_index".into(), format!("{}", committee_index)),
-        ];
+        let query_params = vec![(
+            "attestation_data".into(),
+            as_ssz_hex_string(attestation_data),
+        )];
 
         let client = self.0.clone();
         self.url("aggregate_attestation")
@@ -302,7 +302,7 @@ impl<E: EthSpec> Validator<E> {
     /// Posts a block to the beacon node, expecting it to verify it and publish it to the network.
     pub fn publish_block(
         &self,
-        block: BeaconBlock<E>,
+        block: SignedBeaconBlock<E>,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("block")
@@ -336,7 +336,7 @@ impl<E: EthSpec> Validator<E> {
                 url,
                 vec![
                     ("slot".into(), format!("{}", slot.as_u64())),
-                    ("randao_reveal".into(), signature_as_string(&randao_reveal)),
+                    ("randao_reveal".into(), as_ssz_hex_string(&randao_reveal)),
                 ],
             )
         })
@@ -345,7 +345,7 @@ impl<E: EthSpec> Validator<E> {
     /// Subscribes a list of validators to particular slots for attestation production/publication.
     pub fn subscribe(
         &self,
-        subscriptions: ValidatorSubscriptions,
+        subscriptions: Vec<ValidatorSubscription>,
     ) -> impl Future<Item = PublishStatus, Error = Error> {
         let client = self.0.clone();
         self.url("subscribe")
@@ -416,7 +416,7 @@ impl<E: EthSpec> Beacon<E> {
     pub fn get_block_by_slot(
         &self,
         slot: Slot,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         self.get_block("slot".to_string(), format!("{}", slot.as_u64()))
     }
 
@@ -424,7 +424,7 @@ impl<E: EthSpec> Beacon<E> {
     pub fn get_block_by_root(
         &self,
         root: Hash256,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         self.get_block("root".to_string(), root_as_string(root))
     }
 
@@ -433,7 +433,7 @@ impl<E: EthSpec> Beacon<E> {
         &self,
         query_key: String,
         query_param: String,
-    ) -> impl Future<Item = (BeaconBlock<E>, Hash256), Error = Error> {
+    ) -> impl Future<Item = (SignedBeaconBlock<E>, Hash256), Error = Error> {
         let client = self.0.clone();
         self.url("block")
             .into_future()
@@ -569,6 +569,38 @@ impl<E: EthSpec> Beacon<E> {
             client.json_get(url, vec![("epoch".into(), format!("{}", epoch.as_u64()))])
         })
     }
+
+    pub fn proposer_slashing(
+        &self,
+        proposer_slashing: ProposerSlashing,
+    ) -> impl Future<Item = bool, Error = Error> {
+        let client = self.0.clone();
+
+        self.url("proposer_slashing")
+            .into_future()
+            .and_then(move |url| {
+                client
+                    .json_post::<_>(url, proposer_slashing)
+                    .and_then(|response| error_for_status(response).map_err(Error::from))
+                    .and_then(|mut success| success.json().map_err(Error::from))
+            })
+    }
+
+    pub fn attester_slashing(
+        &self,
+        attester_slashing: AttesterSlashing<E>,
+    ) -> impl Future<Item = bool, Error = Error> {
+        let client = self.0.clone();
+
+        self.url("attester_slashing")
+            .into_future()
+            .and_then(move |url| {
+                client
+                    .json_post::<_>(url, attester_slashing)
+                    .and_then(|response| error_for_status(response).map_err(Error::from))
+                    .and_then(|mut success| success.json().map_err(Error::from))
+            })
+    }
 }
 
 /// Provides the functions on the `/spec` endpoint of the node.
@@ -645,7 +677,7 @@ impl<E: EthSpec> Advanced<E> {
 #[derive(Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct BlockResponse<T: EthSpec> {
-    pub beacon_block: BeaconBlock<T>,
+    pub beacon_block: SignedBeaconBlock<T>,
     pub root: Hash256,
 }
 
@@ -660,8 +692,8 @@ fn root_as_string(root: Hash256) -> String {
     format!("0x{:?}", root)
 }
 
-fn signature_as_string(signature: &Signature) -> String {
-    format!("0x{}", hex::encode(signature.as_ssz_bytes()))
+fn as_ssz_hex_string<T: Encode>(item: &T) -> String {
+    format!("0x{}", hex::encode(item.as_ssz_bytes()))
 }
 
 impl From<reqwest::Error> for Error {

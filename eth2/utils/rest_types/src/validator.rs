@@ -3,8 +3,7 @@ use eth2_hashing::hash;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use tree_hash::TreeHash;
-use types::{ChainSpec, CommitteeIndex, Domain, Epoch, Fork, Slot};
+use types::{CommitteeIndex, Epoch, Slot};
 
 /// A Validator duty with the validator public key represented a `PublicKeyBytes`.
 pub type ValidatorDutyBytes = ValidatorDutyBase<PublicKeyBytes>;
@@ -56,62 +55,18 @@ pub struct ValidatorDutiesRequest {
     pub pubkeys: Vec<PublicKeyBytes>,
 }
 
-/// The container sent when a validator subscribes to a slot to perform optional aggregation
+/// A validator subscription, created when a validator subscribes to a slot to perform optional aggregation
 /// duties.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct ValidatorSubscriptions {
-    pub pubkeys: Vec<PublicKeyBytes>,
-    pub slots: Vec<Slot>,
-    pub slot_signatures: Vec<Signature>,
-}
-
-impl ValidatorSubscriptions {
-    pub fn new() -> Self {
-        ValidatorSubscriptions {
-            pubkeys: Vec::new(),
-            slots: Vec::new(),
-            slot_signatures: Vec::new(),
-        }
-    }
-
-    /// Verifies the list of subscriptions in parallel.
-    pub fn verify(
-        &self,
-        spec: ChainSpec,
-        fork: &Fork,
-        slots_per_epoch: u64,
-    ) -> Result<(), &'static str> {
-        // invalid lengths
-        if self.pubkeys.len() != self.slots.len()
-            || self.pubkeys.len() != self.slot_signatures.len()
-        {
-            return Err("The lengths of public keys, signatures and slots are not equal");
-        }
-
-        if (0..self.pubkeys.len())
-            .try_for_each(|index| {
-                let domain = spec.get_domain(
-                    self.slots[index].epoch(slots_per_epoch),
-                    Domain::SelectionProof,
-                    &fork,
-                );
-                let message = self.slots[index].as_u64().tree_hash_root();
-
-                let pubkey: PublicKey = (&self.pubkeys[index])
-                    .try_into()
-                    .map_err(|_| "could not decode signature")?;
-
-                if self.slot_signatures[index].verify(&message, domain, &pubkey) {
-                    Ok(())
-                } else {
-                    Err("Invalid Sig")
-                }
-            })
-            .is_ok()
-        {
-            Ok(())
-        } else {
-            Err("There was an invalid signature")
-        }
-    }
+pub struct ValidatorSubscription {
+    /// The validators index.
+    pub validator_index: u64,
+    /// The index of the committee within `slot` of which the validator is a member. Used by the
+    /// beacon node to quickly evaluate the associated `SubnetId`.
+    pub attestation_committee_index: CommitteeIndex,
+    /// The slot in which to subscribe.
+    pub slot: Slot,
+    /// If true, the validator is an aggregator and the beacon node should aggregate attestations
+    /// for this slot.
+    pub is_aggregator: bool,
 }

@@ -11,5 +11,5 @@ pub use beacon::{
 };
 
 pub use validator::{
-    ValidatorDutiesRequest, ValidatorDuty, ValidatorDutyBytes, ValidatorSubscriptions,
+    ValidatorDutiesRequest, ValidatorDuty, ValidatorDutyBytes, ValidatorSubscription,
 };

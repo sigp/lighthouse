@@ -1,20 +1,24 @@
 #![cfg(test)]
 
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
     testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode,
 };
 use remote_beacon_node::{
-    Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorDuty,
-    ValidatorResponse,
+    Committee, HeadBeaconBlock, PersistedOperationPool, PublishStatus, ValidatorResponse,
 };
+use rest_types::ValidatorDutyBytes;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlock, BeaconState, ChainSpec, Domain, Epoch,
-    EthSpec, MinimalEthSpec, PublicKey, RelativeEpoch, Signature, Slot, Validator,
+    test_utils::{
+        build_double_vote_attester_slashing, build_proposer_slashing,
+        generate_deterministic_keypair, AttesterSlashingTestTask, ProposerSlashingTestTask,
+    },
+    BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
+    RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    Validator,
 };
 use version;
 
@@ -54,17 +58,17 @@ fn get_randao_reveal<T: BeaconChainTypes>(
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
     let epoch = slot.epoch(E::slots_per_epoch());
-    let message = epoch.tree_hash_root();
     let domain = spec.get_domain(epoch, Domain::Randao, &fork);
-    Signature::new(&message, domain, &keypair.sk)
+    let message = epoch.signing_root(domain);
+    Signature::new(message.as_bytes(), &keypair.sk)
 }
 
 /// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).
 fn sign_block<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
-    block: &mut BeaconBlock<T::EthSpec>,
+    block: BeaconBlock<T::EthSpec>,
     spec: &ChainSpec,
-) {
+) -> SignedBeaconBlock<T::EthSpec> {
     let fork = beacon_chain
         .head()
         .expect("should get head")
@@ -74,7 +78,7 @@ fn sign_block<T: BeaconChainTypes>(
         .block_proposer(block.slot)
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
-    block.sign(&keypair.sk, &fork, spec);
+    block.sign(&keypair.sk, &fork, spec)
 }
 
 #[test]
@@ -131,20 +135,55 @@ fn validator_produce_attestation() {
         .expect("should fetch duties from http api");
     let duties = &duties[0];
 
-    // Try publishing the attestation without a signature, ensure it is flagged as invalid.
+    // Try publishing the attestation without a signature or a committee bit set, ensure it is
+    // raises an error.
+    let publish_result = env.runtime().block_on(
+        remote_node
+            .http
+            .validator()
+            .publish_attestations(vec![attestation.clone()]),
+    );
+    assert!(
+        publish_result.is_err(),
+        "the unsigned published attestation should return error"
+    );
+
+    // Set the aggregation bit.
+    attestation
+        .aggregation_bits
+        .set(
+            duties
+                .attestation_committee_position
+                .expect("should have committee position"),
+            true,
+        )
+        .expect("should set attestation bit");
+
+    // Try publishing with an aggreagation bit set, but an invalid signature.
     let publish_status = env
         .runtime()
         .block_on(
             remote_node
                 .http
                 .validator()
-                .publish_attestation(attestation.clone()),
+                .publish_attestations(vec![attestation.clone()]),
         )
-        .expect("should publish attestation");
+        .expect("should publish attestation with invalid signature");
     assert!(
         !publish_status.is_valid(),
         "the unsigned published attestation should not be valid"
     );
+
+    // Un-set the aggregation bit, so signing doesn't error.
+    attestation
+        .aggregation_bits
+        .set(
+            duties
+                .attestation_committee_position
+                .expect("should have committee position"),
+            false,
+        )
+        .expect("should un-set attestation bit");
 
     attestation
         .sign(
@@ -164,12 +203,47 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestation(attestation),
+                .publish_attestations(vec![attestation.clone()]),
         )
         .expect("should publish attestation");
     assert!(
         publish_status.is_valid(),
         "the signed published attestation should be valid"
+    );
+
+    // Try obtaining an aggregated attestation with a matching attestation data to the previous
+    // one.
+    let aggregated_attestation = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .produce_aggregate_attestation(&attestation.data),
+        )
+        .expect("should fetch aggregated attestation from http api");
+
+    let signed_aggregate_and_proof = SignedAggregateAndProof::from_aggregate(
+        validator_index as u64,
+        aggregated_attestation,
+        &keypair.sk,
+        &state.fork,
+        spec,
+    );
+
+    // Publish the signed aggregate.
+    let publish_status = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .publish_aggregate_and_proof(vec![signed_aggregate_and_proof]),
+        )
+        .expect("should publish aggregate and proof");
+    assert!(
+        publish_status.is_valid(),
+        "the signed aggregate and proof should be valid"
     );
 }
 
@@ -226,7 +300,7 @@ fn validator_duties() {
 }
 
 fn check_duties<T: BeaconChainTypes>(
-    duties: Vec<ValidatorDuty>,
+    duties: Vec<ValidatorDutyBytes>,
     epoch: Epoch,
     validators: Vec<PublicKey>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -239,7 +313,10 @@ fn check_duties<T: BeaconChainTypes>(
     );
 
     let mut state = beacon_chain
-        .state_at_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        .state_at_slot(
+            epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            StateSkipConfig::WithStateRoots,
+        )
         .expect("should get state at slot");
 
     state.build_all_caches(spec).expect("should build caches");
@@ -335,7 +412,7 @@ fn validator_block_post() {
     let slot = Slot::new(1);
     let randao_reveal = get_randao_reveal(beacon_chain.clone(), slot, spec);
 
-    let mut block = env
+    let block = env
         .runtime()
         .block_on(
             remote_node
@@ -346,9 +423,13 @@ fn validator_block_post() {
         .expect("should fetch block from http api");
 
     // Try publishing the block without a signature, ensure it is flagged as invalid.
+    let empty_sig_block = SignedBeaconBlock {
+        message: block.clone(),
+        signature: Signature::empty_signature(),
+    };
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block.clone()))
+        .block_on(remote_node.http.validator().publish_block(empty_sig_block))
         .expect("should publish block");
     if cfg!(not(feature = "fake_crypto")) {
         assert!(
@@ -357,12 +438,12 @@ fn validator_block_post() {
         );
     }
 
-    sign_block(beacon_chain, &mut block, spec);
-    let block_root = block.canonical_root();
+    let signed_block = sign_block(beacon_chain.clone(), block, spec);
+    let block_root = signed_block.canonical_root();
 
     let publish_status = env
         .runtime()
-        .block_on(remote_node.http.validator().publish_block(block))
+        .block_on(remote_node.http.validator().publish_block(signed_block))
         .expect("should publish block");
 
     if cfg!(not(feature = "fake_crypto")) {
@@ -462,7 +543,7 @@ fn beacon_state() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain")
-        .state_at_slot(Slot::new(0))
+        .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
         .expect("should find state");
     db_state.drop_all_caches();
 
@@ -857,4 +938,159 @@ fn compare_validator_response<T: EthSpec>(
     assert_eq!(response_validator, *validator, "validator");
     assert_eq!(state.balances[i], balance, "balances");
     assert_eq!(state.validators[i], *validator, "validator index");
+}
+
+#[test]
+fn proposer_slashing() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let state = chain
+        .head()
+        .expect("should have retrieved state")
+        .beacon_state;
+
+    let spec = &chain.spec;
+
+    // Check that there are no proposer slashings before insertion
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 0);
+
+    let slot = state.slot;
+    let proposer_index = chain
+        .block_proposer(slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+    let key = &keypair.sk;
+    let fork = &state.fork;
+    let proposer_slashing = build_proposer_slashing::<E>(
+        ProposerSlashingTestTask::Valid,
+        proposer_index as u64,
+        &key,
+        fork,
+        spec,
+    );
+
+    let result = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .beacon()
+                .proposer_slashing(proposer_slashing.clone()),
+        )
+        .expect("should fetch from http api");
+    assert!(result, true);
+
+    // Length should be just one as we've inserted only one proposer slashing
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 1);
+    assert_eq!(proposer_slashing.clone(), proposer_slashings[0]);
+
+    let mut invalid_proposer_slashing = build_proposer_slashing::<E>(
+        ProposerSlashingTestTask::Valid,
+        proposer_index as u64,
+        &key,
+        fork,
+        spec,
+    );
+    invalid_proposer_slashing.signed_header_2 = invalid_proposer_slashing.signed_header_1.clone();
+
+    let result = env.runtime().block_on(
+        remote_node
+            .http
+            .beacon()
+            .proposer_slashing(invalid_proposer_slashing),
+    );
+    assert!(result.is_err());
+
+    // Length should still be one as we've inserted nothing since last time.
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(proposer_slashings.len(), 1);
+    assert_eq!(proposer_slashing, proposer_slashings[0]);
+}
+
+#[test]
+fn attester_slashing() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+    let chain = node
+        .client
+        .beacon_chain()
+        .expect("node should have beacon chain");
+
+    let state = chain
+        .head()
+        .expect("should have retrieved state")
+        .beacon_state;
+    let slot = state.slot;
+    let spec = &chain.spec;
+
+    let proposer_index = chain
+        .block_proposer(slot)
+        .expect("should get proposer index");
+    let keypair = generate_deterministic_keypair(proposer_index);
+
+    let secret_keys = vec![&keypair.sk];
+    let validator_indices = vec![proposer_index as u64];
+    let fork = &state.fork;
+
+    // Checking there are no attester slashings before insertion
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 0);
+
+    let attester_slashing = build_double_vote_attester_slashing(
+        AttesterSlashingTestTask::Valid,
+        &validator_indices[..],
+        &secret_keys[..],
+        fork,
+        spec,
+    );
+
+    let result = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .beacon()
+                .attester_slashing(attester_slashing.clone()),
+        )
+        .expect("should fetch from http api");
+    assert!(result, true);
+
+    // Length should be just one as we've inserted only one attester slashing
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 1);
+    assert_eq!(attester_slashing, attester_slashings[0]);
+
+    // Building an invalid attester slashing
+    let mut invalid_attester_slashing = build_double_vote_attester_slashing(
+        AttesterSlashingTestTask::Valid,
+        &validator_indices[..],
+        &secret_keys[..],
+        fork,
+        spec,
+    );
+    invalid_attester_slashing.attestation_2 = invalid_attester_slashing.attestation_1.clone();
+
+    let result = env.runtime().block_on(
+        remote_node
+            .http
+            .beacon()
+            .attester_slashing(invalid_attester_slashing),
+    );
+    assert!(result.is_err());
+
+    // Length should still be one as we've failed to insert the attester slashing.
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    assert_eq!(attester_slashings.len(), 1);
+    assert_eq!(attester_slashing, attester_slashings[0]);
 }

@@ -1,6 +1,10 @@
 pub mod error;
-mod subnet_id;
-pub mod topics;
+mod globals;
+mod peer_info;
+mod pubsub;
+mod topics;
 
-pub use subnet_id::SubnetId;
+pub use globals::NetworkGlobals;
+pub use peer_info::{EnrBitfield, PeerInfo};
+pub use pubsub::{PubsubData, PubsubMessage};
 pub use topics::{GossipEncoding, GossipKind, GossipTopic};

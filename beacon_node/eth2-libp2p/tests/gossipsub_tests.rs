@@ -1,6 +1,6 @@
 #![cfg(test)]
-use crate::types::{GossipEncoding, GossipKind};
-use ::types::{BeaconBlock, EthSpec, MinimalEthSpec};
+use crate::types::GossipEncoding;
+use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
 use eth2_libp2p::*;
 use futures::prelude::*;
 use slog::{debug, Level};
@@ -28,7 +28,13 @@ fn test_gossipsub_forward() {
     let mut nodes = common::build_linear(log.clone(), num_nodes, Some(19000));
     let mut received_count = 0;
     let spec = E::default_spec();
-    let pubsub_message = PubsubMessage::BeaconBlock(Box::new(BeaconBlock::empty(&spec)));
+    let empty_block = BeaconBlock::empty(&spec);
+    let signed_block = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let data = PubsubData::BeaconBlock(Box::new(signed_block));
+    let pubsub_message = PubsubMessage::new(GossipEncoding::SSZ, data);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
     let mut subscribed_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
@@ -66,13 +72,7 @@ fn test_gossipsub_forward() {
                             subscribed_count += 1;
                             // Every node except the corner nodes are connected to 2 nodes.
                             if subscribed_count == (num_nodes * 2) - 2 {
-                                node.swarm.publish(
-                                    vec![GossipTopic::new(
-                                        GossipKind::BeaconBlock,
-                                        GossipEncoding::SSZ,
-                                    )],
-                                    pubsub_message.clone(),
-                                );
+                                node.swarm.publish(vec![pubsub_message.clone()]);
                             }
                         }
                     }
@@ -89,7 +89,7 @@ fn test_gossipsub_forward() {
 #[test]
 fn test_gossipsub_full_mesh_publish() {
     // set up the logging. The level and enabled or not
-    let log = common::build_log(Level::Info, false);
+    let log = common::build_log(Level::Debug, false);
 
     // Note: This test does not propagate gossipsub messages.
     // Having `num_nodes` > `mesh_n_high` may give inconsistent results
@@ -99,7 +99,13 @@ fn test_gossipsub_full_mesh_publish() {
     let mut nodes = common::build_full_mesh(log, num_nodes, Some(11320));
     let mut publishing_node = nodes.pop().unwrap();
     let spec = E::default_spec();
-    let pubsub_message = PubsubMessage::BeaconBlock(Box::new(BeaconBlock::empty(&spec)));
+    let empty_block = BeaconBlock::empty(&spec);
+    let signed_block = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let data = PubsubData::BeaconBlock(Box::new(signed_block));
+    let pubsub_message = PubsubMessage::new(GossipEncoding::SSZ, data);
     let publishing_topic: String = "/eth2/beacon_block/ssz".into();
     let mut subscribed_count = 0;
     let mut received_count = 0;
@@ -132,13 +138,7 @@ fn test_gossipsub_full_mesh_publish() {
             if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
                 subscribed_count += 1;
                 if subscribed_count == num_nodes - 1 {
-                    publishing_node.swarm.publish(
-                        vec![GossipTopic::new(
-                            GossipKind::BeaconBlock,
-                            GossipEncoding::SSZ,
-                        )],
-                        pubsub_message.clone(),
-                    );
+                    publishing_node.swarm.publish(vec![pubsub_message.clone()]);
                 }
             }
         }

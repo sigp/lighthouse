@@ -7,7 +7,7 @@ use tree_hash_derive::TreeHash;
 
 /// Casper FFG checkpoint, used in attestations.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(
     Debug,
     Clone,
@@ -31,5 +31,5 @@ pub struct Checkpoint {
 mod tests {
     use super::*;
 
-    ssz_tests!(Checkpoint);
+    ssz_and_tree_hash_tests!(Checkpoint);
 }

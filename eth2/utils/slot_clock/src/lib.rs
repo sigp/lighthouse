@@ -35,9 +35,26 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns the duration between slots
     fn slot_duration(&self) -> Duration;
 
+    /// Returns the duration from now until `slot`.
+    fn duration_to_slot(&self, slot: Slot) -> Option<Duration>;
+
     /// Returns the duration until the next slot.
     fn duration_to_next_slot(&self) -> Option<Duration>;
 
     /// Returns the duration until the first slot of the next epoch.
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
+
+    /// Returns the first slot to be returned at the genesis time.
+    fn genesis_slot(&self) -> Slot;
+
+    /// Returns the slot if the internal clock were advanced by `duration`.
+    fn now_with_future_tolerance(&self, tolerance: Duration) -> Option<Slot> {
+        self.slot_of(self.now_duration()?.checked_add(tolerance)?)
+    }
+
+    /// Returns the slot if the internal clock were reversed by `duration`.
+    fn now_with_past_tolerance(&self, tolerance: Duration) -> Option<Slot> {
+        self.slot_of(self.now_duration()?.checked_sub(tolerance)?)
+            .or_else(|| Some(self.genesis_slot()))
+    }
 }

@@ -21,10 +21,10 @@ mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use client_network::NetworkMessage;
-use client_network::Service as NetworkService;
 pub use config::ApiEncodingFormat;
 use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
+use eth2_libp2p::NetworkGlobals;
 use hyper::rt::Future;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
@@ -35,7 +35,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
@@ -45,7 +45,7 @@ pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send
 pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
 pub struct NetworkInfo<T: BeaconChainTypes> {
-    pub network_service: Arc<NetworkService<T>>,
+    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub network_chan: NetworkChannel<T::EthSpec>,
 }
 
@@ -60,7 +60,7 @@ pub fn start_server<T: BeaconChainTypes>(
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
     log: slog::Logger,
-) -> Result<(exit_future::Signal, SocketAddr), hyper::Error> {
+) -> Result<(oneshot::Sender<()>, SocketAddr), hyper::Error> {
     let inner_log = log.clone();
     let eth2_config = Arc::new(eth2_config);
 
@@ -69,7 +69,7 @@ pub fn start_server<T: BeaconChainTypes>(
         let beacon_chain = beacon_chain.clone();
         let log = inner_log.clone();
         let eth2_config = eth2_config.clone();
-        let network_service = network_info.network_service.clone();
+        let network_globals = network_info.network_globals.clone();
         let network_channel = network_info.network_chan.clone();
         let db_path = db_path.clone();
         let freezer_db_path = freezer_db_path.clone();
@@ -78,7 +78,7 @@ pub fn start_server<T: BeaconChainTypes>(
             router::route(
                 req,
                 beacon_chain.clone(),
-                network_service.clone(),
+                network_globals.clone(),
                 network_channel.clone(),
                 eth2_config.clone(),
                 log.clone(),
@@ -98,7 +98,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let (exit_signal, exit) = exit_future::signal();
+    let (exit_signal, exit) = oneshot::channel();
     let inner_log = log.clone();
     let server_exit = exit.and_then(move |_| {
         info!(inner_log, "HTTP service shutdown");

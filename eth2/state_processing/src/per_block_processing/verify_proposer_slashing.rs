@@ -1,5 +1,5 @@
 use super::errors::{BlockOperationError, ProposerSlashingInvalid as Invalid};
-use super::signature_sets::proposer_slashing_signature_set;
+use super::signature_sets::{get_pubkey_from_state, proposer_slashing_signature_set};
 use crate::VerifySignatures;
 use types::*;
 
@@ -14,7 +14,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 ///
 /// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 pub fn verify_proposer_slashing<T: EthSpec>(
     proposer_slashing: &ProposerSlashing,
     state: &BeaconState<T>,
@@ -28,16 +28,17 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 
     // Verify slots match
     verify!(
-        proposer_slashing.header_1.slot == proposer_slashing.header_2.slot,
+        proposer_slashing.signed_header_1.message.slot
+            == proposer_slashing.signed_header_2.message.slot,
         Invalid::ProposalSlotMismatch(
-            proposer_slashing.header_1.slot,
-            proposer_slashing.header_2.slot
+            proposer_slashing.signed_header_1.message.slot,
+            proposer_slashing.signed_header_2.message.slot
         )
     );
 
     // But the headers are different
     verify!(
-        proposer_slashing.header_1 != proposer_slashing.header_2,
+        proposer_slashing.signed_header_1 != proposer_slashing.signed_header_2,
         Invalid::ProposalsIdentical
     );
 
@@ -48,8 +49,12 @@ pub fn verify_proposer_slashing<T: EthSpec>(
     );
 
     if verify_signatures.is_true() {
-        let (signature_set_1, signature_set_2) =
-            proposer_slashing_signature_set(state, proposer_slashing, spec)?;
+        let (signature_set_1, signature_set_2) = proposer_slashing_signature_set(
+            state,
+            |i| get_pubkey_from_state(state, i),
+            proposer_slashing,
+            spec,
+        )?;
         verify!(signature_set_1.is_valid(), Invalid::BadProposal1Signature);
         verify!(signature_set_2.is_valid(), Invalid::BadProposal2Signature);
     }

@@ -3,16 +3,20 @@ use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
 use crate::types::error;
 use crate::NetworkConfig;
-use crate::PubsubMessage;
-use crate::{NetworkGlobals, TopicHash};
+use crate::{NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
-    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, nodes::Substream,
-    transport::boxed::Boxed, ConnectedPoint,
+    identity::Keypair,
+    multiaddr::Multiaddr,
+    muxing::StreamMuxerBox,
+    nodes::Substream,
+    transport::boxed::Boxed,
+    upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
+    ConnectedPoint,
 };
 use libp2p::gossipsub::MessageId;
-use libp2p::{core, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
+use libp2p::{core, noise, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
 use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
@@ -20,7 +24,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::DelayQueue;
-use types::EthSpec;
+use types::{EnrForkId, EthSpec};
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
@@ -52,8 +56,9 @@ pub struct Service<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
         config: &NetworkConfig,
+        enr_fork_id: EnrForkId,
         log: slog::Logger,
-    ) -> error::Result<(Arc<NetworkGlobals>, Self)> {
+    ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         trace!(log, "Libp2p Service starting");
 
         let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {
@@ -67,13 +72,23 @@ impl<TSpec: EthSpec> Service<TSpec> {
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
 
         // set up a collection of variables accessible outside of the network crate
-        let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
+        let network_globals = Arc::new(NetworkGlobals::new(
+            local_peer_id.clone(),
+            config.libp2p_port,
+            config.discovery_port,
+        ));
 
         let mut swarm = {
-            // Set up the transport - tcp/ws with secio and mplex/yamux
+            // Set up the transport - tcp/ws with noise/secio and mplex/yamux
             let transport = build_transport(local_keypair.clone());
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
+            let behaviour = Behaviour::new(
+                &local_keypair,
+                config,
+                network_globals.clone(),
+                enr_fork_id,
+                &log,
+            )?;
             Swarm::new(transport, behaviour, local_peer_id.clone())
         };
 
@@ -135,6 +150,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             if swarm.subscribe(topic.clone()) {
                 trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
                 subscribed_topics.push(topic_string);
+                network_globals
+                    .gossipsub_subscriptions
+                    .write()
+                    .push(topic.clone());
             } else {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
             }
@@ -251,7 +270,7 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
     }
 }
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, secio as the encryption layer, and
+/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption layer, and
 /// mplex or yamux as the multiplexing layer.
 fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
@@ -263,20 +282,51 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
         let trans_clone = transport.clone();
         transport.or_transport(websocket::WsConfig::new(trans_clone))
     };
-    transport
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(secio::SecioConfig::new(local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            libp2p::yamux::Config::default(),
-            libp2p::mplex::MplexConfig::new(),
-        ))
-        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
-        .timeout(Duration::from_secs(20))
+    // Authentication
+    let transport = transport
+        .and_then(move |stream, endpoint| {
+            let upgrade = core::upgrade::SelectUpgrade::new(
+                generate_noise_config(&local_private_key),
+                secio::SecioConfig::new(local_private_key),
+            );
+            core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1).and_then(
+                move |out| {
+                    match out {
+                        // Noise was negotiated
+                        core::either::EitherOutput::First((remote_id, out)) => {
+                            Ok((core::either::EitherOutput::First(out), remote_id))
+                        }
+                        // Secio was negotiated
+                        core::either::EitherOutput::Second((remote_id, out)) => {
+                            Ok((core::either::EitherOutput::Second(out), remote_id))
+                        }
+                    }
+                },
+            )
+        })
+        .timeout(Duration::from_secs(20));
+
+    // Multiplexing
+    let transport = transport
+        .and_then(move |(stream, peer_id), endpoint| {
+            let peer_id2 = peer_id.clone();
+            let upgrade = core::upgrade::SelectUpgrade::new(
+                libp2p::yamux::Config::default(),
+                libp2p::mplex::MplexConfig::new(),
+            )
+            .map_inbound(move |muxer| (peer_id, muxer))
+            .map_outbound(move |muxer| (peer_id2, muxer));
+
+            core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1)
+                .map(|(id, muxer)| (id, core::muxing::StreamMuxerBox::new(muxer)))
+        })
         .timeout(Duration::from_secs(20))
         .map_err(|err| Error::new(ErrorKind::Other, err))
-        .boxed()
+        .boxed();
+    transport
 }
 
+#[derive(Debug)]
 /// Events that can be obtained from polling the Libp2p Service.
 pub enum Libp2pEvent<TSpec: EthSpec> {
     /// An RPC response request has been received on the swarm.
@@ -363,4 +413,14 @@ fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
         }
     }
     local_private_key
+}
+
+/// Generate authenticated XX Noise config from identity keys
+fn generate_noise_config(
+    identity_keypair: &Keypair,
+) -> noise::NoiseAuthenticated<noise::XX, noise::X25519, ()> {
+    let static_dh_keys = noise::Keypair::<noise::X25519>::new()
+        .into_authentic(identity_keypair)
+        .expect("signing can fail only once during starting a node");
+    noise::NoiseConfig::xx(static_dh_keys).into_authenticated()
 }

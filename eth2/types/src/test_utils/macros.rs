@@ -1,4 +1,13 @@
-#[cfg(test)]
+#![cfg(test)]
+
+#[macro_export]
+macro_rules! ssz_and_tree_hash_tests {
+    ($type: ty) => {
+        ssz_tests!($type);
+        tree_hash_tests!($type);
+    };
+}
+
 #[macro_export]
 macro_rules! ssz_tests {
     ($type: ty) => {
@@ -16,7 +25,12 @@ macro_rules! ssz_tests {
 
             assert_eq!(original, decoded);
         }
+    };
+}
 
+#[macro_export]
+macro_rules! tree_hash_tests {
+    ($type: ty) => {
         #[test]
         pub fn test_tree_hash_root() {
             use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
@@ -25,11 +39,8 @@ macro_rules! ssz_tests {
             let mut rng = XorShiftRng::from_seed([42; 16]);
             let original = <$type>::random_for_test(&mut rng);
 
-            let result = original.tree_hash_root();
-
-            assert_eq!(result.len(), 32);
-            // TODO: Add further tests
-            // https://github.com/sigp/lighthouse/issues/170
+            // Tree hashing should not panic.
+            original.tree_hash_root();
         }
     };
 }

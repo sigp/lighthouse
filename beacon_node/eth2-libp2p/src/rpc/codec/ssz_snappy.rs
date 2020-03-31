@@ -15,7 +15,7 @@ use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use tokio::codec::{Decoder, Encoder};
-use types::{BeaconBlock, EthSpec};
+use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::{decode, encode};
 
 /* Inbound Codec */
@@ -284,13 +284,13 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     }
                     RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
                         "1" => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                            BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                         )))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },
                     RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
                         "1" => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                            BeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                         )))),
                         _ => unreachable!("Cannot negotiate an unknown version"),
                     },

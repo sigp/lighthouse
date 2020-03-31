@@ -1,4 +1,6 @@
-use crate::{test_utils::TestRandom, Epoch, Hash256, PublicKeyBytes};
+use crate::{
+    test_utils::TestRandom, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes,
+};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -6,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// Information about a `BeaconChain` validator.
 ///
-/// Spec v0.9.1
+/// Spec v0.10.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,
@@ -38,6 +40,28 @@ impl Validator {
     /// Returns `true` if the validator is able to withdraw at some epoch.
     pub fn is_withdrawable_at(&self, epoch: Epoch) -> bool {
         epoch >= self.withdrawable_epoch
+    }
+
+    /// Returns `true` if the validator is eligible to join the activation queue.
+    ///
+    /// Spec v0.10.1
+    pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
+        self.activation_eligibility_epoch == spec.far_future_epoch
+            && self.effective_balance == spec.max_effective_balance
+    }
+
+    /// Returns `true` if the validator is eligible to be activated.
+    ///
+    /// Spec v0.10.1
+    pub fn is_eligible_for_activation<E: EthSpec>(
+        &self,
+        state: &BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> bool {
+        // Placement in queue is finalized
+        self.activation_eligibility_epoch <= state.finalized_checkpoint.epoch
+        // Has not yet been activated
+        && self.activation_epoch == spec.far_future_epoch
     }
 }
 
@@ -115,5 +139,5 @@ mod tests {
         assert_eq!(v.is_withdrawable_at(epoch + 1), true);
     }
 
-    ssz_tests!(Validator);
+    ssz_and_tree_hash_tests!(Validator);
 }

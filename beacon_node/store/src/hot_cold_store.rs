@@ -22,7 +22,6 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
-use types::beacon_state::CloneConfig;
 use types::*;
 
 /// 32-byte key for accessing the `split` of the freezer DB.
@@ -46,9 +45,7 @@ pub struct HotColdDB<E: EthSpec> {
     /// The hot database also contains all blocks.
     pub(crate) hot_db: LevelDB<E>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
-    block_cache: RwLock<LruCache<Hash256, BeaconBlock<E>>>,
-    /// LRU cache of deserialized states. Updated whenever a state is loaded.
-    state_cache: RwLock<LruCache<Hash256, BeaconState<E>>>,
+    block_cache: RwLock<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
     spec: ChainSpec,
     /// Logger.
@@ -107,7 +104,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Store a block and update the LRU cache.
-    fn put_block(&self, block_root: &Hash256, block: BeaconBlock<E>) -> Result<(), Error> {
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
         // Store on disk.
         self.put(block_root, &block)?;
 
@@ -118,7 +115,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<BeaconBlock<E>>, Error> {
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
@@ -128,7 +125,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         }
 
         // Fetch from database.
-        match self.get::<BeaconBlock<E>>(block_root)? {
+        match self.get::<SignedBeaconBlock<E>>(block_root)? {
             Some(block) => {
                 // Add to cache.
                 self.block_cache.write().put(*block_root, block.clone());
@@ -138,8 +135,14 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         }
     }
 
+    /// Delete a block from the store and the block cache.
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
+        self.block_cache.write().pop(block_root);
+        self.delete::<SignedBeaconBlock<E>>(block_root)
+    }
+
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error> {
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
             self.store_cold_state(state_root, &state)
         } else {
@@ -153,7 +156,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        self.get_state_with(state_root, slot, CloneConfig::all())
+        self.get_state_with(state_root, slot)
     }
 
     /// Get a state from the store.
@@ -163,7 +166,6 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
-        clone_config: CloneConfig,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
 
@@ -171,14 +173,34 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
             if slot < self.get_split_slot() {
                 self.load_cold_state_by_slot(slot).map(Some)
             } else {
-                self.load_hot_state(state_root, clone_config)
+                self.load_hot_state(state_root)
             }
         } else {
-            match self.load_hot_state(state_root, clone_config)? {
+            match self.load_hot_state(state_root)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
         }
+    }
+
+    /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
+    ///
+    /// It is assumed that all states being deleted reside in the hot DB, even if their slot is less
+    /// than the split point. You shouldn't delete states from the finalized portion of the chain
+    /// (which are frozen, and won't be deleted), or valid descendents of the finalized checkpoint
+    /// (which will be deleted by this function but shouldn't be).
+    fn delete_state(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
+        // Delete the state summary.
+        self.hot_db
+            .key_delete(DBColumn::BeaconStateSummary.into(), state_root.as_bytes())?;
+
+        // Delete the full state if it lies on an epoch boundary.
+        if slot % E::slots_per_epoch() == 0 {
+            self.hot_db
+                .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
+        }
+
+        Ok(())
     }
 
     /// Advance the split point of the store, moving new finalized states to the freezer.
@@ -232,10 +254,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
             store.store_cold_state_slot(&state_root, slot)?;
 
             // Delete the old summary, and the full state if we lie on an epoch boundary.
-            to_delete.push((DBColumn::BeaconStateSummary, state_root));
-            if slot % E::slots_per_epoch() == 0 {
-                to_delete.push((DBColumn::BeaconState, state_root));
-            }
+            to_delete.push((state_root, slot));
         }
 
         // 2. Update the split slot
@@ -246,10 +265,8 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         store.store_split()?;
 
         // 3. Delete from the hot DB
-        for (column, state_root) in to_delete {
-            store
-                .hot_db
-                .key_delete(column.into(), state_root.as_bytes())?;
+        for (state_root, slot) in to_delete {
+            store.delete_state(&state_root, slot)?;
         }
 
         debug!(
@@ -285,10 +302,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
             let state = self
-                .load_hot_state(
-                    &epoch_boundary_state_root,
-                    CloneConfig::committee_caches_only(),
-                )?
+                .load_hot_state(&epoch_boundary_state_root)?
                 .ok_or_else(|| {
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
                 })?;
@@ -325,7 +339,6 @@ impl<E: EthSpec> HotColdDB<E> {
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: RwLock::new(LruCache::new(config.block_cache_size)),
-            state_cache: RwLock::new(LruCache::new(config.state_cache_size)),
             config,
             spec,
             log,
@@ -347,7 +360,7 @@ impl<E: EthSpec> HotColdDB<E> {
     pub fn store_hot_state(
         &self,
         state_root: &Hash256,
-        state: BeaconState<E>,
+        state: &BeaconState<E>,
     ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
         if state.slot % E::slots_per_epoch() == 0 {
@@ -363,10 +376,7 @@ impl<E: EthSpec> HotColdDB<E> {
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
-        self.put_state_summary(state_root, HotStateSummary::new(state_root, &state)?)?;
-
-        // Store the state in the cache.
-        self.state_cache.write().put(*state_root, state);
+        self.put_state_summary(state_root, HotStateSummary::new(state_root, state)?)?;
 
         Ok(())
     }
@@ -374,23 +384,8 @@ impl<E: EthSpec> HotColdDB<E> {
     /// Load a post-finalization state from the hot database.
     ///
     /// Will replay blocks from the nearest epoch boundary.
-    pub fn load_hot_state(
-        &self,
-        state_root: &Hash256,
-        clone_config: CloneConfig,
-    ) -> Result<Option<BeaconState<E>>, Error> {
+    pub fn load_hot_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
-
-        // Check the cache.
-        if let Some(state) = self.state_cache.write().get(state_root) {
-            metrics::inc_counter(&metrics::BEACON_STATE_CACHE_HIT_COUNT);
-
-            let timer = metrics::start_timer(&metrics::BEACON_STATE_CACHE_CLONE_TIME);
-            let state = state.clone_with(clone_config);
-            metrics::stop_timer(timer);
-
-            return Ok(Some(state));
-        }
 
         if let Some(HotStateSummary {
             slot,
@@ -414,9 +409,6 @@ impl<E: EthSpec> HotColdDB<E> {
                     self.load_blocks_to_replay(boundary_state.slot, slot, latest_block_root)?;
                 self.replay_blocks(boundary_state, blocks, slot)?
             };
-
-            // Update the LRU cache.
-            self.state_cache.write().put(*state_root, state.clone());
 
             Ok(Some(state))
         } else {
@@ -569,15 +561,15 @@ impl<E: EthSpec> HotColdDB<E> {
         start_slot: Slot,
         end_slot: Slot,
         end_block_hash: Hash256,
-    ) -> Result<Vec<BeaconBlock<E>>, Error> {
+    ) -> Result<Vec<SignedBeaconBlock<E>>, Error> {
         let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
             .map(|(_, block)| block)
             // Include the block at the end slot (if any), it needs to be
             // replayed in order to construct the canonical state at `end_slot`.
-            .filter(|block| block.slot <= end_slot)
-            // Exclude the block at the start slot (if any), because it has already
-            // been applied to the starting state.
-            .take_while(|block| block.slot > start_slot)
+            .filter(|block| block.message.slot <= end_slot)
+            // Include the block at the start slot (if any). Whilst it doesn't need to be applied
+            // to the state, it contains a potentially useful state root.
+            .take_while(|block| block.message.slot >= start_slot)
             .collect::<Vec<_>>();
         blocks.reverse();
         Ok(blocks)
@@ -590,12 +582,12 @@ impl<E: EthSpec> HotColdDB<E> {
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
-        blocks: Vec<BeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
     ) -> Result<BeaconState<E>, Error> {
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
-                let prev_block = &blocks[i - 1];
+                let prev_block = &blocks[i - 1].message;
                 if prev_block.slot == state.slot {
                     Some(prev_block.state_root)
                 } else {
@@ -607,7 +599,11 @@ impl<E: EthSpec> HotColdDB<E> {
         };
 
         for (i, block) in blocks.iter().enumerate() {
-            while state.slot < block.slot {
+            if block.message.slot <= state.slot {
+                continue;
+            }
+
+            while state.slot < block.message.slot {
                 let state_root = state_root_from_prev_block(i, &state);
                 per_slot_processing(&mut state, state_root, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;

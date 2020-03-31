@@ -1,17 +1,17 @@
 use clap::ArgMatches;
-use client::{ClientConfig, ClientGenesis, Eth2Config};
+use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
 use eth2_libp2p::{Enr, GossipTopic, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::recent_genesis_time;
 use rand::{distributions::Alphanumeric, Rng};
-use slog::{crit, info, warn, Logger};
+use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{Epoch, EthSpec, Fork};
+use types::EthSpec;
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -47,7 +47,7 @@ pub fn get_configs<E: EthSpec>(
     client_config.data_dir = cli_args
         .value_of("datadir")
         .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(BEACON_NODE_DIR)))
+        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
         .unwrap_or_else(|| PathBuf::from("."));
 
     // Load the client config, if it exists .
@@ -116,6 +116,13 @@ pub fn get_configs<E: EthSpec>(
         client_config.network.discovery_port = port;
     }
 
+    if let Some(port_str) = cli_args.value_of("discovery-port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
+        client_config.network.discovery_port = port;
+    }
+
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
         client_config.network.boot_nodes = boot_enr_str
             .split(',')
@@ -143,24 +150,56 @@ pub fn get_configs<E: EthSpec>(
         client_config.network.topics = topics;
     }
 
-    if let Some(discovery_address_str) = cli_args.value_of("discovery-address") {
-        client_config.network.discovery_address = Some(
-            discovery_address_str
+    if let Some(enr_address_str) = cli_args.value_of("enr-address") {
+        client_config.network.enr_address = Some(
+            enr_address_str
                 .parse()
-                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?,
+                .map_err(|_| format!("Invalid discovery address: {:?}", enr_address_str))?,
         )
     }
 
-    if let Some(disc_port_str) = cli_args.value_of("disc-port") {
-        client_config.network.discovery_port = disc_port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid discovery port: {}", disc_port_str))?;
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
+        client_config.network.enr_udp_port = Some(
+            enr_udp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+        client_config.network.enr_tcp_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if cli_args.is_present("enr-match") {
+        client_config.network.enr_address = Some(client_config.network.listen_address);
+        client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
+    }
+
+    if cli_args.is_present("disable_enr_auto_update") {
+        client_config.network.discv5_config.enr_update = false;
     }
 
     if let Some(p2p_priv_key) = cli_args.value_of("p2p-priv-key") {
         client_config.network.secret_key_hex = Some(p2p_priv_key.to_string());
     }
 
+    /*
+     * Chain specification
+     */
+    if let Some(disabled_forks_str) = cli_args.value_of("disabled-forks") {
+        client_config.disabled_forks = disabled_forks_str
+            .split(',')
+            .map(|fork_name| {
+                fork_name
+                    .parse()
+                    .map_err(|_| format!("Invalid fork name: {}", fork_name))
+            })
+            .collect::<Result<Vec<String>>>()?;
+    }
     /*
      * Http server
      */
@@ -301,8 +340,8 @@ pub fn get_configs<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
-            client_config.network.discovery_address = None
+        if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
+            client_config.network.enr_address = None
         }
         client_config.network.libp2p_port =
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
@@ -312,15 +351,6 @@ pub fn get_configs<E: EthSpec>(
         client_config.websocket_server.port = 0;
     }
 
-    // ENR IP needs to be explicit for node to be discoverable
-    if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
-        warn!(
-            log,
-            "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
-        );
-        client_config.network.discovery_address =
-            Some("127.0.0.1".parse().expect("Valid IP address"))
-    }
     Ok((client_config, eth2_config, log))
 }
 
@@ -380,13 +410,6 @@ fn init_new_client<E: EthSpec>(
         })?;
 
     let spec = &mut eth2_config.spec;
-
-    // For now, assume that all networks will use the lighthouse genesis fork.
-    spec.genesis_fork = Fork {
-        previous_version: [0, 0, 0, 0],
-        current_version: [1, 3, 3, 7],
-        epoch: Epoch::new(0),
-    };
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
@@ -564,11 +587,7 @@ fn process_testnet_subcommand(
             spec.ejection_balance = 1_600_000_000;
             spec.effective_balance_increment = 100_000_000;
             spec.min_genesis_time = 0;
-            spec.genesis_fork = Fork {
-                previous_version: [0; 4],
-                current_version: [0, 0, 0, 2],
-                epoch: Epoch::new(0),
-            };
+            spec.genesis_fork_version = [0, 0, 0, 2];
 
             client_config.eth1.deposit_contract_address =
                 "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();

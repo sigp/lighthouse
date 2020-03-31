@@ -1,6 +1,6 @@
 [package]
 name = "swap_or_not_shuffle"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
@@ -16,4 +16,4 @@ ethereum-types = "0.8.0"
 
 [dependencies]
 eth2_hashing = "0.1.0"
-int_to_bytes = { path = "../int_to_bytes" }
+ethereum-types = "0.8.0"

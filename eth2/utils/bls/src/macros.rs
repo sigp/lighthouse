@@ -56,13 +56,20 @@ macro_rules! impl_tree_hash {
                 unreachable!("Vector should never be packed.")
             }
 
-            fn tree_hash_root(&self) -> Vec<u8> {
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
                 // We could use the tree hash implementation for `FixedVec<u8, $byte_size>`,
                 // but benchmarks have show that to be at least 15% slower because of the
                 // unnecessary copying and allocation (one Vec per byte)
                 let values_per_chunk = tree_hash::BYTES_PER_CHUNK;
                 let minimum_chunk_count = ($byte_size + values_per_chunk - 1) / values_per_chunk;
-                tree_hash::merkle_root(&self.as_ssz_bytes(), minimum_chunk_count)
+
+                let mut hasher = tree_hash::MerkleHasher::with_leaves(minimum_chunk_count);
+                hasher
+                    .write(&self.as_ssz_bytes())
+                    .expect("bls should not exceed leaf count");
+                hasher
+                    .finish()
+                    .expect("bls should not exceed leaf count from buffer")
             }
         }
     };
@@ -85,7 +92,6 @@ macro_rules! bytes_struct {
         #[derive(Clone)]
         pub struct $name {
             bytes: [u8; $byte_size],
-            decompressed: Option<$type>
         }
     };
     ($name: ident, $type: ty, $byte_size: expr, $small_name: expr) => {
@@ -96,19 +102,21 @@ macro_rules! bytes_struct {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
                 Ok(Self {
                     bytes: Self::get_bytes(bytes)?,
-                    decompressed: None
                 })
             }
 
             pub fn empty() -> Self {
                 Self {
                     bytes: [0; $byte_size],
-                    decompressed: None
                 }
             }
 
             pub fn as_bytes(&self) -> Vec<u8> {
                 self.bytes.to_vec()
+            }
+
+            pub fn as_slice(&self) -> &[u8] {
+                &self.bytes
             }
 
             fn get_bytes(bytes: &[u8]) -> Result<[u8; $byte_size], ssz::DecodeError> {
@@ -122,15 +130,6 @@ macro_rules! bytes_struct {
                     result[..].copy_from_slice(bytes);
                     Ok(result)
                 }
-            }
-
-            pub fn decompress(&mut self) -> Result<(), ssz::DecodeError> {
-                self.decompressed = Some(<&Self as std::convert::TryInto<$type>>::try_into(self)?);
-                Ok(())
-            }
-
-            pub fn decompressed(&self) -> &Option<$type> {
-                &self.decompressed
             }
         }
 
@@ -169,9 +168,67 @@ macro_rules! bytes_struct {
             }
         }
 
-        impl_ssz!($name, $byte_size, "$type");
+        impl ssz::Encode for $name {
+            fn is_ssz_fixed_len() -> bool {
+                true
+            }
 
-        impl_tree_hash!($name, $byte_size);
+            fn ssz_fixed_len() -> usize {
+                $byte_size
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
+                $byte_size
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                buf.extend_from_slice(&self.bytes)
+            }
+        }
+
+        impl ssz::Decode for $name {
+            fn is_ssz_fixed_len() -> bool {
+                true
+            }
+
+            fn ssz_fixed_len() -> usize {
+                $byte_size
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+                let len = bytes.len();
+                let expected = <Self as ssz::Decode>::ssz_fixed_len();
+
+                if len != expected {
+                    Err(ssz::DecodeError::InvalidByteLength { len, expected })
+                } else {
+                    Self::from_bytes(bytes)
+                }
+            }
+        }
+
+        impl tree_hash::TreeHash for $name {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::Vector
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("Vector should never be packed.")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("Vector should never be packed.")
+            }
+
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
+                let values_per_chunk = tree_hash::BYTES_PER_CHUNK;
+                let minimum_chunk_count = ($byte_size + values_per_chunk - 1) / values_per_chunk;
+
+                let mut hasher = tree_hash::MerkleHasher::with_leaves(minimum_chunk_count);
+                hasher.write(&self.bytes).expect("bls should not exceed leaf count");
+                hasher.finish().expect("bls should not exceed leaf count from buffer")
+            }
+        }
 
         impl serde::ser::Serialize for $name {
             /// Serde serialization is compliant the Ethereum YAML test format.

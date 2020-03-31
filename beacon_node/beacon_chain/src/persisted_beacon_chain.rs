@@ -1,28 +1,17 @@
-use crate::eth1_chain::SszEth1;
-use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::SszHeadTracker;
-use crate::{BeaconChainTypes, CheckPoint};
-use operation_pool::PersistedOperationPool;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, SimpleStoreItem};
 use types::Hash256;
 
-/// 32-byte key for accessing the `PersistedBeaconChain`.
-pub const BEACON_CHAIN_DB_KEY: &str = "PERSISTEDBEACONCHAINPERSISTEDBEA";
-
 #[derive(Clone, Encode, Decode)]
-pub struct PersistedBeaconChain<T: BeaconChainTypes> {
-    pub canonical_head: CheckPoint<T::EthSpec>,
-    pub finalized_checkpoint: CheckPoint<T::EthSpec>,
-    pub op_pool: PersistedOperationPool<T::EthSpec>,
+pub struct PersistedBeaconChain {
+    pub canonical_head_block_root: Hash256,
     pub genesis_block_root: Hash256,
     pub ssz_head_tracker: SszHeadTracker,
-    pub fork_choice: SszForkChoice,
-    pub eth1_cache: Option<SszEth1>,
 }
 
-impl<T: BeaconChainTypes> SimpleStoreItem for PersistedBeaconChain<T> {
+impl SimpleStoreItem for PersistedBeaconChain {
     fn db_column() -> DBColumn {
         DBColumn::BeaconChain
     }

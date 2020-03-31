@@ -1,6 +1,5 @@
 use crate::test_utils::{AttestationTestTask, TestingAttestationDataBuilder};
 use crate::*;
-use tree_hash::TreeHash;
 
 /// Builds an attestation to be used for testing purposes.
 ///
@@ -71,31 +70,22 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                 .position(|v| *v == *validator_index)
                 .expect("Signing validator not in attestation committee");
 
-            match test_task {
-                AttestationTestTask::BadIndexedAttestationBadSignature => (),
-                _ => {
-                    self.attestation
-                        .aggregation_bits
-                        .set(committee_index, true)
-                        .unwrap();
-                }
-            }
-
-            let message = self.attestation.data.tree_hash_root();
-
-            let domain = spec.get_domain(
-                self.attestation.data.target.epoch,
-                Domain::BeaconAttester,
-                fork,
-            );
-
             let index = if test_task == AttestationTestTask::BadSignature {
                 0
             } else {
                 key_index
             };
-            let signature = Signature::new(&message, domain, secret_keys[index]);
-            self.attestation.signature.add(&signature)
+
+            self.attestation
+                .sign(secret_keys[index], committee_index, fork, spec)
+                .expect("can sign attestation");
+
+            if let AttestationTestTask::BadIndexedAttestationBadSignature = test_task {
+                self.attestation
+                    .aggregation_bits
+                    .set(committee_index, false)
+                    .unwrap();
+            }
         }
 
         self

@@ -72,11 +72,11 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// Client behaviour is defined by the given `client_config`.
     pub fn new(
         context: RuntimeContext<E>,
-        client_config: ClientConfig,
+        mut client_config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
         let http_eth2_config = context.eth2_config().clone();
         let spec = context.eth2_config().spec.clone();
-        let genesis_eth1_config = client_config.eth1.clone();
+        let client_config_1 = client_config.clone();
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
         let log = context.log.clone();
@@ -93,9 +93,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .disk_store(&db_path, &freezer_db_path_res?, store_config)?
                     .background_migrator()?)
             })
-            .and_then(move |builder| {
-                builder.beacon_chain_builder(client_genesis, genesis_eth1_config)
-            })
+            .and_then(move |builder| builder.beacon_chain_builder(client_genesis, client_config_1))
             .and_then(move |builder| {
                 let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend
                 {
@@ -126,7 +124,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                     .system_time_slot_clock()?
                     .websocket_event_handler(client_config.websocket_server.clone())?
                     .build_beacon_chain()?
-                    .libp2p_network(&client_config.network)?
+                    .network(&mut client_config.network)?
                     .notifier()?;
 
                 let builder = if client_config.rest_api.enabled {

@@ -1,3 +1,4 @@
+use crate::SmallVec8;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
@@ -27,6 +28,14 @@ pub struct CacheArena<T: Encode + Decode> {
 }
 
 impl<T: Encode + Decode> CacheArena<T> {
+    /// Instantiate self with a backing array of the given `capacity`.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            backing: Vec::with_capacity(capacity),
+            offsets: vec![],
+        }
+    }
+
     /// Produce an allocation of zero length at the end of the backing array.
     pub fn alloc(&mut self) -> CacheArenaAllocation<T> {
         let alloc_id = self.offsets.len();
@@ -204,7 +213,11 @@ pub struct CacheArenaAllocation<T> {
 
 impl<T: Encode + Decode> CacheArenaAllocation<T> {
     /// Grow the allocation in `arena`, appending `vec` to the current values.
-    pub fn extend_with_vec(&self, arena: &mut CacheArena<T>, vec: Vec<T>) -> Result<(), Error> {
+    pub fn extend_with_vec(
+        &self,
+        arena: &mut CacheArena<T>,
+        vec: SmallVec8<T>,
+    ) -> Result<(), Error> {
         let len = arena.len(self.alloc_id)?;
         arena.splice_forgetful(self.alloc_id, len..len, vec)?;
         Ok(())
@@ -264,6 +277,7 @@ impl<T: Encode + Decode> CacheArenaAllocation<T> {
 #[cfg(test)]
 mod tests {
     use crate::Hash256;
+    use smallvec::smallvec;
 
     type CacheArena = super::CacheArena<Hash256>;
     type CacheArenaAllocation = super::CacheArenaAllocation<Hash256>;
@@ -300,7 +314,7 @@ mod tests {
             len
         );
 
-        sub.extend_with_vec(arena, vec![hash(len), hash(len + 1)])
+        sub.extend_with_vec(arena, smallvec![hash(len), hash(len + 1)])
             .expect("should extend with vec");
         len += 2;
 

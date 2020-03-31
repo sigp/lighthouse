@@ -1,6 +1,6 @@
-use crate::types::SubnetId;
 use libp2p::gossipsub::Topic;
 use serde_derive::{Deserialize, Serialize};
+use types::SubnetId;
 
 /// The gossipsub topic names.
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
@@ -16,12 +16,10 @@ pub const COMMITEE_INDEX_TOPIC_POSTFIX: &str = "_beacon_attestation";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
-/// The maximum number of attestation subnets.
-pub const ATTESTATION_SUBNET_COUNT: u64 = 64;
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GossipTopic {
     /// The encoding of the topic.
     encoding: GossipEncoding,
@@ -30,19 +28,26 @@ pub struct GossipTopic {
 }
 
 /// Enum that brings these topics into the rust type system.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GossipKind {
+    /// Topic for publishing beacon blocks.
     BeaconBlock,
+    /// Topic for publishing aggregate attestations and proofs.    
     BeaconAggregateAndProof,
+    /// Topic for publishing raw attestations on a particular subnet.
     CommitteeIndex(SubnetId),
+    /// Topic for publishing voluntary exits.
     VoluntaryExit,
+    /// Topic for publishing block proposer slashings.
     ProposerSlashing,
+    /// Topic for publishing attester slashings.
     AttesterSlashing,
 }
 
 /// The known encoding types for gossipsub messages.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GossipEncoding {
+    /// Messages are encoded with SSZ.
     SSZ,
 }
 
@@ -111,6 +116,12 @@ impl Into<String> for GossipTopic {
             ),
         };
         format!("/{}/{}/{}", TOPIC_PREFIX, kind, encoding)
+    }
+}
+
+impl From<SubnetId> for GossipKind {
+    fn from(subnet_id: SubnetId) -> Self {
+        GossipKind::CommitteeIndex(subnet_id)
     }
 }
 

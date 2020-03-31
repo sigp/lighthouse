@@ -11,10 +11,9 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
-use tree_hash::TreeHash;
 use types::{
-    AggregateAndProof, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
-    PublicKey, Signature, SignedAggregateAndProof, Slot,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, SelectionProof,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 #[derive(Clone)]
@@ -145,26 +144,25 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                let message = epoch.tree_hash_root();
                 let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
+                let message = epoch.signing_root(domain);
 
-                Some(Signature::new(&message, domain, &voting_keypair.sk))
+                Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
             })
     }
 
     pub fn sign_block(
         &self,
         validator_pubkey: &PublicKey,
-        mut block: BeaconBlock<E>,
-    ) -> Option<BeaconBlock<E>> {
+        block: BeaconBlock<E>,
+    ) -> Option<SignedBeaconBlock<E>> {
         // TODO: check for slashing.
         self.validators
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                block.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
-                Some(block)
+                Some(block.sign(&voting_keypair.sk, &self.fork()?, &self.spec))
             })
     }
 
@@ -201,37 +199,43 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             })
     }
 
-    /// Signs a slot for a given validator.
-    ///
-    /// This is used to subscribe a validator to a beacon node and is used to determine if the
-    /// validator is to aggregate attestations for this slot.
-    pub fn sign_slot(&self, validator_pubkey: &PublicKey, slot: Slot) -> Option<Signature> {
-        let validators = self.validators.read();
-        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
-
-        let domain = self.spec.get_domain(
-            slot.epoch(E::slots_per_epoch()),
-            Domain::SelectionProof,
-            &self.fork()?,
-        );
-
-        let message = slot.as_u64().tree_hash_root();
-
-        Some(Signature::new(&message, domain, &voting_keypair.sk))
-    }
-
     /// Signs an `AggregateAndProof` for a given validator.
     ///
     /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
     /// modified by actors other than the signing validator.
-    pub fn sign_aggregate_and_proof(
+    pub fn produce_signed_aggregate_and_proof(
         &self,
         validator_pubkey: &PublicKey,
-        aggregate_and_proof: AggregateAndProof<E>,
+        validator_index: u64,
+        aggregate: Attestation<E>,
     ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
         let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
 
-        Some(aggregate_and_proof.into_signed(&voting_keypair.sk, &self.fork()?, &self.spec))
+        Some(SignedAggregateAndProof::from_aggregate(
+            validator_index,
+            aggregate,
+            &voting_keypair.sk,
+            &self.fork()?,
+            &self.spec,
+        ))
+    }
+
+    /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
+    /// `validator_pubkey`.
+    pub fn produce_selection_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        slot: Slot,
+    ) -> Option<SelectionProof> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+
+        Some(SelectionProof::new::<E>(
+            slot,
+            &voting_keypair.sk,
+            &self.fork()?,
+            &self.spec,
+        ))
     }
 }

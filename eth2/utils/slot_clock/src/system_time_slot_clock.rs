@@ -43,6 +43,15 @@ impl SlotClock for SystemTimeSlotClock {
     fn slot_duration(&self) -> Duration {
         self.clock.slot_duration()
     }
+
+    fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+        self.clock.duration_to_slot(slot, now)
+    }
+
+    fn genesis_slot(&self) -> Slot {
+        self.clock.genesis_slot()
+    }
 }
 
 #[cfg(test)]

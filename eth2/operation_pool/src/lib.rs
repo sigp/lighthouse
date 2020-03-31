@@ -22,7 +22,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    EthSpec, ProposerSlashing, RelativeEpoch, Validator, VoluntaryExit,
+    EthSpec, Fork, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator,
 };
 
 #[derive(Default, Debug)]
@@ -34,7 +34,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from proposer index to slashing.
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
-    voluntary_exits: RwLock<HashMap<u64, VoluntaryExit>>,
+    voluntary_exits: RwLock<HashMap<u64, SignedVoluntaryExit>>,
     _phantom: PhantomData<T>,
 }
 
@@ -57,10 +57,10 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_attestation(
         &self,
         attestation: Attestation<T>,
-        state: &BeaconState<T>,
+        fork: &Fork,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
-        let id = AttestationId::from_data(&attestation.data, state, spec);
+        let id = AttestationId::from_data(&attestation.data, fork, spec);
 
         // Take a write lock on the attestations map.
         let mut attestations = self.attestations.write();
@@ -106,8 +106,9 @@ impl<T: EthSpec> OperationPool<T> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
-        let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, state, spec);
-        let curr_domain_bytes = AttestationId::compute_domain_bytes(current_epoch, state, spec);
+        let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, &state.fork, spec);
+        let curr_domain_bytes =
+            AttestationId::compute_domain_bytes(current_epoch, &state.fork, spec);
         let reader = self.attestations.read();
         let active_indices = state
             .get_cached_active_validator_indices(RelativeEpoch::Current)
@@ -180,8 +181,8 @@ impl<T: EthSpec> OperationPool<T> {
         spec: &ChainSpec,
     ) -> (AttestationId, AttestationId) {
         (
-            AttestationId::from_data(&slashing.attestation_1.data, state, spec),
-            AttestationId::from_data(&slashing.attestation_2.data, state, spec),
+            AttestationId::from_data(&slashing.attestation_1.data, &state.fork, spec),
+            AttestationId::from_data(&slashing.attestation_2.data, &state.fork, spec),
         )
     }
 
@@ -297,14 +298,14 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert a voluntary exit, validating it almost-entirely (future exits are permitted).
     pub fn insert_voluntary_exit(
         &self,
-        exit: VoluntaryExit,
+        exit: SignedVoluntaryExit,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), ExitValidationError> {
         verify_exit_time_independent_only(state, &exit, VerifySignatures::True, spec)?;
         self.voluntary_exits
             .write()
-            .insert(exit.validator_index, exit);
+            .insert(exit.message.validator_index, exit);
         Ok(())
     }
 
@@ -313,7 +314,7 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
-    ) -> Vec<VoluntaryExit> {
+    ) -> Vec<SignedVoluntaryExit> {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
             |exit| verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),
@@ -396,6 +397,7 @@ mod release_tests {
     use super::*;
     use state_processing::common::{get_attesting_indices, get_base_reward};
     use std::collections::BTreeSet;
+    use std::iter::FromIterator;
     use types::test_utils::*;
     use types::*;
 
@@ -547,7 +549,7 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         }
 
@@ -616,9 +618,9 @@ mod release_tests {
                 None,
             );
             op_pool
-                .insert_attestation(att.clone(), state, spec)
+                .insert_attestation(att.clone(), &state.fork, spec)
                 .unwrap();
-            op_pool.insert_attestation(att, state, spec).unwrap();
+            op_pool.insert_attestation(att, &state.fork, spec).unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -655,7 +657,7 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         }
 
@@ -703,7 +705,7 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         };
 
@@ -776,7 +778,7 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, state, spec).unwrap();
+                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
             }
         };
 
@@ -816,8 +818,18 @@ mod release_tests {
 
         for att in &best_attestations {
             let fresh_validators_bitlist = earliest_attestation_validators(att, state);
-            let att_indices =
-                get_attesting_indices(state, &att.data, &fresh_validators_bitlist).unwrap();
+            let committee = state
+                .get_beacon_committee(att.data.slot, att.data.index)
+                .expect("should get beacon committee");
+
+            let att_indices = BTreeSet::from_iter(
+                get_attesting_indices::<MainnetEthSpec>(
+                    committee.committee,
+                    &fresh_validators_bitlist,
+                )
+                .unwrap(),
+            );
+
             let fresh_indices = &att_indices - &seen_indices;
 
             let rewards = fresh_indices

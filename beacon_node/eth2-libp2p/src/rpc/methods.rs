@@ -1,7 +1,7 @@
 //! Available RPC methods types and ids.
 
 use ssz_derive::{Decode, Encode};
-use types::{BeaconBlock, Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /* Request/Response data structures for RPC methods */
 
@@ -135,10 +135,10 @@ pub enum RPCResponse<T: EthSpec> {
 
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
-    BlocksByRange(Box<BeaconBlock<T>>),
+    BlocksByRange(Box<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Box<BeaconBlock<T>>),
+    BlocksByRoot(Box<SignedBeaconBlock<T>>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -247,10 +247,10 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
         match self {
             RPCResponse::Status(status) => write!(f, "{}", status),
             RPCResponse::BlocksByRange(block) => {
-                write!(f, "BlocksByRange: Block slot: {}", block.slot)
+                write!(f, "BlocksByRange: Block slot: {}", block.message.slot)
             }
             RPCResponse::BlocksByRoot(block) => {
-                write!(f, "BlocksByRoot: Block slot: {}", block.slot)
+                write!(f, "BlocksByRoot: BLock slot: {}", block.message.slot)
             }
         }
     }

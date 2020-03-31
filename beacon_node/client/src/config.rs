@@ -3,6 +3,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+pub const DEFAULT_DATADIR: &str = ".lighthouse";
+
 /// The number initial validators when starting the `Minimal`.
 const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
@@ -56,6 +58,8 @@ pub struct Config {
     /// This is the method used for the 2019 client interop in Canada.
     pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
+    /// A list of hard-coded forks that will be disabled.
+    pub disabled_forks: Vec<String>,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -70,7 +74,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            data_dir: PathBuf::from(".lighthouse"),
+            data_dir: PathBuf::from(DEFAULT_DATADIR),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
             testnet_dir: None,
@@ -84,6 +88,7 @@ impl Default for Config {
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),
+            disabled_forks: Vec::new(),
         }
     }
 }

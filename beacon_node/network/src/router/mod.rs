@@ -8,10 +8,10 @@ pub mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
-    MessageId, PeerId, PubsubMessage, RPCEvent,
+    MessageId, PeerId, PubsubData, PubsubMessage, RPCEvent,
 };
 use futures::future::Future;
 use futures::stream::Stream;
@@ -217,39 +217,57 @@ impl<T: BeaconChainTypes> Router<T> {
         peer_id: PeerId,
         gossip_message: PubsubMessage<T::EthSpec>,
     ) {
-        match gossip_message {
-            PubsubMessage::BeaconBlock(block) => {
-                if self.processor.should_forward_block(&block) {
+        match gossip_message.data {
+            // Attestations should never reach the router.
+            PubsubData::AggregateAndProofAttestation(aggregate_and_proof) => {
+                if self
+                    .processor
+                    .should_forward_aggregate_attestation(&aggregate_and_proof)
+                {
                     self.propagate_message(id, peer_id.clone());
                 }
-                self.processor.on_block_gossip(peer_id, &block);
+                self.processor.process_attestation_gossip(
+                    peer_id,
+                    aggregate_and_proof.message.aggregate,
+                    AttestationType::Aggregated,
+                );
             }
-            PubsubMessage::AggregateAndProofAttestation(_agg_attestation) => {
-                // TODO: Handle propagation conditions
-                self.propagate_message(id, peer_id);
-                // TODO Handle aggregate attestion
-                // self.processor
-                //    .on_attestation_gossip(peer_id.clone(), &agg_attestation);
+            PubsubData::Attestation(subnet_attestation) => {
+                if self
+                    .processor
+                    .should_forward_attestation(&subnet_attestation.1)
+                {
+                    self.propagate_message(id, peer_id.clone());
+                }
+                self.processor.process_attestation_gossip(
+                    peer_id,
+                    subnet_attestation.1,
+                    AttestationType::Unaggregated { should_store: true },
+                );
             }
-            PubsubMessage::Attestation(boxed_shard_attestation) => {
-                // TODO: Handle propagation conditions
-                self.propagate_message(id, peer_id.clone());
-                self.processor
-                    .on_attestation_gossip(peer_id, boxed_shard_attestation.1);
-            }
-            PubsubMessage::VoluntaryExit(_exit) => {
+            PubsubData::BeaconBlock(block) => match self.processor.should_forward_block(block) {
+                Ok(verified_block) => {
+                    self.propagate_message(id, peer_id.clone());
+                    self.processor.on_block_gossip(peer_id, verified_block);
+                }
+                Err(e) => {
+                    warn!(self.log, "Could not verify block for gossip";
+                            "error" => format!("{:?}", e));
+                }
+            },
+            PubsubData::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle exits
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id) );
             }
-            PubsubMessage::ProposerSlashing(_proposer_slashing) => {
+            PubsubData::ProposerSlashing(_proposer_slashing) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle proposer slashings
                 debug!(self.log, "Received a proposer slashing"; "peer_id" => format!("{}", peer_id) );
             }
-            PubsubMessage::AttesterSlashing(_attester_slashing) => {
+            PubsubData::AttesterSlashing(_attester_slashing) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
                 // TODO: Handle attester slashings

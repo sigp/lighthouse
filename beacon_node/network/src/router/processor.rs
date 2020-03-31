@@ -1,7 +1,8 @@
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
+    BlockProcessingOutcome, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
@@ -11,8 +12,9 @@ use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
-use tree_hash::SignedRoot;
-use types::{Attestation, BeaconBlock, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    Attestation, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, Slot,
+};
 
 //TODO: Rate limit requests
 
@@ -260,7 +262,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         } else if self
             .chain
             .store
-            .exists::<BeaconBlock<T::EthSpec>>(&remote.head_root)
+            .exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
             trace!(
@@ -297,7 +299,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     ) {
         let mut send_block_count = 0;
         for root in request.block_roots.iter() {
-            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(root) {
+            if let Ok(Some(block)) = self.chain.store.get_block(root) {
                 self.network.send_rpc_response(
                     peer_id.clone(),
                     request_id,
@@ -377,11 +379,11 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         let mut blocks_sent = 0;
         for root in block_roots {
-            if let Ok(Some(block)) = self.chain.store.get::<BeaconBlock<T::EthSpec>>(&root) {
+            if let Ok(Some(block)) = self.chain.store.get_block(&root) {
                 // Due to skip slots, blocks could be out of the range, we ensure they are in the
                 // range before sending
-                if block.slot >= req.start_slot
-                    && block.slot < req.start_slot + req.count * req.step
+                if block.slot() >= req.start_slot
+                    && block.slot() < req.start_slot + req.count * req.step
                 {
                     blocks_sent += 1;
                     self.network.send_rpc_response(
@@ -434,7 +436,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<BeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         trace!(
             self.log,
@@ -454,7 +456,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<BeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         trace!(
             self.log,
@@ -471,23 +473,25 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Template function to be called on a block to determine if the block should be propagated
     /// across the network.
-    pub fn should_forward_block(&mut self, block: &BeaconBlock<T::EthSpec>) -> bool {
-        // TODO: Propagate error once complete
-        self.chain.should_forward_block(block).is_ok()
-    }
-
-    /// Template function to be called on an attestation to determine if the attestation should be propagated
-    /// across the network.
-    pub fn _should_forward_attestation(&mut self, attestation: &Attestation<T::EthSpec>) -> bool {
-        // TODO: Propagate error once complete
-        self.chain.should_forward_attestation(attestation).is_ok()
+    pub fn should_forward_block(
+        &mut self,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+        self.chain.verify_block_for_gossip(*block)
     }
 
     /// Process a gossip message declaring a new block.
     ///
-    /// Attempts to apply a block to the beacon chain. May queue the block for later processing.
-    pub fn on_block_gossip(&mut self, peer_id: PeerId, block: &BeaconBlock<T::EthSpec>) {
-        match self.chain.process_block(block.clone()) {
+    /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
+    ///
+    /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
+    pub fn on_block_gossip(
+        &mut self,
+        peer_id: PeerId,
+        verified_block: GossipVerifiedBlock<T>,
+    ) -> bool {
+        let block = Box::new(verified_block.block.clone());
+        match BlockProcessingOutcome::shim(self.chain.process_block(verified_block)) {
             Ok(outcome) => match outcome {
                 BlockProcessingOutcome::Processed { .. } => {
                     trace!(self.log, "Gossipsub block processed";
@@ -517,15 +521,15 @@ impl<T: BeaconChainTypes> Processor<T> {
                     // Inform the sync manager to find parents for this block
                     trace!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, Box::new(block.clone())));
+                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
                 }
                 other => {
                     warn!(
                         self.log,
                         "Invalid gossip beacon block";
                         "outcome" => format!("{:?}", other),
-                        "block root" => format!("{}", Hash256::from_slice(&block.signed_root()[..])),
-                        "block slot" => block.slot
+                        "block root" => format!("{}", block.canonical_root()),
+                        "block slot" => block.slot()
                     );
                     trace!(
                         self.log,
@@ -543,13 +547,36 @@ impl<T: BeaconChainTypes> Processor<T> {
                 );
             }
         }
+        // TODO: Update with correct block gossip checking
+        true
     }
 
-    /// Process a gossip message declaring a new attestation.
-    ///
-    /// Not currently implemented.
-    pub fn on_attestation_gossip(&mut self, peer_id: PeerId, msg: Attestation<T::EthSpec>) {
-        match self.chain.process_attestation(msg.clone()) {
+    /// Verifies the Aggregate attestation before propagating.
+    pub fn should_forward_aggregate_attestation(
+        &self,
+        _aggregate_and_proof: &Box<SignedAggregateAndProof<T::EthSpec>>,
+    ) -> bool {
+        // TODO: Implement
+        true
+    }
+
+    /// Verifies the attestation before propagating.
+    pub fn should_forward_attestation(&self, _aggregate: &Attestation<T::EthSpec>) -> bool {
+        // TODO: Implement
+        true
+    }
+
+    /// Process a new attestation received from gossipsub.
+    pub fn process_attestation_gossip(
+        &mut self,
+        peer_id: PeerId,
+        msg: Attestation<T::EthSpec>,
+        attestation_type: AttestationType,
+    ) {
+        match self
+            .chain
+            .process_attestation(msg.clone(), attestation_type)
+        {
             Ok(outcome) => match outcome {
                 AttestationProcessingOutcome::Processed => {
                     debug!(
@@ -572,10 +599,16 @@ impl<T: BeaconChainTypes> Processor<T> {
                     // we don't know the block, get the sync manager to handle the block lookup
                     self.send_to_sync(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root));
                 }
-                AttestationProcessingOutcome::AttestsToFutureState { .. }
+                AttestationProcessingOutcome::FutureEpoch { .. }
+                | AttestationProcessingOutcome::PastEpoch { .. }
+                | AttestationProcessingOutcome::UnknownTargetRoot { .. }
                 | AttestationProcessingOutcome::FinalizedSlot { .. } => {} // ignore the attestation
                 AttestationProcessingOutcome::Invalid { .. }
-                | AttestationProcessingOutcome::EmptyAggregationBitfield { .. } => {
+                | AttestationProcessingOutcome::EmptyAggregationBitfield { .. }
+                | AttestationProcessingOutcome::AttestsToFutureBlock { .. }
+                | AttestationProcessingOutcome::InvalidSignature
+                | AttestationProcessingOutcome::NoCommitteeForSlotAndIndex { .. }
+                | AttestationProcessingOutcome::BadTargetEpoch { .. } => {
                     // the peer has sent a bad attestation. Remove them.
                     self.network.disconnect(peer_id, GoodbyeReason::Fault);
                 }

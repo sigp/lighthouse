@@ -47,17 +47,12 @@ impl AggregateSignature {
     ///
     /// Only returns `true` if the set of keys in the `AggregatePublicKey` match the set of keys
     /// that signed the `AggregateSignature`.
-    pub fn verify(
-        &self,
-        msg: &[u8],
-        domain: u64,
-        aggregate_public_key: &AggregatePublicKey,
-    ) -> bool {
+    pub fn verify(&self, msg: &[u8], aggregate_public_key: &AggregatePublicKey) -> bool {
         if self.is_empty {
             return false;
         }
         self.aggregate_signature
-            .verify(msg, domain, aggregate_public_key.as_raw())
+            .verify(msg, aggregate_public_key.as_raw())
     }
 
     /// Verify this AggregateSignature against multiple AggregatePublickeys with multiple Messages.
@@ -67,7 +62,6 @@ impl AggregateSignature {
     pub fn verify_multiple(
         &self,
         messages: &[&[u8]],
-        domain: u64,
         aggregate_public_keys: &[&AggregatePublicKey],
     ) -> bool {
         if self.is_empty {
@@ -83,7 +77,7 @@ impl AggregateSignature {
         }
 
         self.aggregate_signature
-            .verify_multiple(&msgs, domain, &aggregate_public_keys[..])
+            .verify_multiple(&msgs, &aggregate_public_keys[..])
     }
 
     /// Return AggregateSignature as bytes
@@ -193,7 +187,7 @@ mod tests {
         let keypair = Keypair::random();
 
         let mut original = AggregateSignature::new();
-        original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
+        original.add(&Signature::new(&[42, 42], &keypair.sk));
 
         let bytes = original.as_ssz_bytes();
         let decoded = AggregateSignature::from_ssz_bytes(&bytes).unwrap();

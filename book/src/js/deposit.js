@@ -1,6 +1,6 @@
 const NETWORK = "5";
 const NETWORK_NAME = "Goerli Test Network";
-const DEPOSIT_CONTRACT = "0x74a03685a1cbc279efe4ea88b5a86d6cb0c6cedb";
+const DEPOSIT_CONTRACT = "0xa4d8bee071d57ccf47d2bf9f2cc8dd9151e21ec5";
 const DEPOSIT_AMOUNT_ETH = "3.2";
 const GAS_LIMIT = "4000000";
 const DEPOSIT_DATA_BYTES = 420;
