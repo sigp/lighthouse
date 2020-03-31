@@ -440,33 +440,30 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
 
     let mut values = vec![];
 
-    let mut fixed_ptr = num_fixed_bytes;
+    let mut ptr = num_fixed_bytes;
     for i in 1..=num_items {
         let slice_option = if i == num_items {
-            bytes.get(fixed_ptr..)
+            bytes.get(ptr..)
         } else {
-            let start = fixed_ptr;
+            let start = ptr;
 
-            let next_fixed_ptr = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+            let next_ptr = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
 
             // Protect against the following exploits:
             //
             // - #1 (offset into fixed portion)
             // - #3 (offsets are decreasing)
             // - #4 (offsets are out-of-bounds)
-            if next_fixed_ptr < num_fixed_bytes
-                || next_fixed_ptr < fixed_ptr
-                || next_fixed_ptr > bytes.len()
-            {
-                return Err(DecodeError::OutOfBoundsByte { i: next_fixed_ptr });
+            if next_ptr < num_fixed_bytes || next_ptr < ptr || next_ptr > bytes.len() {
+                return Err(DecodeError::OutOfBoundsByte { i: next_ptr });
             } else {
-                fixed_ptr = next_fixed_ptr
+                ptr = next_ptr
             }
 
-            bytes.get(start..fixed_ptr)
+            bytes.get(start..ptr)
         };
 
-        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte { i: fixed_ptr })?;
+        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte { i: ptr })?;
 
         values.push(T::from_ssz_bytes(slice)?);
     }
