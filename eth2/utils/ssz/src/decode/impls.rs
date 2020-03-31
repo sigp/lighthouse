@@ -406,50 +406,67 @@ impl_for_vec!(SmallVec<[T; 8]>);
 pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
 ) -> Result<Vec<T>, DecodeError> {
-    let first_variable_length_byte = read_offset(bytes)?;
+    let num_fixed_bytes = read_offset(bytes)?;
 
-    // Capture a slice of the offsets. This ensures that the first offset does not point outside of
-    // the given bytes.
-    let offsets =
-        bytes
-            .get(0..first_variable_length_byte)
-            .ok_or_else(|| DecodeError::OutOfBoundsByte {
-                i: first_variable_length_byte,
-            })?;
+    /*
+     * Note: the indexed exploits listed throughout this function are sourced from:
+     *
+     * https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA
+     */
 
-    // The value of the first offset must not point back into the same bytes that defined
-    // it.
-    if offsets.len() < BYTES_PER_LENGTH_OFFSET {
-        return Err(DecodeError::OutOfBoundsByte { i: offsets.len() });
+    // Protects the first offset against exploit #1 (offset into fixed portion) by ensuring that it
+    // does not point into itself.
+    if num_fixed_bytes < BYTES_PER_LENGTH_OFFSET {
+        return Err(DecodeError::OutOfBoundsByte { i: num_fixed_bytes });
     }
 
-    let num_items = offsets.len() / BYTES_PER_LENGTH_OFFSET;
-
-    // The fixed-length section must be a clean multiple of `BYTES_PER_LENGTH_OFFSET`.
-    if offsets.len() % BYTES_PER_LENGTH_OFFSET != 0 {
-        return Err(DecodeError::InvalidByteLength {
-            len: offsets.len(),
-            expected: num_items * BYTES_PER_LENGTH_OFFSET,
-        });
+    // Protects the first offset against exploit #4 (offsets are out of bounds) by ensuring that
+    // `num_fixed_bytes <= bytes.len()`.
+    if num_fixed_bytes > bytes.len() {
+        return Err(DecodeError::OutOfBoundsByte { i: num_fixed_bytes });
     }
 
-    let mut next_variable_byte = first_variable_length_byte;
+    // The fixed-length section must not be empty and be a clean multiple of
+    // `BYTES_PER_LENGTH_OFFSET`.
+    if num_fixed_bytes == 0 || num_fixed_bytes % BYTES_PER_LENGTH_OFFSET != 0 {
+        return Err(DecodeError::OutOfBoundsByte { i: num_fixed_bytes });
+    }
+
+    let num_items = num_fixed_bytes / BYTES_PER_LENGTH_OFFSET;
+
+    // Since we have derived `num_items` based upon the length of the fixed section then it is
+    // safe* to instantiate a `Vec` of this capacity.
+    //
+    // There is a case where
     let mut values = Vec::with_capacity(num_items);
+
+    let mut fixed_ptr = num_fixed_bytes;
     for i in 1..=num_items {
         let slice_option = if i == num_items {
-            bytes.get(next_variable_byte..)
+            bytes.get(fixed_ptr..)
         } else {
-            let offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+            let start = fixed_ptr;
 
-            let start = next_variable_byte;
-            next_variable_byte = offset;
+            let next_fixed_ptr = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
 
-            bytes.get(start..next_variable_byte)
+            // Protect against the following exploits:
+            //
+            // - #1 (offset into fixed portion)
+            // - #3 (offsets are decreasing)
+            // - #4 (offsets are out-of-bounds)
+            if next_fixed_ptr > num_fixed_bytes
+                || next_fixed_ptr < fixed_ptr
+                || next_fixed_ptr > bytes.len()
+            {
+                return Err(DecodeError::OutOfBoundsByte { i: next_fixed_ptr });
+            } else {
+                fixed_ptr = next_fixed_ptr
+            }
+
+            bytes.get(start..fixed_ptr)
         };
 
-        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte {
-            i: next_variable_byte,
-        })?;
+        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte { i: fixed_ptr })?;
 
         values.push(T::from_ssz_bytes(slice)?);
     }
