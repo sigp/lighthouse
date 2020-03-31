@@ -29,6 +29,14 @@ pub fn parse_path_with_default_in_home_dir(
         })
 }
 
+pub fn parse_path(matches: &ArgMatches, name: &'static str) -> Result<PathBuf, String> {
+    matches
+        .value_of(name)
+        .ok_or_else(|| format!("{} not specified", name))?
+        .parse::<PathBuf>()
+        .map_err(|e| format!("Unable to parse {}: {}", name, e))
+}
+
 pub fn parse_u64(matches: &ArgMatches, name: &'static str) -> Result<u64, String> {
     matches
         .value_of(name)
