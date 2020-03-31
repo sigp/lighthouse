@@ -51,11 +51,13 @@ pub fn sanitize_offset(
     offset: usize,
     previous_offset: Option<usize>,
     num_bytes: usize,
-    num_fixed_bytes: usize,
+    num_fixed_bytes: Option<usize>,
 ) -> Result<usize, DecodeError> {
-    if offset < num_fixed_bytes {
+    if num_fixed_bytes.map_or(false, |fixed_bytes| offset < fixed_bytes) {
         Err(DecodeError::OffsetIntoFixedPortion(offset))
-    } else if previous_offset.is_none() && offset != num_fixed_bytes {
+    } else if previous_offset.is_none()
+        && num_fixed_bytes.map_or(false, |fixed_bytes| offset != fixed_bytes)
+    {
         Err(DecodeError::OffsetSkipsVariableBytes(offset))
     } else if offset > num_bytes {
         Err(DecodeError::OffsetOutOfBounds(offset))
@@ -138,21 +140,14 @@ impl<'a> SszDecoderBuilder<'a> {
 
             self.items.push(slice);
         } else {
-            let offset = read_offset(&self.bytes[self.items_index..])?;
-
-            let previous_offset = self
-                .offsets
-                .last()
-                .map(|o| o.offset)
-                .unwrap_or_else(|| BYTES_PER_LENGTH_OFFSET);
-
-            if (previous_offset > offset) || (offset > self.bytes.len()) {
-                return Err(DecodeError::OutOfBoundsByte { i: offset });
-            }
-
             self.offsets.push(Offset {
                 position: self.items.len(),
-                offset,
+                offset: sanitize_offset(
+                    read_offset(&self.bytes[self.items_index..])?,
+                    self.offsets.last().map(|o| o.offset),
+                    self.bytes.len(),
+                    None,
+                )?,
             });
 
             // Push an empty slice into items; it will be replaced later.
@@ -165,13 +160,13 @@ impl<'a> SszDecoderBuilder<'a> {
     }
 
     fn finalize(&mut self) -> Result<(), DecodeError> {
-        if !self.offsets.is_empty() {
+        if let Some(first_offset) = self.offsets.first().map(|o| o.offset) {
             // Check to ensure the first offset points to the byte immediately following the
             // fixed-length bytes.
-            if self.offsets[0].offset != self.items_index {
-                return Err(DecodeError::OutOfBoundsByte {
-                    i: self.offsets[0].offset,
-                });
+            if first_offset < self.items_index {
+                return Err(DecodeError::OffsetIntoFixedPortion(first_offset));
+            } else if first_offset > self.items_index {
+                return Err(DecodeError::OffsetSkipsVariableBytes(first_offset));
             }
 
             // Iterate through each pair of offsets, grabbing the slice between each of the offsets.

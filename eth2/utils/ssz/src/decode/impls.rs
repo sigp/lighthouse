@@ -407,7 +407,7 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
 ) -> Result<Vec<T>, DecodeError> {
     let first_offset = read_offset(bytes)?;
-    sanitize_offset(first_offset, None, bytes.len(), first_offset)?;
+    sanitize_offset(first_offset, None, bytes.len(), Some(first_offset))?;
 
     if first_offset % BYTES_PER_LENGTH_OFFSET != 0 || first_offset < BYTES_PER_LENGTH_OFFSET {
         return Err(DecodeError::InvalidListFixedBytesLen(first_offset));
@@ -425,7 +425,7 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
             let start = offset;
 
             let next_offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
-            offset = sanitize_offset(next_offset, Some(offset), bytes.len(), first_offset)?;
+            offset = sanitize_offset(next_offset, Some(offset), bytes.len(), Some(first_offset))?;
 
             bytes.get(start..offset)
         };
