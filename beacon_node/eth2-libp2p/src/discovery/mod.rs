@@ -309,6 +309,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     ///
     /// This searches for the standard kademlia bucket size (16) peers.
     fn find_peers(&mut self) {
+        debug!(self.log, "Searching for peers");
         self.start_query(|_| true, 16);
     }
 
@@ -330,7 +331,6 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         let predicate = move |enr: &Enr| eth2_fork_predicate(enr) && enr_predicate(enr);
 
         // general predicate
-        debug!(self.log, "Searching for peers");
         self.discovery
             .find_enr_predicate(random_node, predicate, num_nodes);
     }
