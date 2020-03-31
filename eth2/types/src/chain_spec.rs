@@ -174,6 +174,20 @@ impl ChainSpec {
         .tree_hash_root()
     }
 
+    /// Return the 4-byte fork digest for the `current_version` and `genesis_validators_root`.
+    ///
+    /// This is a digest primarily used for domain separation on the p2p layer.
+    /// 4-bytes suffices for practical separation of forks/chains.
+    pub fn compute_fork_digest(
+        current_version: [u8; 4],
+        genesis_validators_root: Hash256,
+    ) -> [u8; 4] {
+        let mut result = [0; 4];
+        let root = Self::compute_fork_data_root(current_version, genesis_validators_root);
+        result.copy_from_slice(&root.as_bytes()[0..4]);
+        result
+    }
+
     /// Compute a domain by applying the given `fork_version`.
     ///
     /// Spec v0.11.1
