@@ -27,9 +27,9 @@ const TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 6;
 const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150; // 30 mins at a 12s slot time
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
-/// Note: The time is calculated as `time = milliseconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`
+/// Note: The time is calculated as `time = milliseconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
 const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
-/// The the default number of slots before items in hash delay sets used by this class should expire
+/// The default number of slots before items in hash delay sets used by this class should expire.
 const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3; // 36s at 12s slot time
 
 #[derive(Debug, PartialEq)]
@@ -425,6 +425,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .find(|topic| topic.kind() == topic_kind)
             {
                 // not already subscribed to the topic
+
+                // send a discovery request and a subscription
+                self.events
+                    .push_back(AttServiceMessage::DiscoverPeers(subnet_id));
                 self.events
                     .push_back(AttServiceMessage::Subscribe(subnet_id));
             }
