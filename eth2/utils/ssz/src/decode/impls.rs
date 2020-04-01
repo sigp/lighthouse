@@ -366,7 +366,7 @@ impl_decodable_for_u8_array!(4);
 impl_decodable_for_u8_array!(32);
 
 macro_rules! impl_for_vec {
-    ($type: ty) => {
+    ($type: ty, $max_len: expr) => {
         impl<T: Decode> Decode for $type {
             fn is_ssz_fixed_len() -> bool {
                 false
@@ -381,22 +381,22 @@ macro_rules! impl_for_vec {
                         .map(|chunk| T::from_ssz_bytes(chunk))
                         .collect()
                 } else {
-                    decode_list_of_variable_length_items(bytes).map(|vec| vec.into())
+                    decode_list_of_variable_length_items(bytes, $max_len).map(|vec| vec.into())
                 }
             }
         }
     };
 }
 
-impl_for_vec!(Vec<T>);
-impl_for_vec!(SmallVec<[T; 1]>);
-impl_for_vec!(SmallVec<[T; 2]>);
-impl_for_vec!(SmallVec<[T; 3]>);
-impl_for_vec!(SmallVec<[T; 4]>);
-impl_for_vec!(SmallVec<[T; 5]>);
-impl_for_vec!(SmallVec<[T; 6]>);
-impl_for_vec!(SmallVec<[T; 7]>);
-impl_for_vec!(SmallVec<[T; 8]>);
+impl_for_vec!(Vec<T>, None);
+impl_for_vec!(SmallVec<[T; 1]>, Some(1));
+impl_for_vec!(SmallVec<[T; 2]>, Some(2));
+impl_for_vec!(SmallVec<[T; 3]>, Some(3));
+impl_for_vec!(SmallVec<[T; 4]>, Some(4));
+impl_for_vec!(SmallVec<[T; 5]>, Some(5));
+impl_for_vec!(SmallVec<[T; 6]>, Some(6));
+impl_for_vec!(SmallVec<[T; 7]>, Some(7));
+impl_for_vec!(SmallVec<[T; 8]>, Some(8));
 
 /// Decodes `bytes` as if it were a list of variable-length items.
 ///
@@ -405,6 +405,7 @@ impl_for_vec!(SmallVec<[T; 8]>);
 /// differing types.
 pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
+    max_len: Option<usize>,
 ) -> Result<Vec<T>, DecodeError> {
     let first_offset = read_offset(bytes)?;
     sanitize_offset(first_offset, None, bytes.len(), Some(first_offset))?;
@@ -415,7 +416,22 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
 
     let num_items = first_offset / BYTES_PER_LENGTH_OFFSET;
 
-    let mut values = vec![];
+    if max_len.map_or(false, |max| num_items > max) {
+        return Err(DecodeError::BytesInvalid(format!(
+            "Variable length list of {} items exceeds maximum of {:?}",
+            num_items, max_len
+        )));
+    }
+
+    // Only initialize the vec with a capacity if a maximum length is provided.
+    //
+    // We assume that if a max length is provided then the application is able to handle an
+    // allocation of this size.
+    let mut values = if max_len.is_some() {
+        Vec::with_capacity(num_items)
+    } else {
+        vec![]
+    };
 
     let mut offset = first_offset;
     for i in 1..=num_items {

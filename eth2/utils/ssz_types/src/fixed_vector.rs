@@ -246,7 +246,8 @@ where
                     }
                 })
         } else {
-            ssz::decode_list_of_variable_length_items(bytes).and_then(|vec| Ok(vec.into()))
+            ssz::decode_list_of_variable_length_items(bytes, Some(N::to_usize()))
+                .and_then(|vec| Ok(vec.into()))
         }
     }
 }
