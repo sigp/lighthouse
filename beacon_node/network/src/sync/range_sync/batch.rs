@@ -9,7 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{EthSpec, SignedBeaconBlock, Slot};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct BatchId(pub u64);
@@ -41,8 +41,6 @@ pub struct Batch<T: EthSpec> {
     pub start_slot: Slot,
     /// The requested end slot of batch, exclusive.
     pub end_slot: Slot,
-    /// The hash of the chain root to requested from the peer.
-    pub head_root: Hash256,
     /// The peer that was originally assigned to the batch.
     pub original_peer: PeerId,
     /// The peer that is currently assigned to the batch.
@@ -61,18 +59,11 @@ pub struct Batch<T: EthSpec> {
 impl<T: EthSpec> Eq for Batch<T> {}
 
 impl<T: EthSpec> Batch<T> {
-    pub fn new(
-        id: BatchId,
-        start_slot: Slot,
-        end_slot: Slot,
-        head_root: Hash256,
-        peer_id: PeerId,
-    ) -> Self {
+    pub fn new(id: BatchId, start_slot: Slot, end_slot: Slot, peer_id: PeerId) -> Self {
         Batch {
             id,
             start_slot,
             end_slot,
-            head_root,
             original_peer: peer_id.clone(),
             current_peer: peer_id,
             retries: 0,
@@ -84,7 +75,6 @@ impl<T: EthSpec> Batch<T> {
 
     pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
         BlocksByRangeRequest {
-            head_block_root: self.head_root,
             start_slot: self.start_slot.into(),
             count: std::cmp::min(BLOCKS_PER_BATCH, self.end_slot.sub(self.start_slot).into()),
             step: 1,

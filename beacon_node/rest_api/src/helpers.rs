@@ -1,8 +1,7 @@
 use crate::{ApiError, ApiResult, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
-use eth2_libp2p::types::GossipEncoding;
-use eth2_libp2p::{PubsubData, PubsubMessage};
+use eth2_libp2p::PubsubMessage;
 use hex;
 use http::header;
 use hyper::{Body, Request};
@@ -235,10 +234,7 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // send the block via SSZ encoding
-    let messages = vec![PubsubMessage::new(
-        GossipEncoding::SSZ,
-        PubsubData::BeaconBlock(Box::new(block)),
-    )];
+    let messages = vec![PubsubMessage::BeaconBlock(Box::new(block))];
 
     // Publish the block to the p2p network via gossipsub.
     if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
@@ -261,10 +257,7 @@ pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
         .map(|attestation| {
             // create the gossip message to send to the network
             let subnet_id = attestation.subnet_id();
-            PubsubMessage::new(
-                GossipEncoding::SSZ,
-                PubsubData::Attestation(Box::new((subnet_id, attestation))),
-            )
+            PubsubMessage::Attestation(Box::new((subnet_id, attestation)))
         })
         .collect::<Vec<_>>();
 
@@ -286,12 +279,7 @@ pub fn publish_aggregate_attestations_to_network<T: BeaconChainTypes + 'static>(
 ) -> Result<(), ApiError> {
     let messages = signed_proofs
         .into_iter()
-        .map(|signed_proof| {
-            PubsubMessage::new(
-                GossipEncoding::SSZ,
-                PubsubData::AggregateAndProofAttestation(Box::new(signed_proof)),
-            )
-        })
+        .map(|signed_proof| PubsubMessage::AggregateAndProofAttestation(Box::new(signed_proof)))
         .collect::<Vec<_>>();
 
     // Publish the attestations to the p2p network via gossipsub.

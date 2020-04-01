@@ -25,7 +25,7 @@ pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
-    fork_version: [u8; 4],
+    fork_digest: [u8; 4],
     pub finalized_root: Hash256,
     pub finalized_epoch: Epoch,
     pub head_root: Hash256,
@@ -35,7 +35,7 @@ pub struct PeerSyncInfo {
 impl From<StatusMessage> for PeerSyncInfo {
     fn from(status: StatusMessage) -> PeerSyncInfo {
         PeerSyncInfo {
-            fork_version: status.fork_version,
+            fork_digest: status.fork_digest,
             finalized_root: status.finalized_root,
             finalized_epoch: status.finalized_epoch,
             head_root: status.head_root,
@@ -123,7 +123,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 self.log,
                 "Sending Status Request";
                 "peer" => format!("{:?}", peer_id),
-                "fork_version" => format!("{:?}", status_message.fork_version),
+                "fork_digest" => format!("{:?}", status_message.fork_digest),
                 "finalized_root" => format!("{:?}", status_message.finalized_root),
                 "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
                 "head_root" => format!("{}", status_message.head_root),
@@ -147,7 +147,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             self.log,
             "Received Status Request";
             "peer" => format!("{:?}", peer_id),
-            "fork_version" => format!("{:?}", status.fork_version),
+            "fork_digest" => format!("{:?}", status.fork_digest),
             "finalized_root" => format!("{:?}", status.finalized_root),
             "finalized_epoch" => format!("{:?}", status.finalized_epoch),
             "head_root" => format!("{}", status.head_root),
@@ -193,12 +193,14 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        if local.fork_version != remote.fork_version {
+        if local.fork_digest != remote.fork_digest {
             // The node is on a different network/fork, disconnect them.
             debug!(
                 self.log, "Handshake Failure";
                 "peer" => format!("{:?}", peer_id),
-                "reason" => "network_id"
+                "reason" => "incompatible forks",
+                "our_fork" => hex::encode(local.fork_digest),
+                "their_fork" => hex::encode(remote.fork_digest)
             );
 
             self.network
@@ -631,8 +633,9 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 ) -> Option<StatusMessage> {
     let head_info = beacon_chain.head_info().ok()?;
 
+    // TODO: Update fork digest calculation
     Some(StatusMessage {
-        fork_version: head_info.fork.current_version,
+        fork_digest: head_info.fork.current_version,
         finalized_root: head_info.finalized_checkpoint.root,
         finalized_epoch: head_info.finalized_checkpoint.epoch,
         head_root: head_info.block_root,
