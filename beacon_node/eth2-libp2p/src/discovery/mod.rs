@@ -12,7 +12,7 @@ use libp2p::discv5::enr::NodeId;
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
-use slog::{debug, info, warn};
+use slog::{crit, debug, info, trace, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::collections::HashSet;
@@ -263,24 +263,88 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             });
 
         if peers_on_subnet < TARGET_SUBNET_PEERS {
+            let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
             debug!(self.log, "Searching for peers for subnet";
                 "subnet_id" => *subnet_id,
                 "connected_peers_on_subnet" => peers_on_subnet,
-                "target_subnet_peers" => TARGET_SUBNET_PEERS
+                "target_subnet_peers" => TARGET_SUBNET_PEERS,
+                "target_peers" => target_peers
             );
-            // TODO: Update to predicate search
-            self.find_peers();
+
+            let log_clone = self.log.clone();
+
+            let subnet_predicate = move |enr: &Enr| {
+                if let Some(bitfield_bytes) = enr.get(BITFIELD_ENR_KEY) {
+                    let bitfield = match BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(
+                        bitfield_bytes,
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!(log_clone, "Could not decode ENR bitfield for peer"; "peer_id" => format!("{}", enr.peer_id()), "error" => format!("{:?}", e));
+                            return false;
+                        }
+                    };
+
+                    return bitfield.get(*subnet_id as usize).unwrap_or_else(|_| {
+                        debug!(log_clone, "Peer found but not on desired subnet"; "peer_id" => format!("{}", enr.peer_id()));
+                        false
+                    });
+                }
+                false
+            };
+
+            // start the query
+            self.start_query(subnet_predicate, target_peers as usize);
         }
+        debug!(self.log, "Discovery ignored";
+            "reason" => "Already connected to desired peers",
+            "connected_peers_on_subnet" => peers_on_subnet,
+            "target_subnet_peers" => TARGET_SUBNET_PEERS,
+        );
     }
 
     /* Internal Functions */
 
-    /// Search for new peers using the underlying discovery mechanism.
+    /// Run a standard query to search for more peers.
+    ///
+    /// This searches for the standard kademlia bucket size (16) peers.
     fn find_peers(&mut self) {
+        debug!(self.log, "Searching for peers");
+        self.start_query(|_| true, 16);
+    }
+
+    /// Search for a specified number of new peers using the underlying discovery mechanism.
+    ///
+    /// This can optionally search for peers for a given predicate. Regardless of the predicate
+    /// given, this will only search for peers on the same enr_fork_id as specified in the local
+    /// ENR.
+    fn start_query<F>(&mut self, enr_predicate: F, num_nodes: usize)
+    where
+        F: Fn(&Enr) -> bool + Send + 'static + Clone,
+    {
         // pick a random NodeId
         let random_node = NodeId::random();
-        debug!(self.log, "Searching for peers");
-        self.discovery.find_node(random_node);
+
+        let enr_fork_id = self.enr_fork_id().to_vec();
+        // predicate for finding nodes with a matching fork
+        let eth2_fork_predicate = move |enr: &Enr| enr.get(ETH2_ENR_KEY) == Some(&enr_fork_id);
+        let predicate = move |enr: &Enr| eth2_fork_predicate(enr) && enr_predicate(enr);
+
+        // general predicate
+        self.discovery
+            .find_enr_predicate(random_node, predicate, num_nodes);
+    }
+
+    /// Returns our current `eth2` field as SSZ bytes, associated with the local ENR. We only search for peers
+    /// that have this field.
+    fn enr_fork_id(&self) -> Vec<u8> {
+        self.local_enr()
+            .get(ETH2_ENR_KEY)
+            .map(|bytes| bytes.clone())
+            .unwrap_or_else(|| {
+                crit!(self.log, "Local ENR has no eth2 field");
+                Vec::new()
+            })
     }
 }
 
@@ -403,9 +467,16 @@ where
             match self.discovery.poll(params) {
                 Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
                     match event {
-                        Discv5Event::Discovered(_enr) => {
-                            // not concerned about FINDNODE results, rather the result of an entire
-                            // query.
+                        Discv5Event::Discovered(enr) => {
+                            // peers that get discovered during a query but are not contactable or
+                            // don't match a predicate can end up here. For debugging purposes we
+                            // log these to see if we are unnecessarily dropping discovered peers
+                            if enr.get(ETH2_ENR_KEY) == Some(&self.enr_fork_id().to_vec()) {
+                                trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                            } else {
+                                // this is temporary warning for debugging the DHT
+                                warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                            }
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));

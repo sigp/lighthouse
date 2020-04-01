@@ -1,7 +1,7 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::{Enr, GossipTopic, Multiaddr, PeerId, PeerInfo};
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU16, Ordering};
 use types::EthSpec;
 
@@ -19,7 +19,7 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The collection of currently connected peers.
     pub connected_peer_set: RwLock<HashMap<PeerId, PeerInfo<TSpec>>>,
     /// The current gossipsub topic subscriptions.
-    pub gossipsub_subscriptions: RwLock<Vec<GossipTopic>>,
+    pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
@@ -31,7 +31,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             listen_port_tcp: AtomicU16::new(tcp_port),
             listen_port_udp: AtomicU16::new(udp_port),
             connected_peer_set: RwLock::new(HashMap::new()),
-            gossipsub_subscriptions: RwLock::new(Vec::new()),
+            gossipsub_subscriptions: RwLock::new(HashSet::new()),
         }
     }
 

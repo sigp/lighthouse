@@ -19,7 +19,7 @@ pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct GossipTopic {
     /// The encoding of the topic.
     encoding: GossipEncoding,
@@ -28,7 +28,7 @@ pub struct GossipTopic {
 }
 
 /// Enum that brings these topics into the rust type system.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
@@ -45,7 +45,7 @@ pub enum GossipKind {
 }
 
 /// The known encoding types for gossipsub messages.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GossipEncoding {
     /// Messages are encoded with SSZ.
     SSZ,
