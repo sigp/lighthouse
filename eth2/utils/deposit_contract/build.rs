@@ -9,9 +9,9 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TAG: &str = "v0.10.1";
+const TAG: &str = "v0.11.1";
 // NOTE: the version of the unsafe contract lags the main tag, but the v0.9.2.1 code is compatible
-// with the unmodified v0.10.1 contract
+// with the unmodified v0.11.1 contract
 const UNSAFE_TAG: &str = "v0.9.2.1";
 
 fn spec_url() -> String {

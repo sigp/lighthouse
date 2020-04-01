@@ -19,7 +19,7 @@ pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -45,7 +45,11 @@ pub fn per_epoch_processing<T: EthSpec>(
     process_registry_updates(state, spec)?;
 
     // Slashings.
-    process_slashings(state, validator_statuses.total_balances.current_epoch, spec)?;
+    process_slashings(
+        state,
+        validator_statuses.total_balances.current_epoch(),
+        spec,
+    )?;
 
     // Final updates.
     process_final_updates(state, spec)?;
@@ -66,7 +70,7 @@ pub fn per_epoch_processing<T: EthSpec>(
 /// - `finalized_epoch`
 /// - `finalized_root`
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[allow(clippy::if_same_then_else)] // For readability and consistency with spec.
 pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -86,7 +90,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     state.previous_justified_checkpoint = state.current_justified_checkpoint.clone();
     state.justification_bits.shift_up(1)?;
 
-    if total_balances.previous_epoch_target_attesters * 3 >= total_balances.current_epoch * 2 {
+    if total_balances.previous_epoch_target_attesters() * 3 >= total_balances.current_epoch() * 2 {
         state.current_justified_checkpoint = Checkpoint {
             epoch: previous_epoch,
             root: *state.get_block_root_at_epoch(previous_epoch)?,
@@ -94,7 +98,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
         state.justification_bits.set(1, true)?;
     }
     // If the current epoch gets justified, fill the last bit.
-    if total_balances.current_epoch_target_attesters * 3 >= total_balances.current_epoch * 2 {
+    if total_balances.current_epoch_target_attesters() * 3 >= total_balances.current_epoch() * 2 {
         state.current_justified_checkpoint = Checkpoint {
             epoch: current_epoch,
             root: *state.get_block_root_at_epoch(current_epoch)?,
@@ -134,7 +138,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
 
 /// Finish up an epoch update.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_final_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -148,11 +152,14 @@ pub fn process_final_updates<T: EthSpec>(
     }
 
     // Update effective balances with hysteresis (lag).
+    let hysteresis_increment = spec.effective_balance_increment / spec.hysteresis_quotient;
+    let downward_threshold = hysteresis_increment * spec.hysteresis_downward_multiplier;
+    let upward_threshold = hysteresis_increment * spec.hysteresis_upward_multiplier;
     for (index, validator) in state.validators.iter_mut().enumerate() {
         let balance = state.balances[index];
-        let half_increment = spec.effective_balance_increment / 2;
-        if balance < validator.effective_balance
-            || validator.effective_balance + 3 * half_increment < balance
+
+        if balance + downward_threshold < validator.effective_balance
+            || validator.effective_balance + upward_threshold < balance
         {
             validator.effective_balance = std::cmp::min(
                 balance - balance % spec.effective_balance_increment,
