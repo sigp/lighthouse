@@ -311,13 +311,13 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                         .saturating_sub(current_slot)
                         .saturating_sub(1u64);
 
-                    duration_to_next_slot
-                        .checked_add(slot_duration)
-                        .ok_or_else(|| "Overflow in adding slot_duration attestation time")?
+                    slot_duration
                         .checked_mul(slots_until_subscribe.as_u64() as u32)
                         .ok_or_else(|| {
                             "Overflow in multiplying number of slots in attestation time"
                         })?
+                        .checked_add(duration_to_next_slot)
+                        .ok_or_else(|| "Overflow in adding duration_to_next_slot attestation time")?
                         .checked_sub(advance_subscription_duration)
                         .unwrap_or_else(|| Duration::from_secs(0))
                 };
