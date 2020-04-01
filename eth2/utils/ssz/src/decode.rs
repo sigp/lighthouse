@@ -47,6 +47,23 @@ pub enum DecodeError {
     BytesInvalid(String),
 }
 
+/// Performs checks on the `offset` based upon the other parameters provided.
+///
+/// ## Detail
+///
+/// - `offset`: the offset bytes (e.g., result of `read_offset(..)`).
+/// - `previous_offset`: unless this is the first offset in the SSZ object, the value of the
+/// previously-read offset. Used to ensure offsets are not decreasing.
+/// - `num_bytes`: the total number of bytes in the SSZ object. Used to ensure the offset is not
+/// out of bounds.
+/// - `num_fixed_bytes`: the number of fixed-bytes in the struct, if it is known. Used to ensure
+/// that the first offset doesn't skip any variable bytes.
+///
+/// ## References
+///
+/// The checks here are derived from this document:
+///
+/// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view
 pub fn sanitize_offset(
     offset: usize,
     previous_offset: Option<usize>,
