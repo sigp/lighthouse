@@ -15,15 +15,16 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Fork,
-    Hash256, ProposerSlashing, PublicKey, Signature, SignedBeaconBlock, Slot,
+    Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
 use url::Url;
 
 pub use operation_pool::PersistedOperationPool;
 pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_api::{
-    CanonicalHeadResponse, Committee, HeadBeaconBlock, ValidatorDutiesRequest, ValidatorDuty,
-    ValidatorRequest, ValidatorResponse,
+    CanonicalHeadResponse, Committee, HeadBeaconBlock, IndividualVotesRequest,
+    IndividualVotesResponse, ValidatorDutiesRequest, ValidatorDuty, ValidatorRequest,
+    ValidatorResponse,
 };
 
 // Setting a long timeout for debug ensures that crypto-heavy operations can still succeed.
@@ -105,6 +106,10 @@ impl<E: EthSpec> HttpClient<E> {
 
     pub fn advanced(&self) -> Advanced<E> {
         Advanced(self.clone())
+    }
+
+    pub fn consensus(&self) -> Consensus<E> {
+        Consensus(self.clone())
     }
 
     fn url(&self, path: &str) -> Result<Url, Error> {
@@ -602,6 +607,47 @@ impl<E: EthSpec> Advanced<E> {
         self.url("operation_pool")
             .into_future()
             .and_then(move |url| client.json_get(url, vec![]))
+    }
+}
+
+/// Provides the functions on the `/consensus` endpoint of the node.
+#[derive(Clone)]
+pub struct Consensus<E>(HttpClient<E>);
+
+impl<E: EthSpec> Consensus<E> {
+    fn url(&self, path: &str) -> Result<Url, Error> {
+        self.0
+            .url("consensus/")
+            .and_then(move |url| url.join(path).map_err(Error::from))
+            .map_err(Into::into)
+    }
+
+    /// Gets a `IndividualVote` for each of the given `pubkeys`.
+    pub fn get_individual_votes(
+        &self,
+        epoch: Epoch,
+        pubkeys: Vec<PublicKeyBytes>,
+    ) -> impl Future<Item = IndividualVotesResponse, Error = Error> {
+        let client = self.0.clone();
+        let req_body = IndividualVotesRequest { epoch, pubkeys };
+
+        self.url("individual_votes")
+            .into_future()
+            .and_then(move |url| client.json_post::<_>(url, req_body))
+            .and_then(|response| error_for_status(response).map_err(Error::from))
+            .and_then(|mut success| success.json().map_err(Error::from))
+    }
+
+    /// Gets a `VoteCount` for the given `epoch`.
+    pub fn get_vote_count(
+        &self,
+        epoch: Epoch,
+    ) -> impl Future<Item = IndividualVotesResponse, Error = Error> {
+        let client = self.0.clone();
+        let query_params = vec![("epoch".into(), format!("{}", epoch.as_u64()))];
+        self.url("vote_count")
+            .into_future()
+            .and_then(move |url| client.json_get(url, query_params))
     }
 }
 
