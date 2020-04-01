@@ -233,12 +233,15 @@ where
         if bytes.is_empty() {
             Ok(vec![].into())
         } else if T::is_ssz_fixed_len() {
-            let num_items_opt = bytes.len().checked_div(T::ssz_fixed_len());
+            let num_items = bytes
+                .len()
+                .checked_div(T::ssz_fixed_len())
+                .ok_or_else(|| ssz::DecodeError::ZeroLengthItem)?;
 
-            if num_items_opt.map_or(false, |n| n > max_len) {
+            if num_items > max_len {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
-                    "VariableList of {:?} items exceeds maximum of {}",
-                    num_items_opt, max_len
+                    "VariableList of {} items exceeds maximum of {}",
+                    num_items, max_len
                 )));
             }
 

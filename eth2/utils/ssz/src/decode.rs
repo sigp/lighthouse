@@ -43,6 +43,8 @@ pub enum DecodeError {
     /// A variable-length list does not have a fixed portion that is cleanly divisible by
     /// `BYTES_PER_LENGTH_OFFSET`.
     InvalidListFixedBytesLen(usize),
+    /// Some item has a `ssz_fixed_len` of zero. This is illegal.
+    ZeroLengthItem,
     /// The given bytes were invalid for some application-level reason.
     BytesInvalid(String),
 }
