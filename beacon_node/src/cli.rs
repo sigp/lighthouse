@@ -126,14 +126,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("topics")
-                .long("topics")
-                .value_name("STRING")
-                .help("One or more comma-delimited gossipsub topic strings to subscribe to. Default \
-                       is determined automatically.")
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name("libp2p-addresses")
                 .long("libp2p-addresses")
                 .value_name("MULTIADDR")

@@ -43,7 +43,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
                     self.log,
                     "Sending Status Request";
                     "peer" => format!("{:?}", peer_id),
-                    "fork_version" => format!("{:?}", status_message.fork_version),
+                    "fork_digest" => format!("{:?}", status_message.fork_digest),
                     "finalized_root" => format!("{:?}", status_message.finalized_root),
                     "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
                     "head_root" => format!("{}", status_message.head_root),

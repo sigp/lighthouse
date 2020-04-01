@@ -1,9 +1,8 @@
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::multiaddr::Protocol;
 use crate::rpc::RPCEvent;
-use crate::types::error;
-use crate::NetworkConfig;
-use crate::{NetworkGlobals, PubsubMessage, TopicHash};
+use crate::types::{error, GossipKind};
+use crate::{NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -144,18 +143,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
             }
         }
 
-        let mut subscribed_topics: Vec<String> = vec![];
-        for topic in &config.topics {
-            let topic_string: String = topic.clone().into();
-            if swarm.subscribe(topic.clone()) {
-                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
-                subscribed_topics.push(topic_string);
-                network_globals
-                    .gossipsub_subscriptions
-                    .write()
-                    .insert(topic.clone());
+        let mut subscribed_topics: Vec<GossipKind> = vec![];
+        for topic_kind in &config.topics {
+            if swarm.subscribe_kind(topic_kind.clone()) {
+                subscribed_topics.push(topic_kind.clone());
             } else {
-                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
+                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
             }
         }
         info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));

@@ -449,7 +449,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             "end_slot" => batch.end_slot,
             "id" => *batch.id,
             "peer" => format!("{}", batch.current_peer),
-            "head_root"=> format!("{}", batch.head_root),
             "retries" => batch.retries,
             "re-processes" =>  batch.reprocess_retries);
         self.send_batch(network, batch);
@@ -578,8 +577,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 "start_slot" => batch.start_slot,
                 "end_slot" => batch.end_slot,
                 "id" => *batch.id,
-                "peer" => format!("{:?}", batch.current_peer),
-                "head_root"=> format!("{}", batch.head_root));
+                "peer" => format!("{:?}", batch.current_peer));
             self.send_batch(network, batch);
             ProcessingResult::KeepChain
         }
@@ -603,8 +601,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     "start_slot" => batch.start_slot,
                     "end_slot" => batch.end_slot,
                     "id" => *batch.id,
-                    "peer" => format!("{}", batch.current_peer),
-                    "head_root"=> format!("{}", batch.head_root));
+                    "peer" => format!("{}", batch.current_peer));
                 // send the batch
                 self.send_batch(network, batch);
                 return true;
@@ -675,7 +672,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             batch_id,
             batch_start_slot,
             batch_end_slot,
-            self.target_head_root,
             peer_id,
         ))
     }
