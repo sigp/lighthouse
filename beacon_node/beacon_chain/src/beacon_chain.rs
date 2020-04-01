@@ -153,6 +153,8 @@ pub struct HeadInfo {
     pub current_justified_checkpoint: types::Checkpoint,
     pub finalized_checkpoint: types::Checkpoint,
     pub fork: Fork,
+    pub genesis_time: u64,
+    pub genesis_validators_root: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -492,6 +494,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             current_justified_checkpoint: head.beacon_state.current_justified_checkpoint.clone(),
             finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
             fork: head.beacon_state.fork.clone(),
+            genesis_time: head.beacon_state.genesis_time,
+            genesis_validators_root: head.beacon_state.genesis_validators_root,
         })
     }
 
@@ -1031,17 +1035,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
             .collect::<Result<Vec<&PublicKey>, Error>>()?;
 
-        let fork = self
+        let (fork, genesis_validators_root) = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)
-            .map(|head| head.beacon_state.fork.clone())?;
+            .map(|head| {
+                (
+                    head.beacon_state.fork.clone(),
+                    head.beacon_state.genesis_validators_root,
+                )
+            })?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
             pubkeys,
             &attestation.signature,
             &indexed_attestation,
             &fork,
+            genesis_validators_root,
             &self.spec,
         )
         .map_err(Error::SignatureSetError)?;
@@ -1074,8 +1084,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Provide the valid attestation to op pool, which may choose to retain the
             // attestation for inclusion in a future block.
             if self.eth1_chain.is_some() {
-                self.op_pool
-                    .insert_attestation(attestation, &fork, &self.spec)?;
+                self.op_pool.insert_attestation(
+                    attestation,
+                    &fork,
+                    genesis_validators_root,
+                    &self.spec,
+                )?;
             };
 
             Ok(AttestationProcessingOutcome::Processed)
@@ -1547,6 +1561,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
+                proposer_index: state.get_beacon_proposer_index(state.slot, &self.spec)? as u64,
                 parent_root,
                 state_root: Hash256::zero(),
                 body: BeaconBlockBody {

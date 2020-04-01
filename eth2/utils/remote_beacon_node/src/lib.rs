@@ -324,6 +324,14 @@ impl<E: EthSpec> Beacon<E> {
             .and_then(move |url| client.json_get(url, vec![]))
     }
 
+    /// Returns the genesis validators root.
+    pub fn get_genesis_validators_root(&self) -> impl Future<Item = Hash256, Error = Error> {
+        let client = self.0.clone();
+        self.url("genesis_validators_root")
+            .into_future()
+            .and_then(move |url| client.json_get(url, vec![]))
+    }
+
     /// Returns the fork at the head of the beacon chain.
     pub fn get_fork(&self) -> impl Future<Item = Fork, Error = Error> {
         let client = self.0.clone();

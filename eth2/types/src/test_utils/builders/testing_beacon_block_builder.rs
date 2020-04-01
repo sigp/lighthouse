@@ -97,12 +97,23 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         self.block.slot = slot;
     }
 
+    /// Set the proposer index of the block.
+    pub fn set_proposer_index(&mut self, proposer_index: u64) {
+        self.block.proposer_index = proposer_index;
+    }
+
     /// Sets the randao to be a signature across the blocks epoch.
     ///
     /// Modifying the block's slot after signing may invalidate the signature.
-    pub fn set_randao_reveal(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
+    pub fn set_randao_reveal(
+        &mut self,
+        sk: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) {
         let epoch = self.block.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(epoch, Domain::Randao, fork);
+        let domain = spec.get_domain(epoch, Domain::Randao, fork, genesis_validators_root);
         let message = epoch.signing_root(domain);
         self.block.body.randao_reveal = Signature::new(message.as_bytes(), sk);
     }
@@ -119,10 +130,17 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         validator_index: u64,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) {
-        let proposer_slashing =
-            build_proposer_slashing::<T>(test_task, validator_index, secret_key, fork, spec);
+        let proposer_slashing = build_proposer_slashing::<T>(
+            test_task,
+            validator_index,
+            secret_key,
+            fork,
+            genesis_validators_root,
+            spec,
+        );
         self.block
             .body
             .proposer_slashings
@@ -137,6 +155,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         validator_indices: &[u64],
         secret_keys: &[&SecretKey],
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) {
         let attester_slashing = build_double_vote_attester_slashing(
@@ -144,6 +163,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             validator_indices,
             secret_keys,
             fork,
+            genesis_validators_root,
             spec,
         );
         let _ = self.block.body.attester_slashings.push(attester_slashing);
@@ -246,6 +266,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                     signing_validators,
                     &signing_secret_keys,
                     &state.fork,
+                    state.genesis_validators_root,
                     spec,
                 );
 
@@ -355,14 +376,20 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         }
 
         let builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
-        let exit = builder.build(sk, &state.fork, spec);
+        let exit = builder.build(sk, &state.fork, state.genesis_validators_root, spec);
 
         self.block.body.voluntary_exits.push(exit).unwrap();
     }
 
     /// Signs and returns the block, consuming the builder.
-    pub fn build(self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) -> SignedBeaconBlock<T> {
-        self.block.sign(sk, fork, spec)
+    pub fn build(
+        self,
+        sk: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedBeaconBlock<T> {
+        self.block.sign(sk, fork, genesis_validators_root, spec)
     }
 
     /// Returns the block, consuming the builder.
@@ -382,6 +409,7 @@ pub fn build_proposer_slashing<T: EthSpec>(
     validator_index: u64,
     secret_key: &SecretKey,
     fork: &Fork,
+    genesis_validators_root: Hash256,
     spec: &ChainSpec,
 ) -> ProposerSlashing {
     TestingProposerSlashingBuilder::double_vote::<T>(
@@ -389,6 +417,7 @@ pub fn build_proposer_slashing<T: EthSpec>(
         validator_index,
         secret_key,
         fork,
+        genesis_validators_root,
         spec,
     )
 }
@@ -401,6 +430,7 @@ pub fn build_double_vote_attester_slashing<T: EthSpec>(
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],
     fork: &Fork,
+    genesis_validators_root: Hash256,
     spec: &ChainSpec,
 ) -> AttesterSlashing<T> {
     let signer = |validator_index: u64, message: &[u8]| {
@@ -411,5 +441,12 @@ pub fn build_double_vote_attester_slashing<T: EthSpec>(
         Signature::new(message, secret_keys[key_index])
     };
 
-    TestingAttesterSlashingBuilder::double_vote(test_task, validator_indices, signer, fork, spec)
+    TestingAttesterSlashingBuilder::double_vote(
+        test_task,
+        validator_indices,
+        signer,
+        fork,
+        genesis_validators_root,
+        spec,
+    )
 }

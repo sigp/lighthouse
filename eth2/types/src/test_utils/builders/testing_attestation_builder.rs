@@ -55,6 +55,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         signing_validators: &[usize],
         secret_keys: &[&SecretKey],
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> &mut Self {
         assert_eq!(
@@ -77,15 +78,28 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
             };
 
             self.attestation
-                .sign(secret_keys[index], committee_index, fork, spec)
+                .sign(
+                    secret_keys[index],
+                    committee_index,
+                    fork,
+                    genesis_validators_root,
+                    spec,
+                )
                 .expect("can sign attestation");
 
-            if let AttestationTestTask::BadIndexedAttestationBadSignature = test_task {
-                self.attestation
-                    .aggregation_bits
-                    .set(committee_index, false)
-                    .unwrap();
-            }
+            self.attestation
+                .aggregation_bits
+                .set(committee_index, true)
+                .unwrap();
+        }
+
+        if test_task == AttestationTestTask::BadIndexedAttestationBadSignature {
+            // Flip an aggregation bit, to make the aggregate invalid
+            // (We also want to avoid making it completely empty)
+            self.attestation
+                .aggregation_bits
+                .set(0, !self.attestation.aggregation_bits.get(0).unwrap())
+                .unwrap();
         }
 
         self
