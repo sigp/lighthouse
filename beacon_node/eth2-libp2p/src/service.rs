@@ -153,7 +153,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 network_globals
                     .gossipsub_subscriptions
                     .write()
-                    .push(topic.clone());
+                    .insert(topic.clone());
             } else {
                 warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
             }

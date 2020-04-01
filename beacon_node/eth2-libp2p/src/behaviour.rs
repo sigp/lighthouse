@@ -101,17 +101,12 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 
     /// Subscribes to a gossipsub topic.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
-        if !self
-            .network_globals
+        // update the network globals
+        self.network_globals
             .gossipsub_subscriptions
-            .read()
-            .contains(&topic)
-        {
-            self.network_globals
-                .gossipsub_subscriptions
-                .write()
-                .push(topic.clone());
-        }
+            .write()
+            .insert(topic.clone());
+        // subscribe to the topic
         self.gossipsub.subscribe(topic.into())
     }
 
@@ -123,18 +118,12 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 
     /// Unsubscribe from a gossipsub topic.
     pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
-        let pos = self
-            .network_globals
+        // update the network globals
+        self.network_globals
             .gossipsub_subscriptions
-            .read()
-            .iter()
-            .position(|s| s == &topic);
-        if let Some(pos) = pos {
-            self.network_globals
-                .gossipsub_subscriptions
-                .write()
-                .swap_remove(pos);
-        }
+            .write()
+            .remove(&topic);
+        // unsubscribe from the topic
         self.gossipsub.unsubscribe(topic.into())
     }
 
