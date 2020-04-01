@@ -772,14 +772,13 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Returns `Err` if the state is invalid.
     pub fn get_outstanding_deposit_len(&self) -> Result<u64, Error> {
-        if let Some(len) = self.eth1_data.deposit_count.checked_sub(self.eth1_deposit_index) {
-            Ok(len)
-        } else {
-            Err(Error::InvalidDepositState {
+        self.eth1_data
+            .deposit_count
+            .checked_sub(self.eth1_deposit_index)
+            .ok_or_else(|| Error::InvalidDepositState {
                 deposit_count: self.eth1_data.deposit_count,
                 deposit_index: self.eth1_deposit_index,
             })
-        }
     }
 
     /// Build all the caches, if they need to be built.
