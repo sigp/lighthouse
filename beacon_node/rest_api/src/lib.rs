@@ -45,6 +45,7 @@ pub use beacon::{
     ValidatorRequest, ValidatorResponse,
 };
 pub use config::Config;
+pub use consensus::{IndividualVote, IndividualVotesRequest, IndividualVotesResponse};
 pub use validator::{ValidatorDutiesRequest, ValidatorDuty};
 
 pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
