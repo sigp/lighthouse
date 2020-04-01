@@ -28,7 +28,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let mut eth2_testnet_config: Eth2TestnetConfig<T> =
         Eth2TestnetConfig::load(testnet_dir.clone())?;
 
-    let mut spec = eth2_testnet_config
+    let spec = eth2_testnet_config
         .yaml_config
         .as_ref()
         .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
@@ -39,8 +39,6 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 &env.core_context().eth2_config.spec_constants
             )
         })?;
-
-    spec.genesis_fork_version = [1, 3, 3, 7];
 
     let mut config = Eth1Config::default();
     config.endpoint = endpoint.to_string();
