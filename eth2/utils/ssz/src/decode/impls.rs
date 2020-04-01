@@ -407,6 +407,10 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
     max_len: Option<usize>,
 ) -> Result<Vec<T>, DecodeError> {
+    if bytes.is_empty() {
+        return Ok(vec![]);
+    }
+
     let first_offset = read_offset(bytes)?;
     sanitize_offset(first_offset, None, bytes.len(), Some(first_offset))?;
 
@@ -528,6 +532,7 @@ mod tests {
     fn empty_list() {
         let vec: Vec<Vec<u16>> = vec![];
         let bytes = vec.as_ssz_bytes();
+        assert!(bytes.is_empty());
         assert_eq!(Vec::from_ssz_bytes(&bytes), Ok(vec),);
     }
 
