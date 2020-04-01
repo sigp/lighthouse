@@ -521,7 +521,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 }
                 BlockProcessingOutcome::ParentUnknown { .. } => {
                     // Inform the sync manager to find parents for this block
-                    trace!(self.log, "Block with unknown parent received";
+                    debug!(self.log, "Block with unknown parent received";
                             "peer_id" => format!("{:?}",peer_id));
                     self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
                 }
@@ -592,7 +592,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 }
                 AttestationProcessingOutcome::UnknownHeadBlock { beacon_block_root } => {
                     // TODO: Maintain this attestation and re-process once sync completes
-                    trace!(
+                    debug!(
                     self.log,
                     "Attestation for unknown block";
                     "peer_id" => format!("{:?}", peer_id),
