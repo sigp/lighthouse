@@ -1962,9 +1962,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map(|(block_hash, _)| block_hash),
         );
 
-        let mut abandoned_blocks: HashSet<(SignedBeaconBlockHash, BeaconStateHash, Slot)> =
-            HashSet::new();
-
         for (head_hash, _) in self.heads() {
             let mut potentially_abandoned_blocks: HashSet<(
                 SignedBeaconBlockHash,
@@ -2003,8 +2000,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // canonical chain.  Therefore, we can safely get rid of this head and its
                     // blocks.
 
-                    abandoned_blocks.extend(potentially_abandoned_blocks.drain());
-                    abandoned_blocks.extend(
+                    potentially_abandoned_blocks.extend(
                         ParentRootBlockIterator::new(&*self.store, block_hash.into())
                             .take_while(|(block_hash, signed_beacon_block)| {
                                 signed_beacon_block.message.slot > old_finalized_slot
@@ -2019,15 +2015,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }),
                     );
 
+                    // XXX Should be performed atomically, see
+                    // https://github.com/sigp/lighthouse/issues/692
+                    for (block_hash, state_hash, slot) in potentially_abandoned_blocks.into_iter() {
+                        self.store.delete_block(&block_hash.into())?;
+                        self.store.delete_state(&state_hash.into(), slot)?;
+                    }
                     self.head_tracker.remove_head(head_hash);
                     break;
                 }
             }
-        }
-
-        for (block_hash, state_hash, slot) in abandoned_blocks.drain() {
-            self.store.delete_block(&block_hash.into())?;
-            self.store.delete_state(&state_hash.into(), slot)?;
         }
 
         Ok(())
