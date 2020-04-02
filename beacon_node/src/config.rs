@@ -188,12 +188,12 @@ pub fn get_config<E: EthSpec>(
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
             process_testnet_subcommand(&mut client_config, &eth2_config, sub_cmd_args)?
-        },
+        }
         ("purge", _) => {
             client_config.purge_chain_db()?;
             println!("Successfully purged chain db");
             std::process::exit(0);
-        },
+        }
         // No sub-command assumes a resume operation.
         _ => {
             // If no primary subcommand was given, start the beacon chain from an existing
@@ -207,7 +207,9 @@ pub fn get_config<E: EthSpec>(
 
             // Whilst there is no large testnet or mainnet force the user to specify how they want
             // to start a new chain (e.g., from a genesis YAML file, another node, etc).
-            if !client_config.data_dir.exists() || (!db_path_exists && client_config.chain_db_was_purged()) {
+            if !client_config.data_dir.exists()
+                || (!db_path_exists && client_config.chain_db_was_purged())
+            {
                 info!(
                     log,
                     "Starting from an empty database";
