@@ -22,3 +22,4 @@
     * [Database Configuration](./advanced_database.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
+* [FAQs](./faq.md)
