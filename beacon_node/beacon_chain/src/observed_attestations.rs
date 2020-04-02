@@ -153,7 +153,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
     /// attestations with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&self, current_slot: Slot) {
         // Taking advantage of saturating subtraction on `Slot`.
-        let lowest_permissible_slot = current_slot - self.max_capacity();
+        let lowest_permissible_slot = current_slot - (self.max_capacity() - 1);
 
         self.sets
             .write()
@@ -168,11 +168,17 @@ impl<E: EthSpec> ObservedAttestations<E> {
     /// Self::max_capacity()`, the set with the lowest slot will be replaced.
     fn get_set_index(&self, slot: Slot) -> Result<usize, Error> {
         let lowest_permissible_slot: Slot = *self.lowest_permissible_slot.read();
+
         if slot < lowest_permissible_slot {
             return Err(Error::SlotTooLow {
                 slot,
                 lowest_permissible_slot,
             });
+        }
+
+        // Prune the pool if this attestation indicates that the current slot has advanced.
+        if (lowest_permissible_slot + self.max_capacity()) < slot + 1 {
+            self.prune(slot)
         }
 
         let mut sets = self.sets.write();
@@ -338,6 +344,11 @@ mod tests {
                 .map(|set| set.slot)
                 .collect::<Vec<_>>();
 
+            assert!(
+                store_slots.len() <= store.max_capacity() as usize,
+                "store size should not exceed max"
+            );
+
             store_slots.sort_unstable();
 
             let expected_slots = (i.saturating_sub(max_cap - 1)..=i)
@@ -359,37 +370,14 @@ mod tests {
             .filter(|i| !to_skip.contains(i))
             .collect::<Vec<_>>();
 
-        let mut counter = 0;
-
         for &i in &slots {
             if to_skip.contains(&i) {
                 continue;
             }
 
-            counter += 1;
-
             let slot = Slot::from(i);
 
             single_slot_test(&store, slot);
-
-            /*
-             * Ensure that the number of sets is correct.
-             */
-
-            if counter < max_cap {
-                assert_eq!(
-                    store.sets.read().len(),
-                    counter as usize,
-                    "should have a {} sets stored",
-                    counter
-                );
-            } else {
-                assert_eq!(
-                    store.sets.read().len(),
-                    max_cap as usize,
-                    "should have max_capacity sets stored"
-                );
-            }
 
             /*
              * Ensure that each set contains the correct number of elements.
@@ -416,7 +404,10 @@ mod tests {
 
             store_slots.sort_unstable();
 
-            dbg!(store_slots.len());
+            assert!(
+                store_slots.len() <= store.max_capacity() as usize,
+                "store size should not exceed max"
+            );
 
             let lowest = store.lowest_permissible_slot.read().as_u64();
             let highest = slot.as_u64();
