@@ -224,12 +224,8 @@ impl<E: EthSpec> ObservedAttestations<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz_types::BitList;
     use tree_hash::TreeHash;
-    use types::{
-        test_utils::{generate_deterministic_keypair, test_random_instance},
-        Fork, Hash256,
-    };
+    use types::{test_utils::test_random_instance, Hash256};
 
     type E = types::MainnetEthSpec;
 

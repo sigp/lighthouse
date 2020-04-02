@@ -1,6 +1,7 @@
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::fork_choice::Error as ForkChoiceError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
+use crate::observed_attestations::Error as ObservedAttestationsError;
 use operation_pool::OpPoolError;
 use ssz::DecodeError;
 use ssz_types::Error as SszTypesError;
@@ -66,6 +67,7 @@ pub enum BeaconChainError {
     ValidatorPubkeyCacheFileError(String),
     OpPoolError(OpPoolError),
     NaiveAggregationError(NaiveAggregationError),
+    ObservedAttestationsError(ObservedAttestationsError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -73,6 +75,7 @@ easy_from_to!(AttestationValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
 easy_from_to!(OpPoolError, BeaconChainError);
 easy_from_to!(NaiveAggregationError, BeaconChainError);
+easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 
 #[derive(Debug, PartialEq)]

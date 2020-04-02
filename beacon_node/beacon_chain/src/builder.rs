@@ -430,6 +430,8 @@ where
                 .ok_or_else(|| "Cannot build without op pool".to_string())?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
+            observed_attestations: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),

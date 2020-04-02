@@ -9,6 +9,7 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
+use crate::observed_attestations::ObservedAttestations;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -34,6 +35,7 @@ use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
 use store::{Error as DBError, Migrate, Store};
+use tree_hash::TreeHash;
 use types::*;
 
 // Text included in blocks.
@@ -185,6 +187,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
     pub naive_aggregation_pool: NaiveAggregationPool<T::EthSpec>,
+    /// Contains a store of attestations which have been observed by the beacon chain.
+    pub observed_attestations: ObservedAttestations<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
@@ -1581,6 +1585,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state = fully_verified_block.state;
         let parent_block = fully_verified_block.parent_block;
         let intermediate_states = fully_verified_block.intermediate_states;
+
+        let attestation_observation_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
+
+        // Iterate through the attestations in the block and register them as an "observed
+        // attestation". This will stop us from propagating them on the gossip network.
+        for a in &block.body.attestations {
+            self.observed_attestations
+                .observe(a, a.tree_hash_root())
+                .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+        }
+
+        metrics::stop_timer(attestation_observation_timer);
 
         let fork_choice_register_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
