@@ -79,8 +79,9 @@ mod tests {
 
     #[test]
     pub fn test_ssz_round_trip() {
-        let original =
-            SecretKey::from_bytes(b"jzjxxgjajfjrmgodszzsgqccmhnyvetcuxobhtynojtpdtbj").unwrap();
+        let mut bytes = vec![0u8; 16];
+        bytes.append(&mut vec![1u8; 32]);
+        let original = SecretKey::from_bytes(&bytes).unwrap();
 
         let bytes = ssz_encode(&original);
         let decoded = SecretKey::from_ssz_bytes(&bytes).unwrap();

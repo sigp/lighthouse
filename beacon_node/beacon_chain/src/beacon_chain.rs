@@ -1067,7 +1067,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             |validator_index| {
                 pubkey_cache
                     .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
+                    .map(|pk| Cow::Borrowed(pk))
             },
             &attestation.signature,
             &indexed_attestation,
@@ -1403,7 +1403,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if validator_index < state.validators.len() {
                         validator_pubkey_cache
                             .get(validator_index)
-                            .map(|pk| Cow::Borrowed(pk.as_point()))
+                            .map(|pk| Cow::Borrowed(pk))
                     } else {
                         None
                     }

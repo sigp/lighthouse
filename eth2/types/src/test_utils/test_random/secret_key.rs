@@ -4,7 +4,7 @@ use bls::SecretKey;
 impl TestRandom for SecretKey {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         let mut key_bytes = vec![0; 48];
-        rng.fill_bytes(&mut key_bytes);
+        rng.fill_bytes(&mut key_bytes[17..]); // Must be less than SecretKey group
         /*
          * An `unreachable!` is used here as there's no reason why you cannot construct a key from a
          * fixed-length byte slice. Also, this should only be used during testing so a panic is

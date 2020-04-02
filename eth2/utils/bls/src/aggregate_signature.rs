@@ -1,8 +1,5 @@
 use super::*;
-use milagro_bls::{
-    AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
-    G2Point,
-};
+use milagro_bls::{AggregateSignature as RawAggregateSignature, G2Point};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -52,32 +49,19 @@ impl AggregateSignature {
             return false;
         }
         self.aggregate_signature
-            .verify(msg, aggregate_public_key.as_raw())
+            .fast_aggregate_verify_pre_aggregated(msg, aggregate_public_key.as_raw())
     }
 
-    /// Verify this AggregateSignature against multiple AggregatePublickeys with multiple Messages.
+    /// Verify this AggregateSignature against multiple AggregatePublickeys and Messages.
     ///
-    ///  All PublicKeys related to a Message should be aggregated into one AggregatePublicKey.
-    ///  Each AggregatePublicKey has a 1:1 ratio with a 32 byte Message.
-    pub fn verify_multiple(
-        &self,
-        messages: &[&[u8]],
-        aggregate_public_keys: &[&AggregatePublicKey],
-    ) -> bool {
+    /// Each AggregatePublicKey has a 1:1 ratio with a 32 byte Message.
+    pub fn verify_multiple(&self, messages: &[&[u8]], public_keys: &[&PublicKey]) -> bool {
         if self.is_empty {
             return false;
         }
-        let aggregate_public_keys: Vec<&RawAggregatePublicKey> =
-            aggregate_public_keys.iter().map(|pk| pk.as_raw()).collect();
-
-        // Messages are concatenated into one long message.
-        let mut msgs: Vec<Vec<u8>> = vec![];
-        for message in messages {
-            msgs.push(message.to_vec());
-        }
-
+        let public_keys_refs: Vec<_> = public_keys.iter().map(|pk| pk.as_raw()).collect();
         self.aggregate_signature
-            .verify_multiple(&msgs, &aggregate_public_keys[..])
+            .aggregate_verify(&messages, &public_keys_refs)
     }
 
     /// Return AggregateSignature as bytes

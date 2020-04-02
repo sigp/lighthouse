@@ -2,7 +2,7 @@ use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetRe
 
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
-use bls::{verify_signature_sets, G1Point, SignatureSet};
+use bls::{verify_signature_sets, PublicKey, SignatureSet};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
@@ -50,19 +50,19 @@ impl From<BlockOperationError<AttestationInvalid>> for Error {
 pub struct BlockSignatureVerifier<'a, T, F>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
 {
     block: &'a SignedBeaconBlock<T>,
     get_pubkey: Box<F>,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
-    sets: Vec<SignatureSet<'a>>,
+    sets: Vec<SignatureSet>,
 }
 
 impl<'a, T, F> BlockSignatureVerifier<'a, T, F>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
 {
     /// Create a new verifier without any included signatures. See the `include...` functions to
     /// add signatures, and the `verify`
@@ -130,7 +130,7 @@ where
             .sets
             .into_par_iter()
             .chunks(num_chunks)
-            .map(|chunk| verify_signature_sets(chunk.into_iter()))
+            .map(|chunk| verify_signature_sets(chunk))
             .reduce(|| true, |current, this| current && this);
 
         if result {
