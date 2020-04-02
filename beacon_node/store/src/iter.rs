@@ -172,7 +172,7 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockIterator<'a, T, U> {
 /// Iterates backwards through block roots. If any specified slot is unable to be retrieved, the
 /// iterator returns `None` indefinitely.
 ///
-/// Uses the `block_roots` field of `BeaconState` to as the source of block roots and will
+/// Uses the `block_roots` field of `BeaconState` as the source of block roots and will
 /// perform a lookup on the `Store` for a prior `BeaconState` if `block_roots` has been
 /// exhausted.
 ///
