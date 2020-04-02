@@ -308,14 +308,5 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .required(true)
                     .help("A file from which to read the state"))
             )
-            /*
-             * `prysm`
-             *
-             * Connect to the Prysmatic Labs testnet.
-             */
-            .subcommand(SubCommand::with_name("prysm")
-                .about("Connect to the Prysmatic Labs testnet on Goerli. Not guaranteed to be \
-                    up-to-date or functioning.")
-            )
         )
 }
