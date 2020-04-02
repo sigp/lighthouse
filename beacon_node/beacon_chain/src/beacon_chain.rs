@@ -9,7 +9,7 @@ use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
-use crate::observed_attestations::ObservedAttestations;
+use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -35,7 +35,6 @@ use store::iter::{
     BlockRootsIterator, ReverseBlockRootIterator, ReverseStateRootIterator, StateRootsIterator,
 };
 use store::{Error as DBError, Migrate, Store};
-use tree_hash::TreeHash;
 use types::*;
 
 // Text included in blocks.
@@ -1592,9 +1591,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
         for a in &block.body.attestations {
-            self.observed_attestations
-                .observe(a, a.tree_hash_root())
-                .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+            match self.observed_attestations.observe(a, None) {
+                // If the observation was successful or if the slot for the attestation was too
+                // low, continue.
+                //
+                // We ignore `SlotTooLow` since this will be very common whilst syncing.
+                Ok(_) | Err(AttestationObservationError::SlotTooLow { .. }) => {}
+                Err(e) => return Err(BlockError::BeaconChainError(e.into())),
+            }
         }
 
         metrics::stop_timer(attestation_observation_timer);

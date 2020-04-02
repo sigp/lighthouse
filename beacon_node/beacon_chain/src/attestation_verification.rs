@@ -1,7 +1,10 @@
 use crate::{
-    beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
+    beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    observed_attestations::{Error as AttestationObservationError, ObserveOutcome},
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use slot_clock::SlotClock;
+use tree_hash::TreeHash;
 use types::{Attestation, EthSpec, Slot};
 
 pub enum Error {
@@ -17,6 +20,9 @@ pub enum Error {
         attestation_slot: Slot,
         earliest_permissible_slot: Slot,
     },
+    /// The attestation has been seen before; either in a block, on the gossip network or from a
+    /// local validator.
+    AttestationAlreadyKnown,
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     BeaconChainError(BeaconChainError),
 }
@@ -86,11 +92,15 @@ impl<T: BeaconChainTypes> GossipVerifiedAttestation<T> {
             });
         }
 
-        /*
-        The aggregate attestation defined by hash_tree_root(aggregate) has not already been seen
-            (via aggregate gossip, within a block, or through the creation of an equivalent
-             aggregate locally).
-        */
+        let attestation_root = attestation.tree_hash_root();
+
+        if let ObserveOutcome::AlreadyKnown = chain
+            .observed_attestations
+            .observe(&attestation, Some(attestation_root))
+            .map_err(|e| Error::BeaconChainError(e.into()))?
+        {
+            return Err(Error::AttestationAlreadyKnown);
+        }
 
         /*
         The aggregate is the first valid aggregate received for the aggregator with index

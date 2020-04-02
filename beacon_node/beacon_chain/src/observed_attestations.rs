@@ -1,14 +1,8 @@
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::marker::PhantomData;
+use tree_hash::TreeHash;
 use types::{Attestation, EthSpec, Hash256, Slot};
-
-/// The number of slots that will be stored in the pool.
-///
-/// For example, if `SLOTS_RETAINED == 3` and the pool is pruned at slot `6`, then all attestations
-/// at slots less than `4` will be dropped and any future attestation with a slot less than `4`
-/// will be refused.
-const SLOTS_RETAINED: usize = 3;
 
 /// As a DoS protection measure, the maximum number of distinct `Attestations` that will be
 /// recorded for each slot.
@@ -21,7 +15,9 @@ const MAX_OBSERVATIONS_PER_SLOT: usize = 1 << 19; // 524,288
 
 #[derive(Debug, PartialEq)]
 pub enum ObserveOutcome {
+    /// This attestation was already known.
     AlreadyKnown,
+    /// This was the first time this attestation was observed.
     New,
 }
 
@@ -123,8 +119,13 @@ impl<E: EthSpec> Default for ObservedAttestations<E> {
 }
 
 impl<E: EthSpec> ObservedAttestations<E> {
-    pub fn observe(&self, a: &Attestation<E>, root: Hash256) -> Result<ObserveOutcome, Error> {
+    pub fn observe(
+        &self,
+        a: &Attestation<E>,
+        root_opt: Option<Hash256>,
+    ) -> Result<ObserveOutcome, Error> {
         let index = self.get_set_index(a.data.slot)?;
+        let root = root_opt.unwrap_or_else(|| a.tree_hash_root());
 
         self.sets
             .write()
@@ -250,7 +251,7 @@ mod tests {
                 "should indicate an unknown attestation is unknown"
             );
             assert_eq!(
-                store.observe(a, a.tree_hash_root()),
+                store.observe(a, None),
                 Ok(ObserveOutcome::New),
                 "should observe new attestation"
             );
@@ -263,7 +264,7 @@ mod tests {
                 "should indicate a known attestation is known"
             );
             assert_eq!(
-                store.observe(a, a.tree_hash_root()),
+                store.observe(a, Some(a.tree_hash_root())),
                 Ok(ObserveOutcome::AlreadyKnown),
                 "should acknowledge an existing attestation"
             );
