@@ -25,8 +25,10 @@ impl TestingVoluntaryExitBuilder {
         self,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedVoluntaryExit {
-        self.exit.sign(secret_key, fork, spec)
+        self.exit
+            .sign(secret_key, fork, genesis_validators_root, spec)
     }
 }

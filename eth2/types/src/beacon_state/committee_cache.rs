@@ -22,7 +22,7 @@ pub struct CommitteeCache {
 impl CommitteeCache {
     /// Return a new, fully initialized cache.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn initialized<T: EthSpec>(
         state: &BeaconState<T>,
         epoch: Epoch,
@@ -87,7 +87,7 @@ impl CommitteeCache {
     ///
     /// Always returns `&[]` for a non-initialized epoch.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn active_validator_indices(&self) -> &[usize] {
         &self.shuffling
     }
@@ -96,7 +96,7 @@ impl CommitteeCache {
     ///
     /// Always returns `&[]` for a non-initialized epoch.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn shuffling(&self) -> &[usize] {
         &self.shuffling
     }
@@ -202,7 +202,7 @@ impl CommitteeCache {
     ///
     /// Always returns `usize::default()` for a non-initialized epoch.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn active_validator_count(&self) -> usize {
         self.shuffling.len()
     }
@@ -211,7 +211,7 @@ impl CommitteeCache {
     ///
     /// Always returns `usize::default()` for a non-initialized epoch.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn epoch_committee_count(&self) -> usize {
         self.committees_per_slot as usize * self.slots_per_epoch as usize
     }
@@ -223,7 +223,7 @@ impl CommitteeCache {
 
     /// Returns a slice of `self.shuffling` that represents the `index`'th committee in the epoch.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     fn compute_committee(&self, index: usize) -> Option<&[usize]> {
         Some(&self.shuffling[self.compute_committee_range(index)?])
     }
@@ -234,7 +234,7 @@ impl CommitteeCache {
     ///
     /// Will also return `None` if the index is out of bounds.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     fn compute_committee_range(&self, index: usize) -> Option<Range<usize>> {
         let count = self.epoch_committee_count();
         if count == 0 || index >= count {
@@ -261,7 +261,7 @@ impl CommitteeCache {
 /// Returns a list of all `validators` indices where the validator is active at the given
 /// `epoch`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
     let mut active = Vec::with_capacity(validators.len());
 

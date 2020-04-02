@@ -1,23 +1,40 @@
 use ethabi::{Contract, Token};
-use ssz::Encode;
+use ssz::{Decode, DecodeError as SszDecodeError, Encode};
 use tree_hash::TreeHash;
-use types::DepositData;
+use types::{DepositData, Hash256, PublicKeyBytes, SignatureBytes};
 
 pub use ethabi::Error;
 
+#[derive(Debug)]
+pub enum DecodeError {
+    EthabiError(ethabi::Error),
+    SszDecodeError(SszDecodeError),
+    MissingField,
+    UnableToGetBytes,
+    MissingToken,
+    InadequateBytes,
+}
+
+impl From<ethabi::Error> for DecodeError {
+    fn from(e: ethabi::Error) -> DecodeError {
+        DecodeError::EthabiError(e)
+    }
+}
+
 pub const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
 pub const DEPOSIT_GAS: usize = 4_000_000;
-pub const ABI: &[u8] = include_bytes!("../contracts/v0.10.1_validator_registration.json");
-pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.10.1_validator_registration.bytecode");
+pub const ABI: &[u8] = include_bytes!("../contracts/v0.11.1_validator_registration.json");
+pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.11.1_validator_registration.bytecode");
+pub const DEPOSIT_DATA_LEN: usize = 420; // lol
 
 pub mod testnet {
     pub const ABI: &[u8] =
-        include_bytes!("../contracts/v0.10.1_testnet_validator_registration.json");
+        include_bytes!("../contracts/v0.11.1_testnet_validator_registration.json");
     pub const BYTECODE: &[u8] =
-        include_bytes!("../contracts/v0.10.1_testnet_validator_registration.bytecode");
+        include_bytes!("../contracts/v0.11.1_testnet_validator_registration.bytecode");
 }
 
-pub fn eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {
+pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {
     let params = vec![
         Token::Bytes(deposit_data.pubkey.as_ssz_bytes()),
         Token::Bytes(deposit_data.withdrawal_credentials.as_ssz_bytes()),
@@ -30,6 +47,40 @@ pub fn eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {
     let abi = Contract::load(ABI)?;
     let function = abi.function("deposit")?;
     function.encode_input(&params)
+}
+
+pub fn decode_eth1_tx_data(
+    bytes: &[u8],
+    amount: u64,
+) -> Result<(DepositData, Hash256), DecodeError> {
+    let abi = Contract::load(ABI)?;
+    let function = abi.function("deposit")?;
+    let mut tokens =
+        function.decode_input(bytes.get(4..).ok_or_else(|| DecodeError::InadequateBytes)?)?;
+
+    macro_rules! decode_token {
+        ($type: ty, $to_fn: ident) => {
+            <$type>::from_ssz_bytes(
+                &tokens
+                    .pop()
+                    .ok_or_else(|| DecodeError::MissingToken)?
+                    .$to_fn()
+                    .ok_or_else(|| DecodeError::UnableToGetBytes)?,
+            )
+            .map_err(DecodeError::SszDecodeError)?
+        };
+    };
+
+    let root = decode_token!(Hash256, to_fixed_bytes);
+
+    let deposit_data = DepositData {
+        amount,
+        signature: decode_token!(SignatureBytes, to_bytes),
+        withdrawal_credentials: decode_token!(Hash256, to_bytes),
+        pubkey: decode_token!(PublicKeyBytes, to_bytes),
+    };
+
+    Ok((deposit_data, root))
 }
 
 #[cfg(test)]
@@ -54,14 +105,27 @@ mod tests {
     }
 
     #[test]
-    fn basic() {
+    fn round_trip() {
         let spec = &E::default_spec();
 
         let keypair = generate_deterministic_keypair(42);
-        let deposit = get_deposit(keypair, spec);
+        let original = get_deposit(keypair, spec);
 
-        let data = eth1_tx_data(&deposit).expect("should produce tx data");
+        let data = encode_eth1_tx_data(&original).expect("should produce tx data");
 
-        assert_eq!(data.len(), 420, "bytes should be correct length");
+        assert_eq!(
+            data.len(),
+            DEPOSIT_DATA_LEN,
+            "bytes should be correct length"
+        );
+
+        let (decoded, root) = decode_eth1_tx_data(&data, original.amount).expect("should decode");
+
+        assert_eq!(decoded, original, "decoded should match original");
+        assert_eq!(
+            root,
+            original.tree_hash_root(),
+            "decode root should match original root"
+        );
     }
 }

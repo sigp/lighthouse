@@ -6,7 +6,7 @@ use types::*;
 
 /// Initialize a `BeaconState` from genesis data.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 // TODO: this is quite inefficient and we probably want to rethink how we do this
 pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
@@ -42,12 +42,15 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
 
+    // Set genesis validators root for domain separation and chain versioning
+    state.genesis_validators_root = state.update_validators_tree_hash_cache()?;
+
     Ok(state)
 }
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
     state.genesis_time >= spec.min_genesis_time
         && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
@@ -56,7 +59,7 @@ pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSp
 
 /// Activate genesis validators, if their balance is acceptable.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_activations<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) {
     for (index, validator) in state.validators.iter_mut().enumerate() {
         let balance = state.balances[index];

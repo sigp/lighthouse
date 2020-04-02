@@ -70,7 +70,7 @@ impl VerifySignatures {
 /// tree hash root of the block, NOT the signing root of the block. This function takes
 /// care of mixing in the domain.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn per_block_processing<T: EthSpec>(
     mut state: &mut BeaconState<T>,
     signed_block: &SignedBeaconBlock<T>,
@@ -136,13 +136,25 @@ pub fn per_block_processing<T: EthSpec>(
 
 /// Processes the block header.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
+    // Verify that the slots match
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
+
+    // Verify that proposer index is the correct index
+    let proposer_index = block.proposer_index as usize;
+    let state_proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    verify!(
+        proposer_index == state_proposer_index,
+        HeaderInvalid::ProposerIndexMismatch {
+            block_proposer_index: proposer_index,
+            state_proposer_index,
+        }
+    );
 
     let expected_previous_block_root = state.latest_block_header.tree_hash_root();
     verify!(
@@ -156,11 +168,10 @@ pub fn process_block_header<T: EthSpec>(
     state.latest_block_header = block.temporary_block_header();
 
     // Verify proposer is not slashed
-    let proposer_idx = state.get_beacon_proposer_index(block.slot, spec)?;
-    let proposer = &state.validators[proposer_idx];
+    let proposer = &state.validators[proposer_index];
     verify!(
         !proposer.slashed,
-        HeaderInvalid::ProposerSlashed(proposer_idx)
+        HeaderInvalid::ProposerSlashed(proposer_index)
     );
 
     Ok(())
@@ -168,7 +179,7 @@ pub fn process_block_header<T: EthSpec>(
 
 /// Verifies the signature of a block.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn verify_block_signature<T: EthSpec>(
     state: &BeaconState<T>,
     block: &SignedBeaconBlock<T>,
@@ -186,7 +197,7 @@ pub fn verify_block_signature<T: EthSpec>(
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: &BeaconBlock<T>,
@@ -209,7 +220,7 @@ pub fn process_randao<T: EthSpec>(
 
 /// Update the `state.eth1_data_votes` based upon the `eth1_data` provided.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
@@ -226,7 +237,7 @@ pub fn process_eth1_data<T: EthSpec>(
 /// Returns `Some(eth1_data)` if adding the given `eth1_data` to `state.eth1_data_votes` would
 /// result in a change to `state.eth1_data`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn get_new_eth1_data<T: EthSpec>(
     state: &BeaconState<T>,
     eth1_data: &Eth1Data,
@@ -250,7 +261,7 @@ pub fn get_new_eth1_data<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
@@ -268,7 +279,12 @@ pub fn process_proposer_slashings<T: EthSpec>(
 
     // Update the state.
     for proposer_slashing in proposer_slashings {
-        slash_validator(state, proposer_slashing.proposer_index as usize, None, spec)?;
+        slash_validator(
+            state,
+            proposer_slashing.signed_header_1.message.proposer_index as usize,
+            None,
+            spec,
+        )?;
     }
 
     Ok(())
@@ -279,7 +295,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing<T>],
@@ -333,7 +349,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_attestations<T: EthSpec>(
     state: &mut BeaconState<T>,
     attestations: &[Attestation<T>],
@@ -379,7 +395,7 @@ pub fn process_attestations<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_deposits<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposits: &[Deposit],
@@ -416,7 +432,7 @@ pub fn process_deposits<T: EthSpec>(
 
 /// Process a single deposit, optionally verifying its merkle proof.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_deposit<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposit: &Deposit,
@@ -482,7 +498,7 @@ pub fn process_deposit<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_exits<T: EthSpec>(
     state: &mut BeaconState<T>,
     voluntary_exits: &[SignedVoluntaryExit],

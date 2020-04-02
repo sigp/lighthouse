@@ -37,13 +37,13 @@ pub struct VoteCount {
 impl Into<VoteCount> for TotalBalances {
     fn into(self) -> VoteCount {
         VoteCount {
-            current_epoch_active_gwei: self.current_epoch,
-            previous_epoch_active_gwei: self.previous_epoch,
-            current_epoch_attesting_gwei: self.current_epoch_attesters,
-            current_epoch_target_attesting_gwei: self.current_epoch_target_attesters,
-            previous_epoch_attesting_gwei: self.previous_epoch_attesters,
-            previous_epoch_target_attesting_gwei: self.previous_epoch_target_attesters,
-            previous_epoch_head_attesting_gwei: self.previous_epoch_head_attesters,
+            current_epoch_active_gwei: self.current_epoch(),
+            previous_epoch_active_gwei: self.previous_epoch(),
+            current_epoch_attesting_gwei: self.current_epoch_attesters(),
+            current_epoch_target_attesting_gwei: self.current_epoch_target_attesters(),
+            previous_epoch_attesting_gwei: self.previous_epoch_attesters(),
+            previous_epoch_target_attesting_gwei: self.previous_epoch_target_attesters(),
+            previous_epoch_head_attesting_gwei: self.previous_epoch_head_attesters(),
         }
     }
 }
@@ -156,11 +156,15 @@ pub fn post_individual_votes<T: BeaconChainTypes>(
             // This is the last slot of the given epoch (one prior to the first slot of the next epoch).
             let target_slot = (epoch + 1).start_slot(T::EthSpec::slots_per_epoch()) - 1;
 
-            let (_root, state) = state_at_slot(&beacon_chain, target_slot)?;
+            let (_root, mut state) = state_at_slot(&beacon_chain, target_slot)?;
             let spec = &beacon_chain.spec;
 
             let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
             validator_statuses.process_attestations(&state, spec)?;
+
+            state.update_pubkey_cache().map_err(|e| {
+                ApiError::ServerError(format!("Unable to build pubkey cache: {:?}", e))
+            })?;
 
             body.pubkeys
                 .into_iter()

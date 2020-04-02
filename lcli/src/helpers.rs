@@ -83,3 +83,16 @@ pub fn parse_fork_opt(matches: &ArgMatches, name: &'static str) -> Result<Option
         })
         .transpose()
 }
+
+pub fn parse_hex_bytes(matches: &ArgMatches, name: &'static str) -> Result<Vec<u8>, String> {
+    matches
+        .value_of(name)
+        .ok_or_else(|| format!("{} not specified", name))
+        .and_then(|val| {
+            if val.starts_with("0x") {
+                hex::decode(&val[2..]).map_err(|e| format!("Unable to parse {}: {:?}", name, e))
+            } else {
+                Err(format!("Unable to parse {}, must have 0x prefix", name))
+            }
+        })
+}
