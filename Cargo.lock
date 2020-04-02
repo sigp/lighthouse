@@ -1045,9 +1045,12 @@ dependencies = [
 name = "environment"
 version = "0.1.0"
 dependencies = [
+ "beacon_node 0.1.0",
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ctrlc 3.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_config 0.1.0",
+ "eth2_testnet_config 0.1.0",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "logging 0.1.0",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",

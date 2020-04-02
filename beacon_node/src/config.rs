@@ -1,5 +1,6 @@
 use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis, Eth2Config};
+use environment::ETH2_CONFIG_FILENAME;
 use eth2_config::{read_from_file, write_to_file};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -14,14 +15,12 @@ use std::path::PathBuf;
 use types::EthSpec;
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
 
 type Result<T> = std::result::Result<T, String>;
-type Config = (ClientConfig, Eth2Config, Logger);
 
-/// Gets the fully-initialized global client and eth2 configuration objects.
+/// Gets the fully-initialized global client.
 ///
 /// The top-level `clap` arguments should be provided as `cli_args`.
 ///
@@ -29,26 +28,17 @@ type Config = (ClientConfig, Eth2Config, Logger);
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
 #[allow(clippy::cognitive_complexity)]
-pub fn get_configs<E: EthSpec>(
+pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    mut eth2_config: Eth2Config,
+    eth2_config: Eth2Config,
     core_log: Logger,
-) -> Result<Config> {
+) -> Result<ClientConfig> {
     let log = core_log.clone();
 
     let mut client_config = ClientConfig::default();
 
     client_config.spec_constants = eth2_config.spec_constants.clone();
-
-    // Read the `--datadir` flag.
-    //
-    // If it's not present, try and find the home directory (`~`) and push the default data
-    // directory onto it.
-    client_config.data_dir = cli_args
-        .value_of("datadir")
-        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
-        .unwrap_or_else(|| PathBuf::from("."));
+    client_config.data_dir = get_data_dir(cli_args);
 
     // Load the client config, if it exists .
     let path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
@@ -58,32 +48,7 @@ pub fn get_configs<E: EthSpec>(
             .ok_or_else(|| format!("{:?} file does not exist", path))?;
     }
 
-    // Load the eth2 config, if it exists .
-    let path = client_config.data_dir.join(ETH2_CONFIG_FILENAME);
-    if path.exists() {
-        let loaded_eth2_config: Eth2Config = read_from_file(path.clone())
-            .map_err(|e| format!("Unable to parse {:?} file: {:?}", path, e))?
-            .ok_or_else(|| format!("{:?} file does not exist", path))?;
-
-        // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
-        // client expects.
-        if loaded_eth2_config.spec_constants == client_config.spec_constants {
-            eth2_config = loaded_eth2_config
-        } else {
-            return Err(
-                format!(
-                    "Eth2 config loaded from disk does not match client spec version. Got {} expected {}",
-                    &loaded_eth2_config.spec_constants,
-                    &client_config.spec_constants
-                )
-            );
-        }
-    }
-
-    // Read the `--testnet-dir` flag.
-    if let Some(val) = cli_args.value_of("testnet-dir") {
-        client_config.testnet_dir = Some(PathBuf::from(val));
-    }
+    client_config.testnet_dir = get_testnet_dir(cli_args);
 
     /*
      * Networking
@@ -222,7 +187,7 @@ pub fn get_configs<E: EthSpec>(
 
     match cli_args.subcommand() {
         ("testnet", Some(sub_cmd_args)) => {
-            process_testnet_subcommand(&mut client_config, &mut eth2_config, sub_cmd_args)?
+            process_testnet_subcommand(&mut client_config, &eth2_config, sub_cmd_args)?
         }
         // No sub-command assumes a resume operation.
         _ => {
@@ -238,7 +203,7 @@ pub fn get_configs<E: EthSpec>(
                     "Starting from an empty database";
                     "data_dir" => format!("{:?}", client_config.data_dir)
                 );
-                init_new_client::<E>(&mut client_config, &mut eth2_config)?
+                init_new_client::<E>(&mut client_config, &eth2_config)?
             } else {
                 info!(
                     log,
@@ -317,7 +282,42 @@ pub fn get_configs<E: EthSpec>(
         client_config.network.discovery_address =
             Some("127.0.0.1".parse().expect("Valid IP address"))
     }
-    Ok((client_config, eth2_config, log))
+    Ok(client_config)
+}
+
+/// Gets the datadir which should be used.
+pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
+    // Read the `--datadir` flag.
+    //
+    // If it's not present, try and find the home directory (`~`) and push the default data
+    // directory onto it.
+    cli_args
+        .value_of("datadir")
+        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
+        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Gets the testnet dir which should be used.
+pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
+    // Read the `--testnet-dir` flag.
+    if let Some(val) = cli_args.value_of("testnet-dir") {
+        Some(PathBuf::from(val))
+    } else {
+        None
+    }
+}
+
+pub fn get_eth2_testnet_config<E: EthSpec>(
+    testnet_dir: &Option<PathBuf>,
+) -> Result<Eth2TestnetConfig<E>> {
+    Ok(if let Some(testnet_dir) = testnet_dir {
+        Eth2TestnetConfig::load(testnet_dir.clone())
+            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+    } else {
+        Eth2TestnetConfig::hard_coded()
+            .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
+    })
 }
 
 /// Load from an existing database.
@@ -352,37 +352,17 @@ fn load_from_datadir(client_config: &mut ClientConfig) -> Result<()> {
 /// Create a new client with the default configuration.
 fn init_new_client<E: EthSpec>(
     client_config: &mut ClientConfig,
-    eth2_config: &mut Eth2Config,
+    eth2_config: &Eth2Config,
 ) -> Result<()> {
     let eth2_testnet_config: Eth2TestnetConfig<E> =
-        if let Some(testnet_dir) = &client_config.testnet_dir {
-            Eth2TestnetConfig::load(testnet_dir.clone())
-                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
-        } else {
-            Eth2TestnetConfig::hard_coded()
-                .map_err(|e| format!("Unable to load hard-coded testnet dir: {}", e))?
-        };
-
-    eth2_config.spec = eth2_testnet_config
-        .yaml_config
-        .as_ref()
-        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
-        .apply_to_chain_spec::<E>(&eth2_config.spec)
-        .ok_or_else(|| {
-            format!(
-                "The loaded config is not compatible with the {} spec",
-                &eth2_config.spec_constants
-            )
-        })?;
-
-    let spec = &mut eth2_config.spec;
+        get_eth2_testnet_config(&client_config.testnet_dir)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
 
-    client_config.eth1.follow_distance = spec.eth1_follow_distance / 2;
+    client_config.eth1.follow_distance = eth2_config.spec.eth1_follow_distance / 2;
     client_config.eth1.lowest_cached_block_number = client_config
         .eth1
         .deposit_contract_deploy_block
@@ -445,7 +425,7 @@ pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config
 /// Process the `testnet` CLI subcommand arguments, updating the `builder`.
 fn process_testnet_subcommand(
     client_config: &mut ClientConfig,
-    eth2_config: &mut Eth2Config,
+    eth2_config: &Eth2Config,
     cli_args: &ArgMatches,
 ) -> Result<()> {
     // Specifies that a random datadir should be used.
@@ -474,15 +454,6 @@ fn process_testnet_subcommand(
             return Err("Propagation percentage greater than 100".to_string());
         }
         client_config.network.propagation_percentage = Some(percentage);
-    }
-
-    // Modify the `SECONDS_PER_SLOT` "constant".
-    if let Some(slot_time) = cli_args.value_of("slot-time") {
-        let slot_time = slot_time
-            .parse::<u64>()
-            .map_err(|e| format!("Unable to parse slot-time: {:?}", e))?;
-
-        eth2_config.spec.milliseconds_per_slot = slot_time;
     }
 
     // Start matching on the second subcommand (e.g., `testnet bootstrap ...`).
@@ -544,24 +515,6 @@ fn process_testnet_subcommand(
             };
 
             client_config.genesis = start_method;
-        }
-        ("prysm", Some(_)) => {
-            let mut spec = &mut eth2_config.spec;
-
-            spec.min_deposit_amount = 100;
-            spec.max_effective_balance = 3_200_000_000;
-            spec.ejection_balance = 1_600_000_000;
-            spec.effective_balance_increment = 100_000_000;
-            spec.min_genesis_time = 0;
-            spec.genesis_fork_version = [0, 0, 0, 2];
-
-            client_config.eth1.deposit_contract_address =
-                "0x802dF6aAaCe28B2EEb1656bb18dF430dDC42cc2e".to_string();
-            client_config.eth1.deposit_contract_deploy_block = 1_487_270;
-            client_config.eth1.follow_distance = 16;
-            client_config.dummy_eth1_backend = false;
-
-            client_config.genesis = ClientGenesis::DepositContract;
         }
         (cmd, Some(_)) => {
             return Err(format!(
