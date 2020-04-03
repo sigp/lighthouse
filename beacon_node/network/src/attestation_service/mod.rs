@@ -307,7 +307,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     .beacon_chain
                     .slot_clock
                     .duration_to_slot(exact_subnet.slot)
-                    .ok_or_else(|| "Unable to determine duration to next subscription slot")?
+                    .ok_or_else(|| "Unable to determine duration to subscription slot")?
                     .checked_sub(advance_subscription_duration)
                     .unwrap_or_else(|| Duration::from_secs(0));
 
