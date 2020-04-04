@@ -303,24 +303,14 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
 
                 // calculate the time to subscribe to the subnet
-                let duration_to_subscribe = {
-                    // The -1 is done here to exclude the current slot duration, as we will use
-                    // `duration_to_next_slot`.
-                    let slots_until_subscribe = exact_subnet
-                        .slot
-                        .saturating_sub(current_slot)
-                        .saturating_sub(1u64);
+                let duration_to_subscribe = self
+                    .beacon_chain
+                    .slot_clock
+                    .duration_to_slot(exact_subnet.slot)
+                    .ok_or_else(|| "Unable to determine duration to subscription slot")?
+                    .checked_sub(advance_subscription_duration)
+                    .unwrap_or_else(|| Duration::from_secs(0));
 
-                    duration_to_next_slot
-                        .checked_add(slot_duration)
-                        .ok_or_else(|| "Overflow in adding slot_duration attestation time")?
-                        .checked_mul(slots_until_subscribe.as_u64() as u32)
-                        .ok_or_else(|| {
-                            "Overflow in multiplying number of slots in attestation time"
-                        })?
-                        .checked_sub(advance_subscription_duration)
-                        .unwrap_or_else(|| Duration::from_secs(0))
-                };
                 // the duration until we no longer need this subscription. We assume a single slot is
                 // sufficient.
                 let expected_end_subscription_duration = duration_to_subscribe
