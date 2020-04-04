@@ -1,4 +1,4 @@
-use crate::discovery::Discovery;
+use crate::discovery::{enr::Eth2Enr, Discovery};
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
@@ -58,7 +58,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         local_key: &Keypair,
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
-        enr_fork_id: EnrForkId,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let local_peer_id = local_key.public().into_peer_id();
@@ -70,16 +69,16 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
             local_key.public(),
         );
 
+        let enr_fork_id = network_globals
+            .local_enr
+            .read()
+            .eth2()
+            .expect("Local ENR must have a fork id");
+
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
             gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
-            discovery: Discovery::new(
-                local_key,
-                net_conf,
-                enr_fork_id.clone(),
-                network_globals.clone(),
-                log,
-            )?,
+            discovery: Discovery::new(local_key, net_conf, network_globals.clone(), log)?,
             identify,
             events: Vec::new(),
             seen_gossip_messages: LruCache::new(100_000),
