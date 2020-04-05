@@ -35,7 +35,7 @@ fn test_gossipsub_forward() {
     };
     let pubsub_message = PubsubMessage::BeaconBlock(Box::new(signed_block));
     let publishing_topic: String = pubsub_message
-        .topics(GossipEncoding::SSZ, [0, 0, 0, 0])
+        .topics(GossipEncoding::default(), [0, 0, 0, 0])
         .first()
         .unwrap()
         .clone()
@@ -108,7 +108,7 @@ fn test_gossipsub_full_mesh_publish() {
     };
     let pubsub_message = PubsubMessage::BeaconBlock(Box::new(signed_block));
     let publishing_topic: String = pubsub_message
-        .topics(GossipEncoding::SSZ, [0, 0, 0, 0])
+        .topics(GossipEncoding::default(), [0, 0, 0, 0])
         .first()
         .unwrap()
         .clone()

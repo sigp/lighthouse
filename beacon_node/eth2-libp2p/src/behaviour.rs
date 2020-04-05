@@ -105,16 +105,22 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     /// Subscribes to a gossipsub topic kind, letting the network service determine the
     /// encoding and fork version.
     pub fn subscribe_kind(&mut self, kind: GossipKind) -> bool {
-        let gossip_topic =
-            GossipTopic::new(kind, GossipEncoding::SSZ, self.enr_fork_id.fork_digest);
+        let gossip_topic = GossipTopic::new(
+            kind,
+            GossipEncoding::default(),
+            self.enr_fork_id.fork_digest,
+        );
         self.subscribe(gossip_topic)
     }
 
     /// Unsubscribes from a gossipsub topic kind, letting the network service determine the
     /// encoding and fork version.
     pub fn unsubscribe_kind(&mut self, kind: GossipKind) -> bool {
-        let gossip_topic =
-            GossipTopic::new(kind, GossipEncoding::SSZ, self.enr_fork_id.fork_digest);
+        let gossip_topic = GossipTopic::new(
+            kind,
+            GossipEncoding::default(),
+            self.enr_fork_id.fork_digest,
+        );
         self.unsubscribe(gossip_topic)
     }
 
@@ -122,7 +128,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     pub fn subscribe_to_subnet(&mut self, subnet_id: SubnetId) -> bool {
         let topic = GossipTopic::new(
             subnet_id.into(),
-            GossipEncoding::SSZ,
+            GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
         self.subscribe(topic)
@@ -132,7 +138,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     pub fn unsubscribe_from_subnet(&mut self, subnet_id: SubnetId) -> bool {
         let topic = GossipTopic::new(
             subnet_id.into(),
-            GossipEncoding::SSZ,
+            GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
         self.unsubscribe(topic)
@@ -165,9 +171,13 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
     pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
         for message in messages {
-            for topic in message.topics(GossipEncoding::SSZ, self.enr_fork_id.fork_digest) {
-                let message_data = message.encode(GossipEncoding::SSZ);
-                self.gossipsub.publish(&topic.into(), message_data);
+            for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
+                match message.encode(GossipEncoding::default()) {
+                    Ok(message_data) => {
+                        self.gossipsub.publish(&topic.into(), message_data);
+                    }
+                    Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
+                }
             }
         }
     }
