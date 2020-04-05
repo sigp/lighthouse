@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
+pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 /// Network configuration for lighthouse.
@@ -98,7 +100,7 @@ impl Default for Config {
         // Note: The topics by default are sent as plain strings. Hashes are an optional
         // parameter.
         let gs_config = GossipsubConfigBuilder::new()
-            .max_transmit_size(1_048_576)
+            .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
             .manual_propagation() // require validation before propagation
             .no_source_id()

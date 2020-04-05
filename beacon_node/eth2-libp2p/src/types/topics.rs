@@ -7,6 +7,7 @@ use types::SubnetId;
 // For example /eth2/beacon_block/ssz
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const SSZ_ENCODING_POSTFIX: &str = "ssz";
+pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 // for speed and easier string manipulation, committee topic index is split into a prefix and a
@@ -65,6 +66,14 @@ impl std::fmt::Display for GossipKind {
 pub enum GossipEncoding {
     /// Messages are encoded with SSZ.
     SSZ,
+    /// Messages are encoded with SSZSnappy.
+    SSZSnappy,
+}
+
+impl Default for GossipEncoding {
+    fn default() -> Self {
+        GossipEncoding::SSZSnappy
+    }
 }
 
 impl GossipTopic {
@@ -109,6 +118,7 @@ impl GossipTopic {
 
             let encoding = match topic_parts[4] {
                 SSZ_ENCODING_POSTFIX => GossipEncoding::SSZ,
+                SSZ_SNAPPY_ENCODING_POSTFIX => GossipEncoding::SSZSnappy,
                 _ => return Err(format!("Unknown encoding: {}", topic)),
             };
             let kind = match topic_parts[3] {
@@ -144,6 +154,7 @@ impl Into<String> for GossipTopic {
     fn into(self) -> String {
         let encoding = match self.encoding {
             GossipEncoding::SSZ => SSZ_ENCODING_POSTFIX,
+            GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
         };
 
         let kind = match self.kind {
