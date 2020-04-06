@@ -192,19 +192,12 @@ fn return_validator_duties<T: BeaconChainTypes>(
             // The `beacon_chain` can return a validator index that does not exist in all states.
             // Therefore, we must check to ensure that the validator index is valid for our
             // `state`.
-            let validator_index = if let Some(i) = beacon_chain
+            let validator_index = beacon_chain
                 .validator_index(&validator_pubkey)
                 .map_err(|e| {
-                ApiError::ServerError(format!("Unable to get validator index: {:?}", e))
-            })? {
-                if i < state.validators.len() {
-                    Some(i)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+                    ApiError::ServerError(format!("Unable to get validator index: {:?}", e))
+                })?
+                .filter(|i| *i < state.validators.len());
 
             if let Some(validator_index) = validator_index {
                 let duties = state
