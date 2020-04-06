@@ -45,9 +45,9 @@ pub const RPC_BLOCKS_BY_RANGE: &str = "beacon_blocks_by_range";
 /// The `BlocksByRoot` protocol name.
 pub const RPC_BLOCKS_BY_ROOT: &str = "beacon_blocks_by_root";
 /// The `Ping` protocol name.
-pub const PING: &str = "ping";
+pub const RPC_PING: &str = "ping";
 /// The `MetaData` protocol name.
-pub const META_DATA: &str = "metadata";
+pub const RPC_META_DATA: &str = "metadata";
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
@@ -65,8 +65,8 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
             ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
             ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
-            ProtocolId::new(PING, "1", "ssz"),
-            ProtocolId::new(META_DATA, "1", "ssz"),
+            ProtocolId::new(RPC_PING, "1", "ssz"),
+            ProtocolId::new(RPC_META_DATA, "1", "ssz"),
         ]
     }
 }
@@ -203,8 +203,8 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::Goodbye(_) => vec![ProtocolId::new(RPC_GOODBYE, "1", "ssz")],
             RPCRequest::BlocksByRange(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz")],
             RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz")],
-            RPCRequest::Ping(_) => vec![ProtocolId::new(PING, "1", "ssz")],
-            RPCRequest::MetaData(_) => vec![ProtocolId::new(META_DATA, "1", "ssz")],
+            RPCRequest::Ping(_) => vec![ProtocolId::new(RPC_PING, "1", "ssz")],
+            RPCRequest::MetaData(_) => vec![ProtocolId::new(RPC_META_DATA, "1", "ssz")],
         }
     }
 

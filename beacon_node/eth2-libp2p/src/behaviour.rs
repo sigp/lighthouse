@@ -1,5 +1,5 @@
 use crate::discovery::{enr::Eth2Enr, Discovery};
-use crate::rpc::{RPCEvent, RPCMessage, RPC};
+use crate::rpc::{MetaData, RPCErrorResponse, RPCEvent, RPCMessage, RPCRequest, RPCResponse, RPC};
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -47,12 +47,15 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     network_globals: Arc<NetworkGlobals<TSpec>>,
     #[behaviour(ignore)]
     /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
+    // NOTE: This can be accessed via the network_globals ENR. However we keep it here for quick
+    // lookups for every gossipsub message send.
     enr_fork_id: EnrForkId,
     #[behaviour(ignore)]
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
 
+/// Implements the combined behaviour for the libp2p service.
 impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
     pub fn new(
         local_key: &Keypair,
@@ -95,10 +98,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     pub fn gs(&self) -> &Gossipsub<TSubstream> {
         &self.gossipsub
     }
-}
 
-/// Implements the combined behaviour for the libp2p service.
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
     /* Pubsub behaviour functions */
 
     /// Subscribes to a gossipsub topic kind, letting the network service determine the
@@ -248,6 +248,16 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         // update the local reference
         self.enr_fork_id = enr_fork_id;
     }
+
+    /* Private/Internal functionality */
+
+    fn ping_request(&mut self, peer_id: PeerId, seq: u64) {}
+
+    fn pong_response(&mut self, peer_id: PeerId, seq: u64) {}
+
+    fn meta_data_request(&mut self, peer_id: PeerId) {}
+
+    fn meta_data_response(&mut self, peer_id: PeerId, meta_data: MetaData<TSpec>) {}
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
@@ -299,7 +309,30 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                 self.events.push(BehaviourEvent::PeerDisconnected(peer_id))
             }
             RPCMessage::RPC(peer_id, rpc_event) => {
-                self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
+                // The METADATA and PING RPC responses are handled within the behaviour and not
+                // propagated
+                // TODO: Improve the RPC types to better handle this logic discrepancy
+                match rpc_event {
+                    RPCEvent::Request(_, RPCRequest::Ping(ping)) => {
+                        self.ping_request(peer_id, ping.data);
+                    }
+                    RPCEvent::Request(_, RPCRequest::MetaData(_)) => {
+                        self.meta_data_request(peer_id);
+                    }
+                    RPCEvent::Response(_, RPCErrorResponse::Success(RPCResponse::Pong(ping))) => {
+                        self.pong_response(peer_id, ping.data);
+                    }
+                    RPCEvent::Response(
+                        _,
+                        RPCErrorResponse::Success(RPCResponse::MetaData(meta_data)),
+                    ) => {
+                        self.meta_data_response(peer_id, meta_data);
+                    }
+                    _ => {
+                        // propagate all other RPC messages upwards
+                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
+                    }
+                }
             }
         }
     }

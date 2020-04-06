@@ -143,7 +143,8 @@ impl<T: BeaconChainTypes> Router<T> {
             RPCRequest::BlocksByRoot(request) => self
                 .processor
                 .on_blocks_by_root_request(peer_id, request_id, request),
-            RPCRequest::Phantom(_) => unreachable!("Phantom never initialised"),
+            RPCRequest::Ping(_) => unreachable!("Ping MUST be handled in the behaviour"),
+            RPCRequest::MetaData(_) => unreachable!("MetaData MUST be handled in the behaviour"),
         }
     }
 
@@ -186,6 +187,12 @@ impl<T: BeaconChainTypes> Router<T> {
                         request_id,
                         Some(beacon_block),
                     );
+                }
+                RPCResponse::Pong(_) => {
+                    unreachable!("Ping must be handled in the behaviour");
+                }
+                RPCResponse::MetaData(_) => {
+                    unreachable!("Meta data must be handled in the behaviour");
                 }
             },
             RPCErrorResponse::StreamTermination(response_type) => {

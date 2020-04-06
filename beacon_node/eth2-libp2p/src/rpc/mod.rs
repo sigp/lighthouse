@@ -121,7 +121,7 @@ where
         // if initialised the connection, report this upwards to send the HELLO request
         if let ConnectedPoint::Dialer { .. } = connected_point {
             self.events.push(NetworkBehaviourAction::GenerateEvent(
-                RPCMessage::PeerDialed(peer_id),
+                RPCMessage::PeerDialed(peer_id.clone()),
             ));
         }
 
