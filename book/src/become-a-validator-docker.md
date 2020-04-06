@@ -92,7 +92,7 @@ validator_client_1  | Mar 16 11:34:36.086 ERRO Beacon node is not synced        
 
 It's safest to wait for your node to sync before moving on to the next step, otherwise your validator may activate before you're able to produce blocks and attestations (and you may be penalized as a result).
 
-However, since it generally takes somewhere between 4 and 8 hours after depositing for a validator to become active, if your `est_time` is less than 4 hours, you _should_ be fine to just move on to the next step. After all, this is a testnet and you're only risking Goerli ETH!
+However, since it generally takes somewhere between [4 and 8 hours](./faq.md) after depositing for a validator to become active, if your `est_time` is less than 4 hours, you _should_ be fine to just move on to the next step. After all, this is a testnet and you're only risking Goerli ETH!
 
 ## Installation complete!
 
