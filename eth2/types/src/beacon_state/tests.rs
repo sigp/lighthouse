@@ -368,8 +368,8 @@ mod committees {
 
 mod get_outstanding_deposit_len {
     use super::*;
-    use crate::MinimalEthSpec;
     use crate::test_utils::TestingBeaconStateBuilder;
+    use crate::MinimalEthSpec;
 
     fn state() -> BeaconState<MinimalEthSpec> {
         let spec = MinimalEthSpec::default_spec();

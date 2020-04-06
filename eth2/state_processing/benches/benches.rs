@@ -4,7 +4,9 @@ use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use ssz::Encode;
 use state_processing::{test_utils::BlockBuilder, BlockSignatureStrategy, VerifySignatures};
-use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, MainnetEthSpec, MinimalEthSpec, Slot};
+use types::{
+    BeaconState, ChainSpec, EthSpec, MainnetEthSpec, MinimalEthSpec, SignedBeaconBlock, Slot,
+};
 
 pub const VALIDATORS_LOW: usize = 32_768;
 pub const VALIDATORS_HIGH: usize = 300_032;
@@ -45,7 +47,7 @@ fn worst_bench<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
 fn get_average_block<T: EthSpec>(
     validator_count: usize,
     spec: &ChainSpec,
-) -> (BeaconBlock<T>, BeaconState<T>) {
+) -> (SignedBeaconBlock<T>, BeaconState<T>) {
     let mut builder: BlockBuilder<T> = BlockBuilder::new(validator_count, &spec);
     // builder.num_attestations = T::MaxAttestations::to_usize();
     builder.num_attestations = 16;
@@ -59,7 +61,7 @@ fn get_average_block<T: EthSpec>(
 fn get_worst_block<T: EthSpec>(
     validator_count: usize,
     spec: &ChainSpec,
-) -> (BeaconBlock<T>, BeaconState<T>) {
+) -> (SignedBeaconBlock<T>, BeaconState<T>) {
     let mut builder: BlockBuilder<T> = BlockBuilder::new(validator_count, &spec);
     builder.maximize_block_operations();
 
@@ -74,7 +76,7 @@ fn get_worst_block<T: EthSpec>(
 #[allow(clippy::unit_arg)]
 fn bench_block<T: EthSpec>(
     c: &mut Criterion,
-    block: BeaconBlock<T>,
+    block: SignedBeaconBlock<T>,
     state: BeaconState<T>,
     spec: &ChainSpec,
     spec_desc: &str,
@@ -183,9 +185,7 @@ fn bench_block<T: EthSpec>(
                     black_box(
                         state_processing::per_block_processing::process_block_header::<T>(
                             state,
-                            &block,
-                            None,
-                            VerifySignatures::True,
+                            &block.message,
                             &spec,
                         )
                         .expect("process_block_header should succeed"),
@@ -231,7 +231,7 @@ fn bench_block<T: EthSpec>(
                     black_box(
                         state_processing::per_block_processing::process_attestations::<T>(
                             state,
-                            &block.body.attestations,
+                            &block.message.body.attestations,
                             VerifySignatures::True,
                             &spec,
                         )
@@ -252,7 +252,7 @@ fn bench_block<T: EthSpec>(
         Benchmark::new("verify_attestation", move |b| {
             b.iter_batched_ref(
                 || {
-                    let attestation = &local_block.body.attestations[0];
+                    let attestation = &local_block.message.body.attestations[0];
 
                     (local_spec.clone(), local_state.clone(), attestation.clone())
                 },
@@ -280,13 +280,15 @@ fn bench_block<T: EthSpec>(
         Benchmark::new("get_indexed_attestation", move |b| {
             b.iter_batched_ref(
                 || {
-                    let attestation = &local_block.body.attestations[0];
-
-                    (local_state.clone(), attestation.clone())
+                    let attestation = &local_block.message.body.attestations[0];
+                    let committee = local_state
+                        .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                        .unwrap();
+                    (committee.committee, attestation.clone())
                 },
-                |(ref mut state, attestation)| {
+                |(committee, attestation)| {
                     black_box(
-                        state_processing::common::get_indexed_attestation(state, &attestation)
+                        state_processing::common::get_indexed_attestation(committee, &attestation)
                             .expect("should get indexed attestation"),
                     )
                 },
@@ -304,9 +306,12 @@ fn bench_block<T: EthSpec>(
         Benchmark::new("is_valid_indexed_attestation_with_signature", move |b| {
             b.iter_batched_ref(
                 || {
-                    let attestation = &local_block.body.attestations[0];
+                    let attestation = &local_block.message.body.attestations[0];
+                    let committee = local_state
+                        .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                        .unwrap();
                     let indexed_attestation = state_processing::common::get_indexed_attestation(
-                        &local_state,
+                        &committee.committee,
                         &attestation,
                     )
                     .expect("should get indexed attestation");
@@ -338,9 +343,12 @@ fn bench_block<T: EthSpec>(
         Benchmark::new("is_valid_indexed_attestation_without_signature", move |b| {
             b.iter_batched_ref(
                 || {
-                    let attestation = &local_block.body.attestations[0];
+                    let attestation = &local_block.message.body.attestations[0];
+                    let committee = local_state
+                        .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                        .unwrap();
                     let indexed_attestation = state_processing::common::get_indexed_attestation(
-                        &local_state,
+                        &committee.committee,
                         &attestation,
                     )
                     .expect("should get indexed attestation");
@@ -371,14 +379,16 @@ fn bench_block<T: EthSpec>(
         Benchmark::new("get_attesting_indices", move |b| {
             b.iter_batched_ref(
                 || {
-                    let attestation = &local_block.body.attestations[0];
+                    let attestation = &local_block.message.body.attestations[0];
+                    let committee = local_state
+                        .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                        .unwrap();
 
-                    (local_state.clone(), attestation.clone())
+                    (committee.committee, attestation.clone())
                 },
-                |(ref mut state, attestation)| {
-                    black_box(state_processing::common::get_attesting_indices(
-                        state,
-                        &attestation.data,
+                |(committee, attestation)| {
+                    black_box(state_processing::common::get_attesting_indices::<T>(
+                        committee,
                         &attestation.aggregation_bits,
                     ))
                 },
