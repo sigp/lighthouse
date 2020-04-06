@@ -51,7 +51,7 @@ impl SlotHashSet {
         }
     }
 
-    pub fn observe<E: EthSpec>(
+    pub fn observe_attestation<E: EthSpec>(
         &mut self,
         a: &Attestation<E>,
         root: Hash256,
@@ -119,7 +119,7 @@ impl<E: EthSpec> Default for ObservedAttestations<E> {
 }
 
 impl<E: EthSpec> ObservedAttestations<E> {
-    pub fn observe(
+    pub fn observe_attestation(
         &self,
         a: &Attestation<E>,
         root_opt: Option<Hash256>,
@@ -131,7 +131,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
             .write()
             .get_mut(index)
             .ok_or_else(|| Error::InvalidSetIndex(index))
-            .and_then(|set| set.observe(a, root))
+            .and_then(|set| set.observe_attestation(a, root))
     }
 
     pub fn is_known(&self, a: &Attestation<E>, root: Hash256) -> Result<bool, Error> {
@@ -251,7 +251,7 @@ mod tests {
                 "should indicate an unknown attestation is unknown"
             );
             assert_eq!(
-                store.observe(a, None),
+                store.observe_attestation(a, None),
                 Ok(ObserveOutcome::New),
                 "should observe new attestation"
             );
@@ -264,7 +264,7 @@ mod tests {
                 "should indicate a known attestation is known"
             );
             assert_eq!(
-                store.observe(a, Some(a.tree_hash_root())),
+                store.observe_attestation(a, Some(a.tree_hash_root())),
                 Ok(ObserveOutcome::AlreadyKnown),
                 "should acknowledge an existing attestation"
             );

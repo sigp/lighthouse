@@ -45,14 +45,14 @@ pub const GRAFFITI: &str = "sigp/lighthouse-0.1.1-prerelease";
 
 /// The time-out before failure during an operation to take a read/write RwLock on the canonical
 /// head.
-const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+pub const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The time-out before failure during an operation to take a read/write RwLock on the block
 /// processing cache.
 pub const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// attestation cache.
-const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// validator pubkey cache.
@@ -1591,7 +1591,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
         for a in &block.body.attestations {
-            match self.observed_attestations.observe(a, None) {
+            match self.observed_attestations.observe_attestation(a, None) {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
                 //
