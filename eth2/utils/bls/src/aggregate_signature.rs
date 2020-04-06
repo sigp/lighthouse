@@ -52,6 +52,19 @@ impl AggregateSignature {
             .fast_aggregate_verify_pre_aggregated(msg, aggregate_public_key.as_raw())
     }
 
+    /// Verify the `AggregateSignature` against an `AggregatePublicKey`.
+    ///
+    /// Only returns `true` if the set of keys in the `AggregatePublicKey` match the set of keys
+    /// that signed the `AggregateSignature`.
+    pub fn verify_unaggregated(&self, msg: &[u8], public_keys: &[&PublicKey]) -> bool {
+        if self.is_empty {
+            return false;
+        }
+        let public_key_refs: Vec<_> = public_keys.iter().map(|pk| pk.as_raw()).collect();
+        self.aggregate_signature
+            .fast_aggregate_verify(msg, &public_key_refs)
+    }
+
     /// Verify this AggregateSignature against multiple AggregatePublickeys and Messages.
     ///
     /// Each AggregatePublicKey has a 1:1 ratio with a 32 byte Message.

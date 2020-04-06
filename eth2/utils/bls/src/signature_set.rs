@@ -7,6 +7,12 @@ use milagro_bls::{
     PublicKey as RawPublicKey,
 };
 
+#[cfg(feature = "fake_crypto")]
+use crate::fakes::{
+    AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
+    PublicKey as RawPublicKey,
+};
+
 type Message = Vec<u8>;
 
 #[derive(Clone, Debug)]
@@ -63,6 +69,6 @@ pub fn verify_signature_sets<'a>(sets: Vec<SignatureSet>) -> bool {
 }
 
 #[cfg(feature = "fake_crypto")]
-pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet>) -> bool {
+pub fn verify_signature_sets<'a>(sets: Vec<SignatureSet>) -> bool {
     true
 }
