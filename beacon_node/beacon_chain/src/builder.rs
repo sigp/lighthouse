@@ -7,10 +7,11 @@ use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::HeadTracker;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
+use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    BeaconChain, BeaconChainTypes, CheckPoint, Eth1Chain, Eth1ChainBackend, EventHandler,
+    BeaconChain, BeaconChainTypes, BeaconSnapshot, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
 };
 use eth1::Config as Eth1Config;
@@ -71,10 +72,10 @@ where
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     store: Option<Arc<T::Store>>,
     store_migrator: Option<T::StoreMigrator>,
-    canonical_head: Option<CheckPoint<T::EthSpec>>,
+    canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
     /// The finalized checkpoint to anchor the chain. May be genesis or a higher
     /// checkpoint.
-    pub finalized_checkpoint: Option<CheckPoint<T::EthSpec>>,
+    pub finalized_snapshot: Option<BeaconSnapshot<T::EthSpec>>,
     genesis_block_root: Option<Hash256>,
     op_pool: Option<OperationPool<T::EthSpec>>,
     fork_choice: Option<ForkChoice<T>>,
@@ -110,7 +111,7 @@ where
             store: None,
             store_migrator: None,
             canonical_head: None,
-            finalized_checkpoint: None,
+            finalized_snapshot: None,
             genesis_block_root: None,
             op_pool: None,
             fork_choice: None,
@@ -260,14 +261,14 @@ where
             .map_err(|e| format!("DB error when reading finalized state: {:?}", e))?
             .ok_or_else(|| "Finalized state not found in store".to_string())?;
 
-        self.finalized_checkpoint = Some(CheckPoint {
+        self.finalized_snapshot = Some(BeaconSnapshot {
             beacon_block_root: finalized_block_root,
             beacon_block: finalized_block,
             beacon_state_root: finalized_state_root,
             beacon_state: finalized_state,
         });
 
-        self.canonical_head = Some(CheckPoint {
+        self.canonical_head = Some(BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: head_block,
             beacon_state_root: head_state_root,
@@ -304,7 +305,7 @@ where
         self.genesis_block_root = Some(beacon_block_root);
 
         store
-            .put_state(&beacon_state_root, beacon_state.clone())
+            .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
             .put(&beacon_block_root, &beacon_block)
@@ -318,7 +319,7 @@ where
             )
         })?;
 
-        self.finalized_checkpoint = Some(CheckPoint {
+        self.finalized_snapshot = Some(BeaconSnapshot {
             beacon_block_root,
             beacon_block,
             beacon_state_root,
@@ -380,7 +381,7 @@ where
         let mut canonical_head = if let Some(head) = self.canonical_head {
             head
         } else {
-            self.finalized_checkpoint
+            self.finalized_snapshot
                 .ok_or_else(|| "Cannot build without a state".to_string())?
         };
 
@@ -420,7 +421,7 @@ where
                 .op_pool
                 .ok_or_else(|| "Cannot build without op pool".to_string())?,
             eth1_chain: self.eth1_chain,
-            canonical_head: TimeoutRwLock::new(canonical_head),
+            canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root: self
                 .genesis_block_root
                 .ok_or_else(|| "Cannot build without a genesis block root".to_string())?,
@@ -431,6 +432,10 @@ where
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
             head_tracker: self.head_tracker.unwrap_or_default(),
+            block_processing_cache: TimeoutRwLock::new(SnapshotCache::new(
+                DEFAULT_SNAPSHOT_CACHE_SIZE,
+                canonical_head,
+            )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             log: log.clone(),
@@ -482,30 +487,30 @@ where
             ForkChoice::from_ssz_container(persisted)
                 .map_err(|e| format!("Unable to read persisted fork choice from disk: {:?}", e))?
         } else {
-            let finalized_checkpoint = &self
-                .finalized_checkpoint
+            let finalized_snapshot = &self
+                .finalized_snapshot
                 .as_ref()
-                .ok_or_else(|| "fork_choice_backend requires a finalized_checkpoint")?;
+                .ok_or_else(|| "fork_choice_backend requires a finalized_snapshot")?;
             let genesis_block_root = self
                 .genesis_block_root
                 .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
 
             let backend = ProtoArrayForkChoice::new(
-                finalized_checkpoint.beacon_block.message.slot,
-                finalized_checkpoint.beacon_block.message.state_root,
+                finalized_snapshot.beacon_block.message.slot,
+                finalized_snapshot.beacon_block.message.state_root,
                 // Note: here we set the `justified_epoch` to be the same as the epoch of the
                 // finalized checkpoint. Whilst this finalized checkpoint may actually point to
                 // a _later_ justified checkpoint, that checkpoint won't yet exist in the fork
                 // choice.
-                finalized_checkpoint.beacon_state.current_epoch(),
-                finalized_checkpoint.beacon_state.current_epoch(),
-                finalized_checkpoint.beacon_block_root,
+                finalized_snapshot.beacon_state.current_epoch(),
+                finalized_snapshot.beacon_state.current_epoch(),
+                finalized_snapshot.beacon_block_root,
             )?;
 
             ForkChoice::new(
                 backend,
                 genesis_block_root,
-                &finalized_checkpoint.beacon_state,
+                &finalized_snapshot.beacon_state,
             )
         };
 
@@ -576,7 +581,7 @@ where
     /// Requires the state to be initialized.
     pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
         let genesis_time = self
-            .finalized_checkpoint
+            .finalized_snapshot
             .as_ref()
             .ok_or_else(|| "testing_slot_clock requires an initialized state")?
             .beacon_state

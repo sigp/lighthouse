@@ -731,7 +731,7 @@ where
             .ok_or_else(|| "system_time_slot_clock requires a beacon_chain_builder")?;
 
         let genesis_time = beacon_chain_builder
-            .finalized_checkpoint
+            .finalized_snapshot
             .as_ref()
             .ok_or_else(|| "system_time_slot_clock requires an initialized beacon state")?
             .beacon_state
