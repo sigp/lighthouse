@@ -85,6 +85,14 @@ impl FakePublicKey {
     pub fn as_raw(&self) -> &Self {
         self
     }
+
+    pub fn as_point(&self) -> &G1Point {
+        &self.point
+    }
+
+    pub fn into_point(self) -> G1Point {
+        self.point
+    }
 }
 
 impl fmt::Display for FakePublicKey {

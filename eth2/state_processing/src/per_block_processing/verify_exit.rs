@@ -1,5 +1,8 @@
 use super::errors::{BlockOperationError, ExitInvalid};
-use crate::per_block_processing::{signature_sets::exit_signature_set, VerifySignatures};
+use crate::per_block_processing::{
+    signature_sets::{exit_signature_set, get_pubkey_from_state},
+    VerifySignatures,
+};
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<ExitInvalid>>;
@@ -84,7 +87,13 @@ fn verify_exit_parametric<T: EthSpec>(
 
     if verify_signatures.is_true() {
         verify!(
-            exit_signature_set(state, signed_exit, spec)?.is_valid(),
+            exit_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                signed_exit,
+                spec
+            )?
+            .is_valid(),
             ExitInvalid::BadSignature
         );
     }

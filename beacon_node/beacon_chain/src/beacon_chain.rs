@@ -21,7 +21,7 @@ use state_processing::per_block_processing::errors::{
 use state_processing::{
     common::get_indexed_attestation, per_block_processing, per_slot_processing,
     signature_sets::indexed_attestation_signature_set_from_pubkeys, BlockProcessingError,
-    BlockSignatureStrategy,
+    BlockSignatureStrategy, BlockSignatureVerifier,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -74,7 +74,10 @@ pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.
-    Processed { block_root: Hash256 },
+    Processed {
+        block_root: Hash256,
+    },
+    InvalidSignature,
     /// The parent block was unknown.
     ParentUnknown {
         parent: Hash256,
@@ -86,7 +89,10 @@ pub enum BlockProcessingOutcome {
         block_slot: Slot,
     },
     /// The block state_root does not match the generated state.
-    StateRootMismatch { block: Hash256, local: Hash256 },
+    StateRootMismatch {
+        block: Hash256,
+        local: Hash256,
+    },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -594,14 +600,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the validator index (if any) for the given public key.
     ///
-    /// Information is retrieved from the present `beacon_state.validators`.
+    /// ## Notes
+    ///
+    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
+    /// even if those validators aren't included in the head state. It is important to remember
+    /// that just because a validator exists here, it doesn't necessarily exist in all
+    /// `BeaconStates`.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
-        for (i, validator) in self.head()?.beacon_state.validators.iter().enumerate() {
-            if validator.pubkey == *pubkey {
-                return Ok(Some(i));
-            }
-        }
-        Ok(None)
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        Ok(pubkey_cache.get_index(pubkey))
+    }
+
+    /// Returns the validator pubkey (if any) for the given validator index.
+    ///
+    /// ## Notes
+    ///
+    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
+    /// even if those validators aren't included in the head state. It is important to remember
+    /// that just because a validator exists here, it doesn't necessarily exist in all
+    /// `BeaconStates`.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
+    pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        Ok(pubkey_cache.get(validator_index).cloned())
     }
 
     /// Returns the block canonical root of the current canonical chain at a given slot.
@@ -1007,16 +1043,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
 
-        let pubkeys = indexed_attestation
-            .attesting_indices
-            .iter()
-            .map(|i| {
-                pubkey_cache
-                    .get(*i as usize)
-                    .ok_or_else(|| Error::ValidatorPubkeyCacheIncomplete(*i as usize))
-            })
-            .collect::<Result<Vec<&PublicKey>, Error>>()?;
-
         let (fork, genesis_validators_root) = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
@@ -1029,7 +1055,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
-            pubkeys,
+            |validator_index| {
+                pubkey_cache
+                    .get(validator_index)
+                    .map(|pk| Cow::Borrowed(pk.as_point()))
+            },
             &attestation.signature,
             &indexed_attestation,
             &fork,
@@ -1046,6 +1076,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signature_is_valid = signature_set.is_valid();
 
         metrics::stop_timer(signature_verification_timer);
+
+        drop(pubkey_cache);
 
         if signature_is_valid {
             // Provide the attestation to fork choice, updating the validator latest messages but
@@ -1364,6 +1396,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.log,
         );
 
+        let signature_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_SIGNATURE);
+
+        let signature_verification_result = {
+            let validator_pubkey_cache = self
+                .validator_pubkey_cache
+                .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
+
+            BlockSignatureVerifier::verify_entire_block(
+                &state,
+                |validator_index| {
+                    // Disallow access to any validator pubkeys that are not in the current beacon
+                    // state.
+                    if validator_index < state.validators.len() {
+                        validator_pubkey_cache
+                            .get(validator_index)
+                            .map(|pk| Cow::Borrowed(pk.as_point()))
+                    } else {
+                        None
+                    }
+                },
+                &signed_block,
+                Some(block_root),
+                &self.spec,
+            )
+        };
+
+        if signature_verification_result.is_err() {
+            return Ok(BlockProcessingOutcome::InvalidSignature);
+        }
+
+        metrics::stop_timer(signature_timer);
+
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         // Apply the received block to its parent state (which has been transitioned into this
@@ -1372,7 +1437,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &signed_block,
             Some(block_root),
-            BlockSignatureStrategy::VerifyBulk,
+            // Signatures were verified earlier in this function.
+            BlockSignatureStrategy::NoVerification,
             &self.spec,
         ) {
             Err(BlockProcessingError::BeaconStateError(e)) => {

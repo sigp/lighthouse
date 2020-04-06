@@ -417,6 +417,7 @@ mod release_tests {
     use super::*;
     use state_processing::common::{get_attesting_indices, get_base_reward};
     use std::collections::BTreeSet;
+    use std::iter::FromIterator;
     use types::test_utils::*;
     use types::*;
 
@@ -857,11 +858,15 @@ mod release_tests {
             let committee = state
                 .get_beacon_committee(att.data.slot, att.data.index)
                 .expect("should get beacon committee");
-            let att_indices = get_attesting_indices::<MainnetEthSpec>(
-                committee.committee,
-                &fresh_validators_bitlist,
-            )
-            .unwrap();
+
+            let att_indices = BTreeSet::from_iter(
+                get_attesting_indices::<MainnetEthSpec>(
+                    committee.committee,
+                    &fresh_validators_bitlist,
+                )
+                .unwrap(),
+            );
+
             let fresh_indices = &att_indices - &seen_indices;
 
             let rewards = fresh_indices
