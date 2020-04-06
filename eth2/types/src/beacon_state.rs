@@ -71,6 +71,10 @@ pub enum Error {
     InvalidValidatorPubkey(ssz::DecodeError),
     ValidatorRegistryShrunk,
     TreeHashCacheInconsistent,
+    InvalidDepositState {
+        deposit_count: u64,
+        deposit_index: u64,
+    },
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -764,6 +768,19 @@ impl<T: EthSpec> BeaconState<T> {
             self.get_effective_balance(*i, spec)
                 .and_then(|bal| Ok(bal + acc))
         })
+    }
+
+    /// Get the number of outstanding deposits.
+    ///
+    /// Returns `Err` if the state is invalid.
+    pub fn get_outstanding_deposit_len(&self) -> Result<u64, Error> {
+        self.eth1_data
+            .deposit_count
+            .checked_sub(self.eth1_deposit_index)
+            .ok_or_else(|| Error::InvalidDepositState {
+                deposit_count: self.eth1_data.deposit_count,
+                deposit_index: self.eth1_deposit_index,
+            })
     }
 
     /// Build all the caches, if they need to be built.
