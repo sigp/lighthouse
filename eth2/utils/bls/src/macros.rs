@@ -92,7 +92,6 @@ macro_rules! bytes_struct {
         #[derive(Clone)]
         pub struct $name {
             bytes: [u8; $byte_size],
-            decompressed: Option<$type>
         }
     };
     ($name: ident, $type: ty, $byte_size: expr, $small_name: expr) => {
@@ -103,14 +102,12 @@ macro_rules! bytes_struct {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
                 Ok(Self {
                     bytes: Self::get_bytes(bytes)?,
-                    decompressed: None
                 })
             }
 
             pub fn empty() -> Self {
                 Self {
                     bytes: [0; $byte_size],
-                    decompressed: None
                 }
             }
 
@@ -133,15 +130,6 @@ macro_rules! bytes_struct {
                     result[..].copy_from_slice(bytes);
                     Ok(result)
                 }
-            }
-
-            pub fn decompress(&mut self) -> Result<(), ssz::DecodeError> {
-                self.decompressed = Some(<&Self as std::convert::TryInto<$type>>::try_into(self)?);
-                Ok(())
-            }
-
-            pub fn decompressed(&self) -> &Option<$type> {
-                &self.decompressed
             }
         }
 
@@ -180,7 +168,44 @@ macro_rules! bytes_struct {
             }
         }
 
-        impl_ssz!($name, $byte_size, "$type");
+        impl ssz::Encode for $name {
+            fn is_ssz_fixed_len() -> bool {
+                true
+            }
+
+            fn ssz_fixed_len() -> usize {
+                $byte_size
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
+                $byte_size
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                buf.extend_from_slice(&self.bytes)
+            }
+        }
+
+        impl ssz::Decode for $name {
+            fn is_ssz_fixed_len() -> bool {
+                true
+            }
+
+            fn ssz_fixed_len() -> usize {
+                $byte_size
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+                let len = bytes.len();
+                let expected = <Self as ssz::Decode>::ssz_fixed_len();
+
+                if len != expected {
+                    Err(ssz::DecodeError::InvalidByteLength { len, expected })
+                } else {
+                    Self::from_bytes(bytes)
+                }
+            }
+        }
 
         impl tree_hash::TreeHash for $name {
             fn tree_hash_type() -> tree_hash::TreeHashType {
