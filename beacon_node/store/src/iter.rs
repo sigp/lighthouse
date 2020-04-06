@@ -1,9 +1,10 @@
-use crate::Store;
+use crate::{Error, Store};
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    typenum::Unsigned, BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    typenum::Unsigned, BeaconState, BeaconStateError, BeaconStateHash, EthSpec, Hash256,
+    SignedBeaconBlock, SignedBeaconBlockHash, Slot,
 };
 
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
@@ -259,6 +260,66 @@ fn next_historical_root_backtrack_state<E: EthSpec, S: Store<E>>(
 fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
     let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
     (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
+}
+
+pub struct SlotBlockStateIterator<T: EthSpec, S> {
+    store: Arc<S>,
+    slot: Slot,
+    state: BeaconState<T>,
+    poisoned: bool,
+}
+
+impl<'a, T: EthSpec, S: Store<T>> SlotBlockStateIterator<T, S> {
+    pub fn new(
+        store: Arc<S>,
+        slot: Slot,
+        block_hash: SignedBeaconBlockHash,
+    ) -> Result<Self, Error> {
+        let block = store
+            .get_block(&block_hash.into())?
+            .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?;
+        let state_hash = block.state_root();
+        let state = store
+            .get_state(&state_hash.into(), Some(slot))?
+            .ok_or_else(|| BeaconStateError::MissingBeaconState(state_hash.into()))?;
+        let result = Self {
+            store: Arc::clone(&store),
+            slot: slot,
+            state: state,
+            poisoned: false,
+        };
+        Ok(result)
+    }
+}
+
+impl<'a, T: EthSpec, S: Store<T>> Iterator for SlotBlockStateIterator<T, S> {
+    type Item = Result<(Slot, SignedBeaconBlockHash, BeaconStateHash), BeaconStateError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.poisoned || self.slot == 0 {
+            return None;
+        }
+
+        self.slot -= 1;
+
+        let result = match self.state.get_block_state_roots(self.slot) {
+            Ok((block_hash, state_hash)) => Some(Ok((self.slot, block_hash, state_hash))),
+            Err(BeaconStateError::SlotOutOfBounds) => {
+                self.state = next_historical_root_backtrack_state(&*self.store, &self.state)?;
+                match self.state.get_block_state_roots(self.slot) {
+                    Ok((block_hash, state_hash)) => Some(Ok((self.slot, block_hash, state_hash))),
+                    Err(e) => Some(Err(e)),
+                }
+            }
+            Err(e) => Some(Err(e)),
+        };
+
+        if let Some(Err(_)) = result {
+            self.poisoned = true;
+        }
+
+        result
+    }
 }
 
 pub type ReverseBlockRootIterator<'a, E, S> =

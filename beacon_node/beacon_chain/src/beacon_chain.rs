@@ -34,7 +34,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
-    ReverseStateRootIterator, StateRootsIterator,
+    ReverseStateRootIterator, StateRootsIterator, SlotBlockStateIterator,
 };
 use store::{Error as DBError, Migrate, StateBatch, Store};
 use tree_hash::TreeHash;
@@ -1956,35 +1956,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .slot;
 
         // Collect hashes from new_finalized_block up to old_finalized_block
-        let newly_finalized_blocks: HashSet<Hash256> = HashSet::from_iter(
+        let newly_finalized_blocks: HashSet<SignedBeaconBlockHash> = HashSet::from_iter(
             ParentRootBlockIterator::new(&*self.store, new_finalized_block_hash.into())
                 .take_while(|(block_hash, _)| *block_hash != old_finalized_block_hash.into())
-                .map(|(block_hash, _)| block_hash),
+                .map(|(block_hash, _)| block_hash.into()),
         );
 
-        for (head_hash, _) in self.heads() {
+        for (head_hash, head_slot) in self.heads() {
             let mut potentially_abandoned_blocks: HashSet<(
+                Slot,
                 SignedBeaconBlockHash,
                 BeaconStateHash,
-                Slot,
             )> = HashSet::new();
 
-            for (block_hash_, signed_beacon_block) in
-                ParentRootBlockIterator::new(&*self.store, head_hash)
-            {
-                let block_hash: SignedBeaconBlockHash = block_hash_.into();
-
-                if signed_beacon_block.message.slot > new_finalized_slot {
+            for result in SlotBlockStateIterator::new(Arc::clone(&self.store), head_slot, head_hash.into())? {
+                let (slot, block_hash, state_hash) = result?;
+                if slot > new_finalized_slot {
                     // Tentatively schedule current block for deletion since it isn't know yet
                     // whether the head is valid or not.
-                    potentially_abandoned_blocks.insert((
-                        block_hash,
-                        signed_beacon_block.message.state_root.into(),
-                        signed_beacon_block.message.slot,
-                    ));
-                } else if signed_beacon_block.message.slot == new_finalized_slot
-                    && block_hash == new_finalized_block_hash
-                {
+                    potentially_abandoned_blocks.insert((slot, block_hash, state_hash));
+                } else if slot == new_finalized_slot && block_hash == new_finalized_block_hash {
                     // The current head includes the newly finalized epoch boundary block, so we're
                     // either on the canonical chain or on a legitimate candidate for the canonical
                     // chain.  Do not remove any blocks.
@@ -2000,24 +1991,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // canonical chain.  Therefore, we can safely get rid of this head and its
                     // blocks.
 
-                    potentially_abandoned_blocks.extend(
-                        ParentRootBlockIterator::new(&*self.store, block_hash.into())
-                            .take_while(|(block_hash, signed_beacon_block)| {
-                                signed_beacon_block.message.slot > old_finalized_slot
-                                    && !newly_finalized_blocks.contains(&block_hash)
-                            })
-                            .map(|(block_hash, signed_beacon_block)| {
-                                (
-                                    block_hash.into(),
-                                    signed_beacon_block.message.state_root.into(),
-                                    signed_beacon_block.message.slot,
-                                )
-                            }),
-                    );
+                    let blocks: Result<Vec<(Slot, SignedBeaconBlockHash, BeaconStateHash)>, beacon_state::Error> =
+                        SlotBlockStateIterator::new(Arc::clone(&self.store), slot, block_hash)?
+                            .take_while(|result|
+                                result.as_ref().map_or(false, |(slot, block_hash, _)| *slot > old_finalized_slot && !newly_finalized_blocks.contains(&block_hash))
+                            ).collect();
+                    potentially_abandoned_blocks.extend(blocks?);
 
                     // XXX Should be performed atomically, see
                     // https://github.com/sigp/lighthouse/issues/692
-                    for (block_hash, state_hash, slot) in potentially_abandoned_blocks.into_iter() {
+                    for (slot, block_hash, state_hash) in potentially_abandoned_blocks.into_iter() {
                         self.store.delete_block(&block_hash.into())?;
                         self.store.delete_state(&state_hash.into(), slot)?;
                     }
