@@ -93,19 +93,6 @@ fn all_benches(c: &mut Criterion) {
     let inner_state = state.clone();
     c.bench(
         &format!("{}_validators", validator_count),
-        Benchmark::new("clone_without_caches/beacon_state", move |b| {
-            b.iter_batched_ref(
-                || inner_state.clone(),
-                |state| black_box(state.clone_without_caches()),
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(10),
-    );
-
-    let inner_state = state.clone();
-    c.bench(
-        &format!("{}_validators", validator_count),
         Benchmark::new("clone/tree_hash_cache", move |b| {
             b.iter_batched_ref(
                 || inner_state.clone(),
