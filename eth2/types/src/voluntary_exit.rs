@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, SecretKey, Signature, SignedRoot,
-    SignedVoluntaryExit,
+    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, Hash256, SecretKey, Signature,
+    SignedRoot, SignedVoluntaryExit,
 };
 
 use serde_derive::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 
 /// An exit voluntarily submitted a validator who wishes to withdraw.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct VoluntaryExit {
     /// Earliest epoch when voluntary exit can be processed.
@@ -25,9 +25,15 @@ impl VoluntaryExit {
         self,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedVoluntaryExit {
-        let domain = spec.get_domain(self.epoch, Domain::VoluntaryExit, fork);
+        let domain = spec.get_domain(
+            self.epoch,
+            Domain::VoluntaryExit,
+            fork,
+            genesis_validators_root,
+        );
         let message = self.signing_root(domain);
         let signature = Signature::new(message.as_bytes(), &secret_key);
         SignedVoluntaryExit {

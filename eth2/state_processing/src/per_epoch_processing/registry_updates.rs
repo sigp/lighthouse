@@ -5,7 +5,7 @@ use types::*;
 
 /// Performs a validator registry update, if required.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_registry_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,

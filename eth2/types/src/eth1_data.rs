@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// Contains data obtained from the Eth1 chain.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(
     Debug,
     PartialEq,

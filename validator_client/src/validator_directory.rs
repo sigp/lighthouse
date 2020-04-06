@@ -1,5 +1,5 @@
 use bls::get_withdrawal_credentials;
-use deposit_contract::eth1_tx_data;
+use deposit_contract::encode_eth1_tx_data;
 use hex;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -275,7 +275,7 @@ impl ValidatorDirectoryBuilder {
 
             deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
 
-            eth1_tx_data(&deposit_data)
+            encode_eth1_tx_data(&deposit_data)
                 .map_err(|e| format!("Unable to encode eth1 deposit tx data: {:?}", e))?
         };
 

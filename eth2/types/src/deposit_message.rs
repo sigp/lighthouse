@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct DepositMessage {
     pub pubkey: PublicKeyBytes,

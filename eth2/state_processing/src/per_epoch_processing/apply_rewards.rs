@@ -33,7 +33,7 @@ impl std::ops::AddAssign for Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -67,7 +67,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
 /// For each attesting validator, reward the proposer who was first to include their attestation.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -83,7 +83,7 @@ fn get_proposer_deltas<T: EthSpec>(
             let base_reward = get_base_reward(
                 state,
                 index,
-                validator_statuses.total_balances.current_epoch,
+                validator_statuses.total_balances.current_epoch(),
                 spec,
             )?;
 
@@ -100,7 +100,7 @@ fn get_proposer_deltas<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn get_attestation_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -113,7 +113,7 @@ fn get_attestation_deltas<T: EthSpec>(
         let base_reward = get_base_reward(
             state,
             index,
-            validator_statuses.total_balances.current_epoch,
+            validator_statuses.total_balances.current_epoch(),
             spec,
         )?;
 
@@ -133,7 +133,7 @@ fn get_attestation_deltas<T: EthSpec>(
 
 /// Determine the delta for a single validator, sans proposer rewards.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn get_attestation_delta<T: EthSpec>(
     validator: &ValidatorStatus,
     total_balances: &TotalBalances,
@@ -152,16 +152,24 @@ fn get_attestation_delta<T: EthSpec>(
         return delta;
     }
 
-    let total_balance = total_balances.current_epoch;
-    let total_attesting_balance = total_balances.previous_epoch_attesters;
-    let matching_target_balance = total_balances.previous_epoch_target_attesters;
-    let matching_head_balance = total_balances.previous_epoch_head_attesters;
+    // Handle integer overflow by dividing these quantities by EFFECTIVE_BALANCE_INCREMENT
+    // Spec:
+    // - increment = EFFECTIVE_BALANCE_INCREMENT
+    // - reward_numerator = get_base_reward(state, index) * (attesting_balance // increment)
+    // - rewards[index] = reward_numerator // (total_balance // increment)
+    let total_balance_ebi = total_balances.current_epoch() / spec.effective_balance_increment;
+    let total_attesting_balance_ebi =
+        total_balances.previous_epoch_attesters() / spec.effective_balance_increment;
+    let matching_target_balance_ebi =
+        total_balances.previous_epoch_target_attesters() / spec.effective_balance_increment;
+    let matching_head_balance_ebi =
+        total_balances.previous_epoch_head_attesters() / spec.effective_balance_increment;
 
     // Expected FFG source.
     // Spec:
     // - validator index in `get_unslashed_attesting_indices(state, matching_source_attestations)`
     if validator.is_previous_epoch_attester && !validator.is_slashed {
-        delta.reward(base_reward * total_attesting_balance / total_balance);
+        delta.reward(base_reward * total_attesting_balance_ebi / total_balance_ebi);
         // Inclusion speed bonus
         let proposer_reward = base_reward / spec.proposer_reward_quotient;
         let max_attester_reward = base_reward - proposer_reward;
@@ -177,7 +185,7 @@ fn get_attestation_delta<T: EthSpec>(
     // Spec:
     // - validator index in `get_unslashed_attesting_indices(state, matching_target_attestations)`
     if validator.is_previous_epoch_target_attester && !validator.is_slashed {
-        delta.reward(base_reward * matching_target_balance / total_balance);
+        delta.reward(base_reward * matching_target_balance_ebi / total_balance_ebi);
     } else {
         delta.penalize(base_reward);
     }
@@ -186,7 +194,7 @@ fn get_attestation_delta<T: EthSpec>(
     // Spec:
     // - validator index in `get_unslashed_attesting_indices(state, matching_head_attestations)`
     if validator.is_previous_epoch_head_attester && !validator.is_slashed {
-        delta.reward(base_reward * matching_head_balance / total_balance);
+        delta.reward(base_reward * matching_head_balance_ebi / total_balance_ebi);
     } else {
         delta.penalize(base_reward);
     }
