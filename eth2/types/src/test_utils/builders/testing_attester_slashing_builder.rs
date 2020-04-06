@@ -22,6 +22,7 @@ impl TestingAttesterSlashingBuilder {
         validator_indices: &[u64],
         signer: F,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> AttesterSlashing<T>
     where
@@ -83,8 +84,12 @@ impl TestingAttesterSlashingBuilder {
         };
 
         let add_signatures = |attestation: &mut IndexedAttestation<T>| {
-            let domain =
-                spec.get_domain(attestation.data.target.epoch, Domain::BeaconAttester, fork);
+            let domain = spec.get_domain(
+                attestation.data.target.epoch,
+                Domain::BeaconAttester,
+                fork,
+                genesis_validators_root,
+            );
             let message = attestation.data.signing_root(domain);
 
             for validator_index in validator_indices {

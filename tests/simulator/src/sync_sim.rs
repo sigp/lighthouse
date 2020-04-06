@@ -94,8 +94,10 @@ pub fn verify_two_nodes_sync<E: EthSpec>(
         // Add beacon nodes
         network
             .add_beacon_node(beacon_config.clone())
-            .join(network.add_beacon_node(beacon_config.clone()))
-            .map(|_| network)
+            .map(|_| (network, beacon_config))
+            .and_then(|(network, beacon_config)| {
+                network.add_beacon_node(beacon_config).map(|_| network)
+            })
     })
     .and_then(move |network| {
         // Delay for `sync_delay` epochs before verifying synced state.
@@ -128,8 +130,10 @@ pub fn verify_in_between_sync<E: EthSpec>(
         // Add a beacon node
         network
             .add_beacon_node(beacon_config.clone())
-            .join(network.add_beacon_node(beacon_config.clone()))
-            .map(|_| network)
+            .map(|_| (network, beacon_config))
+            .and_then(|(network, beacon_config)| {
+                network.add_beacon_node(beacon_config).map(|_| network)
+            })
     })
     .and_then(move |network| {
         // Delay before adding additional syncing nodes.

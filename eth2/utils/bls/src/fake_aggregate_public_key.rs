@@ -22,6 +22,13 @@ impl FakeAggregatePublicKey {
         Self::zero()
     }
 
+    pub fn empty_signature() -> Self {
+        Self {
+            bytes: vec![0; BLS_PUBLIC_KEY_BYTE_SIZE],
+            point: G1Point::new(),
+        }
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         if bytes.len() != BLS_PUBLIC_KEY_BYTE_SIZE {
             Err(DecodeError::InvalidByteLength {

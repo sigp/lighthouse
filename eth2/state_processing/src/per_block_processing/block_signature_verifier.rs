@@ -53,7 +53,7 @@ where
     F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
 {
     block: &'a SignedBeaconBlock<T>,
-    get_pubkey: Box<F>,
+    get_pubkey: F,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
     sets: Vec<SignatureSet>,
@@ -74,7 +74,7 @@ where
     ) -> Self {
         Self {
             block,
-            get_pubkey: Box::new(get_pubkey),
+            get_pubkey,
             state,
             spec,
             sets: vec![],

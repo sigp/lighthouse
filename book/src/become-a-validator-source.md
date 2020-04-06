@@ -1,103 +1,106 @@
-# Become an Validator: Building from Source
+# Become a Validator: Building from Source
+
+## 0. Install Rust
+If you don't have Rust installed already, visit [rustup.rs](https://rustup.rs/) to install it.
+
+> Note:  if you're not familiar with Rust or you'd like more detailed instructions, see our  [installation guide](./installation.md).
+
 
 ## 1. Download and install Lighthouse
 
-If you already have Rust installed, you can install Lighthouse with the
-following commands (don't forget to use the `testnet5` branch):
+Once you have Rust installed, you can install Lighthouse with the following commands (don't forget to use the `testnet5` branch):
 
-- `$ git clone https://github.com/sigp/lighthouse.git`
-- `$ git checkout testnet5`
-- `$ cd lighthouse`
-- `$ make`
+1.  `git clone https://github.com/sigp/lighthouse.git`
+2.  `cd lighthouse`
+3.  `git checkout testnet5`
+4.  `make`
+
+You may need to open a new terminal window before running `make`.
 
 You've completed this step when you can run `$ lighthouse --help` and see the
 help menu.
 
-> - If you're not familiar with Rust or you'd like more detailed instructions,
->   see the [Installation Guide](./installation.md) which contains a
->   [Troubleshooting](installation.html#troubleshooting) section.
 
 ## 2. Start an Eth1 client
 
-As Eth2 relies upon the Eth1 chain for validator on-boarding and eventually
-Eth1 may use the Eth2 chain as a finality gadget, all Eth2 validators must have
-a connection to an Eth1 node.
+Since Eth2 relies upon the Eth1 chain for validator on-boarding, all Eth2 validators must have a connection to an Eth1 node.
 
-We provide instructions for using Geth (this is, by chance, what we ended up
-testing with), but you could use any client that implements the JSON RPC via
-HTTP. At least for Geth, a fast-synced node is sufficient.
+We provide instructions for using Geth (the Eth1 client that, by chance, we ended up testing with), but you could use any client that implements the JSON RPC via HTTP. A fast-synced node should be sufficient.
+
+### Installing Geth 
+If you're using a Mac, follow the instructions [listed here](https://github.com/ethereum/go-ethereum/wiki/Installation-Instructions-for-Mac) to install geth. Otherwise [see here](https://github.com/ethereum/go-ethereum/wiki/Installing-Geth).
 
 ### Starting Geth
 
-[Install geth](https://github.com/ethereum/go-ethereum/wiki/Installing-Geth)
-and then use this command (or equivalent) to start your Eth1 node:
+Once you have geth installed, use this command to start your Eth1 node:
 
 ```bash
-$ geth --goerli --rpc
+ geth --goerli --rpc
 ```
 
-## 3. Start your Beacon Node
+## 3. Start your beacon node
 
 The beacon node is the core component of Eth2, it connects to other peers over
-the Internet and maintains a view of the chain.
+the internet and maintains a view of the chain.
 
 Start your beacon node with:
 
 ```bash
-$ lighthouse beacon --eth1 --http
+ lighthouse beacon --eth1 --http
 ```
+
+>Note:  the `--http` flag enables the HTTP API for the validator client. And the `--eth1` flag tells the beacon node that it should sync with an Ethereum1 node (e.g. Geth). These flags are only required if you wish to run a validator.
+
 
 Your beacon node has started syncing when you see the following (truncated)
 log:
 
 ```
-Dec 09 12:57:18.026 INFO Syncing                                 est_time: 2 hrs ...
+Dec 09 12:57:18.026 INFO Syncing
+est_time: 2 hrs ...
 ```
 
 The `distance` value reports the time since eth2 genesis, whilst the `est_time`
 reports an estimate of how long it will take your node to become synced.
 
-It has finished syncing once you see the following (truncated) log:
+You'll know it's finished syncing once you see the following (truncated) log:
 
 ```
-Dec 09 12:27:06.010 INFO Synced                                  slot: 16835, ...
+Dec 09 12:27:06.010 INFO Synced
+slot: 16835, ...
 ```
 
-> - The `--http` flag enables the HTTP API for the validator client.
-> - The `--eth1` flag tells the beacon node that it should sync with an Ethereum
->   1 node (e.g., Geth). This is only required if you wish to run a validator.
 
 ## 4. Generate your validator key
 
 Generate new validator BLS keypairs using:
 
-```shell
-$ lighthouse account validator new random
+```bash
+ lighthouse account validator new random
 ```
 
-Take note of the `voting_pubkey` of the new validator. This will be the primary
-identifier of the validator. This is how you can find your validator in block
-explorers.
+Take note of the `voting_pubkey` of the new validator:
 
-You've completed this step when you see the equivalent line:
+```
+INFO Saved new validator to disk 
+voting_pubkey: 0xa1625249d80...
+```
+
+It's the validator's primary identifier, and will be used to find your validator in block explorers.
+
+You've completed this step when you see something like the following line:
 
 ```
 Dec 02 21:42:01.337 INFO Generated validator directories         count: 1, base_path: "/home/karl/.lighthouse/validators"
 ```
 
-> - This will generate a new _validator directory_ in the `.lighthouse/validators`
->   directory. Your validator directory will be identified by it's public key,
->   which looks something like `0xc483de...`. You'll need to find this directory
->   for the next step.
-> - These keys are good enough for the Lighthouse testnet, however they shouldn't
->   be considered secure until we've undergone a security audit (planned Jan
->   2020).
+This means you've successfully generated a new sub-directory for your validator in the `.lighthouse/validators` directory. The sub-directory is identified by your validator's public key (`voting_pubkey`). And is used to store your validator's deposit data, along with its voting and withdrawal keys.
+
+> Note: these keypairs are good enough for the Lighthouse testnet, however they shouldn't be considered secure until we've undergone a security audit (planned March/April).
 
 ## 5. Start your validator client
 
-For security reasons, the validator client runs separately to the beacon node.
-The validator client stores private keys and signs messages generated by the
-beacon node.
+Since the validator client stores private keys and signs messages generated by the beacon node, for security reasons it runs separately from it.
 
 You'll need both your beacon node _and_ validator client running if you want to
 stake.
@@ -105,32 +108,45 @@ stake.
 Start the validator client with:
 
 ```bash
-$ lighthouse validator
+ lighthouse validator
 ```
 
-The validator client is running and has found your validator keys from step 3
-when you see the following log:
+You know that your validator client is running and has found your validator keys from [step 3](become-a-validator-source.html#3-start-your-beacon-node) when you see the following logs:
 
 ```
 Dec 09 13:08:59.171 INFO Loaded validator keypair store          voting_validators: 1
 Dec 09 13:09:09.000 INFO Awaiting activation                     slot: 17787, ...
 ```
 
+
+To find an estimate for how long your beacon node will take to finish syncing, lookout for the following logs: 
+
+```bash
+beacon_node_1       | Mar 16 11:33:53.979 INFO Syncing
+est_time: 47 mins, speed: 16.67 slots/sec, distance: 47296 slots (7 days 14 hrs), peers: 3, service: slot_notifier
+```
+
+You'll find the estimated time under `est_time`. In the example log above, that's `47 mins`.
+
 If your beacon node hasn't finished syncing yet, you'll see some `ERRO`
-messages indicating that your node isn't synced yet. It is safest to wait for
-your node to sync before moving onto the next step, otherwise your validator
-may activate before you're able to produce blocks and attestations. However, it
-generally takes 4-8+ hours after deposit for a validator to become active. If
-your `est_time` is less than 4 hours, you _should_ be fine to just move to the
-next step. After all, this is a testnet and you're only risking Goerli ETH.
+messages indicating that your node hasn't synced yet:
+
+```bash
+validator_client_1  | Mar 16 11:34:36.086 ERRO Beacon node is not synced               current_epoch: 6999, node_head_epoch: 5531, service: duties
+```
+
+It's safest to wait for your node to sync before moving on to the next step, otherwise your validator may activate before you're able to produce blocks and attestations (and you may be penalized as a result).
+
+However, since it generally takes somewhere between [4 and 8 hours](./faq.md) after depositing for a validator to become active, if your `est_time` is less than 4 hours, you _should_ be fine to just move on to the next step. After all, this is a testnet and you're only risking Goerli ETH!
 
 ## Installation complete!
 
-In the next step you'll need to locate your `eth1_deposit_data.rlp` file from
-your `.lighthouse/validators` directory.
+In the [next step](become-a-validator.html#2-submit-your-deposit-to-goerli) you'll need to upload your validator's deposit data. This data is stored in a file called `eth1_deposit_data.rlp`. 
 
-The `./lighthouse` directory is in your `$HOME` directory. For example, if
-you're in Linux and your user is `karlm`, you can find your validator directory
-in `/home/karlm/.lighthouse/validators/`.
+You'll find it in `/home/.lighthouse/validators` -- in the sub-directory that corresponds to your validator's public key (`voting_pubkey`).
 
-You can now go to [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).
+> For example, if your username is `karlm`, and your validator's public key (aka `voting_pubkey`) is `0x8592c7..`, then you'll find your `eth1_deposit_data.rlp` file in the following directory:
+>
+>`/home/karlm/.lighthouse/validators/0x8592c7../`
+
+Once you've located your `eth1_deposit_data.rlp` file, you're ready to move on to [Become a Validator: Step 2](become-a-validator.html#2-submit-your-deposit-to-goerli).

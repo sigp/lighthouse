@@ -38,7 +38,6 @@ pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
 pub use state_batch::StateBatch;
-pub use types::beacon_state::CloneConfig;
 pub use types::*;
 
 /// An object capable of storing and retrieving objects implementing `StoreItem`.
@@ -97,7 +96,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: BeaconState<E>) -> Result<(), Error>;
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
     /// Store a state summary in the store.
     // NOTE: this is a hack for the HotColdDb, we could consider splitting this
@@ -122,7 +121,6 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
-        _clone_config: CloneConfig,
     ) -> Result<Option<BeaconState<E>>, Error> {
         // Default impl ignores config. Overriden in `HotColdDb`.
         self.get_state(state_root, slot)

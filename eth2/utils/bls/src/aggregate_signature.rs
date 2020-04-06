@@ -29,13 +29,19 @@ impl AggregateSignature {
 
     /// Add (aggregate) a signature to the `AggregateSignature`.
     pub fn add(&mut self, signature: &Signature) {
-        if !self.is_empty {
-            self.aggregate_signature.add(signature.as_raw())
-        }
+        // Only empty if both are empty
+        self.is_empty = self.is_empty && signature.is_empty();
+
+        // Note: empty signatures will have point at infinity which is equivalent of adding 0.
+        self.aggregate_signature.add(signature.as_raw())
     }
 
     /// Add (aggregate) another `AggregateSignature`.
     pub fn add_aggregate(&mut self, agg_signature: &AggregateSignature) {
+        // Only empty if both are empty
+        self.is_empty = self.is_empty && agg_signature.is_empty();
+
+        // Note: empty signatures will have point at infinity which is equivalent of adding 0.
         self.aggregate_signature
             .add_aggregate(&agg_signature.aggregate_signature)
     }

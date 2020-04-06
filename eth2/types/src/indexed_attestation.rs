@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
@@ -21,14 +21,14 @@ pub struct IndexedAttestation<T: EthSpec> {
 impl<T: EthSpec> IndexedAttestation<T> {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn is_double_vote(&self, other: &Self) -> bool {
         self.data.target.epoch == other.data.target.epoch && self.data != other.data
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn is_surround_vote(&self, other: &Self) -> bool {
         self.data.source.epoch < other.data.source.epoch
             && other.data.target.epoch < self.data.target.epoch

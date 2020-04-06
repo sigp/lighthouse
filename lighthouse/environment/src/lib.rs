@@ -7,7 +7,9 @@
 //! `Context` which can be handed to any service that wishes to start async tasks or perform
 //! logging.
 
-use eth2_config::Eth2Config;
+use clap::ArgMatches;
+use eth2_config::{read_from_file, Eth2Config};
+use eth2_testnet_config::Eth2TestnetConfig;
 use futures::{sync::oneshot, Future};
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -18,6 +20,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+
+pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
@@ -132,6 +136,73 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
         self.log = Some(Logger::root(drain.fuse(), o!()));
         Ok(self)
+    }
+
+    /// Setups eth2 config using the CLI arguments.
+    pub fn setup_eth2_config(
+        mut self,
+        datadir: PathBuf,
+        eth2_testnet_config: Eth2TestnetConfig<E>,
+        cli_args: &ArgMatches,
+    ) -> Result<Self, String> {
+        self.load_eth2_config(&datadir)?;
+
+        match cli_args.subcommand() {
+            ("testnet", Some(sub_cli_args)) => {
+                // Modify the `SECONDS_PER_SLOT` "constant".
+                if let Some(slot_time) = sub_cli_args.value_of("slot-time") {
+                    let slot_time = slot_time
+                        .parse::<u64>()
+                        .map_err(|e| format!("Unable to parse slot-time: {:?}", e))?;
+
+                    self.eth2_config.spec.milliseconds_per_slot = slot_time;
+                }
+            }
+            _ => {
+                if !datadir.exists() {
+                    // Create a new chain spec from the default configuration.
+                    self.eth2_config.spec = eth2_testnet_config
+                        .yaml_config
+                        .as_ref()
+                        .ok_or_else(|| {
+                            "The testnet directory must contain a spec config".to_string()
+                        })?
+                        .apply_to_chain_spec::<E>(&self.eth2_config.spec)
+                        .ok_or_else(|| {
+                            format!(
+                                "The loaded config is not compatible with the {} spec",
+                                &self.eth2_config.spec_constants
+                            )
+                        })?;
+                }
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Loads the eth2 config if the file exists.
+    fn load_eth2_config(&mut self, datadir: &PathBuf) -> Result<(), String> {
+        let filename = datadir.join(ETH2_CONFIG_FILENAME);
+        if filename.exists() {
+            let loaded_eth2_config: Eth2Config = read_from_file(filename.clone())
+                .map_err(|e| format!("Unable to parse {:?} file: {:?}", filename, e))?
+                .ok_or_else(|| format!("{:?} file does not exist", filename))?;
+
+            // The loaded spec must be using the same spec constants (e.g., minimal, mainnet) as the
+            // client expects.
+            if loaded_eth2_config.spec_constants == self.eth2_config.spec_constants {
+                self.eth2_config = loaded_eth2_config;
+            } else {
+                return Err(format!(
+                    "Eth2 config loaded from disk does not match client spec version. Got {} \
+                         expected {}",
+                    &loaded_eth2_config.spec_constants, &self.eth2_config.spec_constants
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// Consumes the builder, returning an `Environment`.
