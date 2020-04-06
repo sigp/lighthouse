@@ -3,7 +3,7 @@ pub(crate) mod enr;
 
 use crate::metrics;
 use crate::rpc::MetaData;
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, PeerInfo};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals};
 use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
@@ -235,20 +235,12 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     // This currently checks for currently connected peers and if we don't have
     // PEERS_WANTED_BEFORE_DISCOVERY connected to a given subnet we search for more.
     pub fn peers_request(&mut self, subnet_id: SubnetId) {
-        // TODO: Add PeerManager struct to do this loop for us
-
         let peers_on_subnet = self
             .network_globals
-            .connected_peer_set
+            .peers
             .read()
-            .values()
-            .fold(0, |found_peers, peer_info| {
-                if peer_info.on_subnet(subnet_id) {
-                    found_peers + 1
-                } else {
-                    found_peers
-                }
-            });
+            .peers_on_subnet(subnet_id)
+            .count() as u64;
 
         if peers_on_subnet < TARGET_SUBNET_PEERS {
             let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
@@ -347,9 +339,22 @@ where
         self.discovery.addresses_of_peer(peer_id)
     }
 
-    fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
+    fn inject_connected(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
+        // TODO: Replace with PeerManager
         // Find ENR info about a peer if possible.
-        let mut peer_info = PeerInfo::new();
+
+        match endpoint {
+            ConnectedPoint::Dialer { .. } => {
+                self.network_globals
+                    .peers
+                    .write()
+                    .connect_outgoing(&peer_id);
+            }
+            ConnectedPoint::Listener { .. } => {
+                self.network_globals.peers.write().connect_ingoing(&peer_id);
+            }
+        }
+
         if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
             let bitfield = match enr.bitfield::<TSpec>() {
                 Ok(v) => v,
@@ -366,13 +371,12 @@ where
                 seq_number: 0,
                 attnets: bitfield,
             };
-            peer_info.meta_data = Some(meta_data);
+            self.network_globals
+                .peers
+                .write()
+                .add_metadata(&peer_id, meta_data);
         }
 
-        self.network_globals
-            .connected_peer_set
-            .write()
-            .insert(peer_id, peer_info);
         // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -383,10 +387,7 @@ where
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
-        self.network_globals
-            .connected_peer_set
-            .write()
-            .remove(peer_id);
+        self.network_globals.peers.write().disconnect(peer_id);
 
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
         metrics::set_gauge(
@@ -491,9 +492,9 @@ where
                                 if self.network_globals.connected_peers() < self.max_peers
                                     && self
                                         .network_globals
-                                        .connected_peer_set
+                                        .peers
                                         .read()
-                                        .get(&peer_id)
+                                        .peer_info(&peer_id)
                                         .is_none()
                                     && !self.banned_peers.contains(&peer_id)
                                 {

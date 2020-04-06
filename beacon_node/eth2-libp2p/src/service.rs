@@ -78,6 +78,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             enr.clone(),
             config.libp2p_port,
             config.discovery_port,
+            &log,
         ));
 
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", enr.peer_id()));

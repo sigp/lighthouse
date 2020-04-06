@@ -14,11 +14,11 @@ pub mod rpc;
 mod service;
 pub mod types;
 
-pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PeerInfo, PubsubMessage};
+pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage};
 pub use config::Config as NetworkConfig;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use libp2p::{PeerId, Swarm};
-pub use peer_manager::PeerManager;
+pub use peer_manager::{PeerDB, PeerInfo};
 pub use rpc::RPCEvent;
 pub use service::{Libp2pEvent, Service};

@@ -1,201 +1,54 @@
+use super::peer_info::{PeerConnectionStatus, PeerInfo};
+use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use slog::warn;
 use std::collections::HashMap;
-use std::time::Instant;
-use PeerConnectionStatus::*;
+use types::{EthSpec, SubnetId};
 
-/// A peer's reputation
+/// A peer's reputation.
 pub type Rep = i32;
 
+/// Max number of disconnected nodes to remember
+const MAX_DC_PEERS: usize = 30;
 /// The default starting reputation for an unknown peer.
-const DEFAULT_REPUTATION: Rep = 50;
+pub const DEFAULT_REPUTATION: Rep = 50;
 
 /// Storage of known peers, their reputation and information
-pub struct PeerDB {
+pub struct PeerDB<TSpec: EthSpec> {
     /// The collection of known connected peers, their status and reputation
-    peers: HashMap<PeerId, PeerInfo>,
+    peers: HashMap<PeerId, PeerInfo<TSpec>>,
     /// Tracking of number of disconnected nodes
     n_dc: usize,
-    /// Max number of disconnected nodes to remember
-    max_dc_peers: usize,
     /// PeerDB's logger
     log: slog::Logger,
 }
 
-/// A collection of information about a peer
-#[derive(Debug)]
-pub struct PeerInfo {
-    /// The connection status of the peer
-    _status: PeerStatus,
-    /// The peers reputation
-    reputation: Rep,
-    /// Client managing this peer
-    _client: Option<Client>,
-    /// Connection status of this peer
-    connection_status: PeerConnectionStatus,
-}
-
-/// Connection Status of the peer
-#[derive(Debug, Clone)]
-pub enum PeerConnectionStatus {
-    Connected {
-        /// number of ingoing connections
-        n_in: u8,
-        /// number of outgoing connections
-        n_out: u8,
-    },
-    Disconnected {
-        /// last time the peer was connected or discovered
-        since: Instant,
-    },
-    Banned {
-        /// moment when the peer was banned
-        since: Instant,
-    },
-    Unknown {
-        /// time since we know of this peer
-        since: Instant,
-    },
-}
-
-/// Representation of the client managing a peer
-#[derive(Debug)]
-pub struct Client {
-    /// The client's name (Ex: lighthouse, prism, nimbus, etc)
-    _client_name: String,
-    /// The client's version
-    _version: u8,
-}
-
-#[derive(Debug)]
-pub enum PeerStatus {
-    /// The peer is healthy
-    Healthy,
-    /// The peer is clogged. It has not been responding to requests on time
-    Clogged,
-}
-
-impl Default for PeerConnectionStatus {
-    fn default() -> Self {
-        Unknown {
-            since: Instant::now(),
-        }
-    }
-}
-
-impl PeerConnectionStatus {
-    /// Checks if the status is connected
-    pub fn is_connected(&self) -> bool {
-        match self {
-            Connected { .. } => true,
-            _ => false,
-        }
-    }
-
-    /// Checks if the status is banned
-    pub fn is_banned(&self) -> bool {
-        match self {
-            Banned { .. } => true,
-            _ => false,
-        }
-    }
-
-    /// Checks if the status is disconnected
-    pub fn is_disconnected(&self) -> bool {
-        match self {
-            Disconnected { .. } => true,
-            _ => false,
-        }
-    }
-
-    /// Modifies the status to Connected and increases the number of ingoing
-    /// connections by one
-    pub fn connect_ingoing(&mut self) {
-        match self {
-            Connected { n_in, .. } => *n_in += 1,
-            Disconnected { .. } | Banned { .. } | Unknown { .. } => {
-                *self = Connected { n_in: 1, n_out: 0 }
-            }
-        }
-    }
-
-    /// Modifies the status to Connected and increases the number of outgoing
-    /// connections by one
-    pub fn connect_outgoing(&mut self) {
-        match self {
-            Connected { n_out, .. } => *n_out += 1,
-            Disconnected { .. } | Banned { .. } | Unknown { .. } => {
-                *self = Connected { n_in: 0, n_out: 1 }
-            }
-        }
-    }
-
-    /// Modifies the status to Disconnected and sets the last seen instant to now
-    pub fn disconnect(&mut self) {
-        *self = Disconnected {
-            since: Instant::now(),
-        };
-    }
-
-    /// Modifies the status to Banned
-    pub fn ban(&mut self) {
-        *self = Banned {
-            since: Instant::now(),
-        };
-    }
-
-    pub fn connections(&self) -> (u8, u8) {
-        match self {
-            Connected { n_in, n_out } => (*n_in, *n_out),
-            _ => (0, 0),
-        }
-    }
-}
-
-impl Default for PeerStatus {
-    fn default() -> Self {
-        PeerStatus::Healthy
-    }
-}
-
-impl Default for PeerInfo {
-    fn default() -> PeerInfo {
-        PeerInfo {
-            reputation: DEFAULT_REPUTATION,
-            _status: Default::default(),
-            _client: None,
-            connection_status: Default::default(),
-        }
-    }
-}
-
-impl PeerDB {
-    pub fn new(max_dc_peers: usize, log: &slog::Logger) -> Self {
+impl<TSpec: EthSpec> PeerDB<TSpec> {
+    pub fn new(log: &slog::Logger) -> Self {
         Self {
-            max_dc_peers,
             log: log.clone(),
             n_dc: 0,
             peers: HashMap::new(),
         }
     }
-    /// Gives the reputation of a peer, or DEFAULT_REPUTATION if it is unknown
+    /// Gives the reputation of a peer, or DEFAULT_REPUTATION if it is unknown.
     pub fn reputation(&self, peer_id: &PeerId) -> Rep {
         self.peers
             .get(peer_id)
             .map_or(DEFAULT_REPUTATION, |info| info.reputation)
     }
 
-    /// Gives the ids of all known peers
+    /// Gives the ids of all known peers.
     pub fn peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers.keys()
     }
 
-    /// Returns a peer's info, if known
-    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo> {
+    /// Returns a peer's info, if known.
+    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo<TSpec>> {
         self.peers.get(peer_id)
     }
 
-    /// Gives the ids of all known connected peers
+    /// Gives the ids of all known connected peers.
     pub fn connected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
@@ -203,7 +56,15 @@ impl PeerDB {
             .map(|(peer_id, _)| peer_id)
     }
 
-    /// Gives the ids of all known disconnected peers
+    /// Gives an iterator of all peers on a given subnet.
+    pub fn peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(|(_, info)| info.connection_status.is_connected() && info.on_subnet(subnet_id))
+            .map(|(peer_id, _)| peer_id)
+    }
+
+    /// Gives the ids of all known disconnected peers.
     pub fn disconnected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
@@ -211,7 +72,7 @@ impl PeerDB {
             .map(|(peer_id, _)| peer_id)
     }
 
-    /// Gives the ids of all known banned peers
+    /// Gives the ids of all known banned peers.
     pub fn banned_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
@@ -221,7 +82,7 @@ impl PeerDB {
 
     /// Returns a vector containing peers (their ids and info), sorted by
     /// reputation from highest to lowest, and filtered using `is_status`
-    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo)>
+    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<TSpec>)>
     where
         F: Fn(&PeerConnectionStatus) -> bool,
     {
@@ -259,6 +120,15 @@ impl PeerDB {
         info.connection_status.connect_ingoing();
     }
 
+    /// Add the meta data of a peer.
+    pub fn add_metadata(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
+        if let Some(peer_info) = self.peers.get_mut(peer_id) {
+            peer_info.meta_data = Some(meta_data);
+        } else {
+            warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => format!("{}", peer_id));
+        }
+    }
+
     /// Sets a peer as connected with an outgoing connection
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) {
         let info = self
@@ -292,7 +162,7 @@ impl PeerDB {
     /// disconnected peers is less than MAX_DC_PEERS
     pub fn shrink_to_fit(&mut self) {
         // for caution, but the difference should never be > 1
-        while self.n_dc > self.max_dc_peers {
+        while self.n_dc > MAX_DC_PEERS {
             let to_drop = self
                 .peers
                 .iter()
@@ -366,6 +236,8 @@ impl PeerDB {
 mod tests {
     use super::*;
     use slog::{o, Drain};
+    use types::MinimalEthSpec;
+    type M = MinimalEthSpec;
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -379,14 +251,14 @@ mod tests {
         }
     }
 
-    fn get_db(max_dc_peers: usize) -> PeerDB {
+    fn get_db() -> PeerDB<M> {
         let log = build_log(slog::Level::Debug, true);
-        PeerDB::new(max_dc_peers, &log)
+        PeerDB::new(&log)
     }
 
     #[test]
     fn test_peer_connected_successfully() {
-        let mut pdb: PeerDB = get_db(2);
+        let mut pdb = get_db();
         let random_peer = PeerId::random();
 
         let (n_in, n_out) = (10, 20);
@@ -415,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_set_reputation() {
-        let mut pdb: PeerDB = get_db(2);
+        let mut pdb = get_db();
         let random_peer = PeerId::random();
         pdb.connect_ingoing(&random_peer);
 
@@ -434,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_reputation_change() {
-        let mut pdb: PeerDB = get_db(2);
+        let mut pdb = get_db();
 
         // 0 change does not change de reputation
         let random_peer = PeerId::random();
@@ -453,24 +325,24 @@ mod tests {
 
     #[test]
     fn test_disconnected_are_bounded() {
-        let mut pdb = get_db(1);
+        let mut pdb = get_db();
 
-        let p0 = PeerId::random();
-        let p1 = PeerId::random();
-        pdb.connect_ingoing(&p0);
-        pdb.connect_ingoing(&p1);
+        for _ in 0..MAX_DC_PEERS + 1 {
+            let p = PeerId::random();
+            pdb.connect_ingoing(&p);
+        }
         assert_eq!(pdb.n_dc, 0);
 
-        pdb.disconnect(&p0);
-        assert_eq!(pdb.n_dc, 1);
+        for p in pdb.connected_peers() {
+            pdb.disconnect(&p);
+        }
 
-        pdb.disconnect(&p1);
-        assert_eq!(pdb.n_dc, 1);
+        assert_eq!(pdb.n_dc, MAX_DC_PEERS);
     }
 
     #[test]
     fn test_best_peers() {
-        let mut pdb = get_db(1);
+        let mut pdb = get_db();
 
         let p0 = PeerId::random();
         let p1 = PeerId::random();
@@ -493,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_the_best_peer() {
-        let mut pdb = get_db(1);
+        let mut pdb = get_db();
 
         let p0 = PeerId::random();
         let p1 = PeerId::random();
@@ -517,8 +389,7 @@ mod tests {
 
     #[test]
     fn test_disconnected_consistency() {
-        // remove the dc bound from the test
-        let mut pdb = get_db(usize::max_value());
+        let mut pdb = get_db();
 
         let random_peer = PeerId::random();
 
