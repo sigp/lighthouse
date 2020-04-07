@@ -218,7 +218,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregateAttestation<T> {
          */
         if chain
             .observed_attesters
-            .observe_attesting_validator(&attestation, validator_index as usize)
+            .observe_validator(&attestation, validator_index as usize)
             .map_err(|e| BeaconChainError::from(e))?
         {
             return Err(Error::PriorAttestationKnown {
