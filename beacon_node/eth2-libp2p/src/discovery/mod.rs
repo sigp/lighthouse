@@ -199,6 +199,8 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             .discovery
             .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
 
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discovery.local_enr().clone();
         Ok(())
     }
 
@@ -228,6 +230,9 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                     "error" => format!("{:?}", e)
                 )
             });
+
+        // replace the global version with discovery version
+        *self.network_globals.local_enr.write() = self.discovery.local_enr().clone();
     }
 
     /// A request to find peers on a given subnet.
@@ -340,7 +345,7 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
-        // TODO: Replace with PeerManager
+        // TODO: Replace with PeerManager with custom behvaviour
         // Find ENR info about a peer if possible.
 
         match endpoint {

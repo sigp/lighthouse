@@ -1193,6 +1193,7 @@ dependencies = [
  "eth2_ssz_types",
  "fnv",
  "futures",
+ "hashmap_delay",
  "hex 0.3.2",
  "lazy_static",
  "libp2p",

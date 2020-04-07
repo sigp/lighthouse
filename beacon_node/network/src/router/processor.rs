@@ -114,10 +114,11 @@ impl<T: BeaconChainTypes> Processor<T> {
         self.send_to_sync(SyncMessage::RPCError(peer_id, request_id));
     }
 
-    /// Handle the connection of a new peer.
-    ///
     /// Sends a `Status` message to the peer.
-    pub fn on_connect(&mut self, peer_id: PeerId) {
+    ///
+    /// Called when we first connect to a peer, or when the PeerManager determines we need to
+    /// re-status.
+    pub fn send_status(&mut self, peer_id: PeerId) {
         if let Some(status_message) = status_message(&self.chain) {
             debug!(
                 self.log,

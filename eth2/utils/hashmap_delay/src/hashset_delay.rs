@@ -57,14 +57,20 @@ where
         self.insert_at(key, self.default_entry_timeout);
     }
 
-    /// Inserts an entry that will expire at a given instant.
+    /// Inserts an entry that will expire at a given instant. If the entry already exists, the
+    /// timeout is updated.
     pub fn insert_at(&mut self, key: K, entry_duration: Duration) {
-        let delay_key = self.expirations.insert(key.clone(), entry_duration.clone());
-        let entry = MapEntry {
-            key: delay_key,
-            value: Instant::now() + entry_duration,
-        };
-        self.entries.insert(key, entry);
+        if self.contains(&key) {
+            // update the timeout
+            self.update_timeout(&key, entry_duration);
+        } else {
+            let delay_key = self.expirations.insert(key.clone(), entry_duration.clone());
+            let entry = MapEntry {
+                key: delay_key,
+                value: Instant::now() + entry_duration,
+            };
+            self.entries.insert(key, entry);
+        }
     }
 
     /// Gets a reference to an entry if it exists.

@@ -48,6 +48,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers.get(peer_id)
     }
 
+    /// Returns a mutable reference to a peer's info if known.
+    pub fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<TSpec>> {
+        self.peers.get_mut(peer_id)
+    }
+
     /// Gives the ids of all known connected peers.
     pub fn connected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers

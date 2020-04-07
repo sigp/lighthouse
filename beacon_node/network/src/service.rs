@@ -7,7 +7,7 @@ use crate::{
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{rpc::RPCRequest, Enr, Libp2pEvent, MessageId, NetworkGlobals, PeerId, Swarm};
+use eth2_libp2p::{rpc::RPCRequest, BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId, Swarm};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use futures::Stream;
@@ -280,7 +280,7 @@ fn spawn_service<T: BeaconChainTypes>(
         loop {
             match service.libp2p.poll() {
                 Ok(Async::Ready(Some(event))) => match event {
-                    Libp2pEvent::RPC(peer_id, rpc_event) => {
+                    BehaviourEvent::RPC(peer_id, rpc_event) => {
                         // if we received a Goodbye message, drop and ban the peer
                         if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
                             peers_to_ban.push(peer_id.clone());
@@ -289,19 +289,25 @@ fn spawn_service<T: BeaconChainTypes>(
                             .try_send(RouterMessage::RPC(peer_id, rpc_event))
                             .map_err(|_| { debug!(log, "Failed to send RPC to router");} )?;
                     }
-                    Libp2pEvent::PeerDialed(peer_id) => {
-                        debug!(log, "Peer Dialed"; "peer_id" => format!("{:?}", peer_id));
+                    BehaviourEvent::PeerDialed(peer_id) => {
+                        debug!(log, "Peer Dialed"; "peer_id" => format!("{}", peer_id));
                         service.router_send
                             .try_send(RouterMessage::PeerDialed(peer_id))
                             .map_err(|_| { debug!(log, "Failed to send peer dialed to router");})?;
                     }
-                    Libp2pEvent::PeerDisconnected(peer_id) => {
-                        debug!(log, "Peer Disconnected";  "peer_id" => format!("{:?}", peer_id));
+                    BehaviourEvent::PeerDisconnected(peer_id) => {
+                        debug!(log, "Peer Disconnected";  "peer_id" => format!("{}", peer_id));
                         service.router_send
                             .try_send(RouterMessage::PeerDisconnected(peer_id))
                             .map_err(|_| { debug!(log, "Failed to send peer disconnect to router");})?;
                     }
-                    Libp2pEvent::PubsubMessage {
+                    BehaviourEvent::StatusPeer(peer_id) => {
+                        debug!(log, "Re-status peer";  "peer_id" => format!("{}", peer_id));
+                        service.router_send
+                            .try_send(RouterMessage::StatusPeer(peer_id))
+                            .map_err(|_| { debug!(log, "Failed to send re-status  peer to router");})?;
+                    }
+                    BehaviourEvent::PubsubMessage {
                         id,
                         source,
                         message,
@@ -329,7 +335,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             }
                         }
                     }
-                    Libp2pEvent::PeerSubscribed(_, _) => {}
+                    BehaviourEvent::PeerSubscribed(_, _) => {}
                 },
                 Ok(Async::Ready(None)) => unreachable!("Stream never ends"),
                 Ok(Async::NotReady) => break,
