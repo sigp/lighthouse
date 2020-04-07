@@ -1968,7 +1968,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut abandoned_states: HashSet<BeaconStateHash> = HashSet::new();
         let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
 
-        for (head_hash, head_slot) in self.heads() {
+        for (head_hash, _head_slot) in self.heads() {
             let mut potentially_abandoned_head: Option<Hash256> = Some(head_hash);
             let mut potentially_abandoned_blocks: Vec<(
                 Slot,

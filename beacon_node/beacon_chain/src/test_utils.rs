@@ -1,7 +1,6 @@
 pub use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
 };
-pub use crate::checkpoint::CheckPoint;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{
     builder::{BeaconChainBuilder, Witness},

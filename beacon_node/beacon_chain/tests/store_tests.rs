@@ -3,8 +3,9 @@
 #[macro_use]
 extern crate lazy_static;
 
+use beacon_chain::BeaconSnapshot;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, CheckPoint, DiskHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::{AttestationProcessingOutcome, StateSkipConfig};
 use rand::Rng;
@@ -1387,7 +1388,7 @@ fn check_iterators(harness: &TestHarness) {
 }
 
 fn get_finalized_epoch_boundary_blocks(
-    dump: &[CheckPoint<MinimalEthSpec>],
+    dump: &[BeaconSnapshot<MinimalEthSpec>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
@@ -1395,7 +1396,7 @@ fn get_finalized_epoch_boundary_blocks(
         .collect()
 }
 
-fn get_blocks(dump: &[CheckPoint<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(dump: &[BeaconSnapshot<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
