@@ -1,11 +1,13 @@
 ///! This manages the discovery and management of peers.
-mod enr_helpers;
+pub(crate) mod enr;
+
+// Allow external use of the lighthouse ENR builder
+pub use enr::build_enr;
 
 use crate::metrics;
-use crate::types::EnrBitfield;
-use crate::Enr;
-use crate::{error, NetworkConfig, NetworkGlobals, PeerInfo};
-use enr_helpers::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
+use crate::rpc::MetaData;
+use crate::{error, Enr, NetworkConfig, NetworkGlobals};
+use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::discv5::enr::NodeId;
@@ -71,22 +73,17 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     pub fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
-        enr_fork_id: EnrForkId,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
 
-        // checks if current ENR matches that found on disk
-        let local_enr =
-            enr_helpers::build_or_load_enr::<TSpec>(local_key.clone(), config, enr_fork_id, &log)?;
-
-        *network_globals.local_enr.write() = Some(local_enr.clone());
-
         let enr_dir = match config.network_dir.to_str() {
             Some(path) => String::from(path),
             None => String::from(""),
         };
+
+        let local_enr = network_globals.local_enr.read().clone();
 
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> format!("{:?}", local_enr.udp()), "tcp" => format!("{:?}", local_enr.tcp()));
 
@@ -174,13 +171,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         let id = *subnet_id as usize;
 
         let local_enr = self.discovery.local_enr();
-        let bitfield_bytes = local_enr
-            .get(BITFIELD_ENR_KEY)
-            .ok_or_else(|| "ENR bitfield non-existent")?;
-
-        let mut current_bitfield =
-            BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
-                .map_err(|_| "Could not decode local ENR SSZ bitfield")?;
+        let mut current_bitfield = local_enr.bitfield::<TSpec>()?;
 
         if id >= current_bitfield.len() {
             return Err(format!(
@@ -211,6 +202,8 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             .discovery
             .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
 
+        // replace the global version
+        *self.network_globals.local_enr.write() = self.discovery.local_enr().clone();
         Ok(())
     }
 
@@ -240,6 +233,9 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                     "error" => format!("{:?}", e)
                 )
             });
+
+        // replace the global version with discovery version
+        *self.network_globals.local_enr.write() = self.discovery.local_enr().clone();
     }
 
     /// A request to find peers on a given subnet.
@@ -247,20 +243,12 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     // This currently checks for currently connected peers and if we don't have
     // PEERS_WANTED_BEFORE_DISCOVERY connected to a given subnet we search for more.
     pub fn peers_request(&mut self, subnet_id: SubnetId) {
-        // TODO: Add PeerManager struct to do this loop for us
-
         let peers_on_subnet = self
             .network_globals
-            .connected_peer_set
+            .peers
             .read()
-            .values()
-            .fold(0, |found_peers, peer_info| {
-                if peer_info.on_subnet(subnet_id) {
-                    found_peers + 1
-                } else {
-                    found_peers
-                }
-            });
+            .peers_on_subnet(&subnet_id)
+            .count() as u64;
 
         if peers_on_subnet < TARGET_SUBNET_PEERS {
             let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
@@ -325,26 +313,20 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         // pick a random NodeId
         let random_node = NodeId::random();
 
-        let enr_fork_id = self.enr_fork_id().to_vec();
+        let enr_fork_id = match self.local_enr().eth2() {
+            Ok(v) => v,
+            Err(e) => {
+                crit!(self.log, "Local ENR has no fork id"; "error" => e);
+                return;
+            }
+        };
         // predicate for finding nodes with a matching fork
-        let eth2_fork_predicate = move |enr: &Enr| enr.get(ETH2_ENR_KEY) == Some(&enr_fork_id);
+        let eth2_fork_predicate = move |enr: &Enr| enr.eth2() == Ok(enr_fork_id.clone());
         let predicate = move |enr: &Enr| eth2_fork_predicate(enr) && enr_predicate(enr);
 
         // general predicate
         self.discovery
             .find_enr_predicate(random_node, predicate, num_nodes);
-    }
-
-    /// Returns our current `eth2` field as SSZ bytes, associated with the local ENR. We only search for peers
-    /// that have this field.
-    fn enr_fork_id(&self) -> Vec<u8> {
-        self.local_enr()
-            .get(ETH2_ENR_KEY)
-            .map(|bytes| bytes.clone())
-            .unwrap_or_else(|| {
-                crit!(self.log, "Local ENR has no eth2 field");
-                Vec::new()
-            })
     }
 }
 
@@ -365,36 +347,44 @@ where
         self.discovery.addresses_of_peer(peer_id)
     }
 
-    fn inject_connected(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
+    fn inject_connected(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
+        // TODO: Replace with PeerManager with custom behvaviour
         // Find ENR info about a peer if possible.
-        let mut peer_info = PeerInfo::new();
+
+        match endpoint {
+            ConnectedPoint::Dialer { .. } => {
+                self.network_globals
+                    .peers
+                    .write()
+                    .connect_outgoing(&peer_id);
+            }
+            ConnectedPoint::Listener { .. } => {
+                self.network_globals.peers.write().connect_ingoing(&peer_id);
+            }
+        }
+
         if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
-            let bitfield = match enr.get(BITFIELD_ENR_KEY) {
-                Some(bitfield_bytes) => {
-                    match EnrBitfield::<TSpec>::from_ssz_bytes(bitfield_bytes) {
-                        Ok(bitfield) => bitfield,
-                        Err(e) => {
-                            warn!(self.log, "Peer had invalid ENR bitfield"; 
+            let bitfield = match enr.bitfield::<TSpec>() {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(self.log, "Peer has invalid ENR bitfield"; 
                             "peer_id" => format!("{}", peer_id),
                             "error" => format!("{:?}", e));
-                            return;
-                        }
-                    }
-                }
-                None => {
-                    warn!(self.log, "Peer has no ENR bitfield"; 
-                    "peer_id" => format!("{}", peer_id));
                     return;
                 }
             };
 
-            peer_info.enr_bitfield = Some(bitfield);
+            // use this as a baseline, until we get the actual meta-data
+            let meta_data = MetaData {
+                seq_number: 0,
+                attnets: bitfield,
+            };
+            self.network_globals
+                .peers
+                .write()
+                .add_metadata(&peer_id, meta_data);
         }
 
-        self.network_globals
-            .connected_peer_set
-            .write()
-            .insert(peer_id, peer_info);
         // TODO: Drop peers if over max_peer limit
 
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -405,10 +395,7 @@ where
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
-        self.network_globals
-            .connected_peer_set
-            .write()
-            .remove(peer_id);
+        self.network_globals.peers.write().disconnect(peer_id);
 
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
         metrics::set_gauge(
@@ -471,7 +458,7 @@ where
                             // peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
-                            if enr.get(ETH2_ENR_KEY) == Some(&self.enr_fork_id().to_vec()) {
+                            if enr.eth2() == self.local_enr().eth2() {
                                 trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             } else {
                                 // this is temporary warning for debugging the DHT
@@ -484,7 +471,7 @@ where
                             let mut address = Multiaddr::from(socket.ip());
                             address.push(Protocol::Tcp(self.tcp_port));
                             let enr = self.discovery.local_enr();
-                            enr_helpers::save_enr_to_disk(Path::new(&self.enr_dir), enr, &self.log);
+                            enr::save_enr_to_disk(Path::new(&self.enr_dir), enr, &self.log);
 
                             return Async::Ready(NetworkBehaviourAction::ReportObservedAddr {
                                 address,
@@ -513,9 +500,9 @@ where
                                 if self.network_globals.connected_peers() < self.max_peers
                                     && self
                                         .network_globals
-                                        .connected_peer_set
+                                        .peers
                                         .read()
-                                        .get(&peer_id)
+                                        .peer_info(&peer_id)
                                         .is_none()
                                     && !self.banned_peers.contains(&peer_id)
                                 {

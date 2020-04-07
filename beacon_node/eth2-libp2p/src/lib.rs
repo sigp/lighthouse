@@ -7,19 +7,19 @@ extern crate lazy_static;
 
 pub mod behaviour;
 mod config;
-mod discovery;
+pub mod discovery;
 mod metrics;
+mod peer_manager;
 pub mod rpc;
 mod service;
 pub mod types;
 
-// shift this type into discv5
-pub type Enr = libp2p::discv5::enr::Enr<libp2p::discv5::enr::CombinedKey>;
-
-pub use crate::types::{error, GossipTopic, NetworkGlobals, PeerInfo, PubsubMessage};
+pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage};
+pub use behaviour::BehaviourEvent;
 pub use config::Config as NetworkConfig;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use libp2p::{PeerId, Swarm};
+pub use peer_manager::{PeerDB, PeerInfo};
 pub use rpc::RPCEvent;
-pub use service::{Libp2pEvent, Service};
+pub use service::Service;

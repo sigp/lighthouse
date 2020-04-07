@@ -1,43 +1,56 @@
 //! A collection of variables that are accessible outside of the network thread itself.
-use crate::{Enr, GossipTopic, Multiaddr, PeerId, PeerInfo};
+use crate::peer_manager::PeerDB;
+use crate::rpc::methods::MetaData;
+use crate::{discovery::enr::Eth2Enr, Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU16, Ordering};
 use types::EthSpec;
 
 pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.
-    pub local_enr: RwLock<Option<Enr>>,
+    pub local_enr: RwLock<Enr>,
+    /// The current node's meta-data.
+    pub meta_data: RwLock<MetaData<TSpec>>,
     /// The local peer_id.
     pub peer_id: RwLock<PeerId>,
     /// Listening multiaddrs.
     pub listen_multiaddrs: RwLock<Vec<Multiaddr>>,
-    /// The tcp port that the libp2p service is listening on
+    /// The TCP port that the libp2p service is listening on
     pub listen_port_tcp: AtomicU16,
-    /// The udp port that the discovery service is listening on
+    /// The UDP port that the discovery service is listening on
     pub listen_port_udp: AtomicU16,
-    /// The collection of currently connected peers.
-    pub connected_peer_set: RwLock<HashMap<PeerId, PeerInfo<TSpec>>>,
+    /// The collection of known peers.
+    pub peers: RwLock<PeerDB<TSpec>>,
     /// The current gossipsub topic subscriptions.
     pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
-    pub fn new(peer_id: PeerId, tcp_port: u16, udp_port: u16) -> Self {
+    pub fn new(enr: Enr, tcp_port: u16, udp_port: u16, log: &slog::Logger) -> Self {
+        // set up the local meta data of the node
+        let meta_data = RwLock::new(MetaData {
+            seq_number: 0,
+            attnets: enr
+                .bitfield::<TSpec>()
+                .expect("Local ENR must have a bitfield specified"),
+        });
+
         NetworkGlobals {
-            local_enr: RwLock::new(None),
-            peer_id: RwLock::new(peer_id),
+            local_enr: RwLock::new(enr.clone()),
+            meta_data,
+            peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             listen_port_tcp: AtomicU16::new(tcp_port),
             listen_port_udp: AtomicU16::new(udp_port),
-            connected_peer_set: RwLock::new(HashMap::new()),
+            peers: RwLock::new(PeerDB::new(log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
         }
     }
 
     /// Returns the local ENR from the underlying Discv5 behaviour that external peers may connect
     /// to.
-    pub fn local_enr(&self) -> Option<Enr> {
+    pub fn local_enr(&self) -> Enr {
         self.local_enr.read().clone()
     }
 
@@ -63,6 +76,6 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
 
     /// Returns the number of libp2p connected peers.
     pub fn connected_peers(&self) -> usize {
-        self.connected_peer_set.read().len()
+        self.peers.read().connected_peers().count()
     }
 }
