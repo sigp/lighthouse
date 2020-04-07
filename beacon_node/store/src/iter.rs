@@ -281,12 +281,12 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
 
     pub fn from_block(
         store: Arc<S>,
-        slot: Slot,
         block_hash: SignedBeaconBlockHash,
     ) -> Result<Self, Error> {
         let block = store
             .get_block(&block_hash.into())?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?;
+        let slot = block.slot() - 1;
         let state_hash = block.state_root();
         let current_state = store
             .get_state(&state_hash.into(), Some(slot))?
@@ -321,22 +321,23 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
         Ok(result)
     }
 
-    fn next_item(&mut self) -> Result<Option<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash)>, Error> {
+    fn do_next(&mut self) -> Result<Option<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash)>, Error> {
         if self.slot == 0 {
             return Ok(None);
         }
 
         // Maintain the invariant of self.current_state and self.next_state always being set to
         // loaded BeaconState.
-        if self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1 {
+        if self.slot > E::SlotsPerHistoricalRoot::to_u64() && self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1 {
             self.current_state = self.next_state.take().expect("invariant violated: absent next state");
             self.next_state = Self::next_historical_root_backtrack_state(&*self.store, &self.current_state)?;
         }
 
         let (block_hash, state_hash) = self.current_state.get_block_state_roots(self.slot)?;
         let is_skipped_slot = self.is_skipped_slot(self.slot)?;
+        let slot = self.slot;
         self.slot -= 1;
-        Ok(Some((self.slot, is_skipped_slot, block_hash, state_hash)))
+        Ok(Some((slot, is_skipped_slot, block_hash, state_hash)))
     }
 }
 
@@ -344,7 +345,7 @@ impl<'a, E: EthSpec, S: Store<E>> Iterator for SlotBlockStateIterator<E, S> {
     type Item = Result<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_item().transpose()
+        self.do_next().transpose()
     }
 }
 

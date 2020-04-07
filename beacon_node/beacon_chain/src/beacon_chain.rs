@@ -1969,19 +1969,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
 
         for (head_hash, head_slot) in self.heads() {
+            let mut potentially_abandoned_head: Option<Hash256> = Some(head_hash);
             let mut potentially_abandoned_blocks: Vec<(
                 Slot,
                 Option<SignedBeaconBlockHash>,
                 BeaconStateHash,
             )> = Vec::new();
 
-            for result in SlotBlockStateIterator::from_block(Arc::clone(&self.store), head_slot, head_hash.into())? {
+            for result in SlotBlockStateIterator::from_block(Arc::clone(&self.store), head_hash.into())? {
                 let (slot, is_skipped_slot, block_hash, state_hash) = result?;
                 if slot <= old_finalized_slot {
 
-                    // We must assume here any candidate chains are built on top of
-                    // old_finalized_block_hash, i.e. there aren't any forks starting at a block
-                    // that is a strict ancestor of old_finalized_block_hash.
+                    // We must assume here any candidate chains include old_finalized_block_hash,
+                    // i.e. there aren't any forks starting at a block that is a strict ancestor of
+                    // old_finalized_block_hash.
 
                     break;
                 }
@@ -2001,6 +2002,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             // of slots order) the newly finalized block.  It's not a candidate for
                             // prunning (yet).
                             potentially_abandoned_blocks.clear();
+                            potentially_abandoned_head.take();
                             break;
                         }
                     }
@@ -2009,9 +2011,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 }
             }
+
             abandoned_blocks.extend(potentially_abandoned_blocks.iter().filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash));
             abandoned_states.extend(potentially_abandoned_blocks.iter().map(|(_, _, state_hash)| state_hash));
-            abandoned_heads.insert(head_hash);
+            abandoned_heads.extend(potentially_abandoned_head.into_iter());
             potentially_abandoned_blocks.clear();
         }
 
