@@ -1962,53 +1962,72 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map(|(block_hash, _)| block_hash.into()),
         );
 
+        // We don't know which blocks are shared among abandoned chains, so we buffer and delete
+        // everything in one fell swoop.
+        let mut abandoned_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
+        let mut abandoned_states: HashSet<BeaconStateHash> = HashSet::new();
+        let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
+
         for (head_hash, head_slot) in self.heads() {
-            let mut potentially_abandoned_blocks: HashSet<(
+            let mut potentially_abandoned_blocks: Vec<(
                 Slot,
-                SignedBeaconBlockHash,
+                Option<SignedBeaconBlockHash>,
                 BeaconStateHash,
-            )> = HashSet::new();
+            )> = Vec::new();
 
-            for result in SlotBlockStateIterator::new(Arc::clone(&self.store), head_slot, head_hash.into())? {
-                let (slot, block_hash, state_hash) = result?;
-                if slot > new_finalized_slot {
-                    // Tentatively schedule current block for deletion since it isn't know yet
-                    // whether the head is valid or not.
-                    potentially_abandoned_blocks.insert((slot, block_hash, state_hash));
-                } else if slot == new_finalized_slot && block_hash == new_finalized_block_hash {
-                    // The current head includes the newly finalized epoch boundary block, so we're
-                    // either on the canonical chain or on a legitimate candidate for the canonical
-                    // chain.  Do not remove any blocks.
+            for result in SlotBlockStateIterator::from_block(Arc::clone(&self.store), head_slot, head_hash.into())? {
+                let (slot, is_skipped_slot, block_hash, state_hash) = result?;
+                if slot <= old_finalized_slot {
 
-                    potentially_abandoned_blocks.clear();
-                    break;
-                } else {
-                    // We've got a block which doesn't include the newly finalized epoch boundary
-                    // block. Moreover, its slot number is lower than the newly finalized epoch
-                    // boundary block's one. This means this is a "neglected" fork created by some
-                    // peers.  By now, it can't be extended to include the newly finalized epoch
-                    // boundary block since necessary slot numbers are already occupied by the
-                    // canonical chain.  Therefore, we can safely get rid of this head and its
-                    // blocks.
+                    // We must assume here any candidate chains are built on top of
+                    // old_finalized_block_hash, i.e. there aren't any forks starting at a block
+                    // that is a strict ancestor of old_finalized_block_hash.
 
-                    let blocks: Result<Vec<(Slot, SignedBeaconBlockHash, BeaconStateHash)>, beacon_state::Error> =
-                        SlotBlockStateIterator::new(Arc::clone(&self.store), slot, block_hash)?
-                            .take_while(|result|
-                                result.as_ref().map_or(false, |(slot, block_hash, _)| *slot > old_finalized_slot && !newly_finalized_blocks.contains(&block_hash))
-                            ).collect();
-                    potentially_abandoned_blocks.extend(blocks?);
-
-                    // XXX Should be performed atomically, see
-                    // https://github.com/sigp/lighthouse/issues/692
-                    for (slot, block_hash, state_hash) in potentially_abandoned_blocks.into_iter() {
-                        self.store.delete_block(&block_hash.into())?;
-                        self.store.delete_state(&state_hash.into(), slot)?;
-                    }
-                    self.head_tracker.remove_head(head_hash);
                     break;
                 }
+                if is_skipped_slot {
+                    if newly_finalized_blocks.contains(&block_hash) {
+                        potentially_abandoned_blocks.push((slot, None, state_hash));
+                    }
+                    else {
+                        // It is possible we'll delete block_hash multiple times.  That's fine.
+                        potentially_abandoned_blocks.push((slot, Some(block_hash), state_hash));
+                    }
+                }
+                else {
+                    if newly_finalized_blocks.contains(&block_hash) {
+                        if slot >= new_finalized_slot {
+                            // The first finalized block of a candidate chain lies after (in terms
+                            // of slots order) the newly finalized block.  It's not a candidate for
+                            // prunning (yet).
+                            potentially_abandoned_blocks.clear();
+                            break;
+                        }
+                    }
+                    else {
+                        potentially_abandoned_blocks.push((slot, Some(block_hash), state_hash));
+                    }
+                }
             }
+            abandoned_blocks.extend(potentially_abandoned_blocks.iter().filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash));
+            abandoned_states.extend(potentially_abandoned_blocks.iter().map(|(_, _, state_hash)| state_hash));
+            abandoned_heads.insert(head_hash);
+            potentially_abandoned_blocks.clear();
         }
+
+        // XXX Should be performed atomically, see
+        // https://github.com/sigp/lighthouse/issues/692
+        for block_hash in abandoned_blocks.into_iter() {
+            self.store.delete_block(&block_hash.into())?;
+        }
+        for state_hash in abandoned_states.into_iter() {
+            self.store.delete_state(&state_hash.into(), Slot::new(0))?; // TODO Slot parameter is unused
+        }
+        for head_hash in abandoned_heads.into_iter() {
+            self.head_tracker.remove_head(head_hash);
+        }
+
+        self.dump_dot_file("post.dot");
 
         Ok(())
     }

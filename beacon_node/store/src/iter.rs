@@ -262,15 +262,24 @@ fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
     (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
 }
 
-pub struct SlotBlockStateIterator<T: EthSpec, S> {
+pub struct SlotBlockStateIterator<E: EthSpec, S> {
     store: Arc<S>,
     slot: Slot,
-    state: BeaconState<T>,
-    poisoned: bool,
+    current_state: BeaconState<E>,
+    next_state: Option<BeaconState<E>>,
 }
 
-impl<'a, T: EthSpec, S: Store<T>> SlotBlockStateIterator<T, S> {
-    pub fn new(
+impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
+    fn next_historical_root_backtrack_state(
+        store: &S,
+        current_state: &BeaconState<E>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
+        let &new_state_hash = current_state.get_state_root(new_state_slot)?;
+        store.get_state(&new_state_hash, Some(new_state_slot))
+    }
+
+    pub fn from_block(
         store: Arc<S>,
         slot: Slot,
         block_hash: SignedBeaconBlockHash,
@@ -279,46 +288,63 @@ impl<'a, T: EthSpec, S: Store<T>> SlotBlockStateIterator<T, S> {
             .get_block(&block_hash.into())?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?;
         let state_hash = block.state_root();
-        let state = store
+        let current_state = store
             .get_state(&state_hash.into(), Some(slot))?
             .ok_or_else(|| BeaconStateError::MissingBeaconState(state_hash.into()))?;
+        let next_state = if slot <= E::SlotsPerHistoricalRoot::to_u64() {
+            None
+        } else {
+            Self::next_historical_root_backtrack_state(&*store, &current_state)?
+        };
         let result = Self {
-            store: Arc::clone(&store),
-            slot: slot,
-            state: state,
-            poisoned: false,
+            store:          Arc::clone(&store),
+            slot:           slot,
+            current_state:  current_state,
+            next_state:     next_state,
         };
         Ok(result)
     }
+
+    fn is_skipped_slot(&self, slot: Slot) -> Result<bool, Error> {
+        let result = if slot % E::SlotsPerHistoricalRoot::to_u64() >= 1 {
+            self.current_state.get_block_root(slot)? == self.current_state.get_block_root(slot-1)?
+        } else {
+            // We're at the boundary of a historical batch.
+            if let Some(next) = &self.next_state {
+                self.current_state.get_block_root(slot)? == next.get_block_root(slot-1)?
+            }
+            else {
+                debug_assert_eq!(slot, 0);
+                false
+            }
+        };
+        Ok(result)
+    }
+
+    fn next_item(&mut self) -> Result<Option<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash)>, Error> {
+        if self.slot == 0 {
+            return Ok(None);
+        }
+
+        // Maintain the invariant of self.current_state and self.next_state always being set to
+        // loaded BeaconState.
+        if self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1 {
+            self.current_state = self.next_state.take().expect("invariant violated: absent next state");
+            self.next_state = Self::next_historical_root_backtrack_state(&*self.store, &self.current_state)?;
+        }
+
+        let (block_hash, state_hash) = self.current_state.get_block_state_roots(self.slot)?;
+        let is_skipped_slot = self.is_skipped_slot(self.slot)?;
+        self.slot -= 1;
+        Ok(Some((self.slot, is_skipped_slot, block_hash, state_hash)))
+    }
 }
 
-impl<'a, T: EthSpec, S: Store<T>> Iterator for SlotBlockStateIterator<T, S> {
-    type Item = Result<(Slot, SignedBeaconBlockHash, BeaconStateHash), BeaconStateError>;
+impl<'a, E: EthSpec, S: Store<E>> Iterator for SlotBlockStateIterator<E, S> {
+    type Item = Result<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.poisoned || self.slot == 0 {
-            return None;
-        }
-
-        self.slot -= 1;
-
-        let result = match self.state.get_block_state_roots(self.slot) {
-            Ok((block_hash, state_hash)) => Some(Ok((self.slot, block_hash, state_hash))),
-            Err(BeaconStateError::SlotOutOfBounds) => {
-                self.state = next_historical_root_backtrack_state(&*self.store, &self.state)?;
-                match self.state.get_block_state_roots(self.slot) {
-                    Ok((block_hash, state_hash)) => Some(Ok((self.slot, block_hash, state_hash))),
-                    Err(e) => Some(Err(e)),
-                }
-            }
-            Err(e) => Some(Err(e)),
-        };
-
-        if let Some(Err(_)) = result {
-            self.poisoned = true;
-        }
-
-        result
+        self.next_item().transpose()
     }
 }
 
