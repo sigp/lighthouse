@@ -9,24 +9,21 @@ use crate::rpc::{
     },
     methods::ResponseTermination,
 };
-use futures::{
-    future::{self, FutureResult},
-    sink, stream, Sink, Stream,
-};
+use futures::future::*;
+use futures::{future, sink, stream, Sink, Stream};
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
 use tokio::codec::Framed;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::prelude::*;
 use tokio::timer::timeout;
 use tokio::util::FutureExt;
 use tokio_io_timeout::TimeoutStream;
 use types::EthSpec;
 
 /// The maximum bytes that can be sent across the RPC.
-const MAX_RPC_SIZE: usize = 4_194_304; // 4M
+const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -44,6 +41,10 @@ pub const RPC_GOODBYE: &str = "goodbye";
 pub const RPC_BLOCKS_BY_RANGE: &str = "beacon_blocks_by_range";
 /// The `BlocksByRoot` protocol name.
 pub const RPC_BLOCKS_BY_ROOT: &str = "beacon_blocks_by_root";
+/// The `Ping` protocol name.
+pub const RPC_PING: &str = "ping";
+/// The `MetaData` protocol name.
+pub const RPC_META_DATA: &str = "metadata";
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
@@ -54,18 +55,21 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
+    /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
             ProtocolId::new(RPC_STATUS, "1", "ssz"),
             ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
             ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
             ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
+            ProtocolId::new(RPC_PING, "1", "ssz"),
+            ProtocolId::new(RPC_META_DATA, "1", "ssz"),
         ]
     }
 }
 
 /// Tracks the types in a protocol id.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProtocolId {
     /// The rpc message type/name.
     pub message_name: String,
@@ -125,13 +129,16 @@ where
     type Output = InboundOutput<TSocket, TSpec>;
     type Error = RPCError;
 
-    type Future = future::AndThen<
-        future::MapErr<
-            timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>,
-            FnMapErr<TSocket, TSpec>,
-        >,
+    type Future = future::Either<
         FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
-        FnAndThen<TSocket, TSpec>,
+        future::AndThen<
+            future::MapErr<
+                timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>,
+                FnMapErr<TSocket, TSpec>,
+            >,
+            FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
+            FnAndThen<TSocket, TSpec>,
+        >,
     >;
 
     fn upgrade_inbound(
@@ -141,22 +148,36 @@ where
     ) -> Self::Future {
         match protocol.encoding.as_str() {
             "ssz" | _ => {
+                let protocol_name = protocol.message_name.clone();
                 let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = InboundCodec::SSZ(ssz_codec);
                 let mut timed_socket = TimeoutStream::new(socket);
                 timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
-                Framed::new(timed_socket, codec)
-                    .into_future()
-                    .timeout(Duration::from_secs(REQUEST_TIMEOUT))
-                    .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
-                    .and_then({
-                        |(req, stream)| match req {
-                            Some(req) => futures::future::ok((req, stream)),
-                            None => futures::future::err(RPCError::Custom(
-                                "Stream terminated early".into(),
-                            )),
-                        }
-                    } as FnAndThen<TSocket, TSpec>)
+
+                let socket = Framed::new(timed_socket, codec);
+
+                // MetaData requests should be empty, return the stream
+                if protocol_name == RPC_META_DATA {
+                    futures::future::Either::A(futures::future::ok((
+                        RPCRequest::MetaData(PhantomData),
+                        socket,
+                    )))
+                } else {
+                    futures::future::Either::B(
+                        socket
+                            .into_future()
+                            .timeout(Duration::from_secs(REQUEST_TIMEOUT))
+                            .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
+                            .and_then({
+                                |(req, stream)| match req {
+                                    Some(request) => futures::future::ok((request, stream)),
+                                    None => futures::future::err(RPCError::Custom(
+                                        "Stream terminated early".into(),
+                                    )),
+                                }
+                            } as FnAndThen<TSocket, TSpec>),
+                    )
+                }
             }
         }
     }
@@ -173,7 +194,8 @@ pub enum RPCRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(BlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
-    Phantom(PhantomData<TSpec>),
+    Ping(Ping),
+    MetaData(PhantomData<TSpec>),
 }
 
 impl<TSpec: EthSpec> UpgradeInfo for RPCRequest<TSpec> {
@@ -195,7 +217,8 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::Goodbye(_) => vec![ProtocolId::new(RPC_GOODBYE, "1", "ssz")],
             RPCRequest::BlocksByRange(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz")],
             RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz")],
-            RPCRequest::Phantom(_) => Vec::new(),
+            RPCRequest::Ping(_) => vec![ProtocolId::new(RPC_PING, "1", "ssz")],
+            RPCRequest::MetaData(_) => vec![ProtocolId::new(RPC_META_DATA, "1", "ssz")],
         }
     }
 
@@ -209,7 +232,8 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::Goodbye(_) => false,
             RPCRequest::BlocksByRange(_) => true,
             RPCRequest::BlocksByRoot(_) => true,
-            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
+            RPCRequest::Ping(_) => true,
+            RPCRequest::MetaData(_) => true,
         }
     }
 
@@ -221,7 +245,8 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::Goodbye(_) => false,
             RPCRequest::BlocksByRange(_) => true,
             RPCRequest::BlocksByRoot(_) => true,
-            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
+            RPCRequest::Ping(_) => false,
+            RPCRequest::MetaData(_) => false,
         }
     }
 
@@ -235,7 +260,8 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             RPCRequest::Status(_) => unreachable!(),
             RPCRequest::Goodbye(_) => unreachable!(),
-            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
+            RPCRequest::Ping(_) => unreachable!(),
+            RPCRequest::MetaData(_) => unreachable!(),
         }
     }
 }
@@ -361,7 +387,8 @@ impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
             RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
-            RPCRequest::Phantom(_) => unreachable!("Phantom should never be initialised"),
+            RPCRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
+            RPCRequest::MetaData(_) => write!(f, "MetaData request"),
         }
     }
 }

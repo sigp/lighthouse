@@ -47,6 +47,8 @@ pub enum RouterMessage<T: EthSpec> {
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message and the message itself.
     PubsubMessage(MessageId, PeerId, PubsubMessage<T>),
+    /// The peer manager has requested we re-status a peer.
+    StatusPeer(PeerId),
 }
 
 impl<T: BeaconChainTypes> Router<T> {
@@ -87,9 +89,10 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Handle all messages incoming from the network service.
     fn handle_message(&mut self, message: RouterMessage<T::EthSpec>) {
         match message {
-            // we have initiated a connection to a peer
-            RouterMessage::PeerDialed(peer_id) => {
-                self.processor.on_connect(peer_id);
+            // we have initiated a connection to a peer or the peer manager has requested a
+            // re-status
+            RouterMessage::PeerDialed(peer_id) | RouterMessage::StatusPeer(peer_id) => {
+                self.processor.send_status(peer_id);
             }
             // A peer has disconnected
             RouterMessage::PeerDisconnected(peer_id) => {
@@ -143,7 +146,8 @@ impl<T: BeaconChainTypes> Router<T> {
             RPCRequest::BlocksByRoot(request) => self
                 .processor
                 .on_blocks_by_root_request(peer_id, request_id, request),
-            RPCRequest::Phantom(_) => unreachable!("Phantom never initialised"),
+            RPCRequest::Ping(_) => unreachable!("Ping MUST be handled in the behaviour"),
+            RPCRequest::MetaData(_) => unreachable!("MetaData MUST be handled in the behaviour"),
         }
     }
 
@@ -186,6 +190,12 @@ impl<T: BeaconChainTypes> Router<T> {
                         request_id,
                         Some(beacon_block),
                     );
+                }
+                RPCResponse::Pong(_) => {
+                    unreachable!("Ping must be handled in the behaviour");
+                }
+                RPCResponse::MetaData(_) => {
+                    unreachable!("Meta data must be handled in the behaviour");
                 }
             },
             RPCErrorResponse::StreamTermination(response_type) => {

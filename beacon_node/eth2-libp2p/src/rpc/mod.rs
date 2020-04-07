@@ -13,10 +13,11 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{
-    ErrorMessage, RPCErrorResponse, RPCResponse, RequestId, ResponseTermination, StatusMessage,
+    ErrorMessage, MetaData, RPCErrorResponse, RPCResponse, RequestId, ResponseTermination,
+    StatusMessage,
 };
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
-use slog::o;
+use slog::{debug, o};
 use std::marker::PhantomData;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -120,9 +121,18 @@ where
         // if initialised the connection, report this upwards to send the HELLO request
         if let ConnectedPoint::Dialer { .. } = connected_point {
             self.events.push(NetworkBehaviourAction::GenerateEvent(
-                RPCMessage::PeerDialed(peer_id),
+                RPCMessage::PeerDialed(peer_id.clone()),
             ));
         }
+
+        // find the peer's meta-data
+        debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
+        let rpc_event =
+            RPCEvent::Request(RequestId::from(0usize), RPCRequest::MetaData(PhantomData));
+        self.events.push(NetworkBehaviourAction::SendEvent {
+            peer_id,
+            event: rpc_event,
+        });
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _: ConnectedPoint) {

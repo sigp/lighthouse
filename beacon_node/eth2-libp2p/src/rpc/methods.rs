@@ -1,5 +1,6 @@
 //! Available RPC methods types and ids.
 
+use crate::types::EnrBitfield;
 use ssz_derive::{Decode, Encode};
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -26,6 +27,22 @@ pub struct StatusMessage {
 
     /// The slot associated with the latest block root.
     pub head_slot: Slot,
+}
+
+/// The PING request/response message.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct Ping {
+    /// The metadata sequence number.
+    pub data: u64,
+}
+
+/// The METADATA response structure.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct MetaData<T: EthSpec> {
+    /// A sequential counter indicating when data gets modified.
+    pub seq_number: u64,
+    /// The persistent subnet bitfield.
+    pub attnets: EnrBitfield<T>,
 }
 
 /// The reason given for a `Goodbye` message.
@@ -136,6 +153,12 @@ pub enum RPCResponse<T: EthSpec> {
 
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Box<SignedBeaconBlock<T>>),
+
+    /// A PONG response to a PING request.
+    Pong(Ping),
+
+    /// A response to a META_DATA request.
+    MetaData(MetaData<T>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -202,6 +225,8 @@ impl<T: EthSpec> RPCErrorResponse<T> {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
+                RPCResponse::Pong(_) => false,
+                RPCResponse::MetaData(_) => false,
             },
             RPCErrorResponse::InvalidRequest(_) => true,
             RPCErrorResponse::ServerError(_) => true,
@@ -249,6 +274,8 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: BLock slot: {}", block.message.slot)
             }
+            RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
+            RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number),
         }
     }
 }

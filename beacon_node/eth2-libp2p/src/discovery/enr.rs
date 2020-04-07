@@ -1,10 +1,12 @@
+//! Helper functions and an extension trait for Ethereum 2 ENRs.
+
 use super::ENR_FILENAME;
-use crate::Enr;
+use crate::types::{Enr, EnrBitfield};
 use crate::NetworkConfig;
 use libp2p::core::identity::Keypair;
 use libp2p::discv5::enr::{CombinedKey, EnrBuilder};
 use slog::{debug, warn};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::convert::TryInto;
 use std::fs::File;
@@ -17,6 +19,33 @@ use types::{EnrForkId, EthSpec};
 pub const ETH2_ENR_KEY: &'static str = "eth2";
 /// The ENR field specifying the subnet bitfield.
 pub const BITFIELD_ENR_KEY: &'static str = "attnets";
+
+/// Extension trait for ENR's within Eth2.
+pub trait Eth2Enr {
+    /// The subnet bitfield associated with the ENR.
+    fn bitfield<TSpec: EthSpec>(&self) -> Result<EnrBitfield<TSpec>, &'static str>;
+
+    fn eth2(&self) -> Result<EnrForkId, &'static str>;
+}
+
+impl Eth2Enr for Enr {
+    fn bitfield<TSpec: EthSpec>(&self) -> Result<EnrBitfield<TSpec>, &'static str> {
+        let bitfield_bytes = self
+            .get(BITFIELD_ENR_KEY)
+            .ok_or_else(|| "ENR bitfield non-existent")?;
+
+        BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
+            .map_err(|_| "Could not decode the ENR SSZ bitfield")
+    }
+
+    fn eth2(&self) -> Result<EnrForkId, &'static str> {
+        let eth2_bytes = self
+            .get(ETH2_ENR_KEY)
+            .ok_or_else(|| "ENR has no eth2 field")?;
+
+        EnrForkId::from_ssz_bytes(eth2_bytes).map_err(|_| "Could not decode EnrForkId")
+    }
+}
 
 /// Loads an ENR from file if it exists and matches the current NodeId and sequence number. If none
 /// exists, generates a new one.
@@ -76,7 +105,7 @@ pub fn build_or_load_enr<T: EthSpec>(
 }
 
 /// Builds a lighthouse ENR given a `NetworkConfig`.
-fn build_enr<T: EthSpec>(
+pub fn build_enr<T: EthSpec>(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
     enr_fork_id: EnrForkId,
