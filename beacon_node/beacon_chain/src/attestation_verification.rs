@@ -16,7 +16,7 @@ use state_processing::{
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, CommitteeIndex, EthSpec, Hash256, IndexedAttestation, RelativeEpoch, Slot,
+    Attestation, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, RelativeEpoch, Slot,
 };
 
 pub enum Error {
@@ -47,6 +47,10 @@ pub enum Error {
         index: CommitteeIndex,
     },
     NotExactlyOneAggregationBitSet(usize),
+    PriorAttestationKnown {
+        validator_index: u64,
+        epoch: Epoch,
+    },
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     BeaconChainError(BeaconChainError),
@@ -78,7 +82,6 @@ pub enum AttestationType {
 pub struct GossipVerifiedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     attestation_type: AttestationType,
-    attestation_root: Hash256,
 }
 
 pub struct FullyVerifiedAttestation<T: BeaconChainTypes> {
@@ -145,14 +148,6 @@ impl<T: BeaconChainTypes> GossipVerifiedAttestation<T> {
             return Err(Error::NotExactlyOneAggregationBitSet(num_aggreagtion_bits));
         }
 
-        /*
-         * The attestation is the first valid attestation received for the participating validator
-         * for the slot, attestation.data.slot.
-         *
-         * TODO!!
-         */
-        let attestation_root = attestation.data.tree_hash_root();
-
         // The block being voted for (attestation.data.beacon_block_root) passes validation.
         //
         // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
@@ -171,13 +166,32 @@ impl<T: BeaconChainTypes> GossipVerifiedAttestation<T> {
 
         let indexed_attestation = obtain_indexed_attestation(chain, &attestation, block_slot)?;
 
+        let validator_index = *indexed_attestation
+            .attesting_indices
+            .first()
+            .ok_or_else(|| Error::NotExactlyOneAggregationBitSet(0))?;
+
+        /*
+         * The attestation is the first valid attestation received for the participating validator
+         * for the slot, attestation.data.slot.
+         */
+        if chain
+            .observed_attesters
+            .observe_attesting_validator(&attestation, validator_index as usize)
+            .map_err(|e| BeaconChainError::from(e))?
+        {
+            return Err(Error::PriorAttestationKnown {
+                validator_index,
+                epoch: attestation.data.target.epoch,
+            });
+        }
+
         // The signature of attestation is valid.
         verify_attestation_signature(chain, &indexed_attestation, block_slot)?;
 
         Ok(Self {
             attestation,
             attestation_type,
-            attestation_root,
         })
     }
 }
