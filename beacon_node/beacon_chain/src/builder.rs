@@ -434,6 +434,8 @@ where
             observed_attestations: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_attesters: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
+            observed_aggregators: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
