@@ -1,9 +1,7 @@
 use bitvec::vec::BitVec;
 use parking_lot::RwLock;
-use std::collections::HashSet;
 use std::marker::PhantomData;
-use tree_hash::TreeHash;
-use types::{Attestation, Epoch, EthSpec, Hash256, Slot, Unsigned};
+use types::{Attestation, Epoch, EthSpec, Unsigned};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

@@ -10,6 +10,7 @@ use crate::head_tracker::HeadTracker;
 use crate::metrics;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
 use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
+use crate::observed_attesters::ObservedAttesters;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -188,6 +189,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub naive_aggregation_pool: NaiveAggregationPool<T::EthSpec>,
     /// Contains a store of attestations which have been observed by the beacon chain.
     pub observed_attestations: ObservedAttestations<T::EthSpec>,
+    /// Maintains a record of which validators have been seen to attest in recent epochs.
+    pub observed_attesters: ObservedAttesters<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
