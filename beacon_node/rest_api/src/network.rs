@@ -63,9 +63,9 @@ pub fn get_peer_list<T: BeaconChainTypes>(
     network: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> ApiResult {
     let connected_peers: Vec<String> = network
-        .connected_peer_set
+        .peers
         .read()
-        .keys()
+        .connected_peers()
         .map(PeerId::to_string)
         .collect();
     ResponseBuilder::new(&req)?.body_no_ssz(&connected_peers)

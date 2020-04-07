@@ -56,11 +56,7 @@ pub enum PeerManagerEvent {
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
-    pub fn new(
-        network_globals: Arc<NetworkGlobals<TSpec>>,
-        max_dc_peers: usize,
-        log: &slog::Logger,
-    ) -> Self {
+    pub fn new(network_globals: Arc<NetworkGlobals<TSpec>>, log: &slog::Logger) -> Self {
         PeerManager {
             network_globals,
             events: SmallVec::new(),
@@ -69,21 +65,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    /// Gets a readable reference to the PeerDB.
-    fn peer_db(&self) -> &PeerDB<TSpec> {
-        &self.network_globals.peers.read()
-    }
-
-    /// Gets a mutable reference to the PeerDB.
-    fn peer_db_mut(&self) -> &mut PeerDB<TSpec> {
-        &mut self.network_globals.peers.write()
-    }
-
     /// Checks the reputation of a peer and if it is too low, bans it and
     /// sends the corresponding event. Informs if it got banned
     fn gets_banned(&mut self, peer_id: &PeerId) -> bool {
         // if the peer was already banned don't inform again
-        let peerdb = self.peer_db_mut();
+        let mut peerdb = self.network_globals.peers.write();
         if peerdb.reputation(peer_id) < MINIMUM_REPUTATION_BEFORE_BAN
             && !peerdb.connection_status(peer_id).is_banned()
         {
@@ -98,9 +84,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// the peer to be banned and to be disconnected otherwise
     pub fn disconnect(&mut self, peer_id: &PeerId) {
         self.update_reputations();
-        let peerdb = self.peer_db_mut();
-        peerdb.disconnect(peer_id);
-        peerdb.add_reputation(peer_id, PeerAction::Disconnected as Rep);
+        {
+            let mut peerdb = self.network_globals.peers.write();
+            peerdb.disconnect(peer_id);
+            peerdb.add_reputation(peer_id, PeerAction::Disconnected as Rep);
+        }
         if !self.gets_banned(peer_id) {
             self.events
                 .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
@@ -111,7 +99,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Informs if the peer was accepted
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) -> bool {
         self.update_reputations();
-        let peerdb = self.peer_db_mut();
+        let mut peerdb = self.network_globals.peers.write();
         peerdb.new_peer(peer_id);
         if !peerdb.connection_status(peer_id).is_banned() {
             peerdb.connect_ingoing(peer_id);
@@ -124,7 +112,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Informs if the peer was accepted
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) -> bool {
         self.update_reputations();
-        let peerdb = self.peer_db_mut();
+        let mut peerdb = self.network_globals.peers.write();
         peerdb.new_peer(peer_id);
         if !peerdb.connection_status(peer_id).is_banned() {
             peerdb.connect_outgoing(peer_id);
@@ -135,7 +123,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Provides a given peer's reputation if it exists.
     pub fn get_peer_rep(&self, peer_id: &PeerId) -> Rep {
-        self.peer_db().reputation(peer_id)
+        self.network_globals.peers.read().reputation(peer_id)
     }
 
     /// Updates the reputation of known peers according to their connection
@@ -158,7 +146,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// If the peer doesn't exist, log a warning and insert defaults.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
         self.update_reputations();
-        self.peer_db_mut().add_reputation(peer_id, action as Rep);
+        self.network_globals
+            .peers
+            .write()
+            .add_reputation(peer_id, action as Rep);
         self.update_reputations();
     }
 }

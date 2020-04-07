@@ -57,10 +57,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives an iterator of all peers on a given subnet.
-    pub fn peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
+    pub fn peers_on_subnet(&self, subnet_id: &SubnetId) -> impl Iterator<Item = &PeerId> {
+        let subnet_id_filter = subnet_id.clone();
         self.peers
             .iter()
-            .filter(|(_, info)| info.connection_status.is_connected() && info.on_subnet(subnet_id))
+            .filter(move |(_, info)| {
+                info.connection_status.is_connected() && info.on_subnet(subnet_id_filter)
+            })
             .map(|(peer_id, _)| peer_id)
     }
 
