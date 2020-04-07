@@ -45,7 +45,7 @@ fn test_gossipsub_forward() {
         for node in nodes.iter_mut() {
             loop {
                 match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                    Async::Ready(Some(BehaviourEvent::PubsubMessage {
                         topics,
                         message,
                         source,
@@ -68,7 +68,7 @@ fn test_gossipsub_forward() {
                             return Ok(Async::Ready(()));
                         }
                     }
-                    Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) => {
+                    Async::Ready(Some(BehaviourEvent::PeerSubscribed(_, topic))) => {
                         // Publish on beacon block topic
                         if topic == TopicHash::from_raw(publishing_topic.clone()) {
                             subscribed_count += 1;
@@ -117,7 +117,7 @@ fn test_gossipsub_full_mesh_publish() {
     let mut received_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
-            while let Async::Ready(Some(Libp2pEvent::PubsubMessage {
+            while let Async::Ready(Some(BehaviourEvent::PubsubMessage {
                 topics, message, ..
             })) = node.poll().unwrap()
             {
@@ -135,7 +135,7 @@ fn test_gossipsub_full_mesh_publish() {
                 }
             }
         }
-        while let Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) =
+        while let Async::Ready(Some(BehaviourEvent::PeerSubscribed(_, topic))) =
             publishing_node.poll().unwrap()
         {
             // Publish on beacon block topic

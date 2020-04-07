@@ -105,7 +105,7 @@ pub fn build_or_load_enr<T: EthSpec>(
 }
 
 /// Builds a lighthouse ENR given a `NetworkConfig`.
-fn build_enr<T: EthSpec>(
+pub fn build_enr<T: EthSpec>(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
     enr_fork_id: EnrForkId,

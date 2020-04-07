@@ -9,17 +9,14 @@ use crate::rpc::{
     },
     methods::ResponseTermination,
 };
-use futures::{
-    future::{self, FutureResult},
-    sink, stream, Sink, Stream,
-};
+use futures::future::*;
+use futures::{future, sink, stream, Sink, Stream};
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
 use tokio::codec::Framed;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::prelude::*;
 use tokio::timer::timeout;
 use tokio::util::FutureExt;
 use tokio_io_timeout::TimeoutStream;
@@ -72,7 +69,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 }
 
 /// Tracks the types in a protocol id.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProtocolId {
     /// The rpc message type/name.
     pub message_name: String,
@@ -132,13 +129,16 @@ where
     type Output = InboundOutput<TSocket, TSpec>;
     type Error = RPCError;
 
-    type Future = future::AndThen<
-        future::MapErr<
-            timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>,
-            FnMapErr<TSocket, TSpec>,
-        >,
+    type Future = future::Either<
         FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
-        FnAndThen<TSocket, TSpec>,
+        future::AndThen<
+            future::MapErr<
+                timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>,
+                FnMapErr<TSocket, TSpec>,
+            >,
+            FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
+            FnAndThen<TSocket, TSpec>,
+        >,
     >;
 
     fn upgrade_inbound(
@@ -148,22 +148,36 @@ where
     ) -> Self::Future {
         match protocol.encoding.as_str() {
             "ssz" | _ => {
+                let protocol_name = protocol.message_name.clone();
                 let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
                 let codec = InboundCodec::SSZ(ssz_codec);
                 let mut timed_socket = TimeoutStream::new(socket);
                 timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
-                Framed::new(timed_socket, codec)
-                    .into_future()
-                    .timeout(Duration::from_secs(REQUEST_TIMEOUT))
-                    .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
-                    .and_then({
-                        |(req, stream)| match req {
-                            Some(req) => futures::future::ok((req, stream)),
-                            None => futures::future::err(RPCError::Custom(
-                                "Stream terminated early".into(),
-                            )),
-                        }
-                    } as FnAndThen<TSocket, TSpec>)
+
+                let socket = Framed::new(timed_socket, codec);
+
+                // MetaData requests should be empty, return the stream
+                if protocol_name == RPC_META_DATA {
+                    futures::future::Either::A(futures::future::ok((
+                        RPCRequest::MetaData(PhantomData),
+                        socket,
+                    )))
+                } else {
+                    futures::future::Either::B(
+                        socket
+                            .into_future()
+                            .timeout(Duration::from_secs(REQUEST_TIMEOUT))
+                            .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
+                            .and_then({
+                                |(req, stream)| match req {
+                                    Some(request) => futures::future::ok((request, stream)),
+                                    None => futures::future::err(RPCError::Custom(
+                                        "Stream terminated early".into(),
+                                    )),
+                                }
+                            } as FnAndThen<TSocket, TSpec>),
+                    )
+                }
             }
         }
     }

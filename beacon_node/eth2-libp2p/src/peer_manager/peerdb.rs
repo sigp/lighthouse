@@ -341,7 +341,7 @@ mod tests {
         }
         assert_eq!(pdb.n_dc, 0);
 
-        for p in pdb.connected_peers() {
+        for p in pdb.connected_peers().cloned().collect::<Vec<_>>() {
             pdb.disconnect(&p);
         }
 

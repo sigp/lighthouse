@@ -116,7 +116,7 @@ impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
                     "1" => {
                         if packet.len() > 0 {
                             Err(RPCError::Custom(
-                                "Get meta data request should be empty".into(),
+                                "Get metadata request should be empty".into(),
                             ))
                         } else {
                             Ok(Some(RPCRequest::MetaData(PhantomData)))
@@ -168,7 +168,7 @@ impl<TSpec: EthSpec> Encoder for SSZOutboundCodec<TSpec> {
             RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
             RPCRequest::Ping(req) => req.as_ssz_bytes(),
-            RPCRequest::MetaData(_) => unreachable!("No meta data to encode"),
+            RPCRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
         // length-prefix
         self.inner

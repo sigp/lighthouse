@@ -1,6 +1,9 @@
 ///! This manages the discovery and management of peers.
 pub(crate) mod enr;
 
+// Allow external use of the lighthouse ENR builder
+pub use enr::build_enr;
+
 use crate::metrics;
 use crate::rpc::MetaData;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};

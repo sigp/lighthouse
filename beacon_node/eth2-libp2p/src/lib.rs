@@ -7,7 +7,7 @@ extern crate lazy_static;
 
 pub mod behaviour;
 mod config;
-mod discovery;
+pub mod discovery;
 mod metrics;
 mod peer_manager;
 pub mod rpc;
