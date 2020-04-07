@@ -1,8 +1,7 @@
 use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, RPC};
-use crate::types::GossipEncoding;
-use crate::Enr;
-use crate::{error, GossipTopic, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use libp2p::{
     core::identity::Keypair,
@@ -47,6 +46,9 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     #[behaviour(ignore)]
     network_globals: Arc<NetworkGlobals<TSpec>>,
     #[behaviour(ignore)]
+    /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
+    enr_fork_id: EnrForkId,
+    #[behaviour(ignore)]
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -74,7 +76,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
             discovery: Discovery::new(
                 local_key,
                 net_conf,
-                enr_fork_id,
+                enr_fork_id.clone(),
                 network_globals.clone(),
                 log,
             )?,
@@ -82,6 +84,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
             events: Vec::new(),
             seen_gossip_messages: LruCache::new(100_000),
             network_globals,
+            enr_fork_id,
             log: behaviour_log,
         })
     }
@@ -99,57 +102,82 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
     /* Pubsub behaviour functions */
 
-    /// Subscribes to a gossipsub topic.
-    pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
-        if !self
-            .network_globals
-            .gossipsub_subscriptions
-            .read()
-            .contains(&topic)
-        {
-            self.network_globals
-                .gossipsub_subscriptions
-                .write()
-                .push(topic.clone());
-        }
-        self.gossipsub.subscribe(topic.into())
+    /// Subscribes to a gossipsub topic kind, letting the network service determine the
+    /// encoding and fork version.
+    pub fn subscribe_kind(&mut self, kind: GossipKind) -> bool {
+        let gossip_topic = GossipTopic::new(
+            kind,
+            GossipEncoding::default(),
+            self.enr_fork_id.fork_digest,
+        );
+        self.subscribe(gossip_topic)
+    }
+
+    /// Unsubscribes from a gossipsub topic kind, letting the network service determine the
+    /// encoding and fork version.
+    pub fn unsubscribe_kind(&mut self, kind: GossipKind) -> bool {
+        let gossip_topic = GossipTopic::new(
+            kind,
+            GossipEncoding::default(),
+            self.enr_fork_id.fork_digest,
+        );
+        self.unsubscribe(gossip_topic)
     }
 
     /// Subscribes to a specific subnet id;
-    pub fn subscribe_to_subnet(&mut self, subnet_id: SubnetId) {
-        let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::SSZ);
-        self.subscribe(topic);
-    }
-
-    /// Unsubscribe from a gossipsub topic.
-    pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
-        let pos = self
-            .network_globals
-            .gossipsub_subscriptions
-            .read()
-            .iter()
-            .position(|s| s == &topic);
-        if let Some(pos) = pos {
-            self.network_globals
-                .gossipsub_subscriptions
-                .write()
-                .swap_remove(pos);
-        }
-        self.gossipsub.unsubscribe(topic.into())
+    pub fn subscribe_to_subnet(&mut self, subnet_id: SubnetId) -> bool {
+        let topic = GossipTopic::new(
+            subnet_id.into(),
+            GossipEncoding::default(),
+            self.enr_fork_id.fork_digest,
+        );
+        self.subscribe(topic)
     }
 
     /// Un-Subscribes from a specific subnet id;
-    pub fn unsubscribe_from_subnet(&mut self, subnet_id: SubnetId) {
-        let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::SSZ);
-        self.unsubscribe(topic);
+    pub fn unsubscribe_from_subnet(&mut self, subnet_id: SubnetId) -> bool {
+        let topic = GossipTopic::new(
+            subnet_id.into(),
+            GossipEncoding::default(),
+            self.enr_fork_id.fork_digest,
+        );
+        self.unsubscribe(topic)
+    }
+
+    /// Subscribes to a gossipsub topic.
+    fn subscribe(&mut self, topic: GossipTopic) -> bool {
+        // update the network globals
+        self.network_globals
+            .gossipsub_subscriptions
+            .write()
+            .insert(topic.clone());
+
+        let topic_str: String = topic.clone().into();
+        debug!(self.log, "Subscribed to topic"; "topic" => topic_str);
+        self.gossipsub.subscribe(topic.into())
+    }
+
+    /// Unsubscribe from a gossipsub topic.
+    fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
+        // update the network globals
+        self.network_globals
+            .gossipsub_subscriptions
+            .write()
+            .remove(&topic);
+        // unsubscribe from the topic
+        self.gossipsub.unsubscribe(topic.into())
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
     pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
         for message in messages {
-            for topic in message.topics() {
-                let message_data = message.encode();
-                self.gossipsub.publish(&topic.into(), message_data);
+            for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
+                match message.encode(GossipEncoding::default()) {
+                    Ok(message_data) => {
+                        self.gossipsub.publish(&topic.into(), message_data);
+                    }
+                    Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
+                }
             }
         }
     }
@@ -206,8 +234,30 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.
     pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
-        self.discovery.update_eth2_enr(enr_fork_id);
-        // TODO: Handle gossipsub fork update
+        self.discovery.update_eth2_enr(enr_fork_id.clone());
+
+        // unsubscribe from all gossip topics and re-subscribe to their new fork counterparts
+        let subscribed_topics = self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .iter()
+            .cloned()
+            .collect::<Vec<GossipTopic>>();
+
+        //  unsubscribe from all topics
+        for topic in &subscribed_topics {
+            self.unsubscribe(topic.clone());
+        }
+
+        // re-subscribe modifying the fork version
+        for mut topic in subscribed_topics {
+            *topic.digest() = enr_fork_id.fork_digest;
+            self.subscribe(topic);
+        }
+
+        // update the local reference
+        self.enr_fork_id = enr_fork_id;
     }
 }
 

@@ -13,7 +13,7 @@ pub type RequestId = usize;
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
-    pub fork_version: [u8; 4],
+    pub fork_digest: [u8; 4],
 
     /// Latest finalized root.
     pub finalized_root: Hash256,
@@ -101,9 +101,6 @@ impl ssz::Decode for GoodbyeReason {
 /// Request a number of beacon block roots from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlocksByRangeRequest {
-    /// The hash tree root of a block on the requested chain.
-    pub head_block_root: Hash256,
-
     /// The starting slot to request blocks.
     pub start_slot: u64,
 
@@ -238,7 +235,7 @@ impl ErrorMessage {
 
 impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status Message: Fork Version: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_version, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_digest, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
     }
 }
 
@@ -283,8 +280,8 @@ impl std::fmt::Display for BlocksByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Head Block Root: {},  Start Slot: {}, Count: {}, Step: {}",
-            self.head_block_root, self.start_slot, self.count, self.step
+            "Start Slot: {}, Count: {}, Step: {}",
+            self.start_slot, self.count, self.step
         )
     }
 }

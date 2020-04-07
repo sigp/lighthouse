@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis, Eth2Config};
 use eth2_config::{read_from_file, write_to_file};
-use eth2_libp2p::{Enr, GossipTopic, Multiaddr};
+use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::recent_genesis_time;
 use rand::{distributions::Alphanumeric, Rng};
@@ -139,15 +139,6 @@ pub fn get_configs<E: EthSpec>(
                     .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
             })
             .collect::<Result<Vec<Multiaddr>>>()?;
-    }
-
-    if let Some(topics_str) = cli_args.value_of("topics") {
-        let mut topics = Vec::new();
-        let topic_list = topics_str.split(',').collect::<Vec<_>>();
-        for topic_str in topic_list {
-            topics.push(GossipTopic::decode(topic_str)?);
-        }
-        client_config.network.topics = topics;
     }
 
     if let Some(enr_address_str) = cli_args.value_of("enr-address") {

@@ -7,6 +7,7 @@ use types::SubnetId;
 // For example /eth2/beacon_block/ssz
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const SSZ_ENCODING_POSTFIX: &str = "ssz";
+pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 // for speed and easier string manipulation, committee topic index is split into a prefix and a
@@ -19,16 +20,19 @@ pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct GossipTopic {
     /// The encoding of the topic.
     encoding: GossipEncoding,
+    /// The fork digest of the topic,
+    fork_digest: [u8; 4],
     /// The kind of topic.
     kind: GossipKind,
 }
 
 /// Enum that brings these topics into the rust type system.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+// NOTE: There is intentionally no unknown type here. We only allow known gossipsub topics.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
@@ -44,21 +48,51 @@ pub enum GossipKind {
     AttesterSlashing,
 }
 
+impl std::fmt::Display for GossipKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GossipKind::BeaconBlock => write!(f, "beacon_block"),
+            GossipKind::BeaconAggregateAndProof => write!(f, "beacon_aggregate_and_proof"),
+            GossipKind::CommitteeIndex(subnet_id) => write!(f, "committee_index_{}", **subnet_id),
+            GossipKind::VoluntaryExit => write!(f, "voluntary_exit"),
+            GossipKind::ProposerSlashing => write!(f, "proposer_slashing"),
+            GossipKind::AttesterSlashing => write!(f, "attester_slashing"),
+        }
+    }
+}
+
 /// The known encoding types for gossipsub messages.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GossipEncoding {
     /// Messages are encoded with SSZ.
     SSZ,
+    /// Messages are encoded with SSZSnappy.
+    SSZSnappy,
+}
+
+impl Default for GossipEncoding {
+    fn default() -> Self {
+        GossipEncoding::SSZSnappy
+    }
 }
 
 impl GossipTopic {
-    pub fn new(kind: GossipKind, encoding: GossipEncoding) -> Self {
-        GossipTopic { encoding, kind }
+    pub fn new(kind: GossipKind, encoding: GossipEncoding, fork_digest: [u8; 4]) -> Self {
+        GossipTopic {
+            encoding,
+            kind,
+            fork_digest,
+        }
     }
 
     /// Returns the encoding type for the gossipsub topic.
     pub fn encoding(&self) -> &GossipEncoding {
         &self.encoding
+    }
+
+    /// Returns a mutable reference to the fork digest of the gossipsub topic.
+    pub fn digest(&mut self) -> &mut [u8; 4] {
+        &mut self.fork_digest
     }
 
     /// Returns the kind of message expected on the gossipsub topic.
@@ -68,12 +102,26 @@ impl GossipTopic {
 
     pub fn decode(topic: &str) -> Result<Self, String> {
         let topic_parts: Vec<&str> = topic.split('/').collect();
-        if topic_parts.len() == 4 && topic_parts[1] == TOPIC_PREFIX {
-            let encoding = match topic_parts[3] {
+        if topic_parts.len() == 5 && topic_parts[1] == TOPIC_PREFIX {
+            let digest_bytes = hex::decode(topic_parts[2])
+                .map_err(|e| format!("Could not decode fork_digest hex: {}", e))?;
+
+            if digest_bytes.len() != 4 {
+                return Err(format!(
+                    "Invalid gossipsub fork digest size: {}",
+                    digest_bytes.len()
+                ));
+            }
+
+            let mut fork_digest = [0; 4];
+            fork_digest.copy_from_slice(&digest_bytes);
+
+            let encoding = match topic_parts[4] {
                 SSZ_ENCODING_POSTFIX => GossipEncoding::SSZ,
+                SSZ_SNAPPY_ENCODING_POSTFIX => GossipEncoding::SSZSnappy,
                 _ => return Err(format!("Unknown encoding: {}", topic)),
             };
-            let kind = match topic_parts[2] {
+            let kind = match topic_parts[3] {
                 BEACON_BLOCK_TOPIC => GossipKind::BeaconBlock,
                 BEACON_AGGREGATE_AND_PROOF_TOPIC => GossipKind::BeaconAggregateAndProof,
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
@@ -85,7 +133,11 @@ impl GossipTopic {
                 },
             };
 
-            return Ok(GossipTopic { encoding, kind });
+            return Ok(GossipTopic {
+                encoding,
+                kind,
+                fork_digest,
+            });
         }
 
         Err(format!("Unknown topic: {}", topic))
@@ -102,6 +154,7 @@ impl Into<String> for GossipTopic {
     fn into(self) -> String {
         let encoding = match self.encoding {
             GossipEncoding::SSZ => SSZ_ENCODING_POSTFIX,
+            GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
         };
 
         let kind = match self.kind {
@@ -115,7 +168,13 @@ impl Into<String> for GossipTopic {
                 COMMITEE_INDEX_TOPIC_PREFIX, *index, COMMITEE_INDEX_TOPIC_POSTFIX
             ),
         };
-        format!("/{}/{}/{}", TOPIC_PREFIX, kind, encoding)
+        format!(
+            "/{}/{}/{}/{}",
+            TOPIC_PREFIX,
+            hex::encode(self.fork_digest),
+            kind,
+            encoding
+        )
     }
 }
 

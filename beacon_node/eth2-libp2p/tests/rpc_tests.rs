@@ -29,7 +29,7 @@ fn test_status_rpc() {
 
     // Dummy STATUS RPC message
     let rpc_request = RPCRequest::Status(StatusMessage {
-        fork_version: [0; 4],
+        fork_digest: [0; 4],
         finalized_root: Hash256::from_low_u64_be(0),
         finalized_epoch: Epoch::new(1),
         head_root: Hash256::from_low_u64_be(0),
@@ -38,7 +38,7 @@ fn test_status_rpc() {
 
     // Dummy STATUS RPC message
     let rpc_response = RPCResponse::Status(StatusMessage {
-        fork_version: [0; 4],
+        fork_digest: [0; 4],
         finalized_root: Hash256::from_low_u64_be(0),
         finalized_epoch: Epoch::new(1),
         head_root: Hash256::from_low_u64_be(0),
@@ -142,7 +142,6 @@ fn test_blocks_by_range_chunked_rpc() {
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
-        head_block_root: Hash256::from_low_u64_be(0),
         start_slot: 0,
         count: messages_to_send,
         step: 0,
@@ -275,7 +274,6 @@ fn test_blocks_by_range_single_empty_rpc() {
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
-        head_block_root: Hash256::from_low_u64_be(0),
         start_slot: 0,
         count: 10,
         step: 0,

@@ -1,4 +1,4 @@
-use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use crate::types::GossipKind;
 use crate::Enr;
 use libp2p::discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
@@ -7,6 +7,8 @@ use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
+
+pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -61,7 +63,7 @@ pub struct Config {
     pub client_version: String,
 
     /// List of extra topics to initially subscribe to as strings.
-    pub topics: Vec<GossipTopic>,
+    pub topics: Vec<GossipKind>,
 
     /// Introduces randomization in network propagation of messages. This should only be set for
     /// testing purposes and will likely be removed in future versions.
@@ -78,11 +80,11 @@ impl Default for Config {
 
         // The default topics that we will initially subscribe to
         let topics = vec![
-            GossipTopic::new(GossipKind::BeaconBlock, GossipEncoding::SSZ),
-            GossipTopic::new(GossipKind::BeaconAggregateAndProof, GossipEncoding::SSZ),
-            GossipTopic::new(GossipKind::VoluntaryExit, GossipEncoding::SSZ),
-            GossipTopic::new(GossipKind::ProposerSlashing, GossipEncoding::SSZ),
-            GossipTopic::new(GossipKind::AttesterSlashing, GossipEncoding::SSZ),
+            GossipKind::BeaconBlock,
+            GossipKind::BeaconAggregateAndProof,
+            GossipKind::VoluntaryExit,
+            GossipKind::ProposerSlashing,
+            GossipKind::AttesterSlashing,
         ];
 
         // The function used to generate a gossipsub message id
@@ -98,7 +100,7 @@ impl Default for Config {
         // Note: The topics by default are sent as plain strings. Hashes are an optional
         // parameter.
         let gs_config = GossipsubConfigBuilder::new()
-            .max_transmit_size(1_048_576)
+            .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
             .manual_propagation() // require validation before propagation
             .no_source_id()
