@@ -187,83 +187,79 @@ impl<E: EthSpec> ObservedAttesters<E> {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tree_hash::TreeHash;
-    use types::{test_utils::test_random_instance, Hash256};
+    use types::test_utils::test_random_instance;
 
     type E = types::MainnetEthSpec;
 
-    const NUM_ELEMENTS: usize = 8;
+    const NUM_ATTESTERS: usize = 23;
 
-    fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
+    fn get_attestation(epoch: Epoch) -> Attestation<E> {
         let mut a: Attestation<E> = test_random_instance();
-        a.data.slot = slot;
-        a.data.beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
+        a.data.target.epoch = epoch;
         a
     }
 
-    fn single_slot_test(store: &ObservedAttestations<E>, slot: Slot) {
-        let attestations = (0..NUM_ELEMENTS as u64)
-            .map(|i| get_attestation(slot, i))
-            .collect::<Vec<_>>();
+    fn single_epoch_test(store: &ObservedAttesters<E>, epoch: Epoch) {
+        let attesters = [0, 1, 2, 3, 5, 6, 7, 18, 22];
+        let a = &get_attestation(epoch);
 
-        for a in &attestations {
+        for &i in &attesters {
             assert_eq!(
-                store.is_known(a, a.tree_hash_root()),
+                store.has_attested(a, i),
                 Ok(false),
                 "should indicate an unknown attestation is unknown"
             );
             assert_eq!(
-                store.observe_attestation(a, None),
-                Ok(ObserveOutcome::New),
+                store.observe_attesting_validator(a, i),
+                Ok(false),
                 "should observe new attestation"
             );
         }
 
-        for a in &attestations {
+        for &i in &attesters {
             assert_eq!(
-                store.is_known(a, a.tree_hash_root()),
+                store.has_attested(a, i),
                 Ok(true),
                 "should indicate a known attestation is known"
             );
             assert_eq!(
-                store.observe_attestation(a, Some(a.tree_hash_root())),
-                Ok(ObserveOutcome::AlreadyKnown),
+                store.observe_attesting_validator(a, i),
+                Ok(true),
                 "should acknowledge an existing attestation"
             );
         }
     }
 
     #[test]
-    fn single_slot() {
-        let store = ObservedAttestations::default();
+    fn single_epoch() {
+        let store = ObservedAttesters::default();
 
-        single_slot_test(&store, Slot::new(0));
+        single_epoch_test(&store, Epoch::new(0));
 
         assert_eq!(
-            store.sets.read().len(),
+            store.bitfields.read().len(),
             1,
-            "should have a single set stored"
+            "should have a single bitfield stored"
         );
         assert_eq!(
-            store.sets.read()[0].len(),
-            NUM_ELEMENTS,
-            "set should have NUM_ELEMENTS elements"
+            store.bitfields.read()[0].len(),
+            NUM_ATTESTERS,
+            "bitfield should have NUM_ATTESTERS_LEN"
         );
     }
 
     #[test]
-    fn mulitple_contiguous_slots() {
-        let store = ObservedAttestations::default();
+    fn mulitple_contiguous_epochs() {
+        let store = ObservedAttesters::default();
         let max_cap = store.max_capacity();
 
         for i in 0..max_cap * 3 {
-            let slot = Slot::new(i);
+            let epoch = Epoch::new(i);
 
-            single_slot_test(&store, slot);
+            single_epoch_test(&store, epoch);
 
             /*
              * Ensure that the number of sets is correct.
@@ -271,16 +267,16 @@ mod tests {
 
             if i < max_cap {
                 assert_eq!(
-                    store.sets.read().len(),
+                    store.bitfields.read().len(),
                     i as usize + 1,
-                    "should have a {} sets stored",
+                    "should have a {} bitfields stored",
                     i + 1
                 );
             } else {
                 assert_eq!(
-                    store.sets.read().len(),
+                    store.bitfields.read().len(),
                     max_cap as usize,
-                    "should have max_capacity sets stored"
+                    "should have max_capacity bitfields stored"
                 );
             }
 
@@ -288,10 +284,10 @@ mod tests {
              * Ensure that each set contains the correct number of elements.
              */
 
-            for set in &store.sets.read()[..] {
+            for set in &store.bitfields.read()[..] {
                 assert_eq!(
                     set.len(),
-                    NUM_ELEMENTS,
+                    NUM_ATTESTERS,
                     "each store should have NUM_ELEMENTS elements"
                 )
             }
@@ -300,57 +296,57 @@ mod tests {
              *  Ensure that all the sets have the expected slots
              */
 
-            let mut store_slots = store
-                .sets
+            let mut store_epochs = store
+                .bitfields
                 .read()
                 .iter()
-                .map(|set| set.slot)
+                .map(|set| set.epoch)
                 .collect::<Vec<_>>();
 
             assert!(
-                store_slots.len() <= store.max_capacity() as usize,
+                store_epochs.len() <= store.max_capacity() as usize,
                 "store size should not exceed max"
             );
 
-            store_slots.sort_unstable();
+            store_epochs.sort_unstable();
 
-            let expected_slots = (i.saturating_sub(max_cap - 1)..=i)
-                .map(Slot::new)
+            let expected_epochs = (i.saturating_sub(max_cap - 1)..=i)
+                .map(Epoch::new)
                 .collect::<Vec<_>>();
 
-            assert_eq!(expected_slots, store_slots, "should have expected slots");
+            assert_eq!(expected_epochs, store_epochs, "should have expected slots");
         }
     }
 
     #[test]
-    fn mulitple_non_contiguous_slots() {
-        let store = ObservedAttestations::default();
+    fn mulitple_non_contiguous_epochs() {
+        let store = ObservedAttesters::default();
         let max_cap = store.max_capacity();
 
-        let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
-        let slots = (0..max_cap * 3)
+        let to_skip = vec![1_u64, 3, 4, 5];
+        let epochs = (0..max_cap * 3)
             .into_iter()
             .filter(|i| !to_skip.contains(i))
             .collect::<Vec<_>>();
 
-        for &i in &slots {
+        for &i in &epochs {
             if to_skip.contains(&i) {
                 continue;
             }
 
-            let slot = Slot::from(i);
+            let epoch = Epoch::from(i);
 
-            single_slot_test(&store, slot);
+            single_epoch_test(&store, epoch);
 
             /*
              * Ensure that each set contains the correct number of elements.
              */
 
-            for set in &store.sets.read()[..] {
+            for set in &store.bitfields.read()[..] {
                 assert_eq!(
                     set.len(),
-                    NUM_ELEMENTS,
-                    "each store should have NUM_ELEMENTS elements"
+                    NUM_ATTESTERS,
+                    "each bitfield should have NUM_ATTESTERS length"
                 )
             }
 
@@ -358,33 +354,32 @@ mod tests {
              *  Ensure that all the sets have the expected slots
              */
 
-            let mut store_slots = store
-                .sets
+            let mut store_epochs = store
+                .bitfields
                 .read()
                 .iter()
-                .map(|set| set.slot)
+                .map(|b| b.epoch)
                 .collect::<Vec<_>>();
 
-            store_slots.sort_unstable();
+            store_epochs.sort_unstable();
 
             assert!(
-                store_slots.len() <= store.max_capacity() as usize,
+                store_epochs.len() <= store.max_capacity() as usize,
                 "store size should not exceed max"
             );
 
-            let lowest = store.lowest_permissible_slot.read().as_u64();
-            let highest = slot.as_u64();
-            let expected_slots = (lowest..=highest)
+            let lowest = store.lowest_permissible_epoch.read().as_u64();
+            let highest = epoch.as_u64();
+            let expected_epochs = (lowest..=highest)
                 .filter(|i| !to_skip.contains(i))
-                .map(Slot::new)
+                .map(Epoch::new)
                 .collect::<Vec<_>>();
 
             assert_eq!(
-                expected_slots,
-                &store_slots[..],
-                "should have expected slots"
+                expected_epochs,
+                &store_epochs[..],
+                "should have expected epochs"
             );
         }
     }
 }
-*/
