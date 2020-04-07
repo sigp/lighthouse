@@ -279,10 +279,7 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
         store.get_state(&new_state_hash, Some(new_state_slot))
     }
 
-    pub fn from_block(
-        store: Arc<S>,
-        block_hash: SignedBeaconBlockHash,
-    ) -> Result<Self, Error> {
+    pub fn from_block(store: Arc<S>, block_hash: SignedBeaconBlockHash) -> Result<Self, Error> {
         let block = store
             .get_block(&block_hash.into())?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?;
@@ -297,23 +294,23 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
             Self::next_historical_root_backtrack_state(&*store, &current_state)?
         };
         let result = Self {
-            store:          Arc::clone(&store),
-            slot:           slot,
-            current_state:  current_state,
-            next_state:     next_state,
+            store: Arc::clone(&store),
+            slot: slot,
+            current_state: current_state,
+            next_state: next_state,
         };
         Ok(result)
     }
 
     fn is_skipped_slot(&self, slot: Slot) -> Result<bool, Error> {
         let result = if slot % E::SlotsPerHistoricalRoot::to_u64() >= 1 {
-            self.current_state.get_block_root(slot)? == self.current_state.get_block_root(slot-1)?
+            self.current_state.get_block_root(slot)?
+                == self.current_state.get_block_root(slot - 1)?
         } else {
             // We're at the boundary of a historical batch.
             if let Some(next) = &self.next_state {
-                self.current_state.get_block_root(slot)? == next.get_block_root(slot-1)?
-            }
-            else {
+                self.current_state.get_block_root(slot)? == next.get_block_root(slot - 1)?
+            } else {
                 debug_assert_eq!(slot, 0);
                 false
             }
@@ -321,16 +318,24 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
         Ok(result)
     }
 
-    fn do_next(&mut self) -> Result<Option<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash)>, Error> {
+    fn do_next(
+        &mut self,
+    ) -> Result<Option<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash)>, Error> {
         if self.slot == 0 {
             return Ok(None);
         }
 
         // Maintain the invariant of self.current_state and self.next_state always being set to
         // loaded BeaconState.
-        if self.slot > E::SlotsPerHistoricalRoot::to_u64() && self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1 {
-            self.current_state = self.next_state.take().expect("invariant violated: absent next state");
-            self.next_state = Self::next_historical_root_backtrack_state(&*self.store, &self.current_state)?;
+        if self.slot > E::SlotsPerHistoricalRoot::to_u64()
+            && self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1
+        {
+            self.current_state = self
+                .next_state
+                .take()
+                .expect("invariant violated: absent next state");
+            self.next_state =
+                Self::next_historical_root_backtrack_state(&*self.store, &self.current_state)?;
         }
 
         let (block_hash, state_hash) = self.current_state.get_block_state_roots(self.slot)?;

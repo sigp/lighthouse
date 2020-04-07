@@ -34,7 +34,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
-    ReverseStateRootIterator, StateRootsIterator, SlotBlockStateIterator,
+    ReverseStateRootIterator, SlotBlockStateIterator, StateRootsIterator,
 };
 use store::{Error as DBError, Migrate, StateBatch, Store};
 use tree_hash::TreeHash;
@@ -1931,7 +1931,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
 
         if new_finalized_epoch != old_finalized_epoch {
-            self.after_finalization(old_finalized_epoch, finalized_root, old_finalized_root.into())?;
+            self.after_finalization(
+                old_finalized_epoch,
+                finalized_root,
+                old_finalized_root.into(),
+            )?;
         }
 
         let _ = self.event_handler.register(EventKind::BeaconHeadChanged {
@@ -1976,10 +1980,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BeaconStateHash,
             )> = Vec::new();
 
-            for result in SlotBlockStateIterator::from_block(Arc::clone(&self.store), head_hash.into())? {
+            for result in
+                SlotBlockStateIterator::from_block(Arc::clone(&self.store), head_hash.into())?
+            {
                 let (slot, is_skipped_slot, block_hash, state_hash) = result?;
                 if slot <= old_finalized_slot {
-
                     // We must assume here any candidate chains include old_finalized_block_hash,
                     // i.e. there aren't any forks starting at a block that is a strict ancestor of
                     // old_finalized_block_hash.
@@ -1989,13 +1994,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if is_skipped_slot {
                     if newly_finalized_blocks.contains(&block_hash) {
                         potentially_abandoned_blocks.push((slot, None, state_hash));
-                    }
-                    else {
+                    } else {
                         // It is possible we'll delete block_hash multiple times.  That's fine.
                         potentially_abandoned_blocks.push((slot, Some(block_hash), state_hash));
                     }
-                }
-                else {
+                } else {
                     if newly_finalized_blocks.contains(&block_hash) {
                         if slot >= new_finalized_slot {
                             // The first finalized block of a candidate chain lies after (in terms
@@ -2005,15 +2008,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             potentially_abandoned_head.take();
                             break;
                         }
-                    }
-                    else {
+                    } else {
                         potentially_abandoned_blocks.push((slot, Some(block_hash), state_hash));
                     }
                 }
             }
 
-            abandoned_blocks.extend(potentially_abandoned_blocks.iter().filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash));
-            abandoned_states.extend(potentially_abandoned_blocks.iter().map(|(_, _, state_hash)| state_hash));
+            abandoned_blocks.extend(
+                potentially_abandoned_blocks
+                    .iter()
+                    .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
+            );
+            abandoned_states.extend(
+                potentially_abandoned_blocks
+                    .iter()
+                    .map(|(_, _, state_hash)| state_hash),
+            );
             abandoned_heads.extend(potentially_abandoned_head.into_iter());
             potentially_abandoned_blocks.clear();
         }

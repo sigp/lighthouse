@@ -3,10 +3,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::BeaconSnapshot;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use beacon_chain::BeaconSnapshot;
 use beacon_chain::{AttestationProcessingOutcome, StateSkipConfig};
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
