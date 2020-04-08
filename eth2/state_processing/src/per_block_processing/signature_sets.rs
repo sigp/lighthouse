@@ -10,8 +10,8 @@ use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
-    Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit,
-    SigningRoot,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot,
+    SignedVoluntaryExit, SigningRoot,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -340,6 +340,69 @@ where
     Ok(SignatureSet::single(
         &signed_exit.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        message,
+    ))
+}
+
+pub fn signed_aggregate_selection_proof_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
+    fork: &Fork,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
+    let slot = signed_aggregate_and_proof.message.aggregate.data.slot;
+
+    let domain = spec.get_domain(
+        slot.epoch(T::slots_per_epoch()),
+        Domain::SelectionProof,
+        fork,
+    );
+    let message = slot.signing_root(domain).as_bytes().to_vec();
+    let signature = &signed_aggregate_and_proof.message.selection_proof;
+    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single(
+        signature,
+        get_pubkey(validator_index as usize)
+            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
+        message,
+    ))
+}
+
+pub fn signed_aggregate_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
+    fork: &Fork,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+{
+    let target_epoch = signed_aggregate_and_proof
+        .message
+        .aggregate
+        .data
+        .target
+        .epoch;
+
+    let domain = spec.get_domain(target_epoch, Domain::AggregateAndProof, fork);
+    let message = signed_aggregate_and_proof
+        .message
+        .signing_root(domain)
+        .as_bytes()
+        .to_vec();
+    let signature = &signed_aggregate_and_proof.signature;
+    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single(
+        signature,
+        get_pubkey(validator_index as usize)
+            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
         message,
     ))
 }

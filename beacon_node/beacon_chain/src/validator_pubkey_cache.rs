@@ -115,6 +115,11 @@ impl ValidatorPubkeyCache {
     pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<usize> {
         self.indices.get(pubkey).copied()
     }
+
+    /// Returns the number of validators in the cache.
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
 }
 
 /// Allows for maintaining an on-disk copy of the `ValidatorPubkeyCache`. The file is raw SSZ bytes
