@@ -6,6 +6,8 @@ use crate::{
     metrics,
     naive_aggregation_pool::Error as NaiveAggregationError,
     observed_attestations::{Error as AttestationObservationError, ObserveOutcome},
+    observed_attesters::Error as ObservedAttestersError,
+    shuffling_cache::ShufflingCache,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use slog::{debug, error, trace};
@@ -17,8 +19,8 @@ use state_processing::{
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, RelativeEpoch,
-    SignedAggregateAndProof, Slot,
+    Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
+    RelativeEpoch, SignedAggregateAndProof, Slot,
 };
 
 pub enum Error {
@@ -38,6 +40,8 @@ pub enum Error {
     /// The attestation has been seen before; either in a block, on the gossip network or from a
     /// local validator.
     AttestationAlreadyKnown,
+    AggregatorAlreadyKnown(u64),
+    ValidatorIndexTooHigh(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
     UnknownHeadBlock {
         beacon_block_root: Hash256,
@@ -91,57 +95,47 @@ pub struct FullyVerifiedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
 }
 
-// TODO: aggregates:
-//
-/*
-The aggregate is the first valid aggregate received for the aggregator with index
-aggregate_and_proof.aggregator_index for the slot aggregate.data.slot.
-*/
-
-/*
-aggregate_and_proof.selection_proof selects the validator as an aggregator for the slot --
-i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
-    aggregate_and_proof.selection_proof) returns True.
-*/
-
-/*
-The aggregator's validator index is within the aggregate's committee -- i.e.
-aggregate_and_proof.aggregator_index in get_attesting_indices(state, aggregate.data,
-    aggregate.aggregation_bits).
-*/
-
-/*
-The aggregate_and_proof.selection_proof is a valid signature of the aggregate.data.slot by
-the validator with index aggregate_and_proof.aggregator_index.
-*/
-
-/*
-The aggregator signature, signed_aggregate_and_proof.signature, is valid.
-*/
-
-/*
-*/
-
-/*
 impl<T: BeaconChainTypes> VerifiedAggregateAttestation<T> {
     pub fn new(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
+        let attestation = &signed_aggregate.message.aggregate;
+
         // Ensure attestation is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(chain, &attestation)?;
+        verify_propagation_slot_range(chain, attestation)?;
 
-        // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
-        // aggregation bit set.
-        let num_aggreagtion_bits = attestation.aggregation_bits.num_set_bits();
-        if num_aggreagtion_bits != 1 {
-            return Err(Error::NotExactlyOneAggregationBitSet(num_aggreagtion_bits));
+        // Ensure the aggregated attestation has not already been seen locally.
+        let attestation_root = attestation.tree_hash_root();
+        if let ObserveOutcome::AlreadyKnown = chain
+            .observed_attestations
+            .observe_attestation(attestation, Some(attestation_root))
+            .map_err(|e| Error::BeaconChainError(e.into()))?
+        {
+            return Err(Error::AttestationAlreadyKnown);
         }
 
-        // The block being voted for (attestation.data.beacon_block_root) passes validation.
+        let aggregator_index = signed_aggregate.message.aggregator_index;
+
+        // Ensure there has been no other observed aggregate for the given `aggregator_index`.
+        //
+        // Note: do not observe yet, only observe once the attestation has been verfied.
+        match chain
+            .observed_aggregators
+            .validator_has_been_observed(attestation, aggregator_index as usize)
+        {
+            Ok(true) => Err(Error::AggregatorAlreadyKnown(aggregator_index)),
+            Ok(false) => Ok(()),
+            Err(ObservedAttestersError::ValidatorIndexTooHigh(i)) => {
+                Err(Error::ValidatorIndexTooHigh(i))
+            }
+            Err(e) => Err(BeaconChainError::from(e).into()),
+        }?;
+
+        // Ensure the block being voted for (attestation.data.beacon_block_root) passes validation.
         //
         // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
         // choice. Any known, non-finalized, processed block should be in fork choice, so this
@@ -158,9 +152,10 @@ impl<T: BeaconChainTypes> VerifiedAggregateAttestation<T> {
             })?;
 
         let indexed_attestation = obtain_indexed_attestation(chain, &attestation, block_slot)?;
+
+        todo!()
     }
 }
-*/
 
 impl<T: BeaconChainTypes> VerifiedUnaggregateAttestation<T> {
     pub fn new(
@@ -195,15 +190,6 @@ impl<T: BeaconChainTypes> VerifiedUnaggregateAttestation<T> {
             .ok_or_else(|| Error::UnknownHeadBlock {
                 beacon_block_root: attestation.data.beacon_block_root,
             })?;
-
-        let attestation_root = attestation.tree_hash_root();
-        if let ObserveOutcome::AlreadyKnown = chain
-            .observed_attestations
-            .observe_attestation(&attestation, Some(attestation_root))
-            .map_err(|e| Error::BeaconChainError(e.into()))?
-        {
-            return Err(Error::AttestationAlreadyKnown);
-        }
 
         let indexed_attestation = obtain_indexed_attestation(chain, &attestation, block_slot)?;
 
@@ -518,6 +504,122 @@ pub fn obtain_indexed_attestation<T: BeaconChainTypes>(
                 get_indexed_attestation(committee.committee, &attestation)
                     .map_err(|e| BeaconChainError::from(e).into())
             })
+            .unwrap_or_else(|| {
+                Err(Error::NoCommitteeForSlotAndIndex {
+                    slot: attestation.data.slot,
+                    index: attestation.data.index,
+                })
+            })
+    }
+}
+
+pub fn map_committee_cache<'a, T, F, R>(
+    chain: &'a BeaconChain<T>,
+    attestation: &Attestation<T::EthSpec>,
+    block_slot: Slot,
+    map_fn: F,
+) -> Result<R, Error>
+where
+    T: BeaconChainTypes,
+    F: Fn(BeaconCommittee) -> Result<R, Error>,
+{
+    let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
+    let target = &attestation.data.target;
+
+    // Attestation target must be for a known block.
+    //
+    // We use fork choice to find the target root, which means that we reject any attestation
+    // that has a `target.root` earlier than our latest finalized root. There's no point in
+    // processing an attestation that does not include our latest finalized block in its chain.
+    //
+    // We do not delay consideration for later, we simply drop the attestation.
+    //
+    // TODO: make sure this isn't too strict....
+    let (target_block_slot, target_block_state_root) = chain
+        .fork_choice
+        .block_slot_and_state_root(&target.root)
+        .ok_or_else(|| Error::UnknownTargetRoot(target.root))?;
+
+    // Obtain the shuffling cache, timing how long we wait.
+    let cache_wait_timer =
+        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
+
+    let mut shuffling_cache = chain
+        .shuffling_cache
+        .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+        .ok_or_else(|| BeaconChainError::AttestationCacheLockTimeout)?;
+
+    metrics::stop_timer(cache_wait_timer);
+
+    if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
+        committee_cache
+            .get_beacon_committee(attestation.data.slot, attestation.data.index)
+            .map(map_fn)
+            .unwrap_or_else(|| {
+                Err(Error::NoCommitteeForSlotAndIndex {
+                    slot: attestation.data.slot,
+                    index: attestation.data.index,
+                })
+            })
+    } else {
+        // Drop the shuffling cache to avoid holding the lock for any longer than
+        // required.
+        drop(shuffling_cache);
+
+        debug!(
+            chain.log,
+            "Attestation processing cache miss";
+            "attn_epoch" => attestation_epoch.as_u64(),
+            "head_block_epoch" => block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
+        );
+
+        let state_read_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
+
+        let mut state = chain
+            .get_state(&target_block_state_root, Some(target_block_slot))?
+            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block_state_root))?;
+
+        metrics::stop_timer(state_read_timer);
+        let state_skip_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
+
+        while state.current_epoch() + 1 < attestation_epoch {
+            // Here we tell `per_slot_processing` to skip hashing the state and just
+            // use the zero hash instead.
+            //
+            // The state roots are not useful for the shuffling, so there's no need to
+            // compute them.
+            per_slot_processing(&mut state, Some(Hash256::zero()), &chain.spec)
+                .map_err(|e| BeaconChainError::from(e))?
+        }
+
+        metrics::stop_timer(state_skip_timer);
+        let committee_building_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
+
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), attestation_epoch)
+            .map_err(BeaconChainError::IncorrectStateForAttestation)?;
+
+        state
+            .build_committee_cache(relative_epoch, &chain.spec)
+            .map_err(|e| BeaconChainError::from(e))?;
+
+        let committee_cache = state
+            .committee_cache(relative_epoch)
+            .map_err(|e| BeaconChainError::from(e))?;
+
+        chain
+            .shuffling_cache
+            .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+            .ok_or_else(|| BeaconChainError::AttestationCacheLockTimeout)?
+            .insert(attestation_epoch, target.root, committee_cache);
+
+        metrics::stop_timer(committee_building_timer);
+
+        committee_cache
+            .get_beacon_committee(attestation.data.slot, attestation.data.index)
+            .map(map_fn)
             .unwrap_or_else(|| {
                 Err(Error::NoCommitteeForSlotAndIndex {
                     slot: attestation.data.slot,
