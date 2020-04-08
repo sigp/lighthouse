@@ -10,7 +10,7 @@ use types::test_utils::{
 use types::*;
 
 pub const NUM_DEPOSITS: u64 = 1;
-pub const VALIDATOR_COUNT: usize = 10;
+pub const VALIDATOR_COUNT: usize = 64;
 pub const SLOT_OFFSET: u64 = 4;
 pub const EXIT_SLOT_OFFSET: u64 = 2048;
 pub const NUM_ATTESTATIONS: u64 = 1;
@@ -93,7 +93,12 @@ fn invalid_block_signature() {
 
     // sign the block with a keypair that is not the expected proposer
     let keypair = Keypair::random();
-    let block = block.message.sign(&keypair.sk, &state.fork, &spec);
+    let block = block.message.sign(
+        &keypair.sk,
+        &state.fork,
+        state.genesis_validators_root,
+        &spec,
+    );
 
     // process block with invalid block signature
     let result = per_block_processing(
@@ -630,7 +635,7 @@ fn invalid_attestation_wrong_justified_checkpoint() {
 #[test]
 fn invalid_attestation_bad_indexed_attestation_bad_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, 33); // minmium number of validators required for this test
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::BadIndexedAttestationBadSignature;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);

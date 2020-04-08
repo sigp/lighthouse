@@ -187,6 +187,19 @@ where
             .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
     }
 
+    /// Returns true if `self.store` contains a persisted beacon chain.
+    pub fn store_contains_beacon_chain(&self) -> Result<bool, String> {
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "load_from_store requires a store.".to_string())?;
+
+        Ok(store
+            .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
+            .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
+            .is_some())
+    }
+
     /// Attempt to load an existing chain from the builder's `Store`.
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
@@ -418,6 +431,7 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
             eth1_chain: self.eth1_chain,
+            genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root: self
                 .genesis_block_root

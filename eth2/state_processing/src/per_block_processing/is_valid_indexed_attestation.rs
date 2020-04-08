@@ -11,7 +11,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 
 /// Verify an `IndexedAttestation`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn is_valid_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation<T>,

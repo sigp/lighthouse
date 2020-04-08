@@ -13,7 +13,7 @@ pub enum Error {
 /// `state_root` is `None`, the root of `state` will be computed using a cached tree hash.
 /// Providing the `state_root` makes this function several orders of magniude faster.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,

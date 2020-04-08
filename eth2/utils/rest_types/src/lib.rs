@@ -3,6 +3,7 @@
 //! This is primarily used by the validator client and the beacon node rest API.
 
 mod beacon;
+mod consensus;
 mod validator;
 
 pub use beacon::{
@@ -13,3 +14,5 @@ pub use beacon::{
 pub use validator::{
     ValidatorDutiesRequest, ValidatorDuty, ValidatorDutyBytes, ValidatorSubscription,
 };
+
+pub use consensus::{IndividualVote, IndividualVotesRequest, IndividualVotesResponse};

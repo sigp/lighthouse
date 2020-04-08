@@ -89,12 +89,12 @@ fn update_proposal_signatures(
             .get(proposer_index)
             .expect("proposer keypair should be available");
 
-        snapshot.beacon_block =
-            snapshot
-                .beacon_block
-                .message
-                .clone()
-                .sign(&keypair.sk, &state.fork, spec);
+        snapshot.beacon_block = snapshot.beacon_block.message.clone().sign(
+            &keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
     }
 }
 
@@ -352,7 +352,6 @@ fn invalid_signatures() {
          */
         let mut snapshots = CHAIN_SEGMENT.clone();
         let proposer_slashing = ProposerSlashing {
-            proposer_index: 0,
             signed_header_1: SignedBeaconBlockHeader {
                 message: snapshots[block_index].beacon_block.message.block_header(),
                 signature: junk_signature(),

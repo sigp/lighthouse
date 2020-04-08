@@ -77,6 +77,7 @@ where
         block.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
         &state.fork,
+        state.genesis_validators_root,
     );
 
     let message = if let Some(root) = block_root {
@@ -113,6 +114,7 @@ where
         block.slot.epoch(T::slots_per_epoch()),
         Domain::Randao,
         &state.fork,
+        state.genesis_validators_root,
     );
 
     let message = block.slot.epoch(T::slots_per_epoch()).signing_root(domain);
@@ -135,7 +137,7 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, G1Point>>,
 {
-    let proposer_index = proposer_slashing.proposer_index as usize;
+    let proposer_index = proposer_slashing.signed_header_1.message.proposer_index as usize;
 
     Ok((
         block_header_signature_set(
@@ -166,6 +168,7 @@ fn block_header_signature_set<'a, T: EthSpec>(
         signed_header.message.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
         &state.fork,
+        state.genesis_validators_root,
     );
 
     let message = signed_header
@@ -206,6 +209,7 @@ where
         indexed_attestation.data.target.epoch,
         Domain::BeaconAttester,
         &state.fork,
+        state.genesis_validators_root,
     );
 
     let message = indexed_attestation.data.signing_root(domain);
@@ -221,6 +225,7 @@ pub fn indexed_attestation_signature_set_from_pubkeys<'a, 'b, T, F>(
     signature: &'a AggregateSignature,
     indexed_attestation: &'b IndexedAttestation<T>,
     fork: &Fork,
+    genesis_validators_root: Hash256,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -240,6 +245,7 @@ where
         indexed_attestation.data.target.epoch,
         Domain::BeaconAttester,
         &fork,
+        genesis_validators_root,
     );
 
     let message = indexed_attestation.data.signing_root(domain);
@@ -322,7 +328,12 @@ where
     let exit = &signed_exit.message;
     let proposer_index = exit.validator_index as usize;
 
-    let domain = spec.get_domain(exit.epoch, Domain::VoluntaryExit, &state.fork);
+    let domain = spec.get_domain(
+        exit.epoch,
+        Domain::VoluntaryExit,
+        &state.fork,
+        state.genesis_validators_root,
+    );
 
     let message = exit.signing_root(domain).as_bytes().to_vec();
 

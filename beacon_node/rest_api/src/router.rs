@@ -82,6 +82,9 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/beacon/genesis_time") => {
                 into_boxfut(beacon::get_genesis_time::<T>(req, beacon_chain))
             }
+            (&Method::GET, "/beacon/genesis_validators_root") => {
+                into_boxfut(beacon::get_genesis_validators_root::<T>(req, beacon_chain))
+            }
             (&Method::GET, "/beacon/validators") => {
                 into_boxfut(beacon::get_validators::<T>(req, beacon_chain))
             }

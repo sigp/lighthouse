@@ -1,7 +1,7 @@
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U2048, U32, U4, U4096, U64,
+    Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U64,
     U65536, U8, U8192,
 };
 use std::fmt::Debug;
@@ -21,7 +21,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
      * Time parameters
      */
     type SlotsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type SlotsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type EpochsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * State list lengths
@@ -44,9 +44,13 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /// The length of the `{previous,current}_epoch_attestations` lists.
     ///
     /// Must be set to `MaxAttestations * SlotsPerEpoch`
-    // NOTE: we could safely instantiate this by using type-level arithmetic, but doing
+    // NOTE: we could safely instantiate these by using type-level arithmetic, but doing
     // so adds ~25s to the time required to type-check this crate
     type MaxPendingAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// The length of `eth1_data_votes`.
+    ///
+    /// Must be set to `EpochsPerEth1VotingPeriod * SlotsPerEpoch`
+    type SlotsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -59,7 +63,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /// Note: the number of committees per slot is constant in each epoch, and depends only on
     /// the `active_validator_count` during the slot's epoch.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     fn get_committee_count_per_slot(active_validator_count: usize, spec: &ChainSpec) -> usize {
         let slots_per_epoch = Self::SlotsPerEpoch::to_usize();
 
@@ -83,28 +87,28 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     fn slots_per_epoch() -> u64 {
         Self::SlotsPerEpoch::to_u64()
     }
 
     /// Returns the `SLOTS_PER_HISTORICAL_ROOT` constant for this specification.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     fn slots_per_historical_root() -> usize {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
 
     /// Returns the `EPOCHS_PER_HISTORICAL_VECTOR` constant for this specification.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     fn epochs_per_historical_vector() -> usize {
         Self::EpochsPerHistoricalVector::to_usize()
     }
 
     /// Returns the `SLOTS_PER_ETH1_VOTING_PERIOD` constant for this specification.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     fn slots_per_eth1_voting_period() -> usize {
         Self::SlotsPerEth1VotingPeriod::to_usize()
     }
@@ -120,7 +124,7 @@ macro_rules! params_from_eth_spec {
 
 /// Ethereum Foundation specifications.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
@@ -130,7 +134,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxValidatorsPerCommittee = U2048;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
-    type SlotsPerEth1VotingPeriod = U1024;
+    type EpochsPerEth1VotingPeriod = U32;
     type SlotsPerHistoricalRoot = U8192;
     type EpochsPerHistoricalVector = U65536;
     type EpochsPerSlashingsVector = U8192;
@@ -142,6 +146,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
+    type SlotsPerEth1VotingPeriod = U1024; // 32 epochs * 32 slots per epoch
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -152,17 +157,18 @@ pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
     type SlotsPerEpoch = U8;
-    type SlotsPerEth1VotingPeriod = U16;
+    type EpochsPerEth1VotingPeriod = U2;
     type SlotsPerHistoricalRoot = U64;
     type EpochsPerHistoricalVector = U64;
     type EpochsPerSlashingsVector = U64;
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
+    type SlotsPerEth1VotingPeriod = U16; // 2 epochs * 8 slots per epoch
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -191,11 +197,12 @@ pub struct InteropEthSpec;
 
 impl EthSpec for InteropEthSpec {
     type SlotsPerEpoch = U8;
+    type EpochsPerEth1VotingPeriod = U2;
     type SlotsPerHistoricalRoot = U64;
-    type SlotsPerEth1VotingPeriod = U16;
     type EpochsPerHistoricalVector = U64;
     type EpochsPerSlashingsVector = U64;
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
+    type SlotsPerEth1VotingPeriod = U16; // 2 epochs * 8 slots per epoch
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,

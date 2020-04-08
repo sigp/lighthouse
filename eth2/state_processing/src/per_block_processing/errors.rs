@@ -159,7 +159,14 @@ impl<T> From<ssz_types::Error> for BlockOperationError<T> {
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
     StateSlotMismatch,
-    ParentBlockRootMismatch { state: Hash256, block: Hash256 },
+    ProposerIndexMismatch {
+        block_proposer_index: usize,
+        state_proposer_index: usize,
+    },
+    ParentBlockRootMismatch {
+        state: Hash256,
+        block: Hash256,
+    },
     ProposerSlashed(usize),
 }
 
@@ -171,6 +178,10 @@ pub enum ProposerSlashingInvalid {
     ///
     /// (proposal_1_slot, proposal_2_slot)
     ProposalSlotMismatch(Slot, Slot),
+    /// The two proposals have different proposer indices.
+    ///
+    /// (proposer_index_1, proposer_index_2)
+    ProposerIndexMismatch(u64, u64),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
     /// The specified proposer cannot be slashed because they are already slashed, or not active.

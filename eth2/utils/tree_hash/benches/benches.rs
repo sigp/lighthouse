@@ -54,7 +54,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
             b.iter_batched_ref(
                 || state2.clone(),
                 |state| {
-                    assert!(!state.tree_hash_cache.is_initialized());
+                    assert!(state.tree_hash_cache.is_none());
                     black_box(state.update_tree_hash_cache().unwrap())
                 },
                 criterion::BatchSize::SmallInput,
@@ -72,7 +72,7 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
             b.iter_batched_ref(
                 || state3.clone(),
                 |state| {
-                    assert!(state.tree_hash_cache.is_initialized());
+                    assert!(state.tree_hash_cache.is_some());
                     black_box(state.update_tree_hash_cache().unwrap())
                 },
                 criterion::BatchSize::SmallInput,

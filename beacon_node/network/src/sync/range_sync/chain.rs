@@ -1,5 +1,5 @@
 use super::batch::{Batch, BatchId, PendingBatches};
-use super::batch_processing::{spawn_batch_processor, BatchProcessResult};
+use crate::sync::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -76,7 +76,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
 
     /// A random id given to a batch process request. This is None if there is no ongoing batch
     /// process.
-    current_processing_id: Option<u64>,
+    current_processing_batch: Option<Batch<T::EthSpec>>,
 
     /// A send channel to the sync manager. This is given to the batch processor thread to report
     /// back once batch processing has completed.
@@ -120,7 +120,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             to_be_downloaded_id: BatchId(1),
             to_be_processed_id: BatchId(1),
             state: ChainSyncingState::Stopped,
-            current_processing_id: None,
+            current_processing_batch: None,
             sync_send,
             chain,
             log,
@@ -167,15 +167,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // An entire batch of blocks has been received. This functions checks to see if it can be processed,
         // remove any batches waiting to be verified and if this chain is syncing, request new
         // blocks for the peer.
-        debug!(self.log, "Completed batch received"; "id"=> *batch.id, "blocks"=>batch.downloaded_blocks.len(), "awaiting_batches" => self.completed_batches.len());
+        debug!(self.log, "Completed batch received"; "id"=> *batch.id, "blocks" => &batch.downloaded_blocks.len(), "awaiting_batches" => self.completed_batches.len());
 
         // verify the range of received blocks
         // Note that the order of blocks is verified in block processing
         if let Some(last_slot) = batch.downloaded_blocks.last().map(|b| b.slot()) {
             // the batch is non-empty
-            if batch.start_slot > batch.downloaded_blocks[0].slot() || batch.end_slot < last_slot {
+            let first_slot = batch.downloaded_blocks[0].slot();
+            if batch.start_slot > first_slot || batch.end_slot < last_slot {
                 warn!(self.log, "BlocksByRange response returned out of range blocks";
-                          "response_initial_slot" => batch.downloaded_blocks[0].slot(),
+                          "response_initial_slot" => first_slot,
                           "requested_initial_slot" => batch.start_slot);
                 network.downvote_peer(batch.current_peer);
                 self.to_be_processed_id = batch.id; // reset the id back to here, when incrementing, it will check against completed batches
@@ -218,7 +219,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         // Only process one batch at a time
-        if self.current_processing_id.is_some() {
+        if self.current_processing_batch.is_some() {
             return;
         }
 
@@ -238,14 +239,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Sends a batch to the batch processor.
-    fn process_batch(&mut self, batch: Batch<T::EthSpec>) {
-        // only spawn one instance at a time
-        let processing_id: u64 = rand::random();
-        self.current_processing_id = Some(processing_id);
-        spawn_batch_processor(
+    fn process_batch(&mut self, mut batch: Batch<T::EthSpec>) {
+        let downloaded_blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
+        let batch_id = ProcessId::RangeBatchId(batch.id.clone());
+        self.current_processing_batch = Some(batch);
+        spawn_block_processor(
             self.chain.clone(),
-            processing_id,
-            batch,
+            batch_id,
+            downloaded_blocks,
             self.sync_send.clone(),
             self.log.clone(),
         );
@@ -256,29 +257,40 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn on_batch_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
-        processing_id: u64,
-        batch: &mut Option<Batch<T::EthSpec>>,
+        batch_id: BatchId,
+        downloaded_blocks: &mut Option<Vec<SignedBeaconBlock<T::EthSpec>>>,
         result: &BatchProcessResult,
     ) -> Option<ProcessingResult> {
-        if Some(processing_id) != self.current_processing_id {
-            // batch process doesn't belong to this chain
+        if let Some(current_batch) = &self.current_processing_batch {
+            if current_batch.id != batch_id {
+                // batch process does not belong to this chain
+                return None;
+            }
+        // Continue. This is our processing request
+        } else {
+            // not waiting on a processing result
             return None;
         }
 
-        // Consume the batch option
-        let batch = batch.take().or_else(|| {
+        // claim the result by consuming the option
+        let downloaded_blocks = downloaded_blocks.take().or_else(|| {
+            // if taken by another chain, we are no longer waiting on a result.
+            self.current_processing_batch = None;
             crit!(self.log, "Processed batch taken by another chain");
             None
         })?;
 
+        // No longer waiting on a processing result
+        let mut batch = self.current_processing_batch.take().unwrap();
+        // These are the blocks of this batch
+        batch.downloaded_blocks = downloaded_blocks;
+
         // double check batches are processed in order TODO: Remove for prod
         if batch.id != self.to_be_processed_id {
             crit!(self.log, "Batch processed out of order";
-            "processed_batch_id" => *batch.id,
-            "expected_id" => *self.to_be_processed_id);
+                "processed_batch_id" => *batch.id,
+                "expected_id" => *self.to_be_processed_id);
         }
-
-        self.current_processing_id = None;
 
         let res = match result {
             BatchProcessResult::Success => {

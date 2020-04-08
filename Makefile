@@ -22,6 +22,10 @@ test-debug:
 cargo-fmt:
 	cargo fmt --all -- --check
 
+# Typechecks benchmark code
+check-benches:
+	cargo check --all --benches
+
 # Runs only the ef-test vectors.
 run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"

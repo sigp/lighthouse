@@ -7,6 +7,7 @@ mod config;
 pub use beacon_chain;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
+pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::{
@@ -14,7 +15,7 @@ use beacon_chain::{
     slot_clock::SystemTimeSlotClock,
 };
 use clap::ArgMatches;
-use config::get_configs;
+use config::get_config;
 use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
@@ -51,20 +52,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// given `matches` and potentially configuration files on the local filesystem or other
     /// configurations hosted remotely.
     pub fn new_from_cli<'a, 'b>(
-        mut context: RuntimeContext<E>,
+        context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
     ) -> impl Future<Item = Self, Error = String> + 'a {
-        let log = context.log.clone();
-
-        // TODO: the eth2 config in the env is being modified.
-        //
-        // See https://github.com/sigp/lighthouse/issues/602
-        get_configs::<E>(&matches, context.eth2_config.clone(), log)
+        get_config::<E>(&matches, context.eth2_config.clone(), context.log.clone())
             .into_future()
-            .and_then(move |(client_config, eth2_config, _log)| {
-                context.eth2_config = eth2_config;
-                Self::new(context, client_config)
-            })
+            .and_then(move |client_config| Self::new(context, client_config))
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.

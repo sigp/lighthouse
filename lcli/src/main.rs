@@ -2,6 +2,7 @@
 extern crate log;
 
 mod change_genesis_time;
+mod check_deposit_data;
 mod deploy_deposit_contract;
 mod eth1_genesis;
 mod helpers;
@@ -32,6 +33,7 @@ fn main() {
         .arg(
             Arg::with_name("spec")
                 .short("s")
+                .long("spec")
                 .value_name("STRING")
                 .takes_value(true)
                 .required(true)
@@ -359,6 +361,29 @@ fn main() {
                               optimization for nodes, please do it."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("check-deposit-data")
+                .about(
+                    "Checks the integrity of some deposit data.",
+                )
+                .arg(
+                    Arg::with_name("deposit-amount")
+                        .index(1)
+                        .value_name("GWEI")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The amount (in Gwei) that was deposited"),
+                )
+                .arg(
+                    Arg::with_name("deposit-data")
+                        .index(2)
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .required(true)
+                        .help("A 0x-prefixed hex string of the deposit data. Should include the
+                            function signature."),
+                )
+        )
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -445,6 +470,8 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
             .unwrap_or_else(|e| error!("Failed to run change-genesis-time command: {}", e)),
         ("new-testnet", Some(matches)) => new_testnet::run::<T>(matches)
             .unwrap_or_else(|e| error!("Failed to run new_testnet command: {}", e)),
+        ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
+            .unwrap_or_else(|e| error!("Failed to run check-deposit-data command: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }

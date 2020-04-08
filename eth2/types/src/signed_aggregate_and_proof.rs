@@ -1,6 +1,6 @@
 use super::{
-    AggregateAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, PublicKey, SecretKey,
-    Signature, SignedRoot,
+    AggregateAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
+    SecretKey, Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -29,13 +29,25 @@ impl<T: EthSpec> SignedAggregateAndProof<T> {
         aggregate: Attestation<T>,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
-        let message =
-            AggregateAndProof::from_aggregate(aggregator_index, aggregate, secret_key, fork, spec);
+        let message = AggregateAndProof::from_aggregate(
+            aggregator_index,
+            aggregate,
+            secret_key,
+            fork,
+            genesis_validators_root,
+            spec,
+        );
 
         let target_epoch = message.aggregate.data.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(target_epoch, Domain::AggregateAndProof, fork);
+        let domain = spec.get_domain(
+            target_epoch,
+            Domain::AggregateAndProof,
+            fork,
+            genesis_validators_root,
+        );
         let signing_message = message.signing_root(domain);
 
         SignedAggregateAndProof {
@@ -49,20 +61,35 @@ impl<T: EthSpec> SignedAggregateAndProof<T> {
         &self,
         validator_pubkey: &PublicKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> bool {
         let target_epoch = self.message.aggregate.data.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(target_epoch, Domain::AggregateAndProof, fork);
+        let domain = spec.get_domain(
+            target_epoch,
+            Domain::AggregateAndProof,
+            fork,
+            genesis_validators_root,
+        );
         let message = self.message.signing_root(domain);
         self.signature.verify(message.as_bytes(), validator_pubkey)
     }
 
     /// Verifies the signature of the `AggregateAndProof` as well the underlying selection_proof in
     /// the contained `AggregateAndProof`.
-    pub fn is_valid(&self, validator_pubkey: &PublicKey, fork: &Fork, spec: &ChainSpec) -> bool {
-        self.is_valid_signature(validator_pubkey, fork, spec)
-            && self
-                .message
-                .is_valid_selection_proof(validator_pubkey, fork, spec)
+    pub fn is_valid(
+        &self,
+        validator_pubkey: &PublicKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> bool {
+        self.is_valid_signature(validator_pubkey, fork, genesis_validators_root, spec)
+            && self.message.is_valid_selection_proof(
+                validator_pubkey,
+                fork,
+                genesis_validators_root,
+                spec,
+            )
     }
 }

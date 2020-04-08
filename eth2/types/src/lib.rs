@@ -67,6 +67,7 @@ pub use crate::deposit_message::DepositMessage;
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::fork::Fork;
+pub use crate::fork_data::ForkData;
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
@@ -83,7 +84,6 @@ pub use crate::slot_epoch::{Epoch, Slot, FAR_FUTURE_EPOCH};
 pub use crate::subnet_id::SubnetId;
 pub use crate::validator::Validator;
 pub use crate::voluntary_exit::VoluntaryExit;
-pub use fork_data::ForkData;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
