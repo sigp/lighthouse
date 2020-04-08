@@ -1,13 +1,27 @@
 use crate::{test_utils::TestRandom, BeaconBlock, EthSpec, Hash256, Slot};
 use bls::Signature;
 
+use std::fmt;
+
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SignedBeaconBlockHash(Hash256);
+
+impl fmt::Debug for SignedBeaconBlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SignedBeaconBlockHash({:?})", self.0)
+    }
+}
+
+impl fmt::Display for SignedBeaconBlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl From<Hash256> for SignedBeaconBlockHash {
     fn from(hash: Hash256) -> SignedBeaconBlockHash {

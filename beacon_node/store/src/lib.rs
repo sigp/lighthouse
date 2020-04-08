@@ -131,6 +131,10 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         self.key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())
     }
 
+    fn state_exists(&self, state_root: &Hash256) -> Result<bool, Error> {
+        self.key_exists(DBColumn::BeaconState.into(), state_root.as_bytes())
+    }
+
     /// (Optionally) Move all data before the frozen slot to the freezer database.
     fn freeze_to_state(
         _store: Arc<Self>,

@@ -1969,61 +1969,74 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
         let mut abandoned_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
-        let mut abandoned_states: HashSet<BeaconStateHash> = HashSet::new();
+        let mut abandoned_states: HashSet<(Slot, BeaconStateHash)> = HashSet::new();
         let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
 
-        for (head_hash, _head_slot) in self.heads() {
+        self.dump_dot_file("pre.dot");
+
+        for (head_hash, head_slot) in self.heads() {
             let mut potentially_abandoned_head: Option<Hash256> = Some(head_hash);
             let mut potentially_abandoned_blocks: Vec<(
                 Slot,
                 Option<SignedBeaconBlockHash>,
-                BeaconStateHash,
+                Option<BeaconStateHash>,
             )> = Vec::new();
 
             for result in
                 SlotBlockStateIterator::from_block(Arc::clone(&self.store), head_hash.into())?
             {
                 let (slot, is_skipped_slot, block_hash, state_hash) = result?;
+
                 if slot <= old_finalized_slot {
                     // We must assume here any candidate chains include old_finalized_block_hash,
                     // i.e. there aren't any forks starting at a block that is a strict ancestor of
                     // old_finalized_block_hash.
-
                     break;
                 }
                 if is_skipped_slot {
                     if newly_finalized_blocks.contains(&block_hash) {
-                        potentially_abandoned_blocks.push((slot, None, state_hash));
+                        potentially_abandoned_blocks.push((slot, None, Some(state_hash)));
                     } else {
-                        // It is possible we'll delete block_hash multiple times.  That's fine.
-                        potentially_abandoned_blocks.push((slot, Some(block_hash), state_hash));
+                        potentially_abandoned_blocks.push((slot, None, Some(state_hash)));
                     }
                 } else {
                     if newly_finalized_blocks.contains(&block_hash) {
-                        if slot >= new_finalized_slot {
+                        debug_assert!(slot <= new_finalized_slot);
+                        if slot == new_finalized_slot {
                             // The first finalized block of a candidate chain lies after (in terms
                             // of slots order) the newly finalized block.  It's not a candidate for
-                            // prunning (yet).
+                            // prunning.
                             potentially_abandoned_blocks.clear();
                             potentially_abandoned_head.take();
                             break;
                         }
                     } else {
-                        potentially_abandoned_blocks.push((slot, Some(block_hash), state_hash));
+                        potentially_abandoned_blocks.push((
+                            slot,
+                            Some(block_hash),
+                            Some(state_hash),
+                        ));
                     }
                 }
             }
+
+            if !potentially_abandoned_blocks.is_empty() {
+                potentially_abandoned_blocks.push((head_slot, Some(head_hash.into()), None));
+            }
+
+            dbg!(&potentially_abandoned_blocks);
 
             abandoned_blocks.extend(
                 potentially_abandoned_blocks
                     .iter()
                     .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
             );
-            abandoned_states.extend(
-                potentially_abandoned_blocks
-                    .iter()
-                    .map(|(_, _, state_hash)| state_hash),
-            );
+            abandoned_states.extend(potentially_abandoned_blocks.iter().filter_map(
+                |(slot, _, maybe_state_hash)| match maybe_state_hash {
+                    None => None,
+                    Some(state_hash) => Some((*slot, *state_hash)),
+                },
+            ));
             abandoned_heads.extend(potentially_abandoned_head.into_iter());
             potentially_abandoned_blocks.clear();
         }
@@ -2033,8 +2046,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for block_hash in abandoned_blocks.into_iter() {
             self.store.delete_block(&block_hash.into())?;
         }
-        for state_hash in abandoned_states.into_iter() {
-            self.store.delete_state(&state_hash.into(), Slot::new(0))?; // TODO Slot parameter is unused
+        for (slot, state_hash) in abandoned_states.into_iter() {
+            self.store.delete_state(&state_hash.into(), slot)?;
         }
         for head_hash in abandoned_heads.into_iter() {
             self.head_tracker.remove_head(head_hash);
@@ -2181,7 +2194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let genesis_block_hash = Hash256::zero();
         write!(output, "digraph beacon {{\n").unwrap();
-        write!(output, "\t_{:?}[label=\"{}\"];\n", genesis_block_hash, 0).unwrap();
+        write!(output, "\t_{:?}[label=\"genesis\"];\n", genesis_block_hash).unwrap();
 
         // Canonical head needs to be processed first as otherwise finalized blocks aren't detected
         // properly.
@@ -2207,16 +2220,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 visited.insert(block_hash);
 
                 if signed_beacon_block
-                    .message
-                    .slot
+                    .slot()
                     .is_epoch_boundary_slot(T::EthSpec::slots_per_epoch())
                 {
-                    let state = self
-                        .state_at_slot(
-                            signed_beacon_block.message.slot,
-                            StateSkipConfig::WithStateRoots,
-                        )
-                        .unwrap();
+                    let block = self.get_block(&block_hash).unwrap().unwrap();
+                    let state = self.get_state(&block.state_root(), Some(block.slot())).unwrap().unwrap();
                     finalized_blocks.insert(state.finalized_checkpoint.root);
                 }
 
@@ -2224,28 +2232,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     write!(
                         output,
                         "\t_{:?}[label=\"{}\" shape=box3d];\n",
-                        block_hash, signed_beacon_block.message.slot
+                        block_hash, signed_beacon_block.slot()
                     )
                     .unwrap();
                 } else if finalized_blocks.contains(&block_hash) {
                     write!(
                         output,
                         "\t_{:?}[label=\"{}\" shape=Msquare];\n",
-                        block_hash, signed_beacon_block.message.slot
+                        block_hash, signed_beacon_block.slot()
                     )
                     .unwrap();
                 } else {
                     write!(
                         output,
                         "\t_{:?}[label=\"{}\" shape=box];\n",
-                        block_hash, signed_beacon_block.message.slot
+                        block_hash, signed_beacon_block.slot()
                     )
                     .unwrap();
                 }
                 write!(
                     output,
                     "\t_{:?} -> _{:?};\n",
-                    block_hash, signed_beacon_block.message.parent_root
+                    block_hash, signed_beacon_block.parent_root()
                 )
                 .unwrap();
             }

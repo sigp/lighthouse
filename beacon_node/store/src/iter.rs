@@ -267,6 +267,7 @@ pub struct SlotBlockStateIterator<E: EthSpec, S> {
     slot: Slot,
     current_state: BeaconState<E>,
     next_state: Option<BeaconState<E>>,
+    prev_block_parent: SignedBeaconBlockHash,
 }
 
 impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
@@ -283,11 +284,10 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
         let block = store
             .get_block(&block_hash.into())?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?;
-        let slot = block.slot() - 1;
-        let state_hash = block.state_root();
+        let slot = block.slot();
         let current_state = store
-            .get_state(&state_hash.into(), Some(slot))?
-            .ok_or_else(|| BeaconStateError::MissingBeaconState(state_hash.into()))?;
+            .get_state(&block.state_root(), Some(slot))?
+            .ok_or_else(|| BeaconStateError::MissingBeaconState(block.state_root().into()))?;
         let next_state = if slot <= E::SlotsPerHistoricalRoot::to_u64() {
             None
         } else {
@@ -295,9 +295,10 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
         };
         let result = Self {
             store: Arc::clone(&store),
-            slot: slot,
+            slot: slot - 1,
             current_state: current_state,
             next_state: next_state,
+            prev_block_parent: block.parent_root().into(),
         };
         Ok(result)
     }
@@ -321,28 +322,43 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
     fn do_next(
         &mut self,
     ) -> Result<Option<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash)>, Error> {
-        if self.slot == 0 {
-            return Ok(None);
-        }
+        loop {
+            if self.slot == 0 {
+                return Ok(None);
+            }
 
-        // Maintain the invariant of self.current_state and self.next_state always being set to
-        // loaded BeaconState.
-        if self.slot > E::SlotsPerHistoricalRoot::to_u64()
-            && self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1
-        {
-            self.current_state = self
-                .next_state
-                .take()
-                .expect("invariant violated: absent next state");
-            self.next_state =
-                Self::next_historical_root_backtrack_state(&*self.store, &self.current_state)?;
-        }
+            // Maintain the invariant of self.current_state and self.next_state always being set to
+            // loaded BeaconState.
+            if self.slot > E::SlotsPerHistoricalRoot::to_u64()
+                && self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1
+            {
+                self.current_state = self
+                    .next_state
+                    .take()
+                    .expect("invariant violated: absent next state");
+                self.next_state =
+                    Self::next_historical_root_backtrack_state(&*self.store, &self.current_state)?;
+            }
 
-        let (block_hash, state_hash) = self.current_state.get_block_state_roots(self.slot)?;
-        let is_skipped_slot = self.is_skipped_slot(self.slot)?;
-        let slot = self.slot;
-        self.slot -= 1;
-        Ok(Some((slot, is_skipped_slot, block_hash, state_hash)))
+            let slot = self.slot;
+            let (block_hash, state_hash) = self.current_state.get_block_state_roots(slot)?;
+            let is_skipped_slot = self.is_skipped_slot(slot)?;
+
+            if is_skipped_slot {
+                debug_assert_eq!(block_hash, self.prev_block_parent);
+                self.slot -= 1;
+                return Ok(Some((slot, is_skipped_slot, block_hash, state_hash)));
+            } else {
+                self.prev_block_parent = self
+                    .store
+                    .get_block(&block_hash.into())?
+                    .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?
+                    .parent_root()
+                    .into();
+                self.slot -= 1;
+                return Ok(Some((slot, is_skipped_slot, block_hash, state_hash)));
+            }
+        }
     }
 }
 

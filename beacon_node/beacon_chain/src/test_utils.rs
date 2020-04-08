@@ -306,6 +306,10 @@ where
             .unwrap()
     }
 
+    pub fn get_head_state(&self) -> BeaconState<E> {
+        self.chain.head().unwrap().beacon_state
+    }
+
     pub fn add_block(
         &self,
         state: &BeaconState<E>,

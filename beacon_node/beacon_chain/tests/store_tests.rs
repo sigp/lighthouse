@@ -716,36 +716,38 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
 
     let slot = harness.get_chain_slot();
-    let state = harness.get_chain_state(slot);
+    let state = harness.get_head_state();
     let (canonical_blocks_pre_finalization, _, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
     let (stray_blocks, stray_states, _, stray_head, _) = harness.add_stray_blocks(
-        harness.get_chain_state(slot),
+        harness.get_head_state(),
         slot,
         slots_per_epoch - 1,
         &faulty_validators,
     );
 
+    dbg!(&stray_states);
+
     // Precondition: Ensure all stray_blocks blocks are still known
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_some(),
-            "stray blocks should be still present",
+            block.is_some(),
+            "stray block {} should be still present",
+            block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
+        let state = harness
+            .chain
+            .get_state(&state_hash.into(), Some(slot))
+            .unwrap();
         assert!(
-            harness
-                .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_some(),
-            "stray states should be still present",
+            state.is_some(),
+            "stray state {} at slot {} should be still present",
+            state_hash,
+            slot
         );
     }
 
@@ -778,24 +780,24 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
     // Postcondition: Ensure all stray_blocks blocks have been pruned
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_none(),
-            "abandoned blocks should have been pruned",
+            block.is_none(),
+            "abandoned block {} should have been pruned",
+            block_hash
         );
     }
 
-    for (&slot, &state_hash) in &stray_blocks {
+    for (&slot, &state_hash) in &stray_states {
         assert!(
-            harness
+            !harness
                 .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_none(),
-            "stray states should have been deleted",
+                .store
+                .state_exists(&state_hash.into())
+                .unwrap(),
+            "stray state {} at slot {} should have been deleted",
+            state_hash,
+            slot
         );
     }
 
@@ -831,24 +833,21 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_some(),
-            "stray blocks should be still present",
+            block.is_some(),
+            "stray block {} should be still present",
+            block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
+        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            harness
-                .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_some(),
-            "stray states should be still present",
+            state.is_some(),
+            "stray state {} at slot {} should be still present",
+            state_hash,
+            slot
         );
     }
 
@@ -893,14 +892,16 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         );
     }
 
-    for (&slot, &state_hash) in &stray_blocks {
+    for (&slot, &state_hash) in &stray_states {
         assert!(
-            harness
+            !harness
                 .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_none(),
-            "stray states should have been deleted",
+                .store
+                .state_exists(&state_hash.into())
+                .unwrap(),
+            "stray state {} at slot {} should have been deleted",
+            state_hash,
+            slot
         );
     }
 
@@ -930,24 +931,21 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_some(),
-            "stray blocks should be still present",
+            block.is_some(),
+            "stray block {} should be still present",
+            block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
+        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            harness
-                .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_some(),
-            "stray states should be still present",
+            state.is_some(),
+            "stray state {} at slot {} should be still present",
+            state_hash,
+            slot
         );
     }
 
@@ -975,24 +973,24 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     );
 
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_some(),
-            "stray blocks should be still present",
+            block.is_some(),
+            "stray block {} should be still present",
+            block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_blocks {
         assert!(
-            harness
+            !harness
                 .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_none(),
-            "stray states should have been deleted",
+                .store
+                .state_exists(&state_hash.into())
+                .unwrap(),
+            "stray state {} at slot {} should have been deleted",
+            state_hash,
+            slot
         );
     }
 
@@ -1045,24 +1043,21 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         .collect();
 
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_some(),
-            "stray blocks should be still present",
+            block.is_some(),
+            "stray block {} should be still present",
+            block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
+        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            harness
-                .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_some(),
-            "stray states should be still present",
+            state.is_some(),
+            "stray state {} at slot {} should be still present",
+            state_hash,
+            slot
         );
     }
 
@@ -1106,24 +1101,24 @@ fn prunes_fork_running_past_finalized_checkpoint() {
 
     // Postcondition: Ensure all stray_blocks blocks have been pruned
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_none(),
-            "abandoned blocks should have been pruned",
+            block.is_none(),
+            "abandoned block {} should have been pruned",
+            block_hash
         );
     }
 
-    for (&slot, &state_hash) in &stray_blocks {
+    for (&slot, &state_hash) in &stray_states {
         assert!(
-            harness
+            !harness
                 .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_none(),
-            "stray states should have been deleted",
+                .store
+                .state_exists(&state_hash.into())
+                .unwrap(),
+            "stray state {} at slot {} should have been deleted",
+            state_hash,
+            slot
         );
     }
 
@@ -1163,24 +1158,21 @@ fn prunes_skipped_slots_states() {
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
+        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_some(),
-            "stray blocks should be still present",
+            block.is_some(),
+            "stray block {} should be still present",
+            block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
+        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            harness
-                .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_some(),
-            "stray states should be still present",
+            state.is_some(),
+            "stray state {} at slot {} should be still present",
+            state_hash,
+            slot
         );
     }
 
@@ -1238,14 +1230,16 @@ fn prunes_skipped_slots_states() {
         .collect()
     );
 
-    for (&slot, &state_hash) in &stray_blocks {
+    for (&slot, &state_hash) in &stray_states {
         assert!(
-            harness
+            !harness
                 .chain
-                .get_state(&state_hash.into(), Some(slot))
-                .unwrap()
-                .is_none(),
-            "stray states should have been deleted",
+                .store
+                .state_exists(&state_hash.into())
+                .unwrap(),
+            "stray state {} at slot {} should have been deleted",
+            state_hash,
+            slot
         );
     }
 

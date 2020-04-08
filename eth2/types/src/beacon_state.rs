@@ -12,6 +12,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
+use std::fmt;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -100,8 +101,20 @@ impl AllowNextEpoch {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct BeaconStateHash(Hash256);
+
+impl fmt::Debug for BeaconStateHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "BeaconStateHash({:?})", self.0)
+    }
+}
+
+impl fmt::Display for BeaconStateHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl From<Hash256> for BeaconStateHash {
     fn from(hash: Hash256) -> BeaconStateHash {
