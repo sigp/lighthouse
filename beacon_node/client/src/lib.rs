@@ -57,6 +57,6 @@ impl<T: BeaconChainTypes> Client<T> {
 
     /// Returns the local libp2p ENR of this node, for network discovery.
     pub fn enr(&self) -> Option<Enr> {
-        self.network_globals.as_ref()?.local_enr()
+        self.network_globals.as_ref().map(|n| n.local_enr())
     }
 }

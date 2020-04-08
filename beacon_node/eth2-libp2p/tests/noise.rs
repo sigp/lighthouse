@@ -2,6 +2,7 @@
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::multiaddr::Protocol;
 use ::types::{EnrForkId, MinimalEthSpec};
+use eth2_libp2p::discovery::build_enr;
 use eth2_libp2p::*;
 use futures::prelude::*;
 use libp2p::core::identity::Keypair;
@@ -11,6 +12,7 @@ use libp2p::{
     secio, PeerId, Swarm, Transport,
 };
 use slog::{crit, debug, info, Level};
+use std::convert::TryInto;
 use std::io::{Error, ErrorKind};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::Arc;
@@ -31,24 +33,20 @@ fn build_secio_swarm(
 ) -> error::Result<Swarm<Libp2pStream, Libp2pBehaviour>> {
     let local_keypair = Keypair::generate_secp256k1();
     let local_peer_id = PeerId::from(local_keypair.public());
-
+    let enr_key: libp2p::discv5::enr::CombinedKey = local_keypair.clone().try_into().unwrap();
+    let enr = build_enr::<TSpec>(&enr_key, config, EnrForkId::default()).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
-        local_peer_id.clone(),
+        enr,
         config.libp2p_port,
         config.discovery_port,
+        &log,
     ));
 
     let mut swarm = {
         // Set up the transport - tcp/ws with secio and mplex/yamux
         let transport = build_secio_transport(local_keypair.clone());
         // Lighthouse network behaviour
-        let behaviour = Behaviour::new(
-            &local_keypair,
-            config,
-            network_globals.clone(),
-            EnrForkId::default(),
-            &log,
-        )?;
+        let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
         Swarm::new(transport, behaviour, local_peer_id.clone())
     };
 
