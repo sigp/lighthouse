@@ -67,7 +67,9 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
             ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
             ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
+            ProtocolId::new(RPC_PING, "1", "ssz_snappy"),
             ProtocolId::new(RPC_PING, "1", "ssz"),
+            ProtocolId::new(RPC_META_DATA, "1", "ssz_snappy"),
             ProtocolId::new(RPC_META_DATA, "1", "ssz"),
         ]
     }
@@ -244,7 +246,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
                 ProtocolId::new(RPC_PING, "1", "ssz"),
             ],
             RPCRequest::MetaData(_) => vec![
-                ProtocolId::new(RPC_PING, "1", "ssz_snappy"),
+                ProtocolId::new(RPC_META_DATA, "1", "ssz_snappy"),
                 ProtocolId::new(RPC_META_DATA, "1", "ssz"),
             ],
         }
