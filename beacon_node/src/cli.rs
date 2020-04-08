@@ -218,7 +218,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
-                .help("Specifies the server for a web3 connection to the Eth1 chain.")
+                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag.")
                 .takes_value(true)
                 .default_value("http://127.0.0.1:8545")
         )
@@ -338,15 +338,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     .value_name("FILE")
                     .required(true)
                     .help("A file from which to read the state"))
-            )
-            /*
-             * `prysm`
-             *
-             * Connect to the Prysmatic Labs testnet.
-             */
-            .subcommand(SubCommand::with_name("prysm")
-                .about("Connect to the Prysmatic Labs testnet on Goerli. Not guaranteed to be \
-                    up-to-date or functioning.")
             )
         )
 }

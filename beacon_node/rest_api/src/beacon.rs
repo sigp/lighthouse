@@ -438,7 +438,15 @@ pub fn get_genesis_time<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.genesis_time)
+    ResponseBuilder::new(&req)?.body(&beacon_chain.head_info()?.genesis_time)
+}
+
+/// Read the `genesis_validators_root` from the current beacon chain state.
+pub fn get_genesis_validators_root<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    ResponseBuilder::new(&req)?.body(&beacon_chain.head_info()?.genesis_validators_root)
 }
 
 pub fn proposer_slashing<T: BeaconChainTypes>(

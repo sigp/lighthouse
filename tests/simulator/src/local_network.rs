@@ -94,7 +94,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                         .expect("bootnode must have a network"),
                 );
             })
-            .expect("should have atleast one node");
+            .expect("should have at least one node");
 
         let index = self.beacon_nodes.read().len();
 

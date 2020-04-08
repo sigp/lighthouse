@@ -1,4 +1,4 @@
-use crate::{ChainSpec, Domain, EthSpec, Fork, SecretKey, Signature, SignedRoot, Slot};
+use crate::{ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, Signature, SignedRoot, Slot};
 use std::convert::TryInto;
 use tree_hash::TreeHash;
 
@@ -10,12 +10,14 @@ impl SelectionProof {
         slot: Slot,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
         let domain = spec.get_domain(
             slot.epoch(T::slots_per_epoch()),
             Domain::SelectionProof,
             fork,
+            genesis_validators_root,
         );
         let message = slot.signing_root(domain);
 

@@ -1,6 +1,6 @@
 use super::{
-    Attestation, ChainSpec, Domain, EthSpec, Fork, PublicKey, SecretKey, SelectionProof, Signature,
-    SignedRoot,
+    Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof,
+    Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -31,10 +31,17 @@ impl<T: EthSpec> AggregateAndProof<T> {
         aggregate: Attestation<T>,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
-        let selection_proof =
-            SelectionProof::new::<T>(aggregate.data.slot, secret_key, fork, spec).into();
+        let selection_proof = SelectionProof::new::<T>(
+            aggregate.data.slot,
+            secret_key,
+            fork,
+            genesis_validators_root,
+            spec,
+        )
+        .into();
 
         Self {
             aggregator_index,
@@ -48,10 +55,16 @@ impl<T: EthSpec> AggregateAndProof<T> {
         &self,
         validator_pubkey: &PublicKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> bool {
         let target_epoch = self.aggregate.data.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(target_epoch, Domain::SelectionProof, fork);
+        let domain = spec.get_domain(
+            target_epoch,
+            Domain::SelectionProof,
+            fork,
+            genesis_validators_root,
+        );
         let message = self.aggregate.data.slot.signing_root(domain);
         self.selection_proof
             .verify(message.as_bytes(), validator_pubkey)

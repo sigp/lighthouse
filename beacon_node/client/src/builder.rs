@@ -153,6 +153,26 @@ where
                 Ok((builder, spec, context))
             })
             .and_then(move |(builder, spec, context)| {
+                let chain_exists = builder
+                    .store_contains_beacon_chain()
+                    .unwrap_or_else(|_| false);
+
+                // If the client is expect to resume but there's no beacon chain in the database,
+                // use the `DepositContract` method. This scenario is quite common when the client
+                // is shutdown before finding genesis via eth1.
+                //
+                // Alternatively, if there's a beacon chain in the database then always resume
+                // using it.
+                let client_genesis = if client_genesis == ClientGenesis::Resume && !chain_exists {
+                    info!(context.log, "Defaulting to deposit contract genesis");
+
+                    ClientGenesis::DepositContract
+                } else if chain_exists {
+                    ClientGenesis::Resume
+                } else {
+                    client_genesis
+                };
+
                 let genesis_state_future: Box<dyn Future<Item = _, Error = _> + Send> =
                     match client_genesis {
                         ClientGenesis::Interop {

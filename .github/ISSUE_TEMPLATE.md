@@ -2,6 +2,11 @@
 
 Please provide a brief description of the issue.
 
+## Version
+
+Please provide your Lighthouse and Rust version. Are you building from
+`master`, which commit?
+
 ## Present Behaviour
 
 Describe the present behaviour of the application, with regards to this

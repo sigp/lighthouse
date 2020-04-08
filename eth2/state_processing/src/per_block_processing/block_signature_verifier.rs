@@ -53,7 +53,7 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
 {
-    get_pubkey: Box<F>,
+    get_pubkey: F,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
     sets: Vec<SignatureSet<'a>>,
@@ -68,7 +68,7 @@ where
     /// add signatures, and the `verify`
     pub fn new(state: &'a BeaconState<T>, get_pubkey: F, spec: &'a ChainSpec) -> Self {
         Self {
-            get_pubkey: Box::new(get_pubkey),
+            get_pubkey: get_pubkey,
             state,
             spec,
             sets: vec![],

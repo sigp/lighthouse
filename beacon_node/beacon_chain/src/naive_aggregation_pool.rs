@@ -274,11 +274,12 @@ mod tests {
         a
     }
 
-    fn sign(a: &mut Attestation<E>, i: usize) {
+    fn sign(a: &mut Attestation<E>, i: usize, genesis_validators_root: Hash256) {
         a.sign(
             &generate_deterministic_keypair(i).sk,
             i,
             &Fork::default(),
+            genesis_validators_root,
             &E::default_spec(),
         )
         .expect("should sign attestation");
@@ -302,7 +303,7 @@ mod tests {
             "should not accept attestation without any signatures"
         );
 
-        sign(&mut a, 0);
+        sign(&mut a, 0, Hash256::random());
 
         assert_eq!(
             pool.insert(&a),
@@ -324,7 +325,7 @@ mod tests {
             "retrieved attestation should equal the one inserted"
         );
 
-        sign(&mut a, 1);
+        sign(&mut a, 1, Hash256::random());
 
         assert_eq!(
             pool.insert(&a),
@@ -338,8 +339,9 @@ mod tests {
         let mut a_0 = get_attestation(Slot::new(0));
         let mut a_1 = a_0.clone();
 
-        sign(&mut a_0, 0);
-        sign(&mut a_1, 1);
+        let genesis_validators_root = Hash256::random();
+        sign(&mut a_0, 0, genesis_validators_root);
+        sign(&mut a_1, 1, genesis_validators_root);
 
         let pool = NaiveAggregationPool::default();
 
@@ -374,7 +376,7 @@ mod tests {
         let mut a_different = a_0.clone();
         let different_root = Hash256::from_low_u64_be(1337);
         unset_bit(&mut a_different, 0);
-        sign(&mut a_different, 2);
+        sign(&mut a_different, 2, genesis_validators_root);
         assert!(a_different.data.beacon_block_root != different_root);
         a_different.data.beacon_block_root = different_root;
 
@@ -396,7 +398,7 @@ mod tests {
     #[test]
     fn auto_pruning() {
         let mut base = get_attestation(Slot::new(0));
-        sign(&mut base, 0);
+        sign(&mut base, 0, Hash256::random());
 
         let pool = NaiveAggregationPool::default();
 
@@ -450,7 +452,7 @@ mod tests {
     #[test]
     fn max_attestations() {
         let mut base = get_attestation(Slot::new(0));
-        sign(&mut base, 0);
+        sign(&mut base, 0, Hash256::random());
 
         let pool = NaiveAggregationPool::default();
 

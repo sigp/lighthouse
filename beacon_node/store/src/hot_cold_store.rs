@@ -10,7 +10,7 @@ use crate::{
     leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
 };
 use lru::LruCache;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use slog::{debug, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -45,7 +45,7 @@ pub struct HotColdDB<E: EthSpec> {
     /// The hot database also contains all blocks.
     pub(crate) hot_db: LevelDB<E>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
-    block_cache: RwLock<LruCache<Hash256, SignedBeaconBlock<E>>>,
+    block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
     spec: ChainSpec,
     /// Logger.
@@ -109,7 +109,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         self.put(block_root, &block)?;
 
         // Update cache.
-        self.block_cache.write().put(*block_root, block);
+        self.block_cache.lock().put(*block_root, block);
 
         Ok(())
     }
@@ -119,7 +119,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
-        if let Some(block) = self.block_cache.write().get(block_root) {
+        if let Some(block) = self.block_cache.lock().get(block_root) {
             metrics::inc_counter(&metrics::BEACON_BLOCK_CACHE_HIT_COUNT);
             return Ok(Some(block.clone()));
         }
@@ -128,7 +128,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         match self.get::<SignedBeaconBlock<E>>(block_root)? {
             Some(block) => {
                 // Add to cache.
-                self.block_cache.write().put(*block_root, block.clone());
+                self.block_cache.lock().put(*block_root, block.clone());
                 Ok(Some(block))
             }
             None => Ok(None),
@@ -137,7 +137,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
 
     /// Delete a block from the store and the block cache.
     fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
-        self.block_cache.write().pop(block_root);
+        self.block_cache.lock().pop(block_root);
         self.delete::<SignedBeaconBlock<E>>(block_root)
     }
 
@@ -338,7 +338,7 @@ impl<E: EthSpec> HotColdDB<E> {
             split: RwLock::new(Split::default()),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
-            block_cache: RwLock::new(LruCache::new(config.block_cache_size)),
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
             config,
             spec,
             log,

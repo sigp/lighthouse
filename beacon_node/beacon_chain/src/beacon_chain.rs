@@ -140,6 +140,8 @@ pub struct HeadInfo {
     pub current_justified_checkpoint: types::Checkpoint,
     pub finalized_checkpoint: types::Checkpoint,
     pub fork: Fork,
+    pub genesis_time: u64,
+    pub genesis_validators_root: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -176,6 +178,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) canonical_head: TimeoutRwLock<BeaconSnapshot<T::EthSpec>>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
+    /// The root of the list of genesis validators, used during syncing.
+    pub genesis_validators_root: Hash256,
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
     pub fork_choice: ForkChoice<T>,
@@ -468,6 +472,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             current_justified_checkpoint: head.beacon_state.current_justified_checkpoint.clone(),
             finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
             fork: head.beacon_state.fork.clone(),
+            genesis_time: head.beacon_state.genesis_time,
+            genesis_validators_root: head.beacon_state.genesis_validators_root,
         })
     }
 
@@ -814,7 +820,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     root: target_root,
                 },
             },
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty_signature(),
         })
     }
 
@@ -1084,11 +1090,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
 
-        let fork = self
+        let (fork, genesis_validators_root) = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)
-            .map(|head| head.beacon_state.fork.clone())?;
+            .map(|head| {
+                (
+                    head.beacon_state.fork.clone(),
+                    head.beacon_state.genesis_validators_root,
+                )
+            })?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
             |validator_index| {
@@ -1099,6 +1110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &attestation.signature,
             &indexed_attestation,
             &fork,
+            genesis_validators_root,
             &self.spec,
         )
         .map_err(Error::SignatureSetError)?;
@@ -1175,10 +1187,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let index = attestation.data.index;
                         let slot = attestation.data.slot;
 
-                        match self
-                            .op_pool
-                            .insert_attestation(attestation, &fork, &self.spec)
-                        {
+                        match self.op_pool.insert_attestation(
+                            attestation,
+                            &fork,
+                            genesis_validators_root,
+                            &self.spec,
+                        ) {
                             Ok(_) => {}
                             Err(e) => {
                                 error!(
@@ -1674,6 +1688,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
+                proposer_index: state.get_beacon_proposer_index(state.slot, &self.spec)? as u64,
                 parent_root,
                 state_root: Hash256::zero(),
                 body: BeaconBlockBody {
@@ -2014,7 +2029,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If we are unable to read the slot clock we assume that it is prior to genesis and
         // therefore use the genesis slot.
         let slot = self.slot().unwrap_or_else(|_| self.spec.genesis_slot);
-        self.spec.enr_fork_id(slot)
+
+        self.spec.enr_fork_id(slot, self.genesis_validators_root)
     }
 
     /// Calculates the `Duration` to the next fork, if one exists.

@@ -2,8 +2,8 @@
 //! format designed for use in Ethereum 2.0.
 //!
 //! Adheres to the Ethereum 2.0 [SSZ
-//! specification](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/ssz/simple-serialize.md)
-//! at v0.10.1.
+//! specification](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/ssz/simple-serialize.md)
+//! at v0.11.1.
 //!
 //! ## Example
 //!

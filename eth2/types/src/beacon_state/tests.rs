@@ -365,3 +365,44 @@ mod committees {
         committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Next);
     }
 }
+
+mod get_outstanding_deposit_len {
+    use super::*;
+    use crate::test_utils::TestingBeaconStateBuilder;
+    use crate::MinimalEthSpec;
+
+    fn state() -> BeaconState<MinimalEthSpec> {
+        let spec = MinimalEthSpec::default_spec();
+        let builder: TestingBeaconStateBuilder<MinimalEthSpec> =
+            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
+        let (state, _keypairs) = builder.build();
+
+        state
+    }
+
+    #[test]
+    fn returns_ok() {
+        let mut state = state();
+        assert_eq!(state.get_outstanding_deposit_len(), Ok(0));
+
+        state.eth1_data.deposit_count = 17;
+        state.eth1_deposit_index = 16;
+        assert_eq!(state.get_outstanding_deposit_len(), Ok(1));
+    }
+
+    #[test]
+    fn returns_err_if_the_state_is_invalid() {
+        let mut state = state();
+        // The state is invalid, deposit count is lower than deposit index.
+        state.eth1_data.deposit_count = 16;
+        state.eth1_deposit_index = 17;
+
+        assert_eq!(
+            state.get_outstanding_deposit_len(),
+            Err(BeaconStateError::InvalidDepositState {
+                deposit_count: 16,
+                deposit_index: 17,
+            })
+        );
+    }
+}

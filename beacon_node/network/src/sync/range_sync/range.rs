@@ -41,8 +41,9 @@
 
 use super::chain::ProcessingResult;
 use super::chain_collection::{ChainCollection, SyncState};
-use super::{Batch, BatchProcessResult};
+use super::BatchId;
 use crate::router::processor::PeerSyncInfo;
+use crate::sync::block_processor::BatchProcessResult;
 use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -130,8 +131,8 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             },
             None => {
                 return warn!(self.log,
-                      "Beacon chain dropped. Peer not considered for sync";
-                      "peer_id" => format!("{:?}", peer_id));
+                    "Beacon chain dropped. Peer not considered for sync";
+                    "peer_id" => format!("{:?}", peer_id));
             }
         };
 
@@ -256,15 +257,15 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn handle_block_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
-        processing_id: u64,
-        batch: Batch<T::EthSpec>,
+        batch_id: BatchId,
+        downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
         result: BatchProcessResult,
     ) {
-        // build an option for passing the batch to each chain
-        let mut batch = Some(batch);
+        // build an option for passing the downloaded_blocks to each chain
+        let mut downloaded_blocks = Some(downloaded_blocks);
 
         match self.chains.finalized_request(|chain| {
-            chain.on_batch_process_result(network, processing_id, &mut batch, &result)
+            chain.on_batch_process_result(network, batch_id, &mut downloaded_blocks, &result)
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
@@ -293,7 +294,12 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             Some((_, ProcessingResult::KeepChain)) => {}
             None => {
                 match self.chains.head_request(|chain| {
-                    chain.on_batch_process_result(network, processing_id, &mut batch, &result)
+                    chain.on_batch_process_result(
+                        network,
+                        batch_id,
+                        &mut downloaded_blocks,
+                        &result,
+                    )
                 }) {
                     Some((index, ProcessingResult::RemoveChain)) => {
                         let chain = self.chains.remove_head_chain(index);
@@ -308,7 +314,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     None => {
                         // This can happen if a chain gets purged due to being out of date whilst a
                         // batch process is in progress.
-                        debug!(self.log, "No chains match the block processing id"; "id" => processing_id);
+                        debug!(self.log, "No chains match the block processing id"; "id" => *batch_id);
                     }
                 }
             }

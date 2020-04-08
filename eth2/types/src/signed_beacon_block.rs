@@ -8,7 +8,7 @@ use tree_hash::TreeHash;
 
 /// A `BeaconBlock` and a signature from its proposer.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBeaconBlock<E: EthSpec> {
@@ -34,7 +34,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
 
     /// Returns the `tree_hash_root` of the block.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.message.tree_hash_root()[..])
     }

@@ -32,10 +32,8 @@ pub fn int_to_bytes3(int: u32) -> Option<Vec<u8>> {
 }
 
 /// Returns `int` as little-endian bytes with a length of 4.
-pub fn int_to_bytes4(int: u32) -> Vec<u8> {
-    let mut bytes = BytesMut::with_capacity(4);
-    bytes.put_u32_le(int);
-    bytes.to_vec()
+pub fn int_to_bytes4(int: u32) -> [u8; 4] {
+    int.to_le_bytes()
 }
 
 /// Returns `int` as little-endian bytes with a length of 8.
@@ -128,7 +126,7 @@ mod tests {
                 1 => assert_eq!(int_to_bytes1(int as u8), bytes),
                 2 => assert_eq!(int_to_bytes2(int as u16), bytes),
                 3 => assert_eq!(int_to_bytes3(int as u32), Some(bytes)),
-                4 => assert_eq!(int_to_bytes4(int as u32), bytes),
+                4 => assert_eq!(&int_to_bytes4(int as u32)[..], &bytes[..]),
                 8 => assert_eq!(int_to_bytes8(int), bytes),
                 32 => assert_eq!(int_to_bytes32(int), bytes),
                 48 => assert_eq!(int_to_bytes48(int), bytes),
