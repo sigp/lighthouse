@@ -103,7 +103,10 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 log,
                 "Adding node to routing table";
                 "node_id" => format!("{}", bootnode_enr.node_id()),
-                "peer_id" => format!("{}", bootnode_enr.peer_id())
+                "peer_id" => format!("{}", bootnode_enr.peer_id()),
+                "ip" => format!("{:?}", bootnode_enr.ip()),
+                "udp" => format!("{:?}", bootnode_enr.udp()),
+                "tcp" => format!("{:?}", bootnode_enr.udp())
             );
             let _ = discovery.add_enr(bootnode_enr).map_err(|e| {
                 warn!(

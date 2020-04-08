@@ -23,7 +23,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" validators_per_node:{}", validators_per_node);
     println!(" end_after_checks:{}", end_after_checks);
 
-    let log_level = "debug";
+    let log_level = "trace";
     let log_format = None;
 
     let mut env = EnvironmentBuilder::mainnet()
