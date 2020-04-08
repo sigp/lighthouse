@@ -348,6 +348,7 @@ pub fn signed_aggregate_selection_proof_signature_set<'a, T, F>(
     get_pubkey: F,
     signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
     fork: &Fork,
+    genesis_validators_root: Hash256,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -360,6 +361,7 @@ where
         slot.epoch(T::slots_per_epoch()),
         Domain::SelectionProof,
         fork,
+        genesis_validators_root,
     );
     let message = slot.signing_root(domain).as_bytes().to_vec();
     let signature = &signed_aggregate_and_proof.message.selection_proof;
@@ -377,6 +379,7 @@ pub fn signed_aggregate_signature_set<'a, T, F>(
     get_pubkey: F,
     signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
     fork: &Fork,
+    genesis_validators_root: Hash256,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -390,7 +393,12 @@ where
         .target
         .epoch;
 
-    let domain = spec.get_domain(target_epoch, Domain::AggregateAndProof, fork);
+    let domain = spec.get_domain(
+        target_epoch,
+        Domain::AggregateAndProof,
+        fork,
+        genesis_validators_root,
+    );
     let message = signed_aggregate_and_proof
         .message
         .signing_root(domain)

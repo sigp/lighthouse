@@ -5,12 +5,11 @@ use crate::{
     },
     metrics,
     naive_aggregation_pool::Error as NaiveAggregationError,
-    observed_attestations::{Error as AttestationObservationError, ObserveOutcome},
+    observed_attestations::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
-    shuffling_cache::ShufflingCache,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use bls::{verify_signature_sets, SignatureSet};
+use bls::verify_signature_sets;
 use slog::{debug, error, trace};
 use slot_clock::SlotClock;
 use state_processing::{
@@ -421,6 +420,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         &indexed_attestation.signature,
         &indexed_attestation,
         &fork,
+        chain.genesis_validators_root,
         &chain.spec,
     )
     .map_err(BeaconChainError::SignatureSetError)?;
@@ -481,6 +481,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
             },
             &signed_aggregate,
             &fork,
+            chain.genesis_validators_root,
             &chain.spec,
         )
         .map_err(BeaconChainError::SignatureSetError)?,
@@ -492,6 +493,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
             },
             &signed_aggregate,
             &fork,
+            chain.genesis_validators_root,
             &chain.spec,
         )
         .map_err(BeaconChainError::SignatureSetError)?,
@@ -504,6 +506,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
             &indexed_attestation.signature,
             &indexed_attestation,
             &fork,
+            chain.genesis_validators_root,
             &chain.spec,
         )
         .map_err(BeaconChainError::SignatureSetError)?,
