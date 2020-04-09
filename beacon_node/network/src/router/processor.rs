@@ -644,8 +644,9 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
     })
 }
 
-/// Wraps a Network Channel to employ various RPC related network functionality for the message
-/// handler. The handler doesn't manage it's own request Id's and can therefore only send
+/// Wraps a Network Channel to employ various RPC related network functionality for the
+/// processor.
+/// The Processor doesn't manage it's own request Id's and can therefore only send
 /// responses or requests with 0 request Ids.
 pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.

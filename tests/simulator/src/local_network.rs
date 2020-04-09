@@ -46,9 +46,10 @@ impl<E: EthSpec> LocalNetwork<E> {
         context: RuntimeContext<E>,
         mut beacon_config: ClientConfig,
     ) -> impl Future<Item = Self, Error = String> {
-        // Fix bootnode ports
         beacon_config.network.discovery_port = BOOTNODE_PORT;
         beacon_config.network.libp2p_port = BOOTNODE_PORT;
+        beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT);
+        beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT);
         LocalBeaconNode::production(context.service_context("boot_node".into()), beacon_config).map(
             |beacon_node| Self {
                 inner: Arc::new(Inner {

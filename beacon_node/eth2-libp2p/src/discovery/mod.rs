@@ -103,7 +103,10 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 log,
                 "Adding node to routing table";
                 "node_id" => format!("{}", bootnode_enr.node_id()),
-                "peer_id" => format!("{}", bootnode_enr.peer_id())
+                "peer_id" => format!("{}", bootnode_enr.peer_id()),
+                "ip" => format!("{:?}", bootnode_enr.ip()),
+                "udp" => format!("{:?}", bootnode_enr.udp()),
+                "tcp" => format!("{:?}", bootnode_enr.udp())
             );
             let _ = discovery.add_enr(bootnode_enr).map_err(|e| {
                 warn!(
@@ -256,7 +259,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 "subnet_id" => *subnet_id,
                 "connected_peers_on_subnet" => peers_on_subnet,
                 "target_subnet_peers" => TARGET_SUBNET_PEERS,
-                "target_peers" => target_peers
+                "peers_to_find" => target_peers
             );
 
             let log_clone = self.log.clone();
@@ -283,12 +286,13 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
             // start the query
             self.start_query(subnet_predicate, target_peers as usize);
+        } else {
+            debug!(self.log, "Discovery ignored";
+                "reason" => "Already connected to desired peers",
+                "connected_peers_on_subnet" => peers_on_subnet,
+                "target_subnet_peers" => TARGET_SUBNET_PEERS,
+            );
         }
-        debug!(self.log, "Discovery ignored";
-            "reason" => "Already connected to desired peers",
-            "connected_peers_on_subnet" => peers_on_subnet,
-            "target_subnet_peers" => TARGET_SUBNET_PEERS,
-        );
     }
 
     /* Internal Functions */
@@ -478,7 +482,6 @@ where
                             });
                         }
                         Discv5Event::FindNodeResult { closer_peers, .. } => {
-                            // TODO: Modify once ENR predicate search is available
                             debug!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
                             // update the time to the next query
                             if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
@@ -491,9 +494,6 @@ where
                             self.peer_discovery_delay
                                 .reset(Instant::now() + Duration::from_secs(delay));
 
-                            if closer_peers.is_empty() {
-                                debug!(self.log, "Discovery random query found no peers");
-                            }
                             for peer_id in closer_peers {
                                 // if we need more peers, attempt a connection
 
