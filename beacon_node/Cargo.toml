@@ -13,7 +13,6 @@ node_test_rig = { path = "../tests/node_test_rig" }
 
 [dependencies]
 eth2_config = { path = "../eth2/utils/eth2_config" }
-lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
 beacon_chain = { path = "beacon_chain" }
 types = { path = "../eth2/types" }
 store = { path = "./store" }
