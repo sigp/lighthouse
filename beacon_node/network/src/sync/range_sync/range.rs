@@ -278,7 +278,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 // if there are no more finalized chains, re-status all known peers awaiting a head
                 // sync
                 match self.chains.state() {
-                    RangeSyncState::Idle | RangeSyncState::Head => {
+                    RangeSyncState::Idle | RangeSyncState::Head { .. } => {
                         for peer_id in self.awaiting_head_peers.drain() {
                             network.status_peer(self.beacon_chain.clone(), peer_id);
                         }

@@ -7,3 +7,7 @@ use version;
 pub fn get_version(req: Request<Body>) -> ApiResult {
     ResponseBuilder::new(&req)?.body_no_ssz(&version::version())
 }
+
+pub fn syncing(req: Request<Body>, network: Arc<NetworkGlobals<T::EthSpec>>) -> ApiResult {
+    ResponseBuilder::new(&req)?.body_no_ssz(&version::version())
+}

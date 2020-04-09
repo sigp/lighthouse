@@ -19,9 +19,21 @@ use types::{Hash256, Slot};
 #[derive(Clone)]
 pub enum RangeSyncState {
     /// A finalized chain is being synced.
-    Finalized { head_slot: Slot, head_root: Hash256 },
+    Finalized {
+        /// The start of the finalized chain.
+        start_slot: Slot,
+        /// The target head slot of the finalized chain.
+        head_slot: Slot,
+        /// The target head root of the finalized chain.
+        head_root: Hash256,
+    },
     /// There are no finalized chains and we are syncing one more head chains.
-    Head,
+    Head {
+        /// The last finalized checkpoint for all head chains.
+        start_slot: Slot,
+        /// The largest known slot to sync to.
+        head_slot: Slot,
+    },
     /// There are no head or finalized chains and no long range sync is in progress.
     Idle,
 }
@@ -30,7 +42,7 @@ impl PartialEq for RangeSyncState {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (RangeSyncState::Finalized { .. }, RangeSyncState::Finalized { .. }) => true,
-            (RangeSyncState::Head, RangeSyncState::Head) => true,
+            (RangeSyncState::Head { .. }, RangeSyncState::Head { .. }) => true,
             (RangeSyncState::Idle, RangeSyncState::Idle) => true,
             _ => false,
         }
@@ -41,13 +53,21 @@ impl Into<SyncState> for RangeSyncState {
     fn into(self) -> SyncState {
         match self {
             RangeSyncState::Finalized {
+                start_slot,
                 head_slot,
                 head_root,
             } => SyncState::SyncingFinalized {
+                start_slot,
                 head_slot,
                 head_root,
             },
-            RangeSyncState::Head => SyncState::SyncingHead,
+            RangeSyncState::Head {
+                start_slot,
+                head_slot,
+            } => SyncState::SyncingHead {
+                start_slot,
+                head_slot,
+            },
             RangeSyncState::Idle => SyncState::Stalled, // this should never really be used
         }
     }
@@ -116,7 +136,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// We could be awaiting a head sync. If we are in the head syncing state, without any head
     /// chains, then update the state to idle.
     pub fn fully_synced_peer_found(&mut self) {
-        if let RangeSyncState::Head = self.state {
+        if let RangeSyncState::Head { .. } = self.state {
             if self.head_chains.is_empty() {
                 // Update the global network state to either synced or stalled.
                 self.update_sync_state(RangeSyncState::Idle);
@@ -129,7 +149,18 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// the state as idle.
     pub fn set_head_sync(&mut self) {
         if let RangeSyncState::Idle = self.state {
-            self.update_sync_state(RangeSyncState::Head);
+            let current_slot = self
+                .beacon_chain
+                .head_info()
+                .map(|info| info.slot)
+                .unwrap_or_else(|_| Slot::from(0u64));
+            // NOTE: This will modify the /node/syncing API to show current slot for all fields
+            // while we update peers to look for new potentially HEAD chains.
+            let temp_head_state = RangeSyncState::Head {
+                start_slot: current_slot,
+                head_slot: current_slot,
+            };
+            self.update_sync_state(temp_head_state);
         }
     }
 
@@ -203,8 +234,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
                 // update the state to a new finalized state
                 let state = RangeSyncState::Finalized {
-                    head_slot: chain.target_head_slot.clone(),
-                    head_root: chain.target_head_root.clone(),
+                    start_slot: chain.start_slot,
+                    head_slot: chain.target_head_slot,
+                    head_root: chain.target_head_root,
                 };
                 self.update_sync_state(state);
 
@@ -222,6 +254,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             debug!(self.log, "New finalized chain started syncing"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_slot"=> chain.start_slot);
             chain.start_syncing(network, local_slot);
             let state = RangeSyncState::Finalized {
+                start_slot: chain.start_slot,
                 head_slot: chain.target_head_slot,
                 head_root: chain.target_head_root,
             };
@@ -231,7 +264,23 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             if self.head_chains.is_empty() {
                 self.update_sync_state(RangeSyncState::Idle);
             } else {
-                self.update_sync_state(RangeSyncState::Head);
+                // for the syncing API, we find the minimal start_slot and the maximum
+                // target_slot of all head chains to report back.
+
+                let (min_slot, max_slot) = self.head_chains.iter().fold(
+                    (Slot::from(0u64), Slot::from(0u64)),
+                    |(min, max), chain| {
+                        (
+                            std::cmp::min(min, chain.start_slot),
+                            std::cmp::max(max, chain.target_head_slot),
+                        )
+                    },
+                );
+                let head_state = RangeSyncState::Head {
+                    start_slot: min_slot,
+                    head_slot: max_slot,
+                };
+                self.update_sync_state(head_state);
             }
         }
     }
