@@ -3,7 +3,6 @@ use eth2_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
-use std::time::SystemTime;
 use types::{BeaconState, ChainSpec, DepositData, EthSpec, Hash256, Keypair, PublicKey, Signature};
 
 /// Builds a genesis state as defined by the Eth2 interop procedure (see below).
@@ -55,18 +54,6 @@ pub fn interop_genesis_state<T: EthSpec>(
     state.drop_all_caches();
 
     Ok(state)
-}
-
-/// Returns the system time, mod 30 minutes.
-///
-/// Used for easily creating testnets.
-pub fn recent_genesis_time(minutes: u64) -> u64 {
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let secs_after_last_period = now.checked_rem(minutes * 60).unwrap_or(0);
-    now - secs_after_last_period
 }
 
 #[cfg(test)]

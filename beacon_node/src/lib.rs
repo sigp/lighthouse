@@ -55,9 +55,13 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
     ) -> impl Future<Item = Self, Error = String> + 'a {
-        get_config::<E>(&matches, context.eth2_config.clone(), context.log.clone())
-            .into_future()
-            .and_then(move |client_config| Self::new(context, client_config))
+        get_config::<E>(
+            &matches,
+            &context.eth2_config.spec_constants,
+            context.log.clone(),
+        )
+        .into_future()
+        .and_then(move |client_config| Self::new(context, client_config))
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.
