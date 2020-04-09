@@ -273,11 +273,8 @@ pub fn get_config<E: EthSpec>(
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
     client_config.eth1.deposit_contract_deploy_block =
         eth2_testnet_config.deposit_contract_deploy_block;
-
-    client_config.eth1.lowest_cached_block_number = client_config
-        .eth1
-        .deposit_contract_deploy_block
-        .saturating_sub(client_config.eth1.follow_distance * 2);
+    client_config.eth1.lowest_cached_block_number =
+        client_config.eth1.deposit_contract_deploy_block;
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes.append(&mut boot_nodes)
@@ -324,6 +321,8 @@ pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
     }
 }
 
+/// If `testnet_dir` is `Some`, returns the `Eth2TestnetConfig` at that path or returns an error.
+/// If it is `None`, returns the "hard coded" config.
 pub fn get_eth2_testnet_config<E: EthSpec>(
     testnet_dir: &Option<PathBuf>,
 ) -> Result<Eth2TestnetConfig<E>, String> {
