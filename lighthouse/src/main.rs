@@ -73,6 +73,18 @@ fn main() {
                 .help("Data directory for lighthouse keys and databases.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("testnet-dir")
+                .long("testnet-dir")
+                .value_name("DIR")
+                .help(
+                    "Path to directory containing eth2_testnet specs. Defaults to \
+                      a hard-coded Lighthouse testnet. Only effective if there is no \
+                      existing database.",
+                )
+                .takes_value(true)
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
