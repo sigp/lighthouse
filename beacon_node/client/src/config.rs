@@ -14,6 +14,11 @@ const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 /// Defines how the client should initialize the `BeaconChain` and other components.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
+    /// Creates a genesis state as per the 2019 Canada interop specifications.
+    Interop {
+        validator_count: usize,
+        genesis_time: u64,
+    },
     /// Reads the genesis state and other persisted data from the `Store`.
     FromStore,
     /// Connects to an eth1 node and waits until it can create the genesis state from the deposit

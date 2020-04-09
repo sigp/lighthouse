@@ -16,7 +16,7 @@ use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
 use exit_future::Signal;
 use futures::{future, Future, IntoFuture};
-use genesis::Eth1GenesisService;
+use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use slog::info;
 use ssz::Decode;
@@ -25,7 +25,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// Interval between polling the eth1 node for genesis information.
@@ -145,9 +145,9 @@ where
                     .data_dir(data_dir)
                     .custom_spec(spec.clone());
 
-                Ok((builder, context))
+                Ok((builder, spec, context))
             })
-            .and_then(move |(builder, context)| {
+            .and_then(move |(builder, spec, context)| {
                 let chain_exists = builder
                     .store_contains_beacon_chain()
                     .unwrap_or_else(|_| false);
@@ -171,6 +171,20 @@ where
 
                 let genesis_state_future: Box<dyn Future<Item = _, Error = _> + Send> =
                     match client_genesis {
+                        ClientGenesis::Interop {
+                            validator_count,
+                            genesis_time,
+                        } => {
+                            let keypairs = generate_deterministic_keypairs(validator_count);
+                            let result = interop_genesis_state(&keypairs, genesis_time, &spec);
+
+                            let future = result
+                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
+                                .into_future()
+                                .map(|v| (v, None));
+
+                            Box::new(future)
+                        }
                         ClientGenesis::SszBytes {
                             genesis_state_bytes,
                         } => {
