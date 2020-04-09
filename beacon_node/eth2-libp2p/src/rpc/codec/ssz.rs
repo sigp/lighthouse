@@ -107,9 +107,9 @@ impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 RPC_PING => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
-                        &packet,
-                    )?))),
+                    "1" => Ok(Some(RPCRequest::Ping(Ping {
+                        data: u64::from_ssz_bytes(&packet)?,
+                    }))),
                     _ => unreachable!("Cannot negotiate an unknown version"),
                 },
                 RPC_META_DATA => match self.protocol.version.as_str() {

@@ -27,7 +27,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<T>>, log: slog::Logger) -> Self {
         Self {
             network_send,
-            request_id: 0,
+            request_id: 1,
             log,
         }
     }
