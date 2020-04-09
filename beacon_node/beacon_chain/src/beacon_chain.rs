@@ -2224,36 +2224,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .is_epoch_boundary_slot(T::EthSpec::slots_per_epoch())
                 {
                     let block = self.get_block(&block_hash).unwrap().unwrap();
-                    let state = self.get_state(&block.state_root(), Some(block.slot())).unwrap().unwrap();
+                    let state = self
+                        .get_state(&block.state_root(), Some(block.slot()))
+                        .unwrap()
+                        .unwrap();
                     finalized_blocks.insert(state.finalized_checkpoint.root);
                 }
 
                 if block_hash == canonical_head_hash {
                     write!(
                         output,
-                        "\t_{:?}[label=\"{}\" shape=box3d];\n",
-                        block_hash, signed_beacon_block.slot()
+                        "\t_{:?}[label=\"{} ({})\" shape=box3d];\n",
+                        block_hash,
+                        block_hash,
+                        signed_beacon_block.slot()
                     )
                     .unwrap();
                 } else if finalized_blocks.contains(&block_hash) {
                     write!(
                         output,
-                        "\t_{:?}[label=\"{}\" shape=Msquare];\n",
-                        block_hash, signed_beacon_block.slot()
+                        "\t_{:?}[label=\"{} ({})\" shape=Msquare];\n",
+                        block_hash,
+                        block_hash,
+                        signed_beacon_block.slot()
                     )
                     .unwrap();
                 } else {
                     write!(
                         output,
-                        "\t_{:?}[label=\"{}\" shape=box];\n",
-                        block_hash, signed_beacon_block.slot()
+                        "\t_{:?}[label=\"{} ({})\" shape=box];\n",
+                        block_hash,
+                        block_hash,
+                        signed_beacon_block.slot()
                     )
                     .unwrap();
                 }
                 write!(
                     output,
                     "\t_{:?} -> _{:?};\n",
-                    block_hash, signed_beacon_block.parent_root()
+                    block_hash,
+                    signed_beacon_block.parent_root()
                 )
                 .unwrap();
             }
