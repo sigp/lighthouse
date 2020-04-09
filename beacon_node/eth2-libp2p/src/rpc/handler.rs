@@ -330,7 +330,7 @@ where
                         // panic all outbound substreams are full
                         new_id -= 1;
                     }
-                    debug!(self.log, "New outbound stream id created"; "id" => new_id);
+                    trace!(self.log, "New outbound stream id created"; "id" => new_id);
                     id = RequestId::from(new_id);
                 }
 
@@ -348,7 +348,6 @@ where
                 {
                     crit!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
                 }
-                trace!(self.log, "Created outbound substream"; "id" => id);
             }
             _ => { // a response is not expected, drop the stream for all other requests
             }

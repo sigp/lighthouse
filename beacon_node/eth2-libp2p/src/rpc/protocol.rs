@@ -146,7 +146,6 @@ where
         socket: upgrade::Negotiated<TSocket>,
         protocol: ProtocolId,
     ) -> Self::Future {
-        dbg!(&protocol);
         match protocol.encoding.as_str() {
             "ssz" | _ => {
                 let protocol_name = protocol.message_name.clone();
@@ -172,12 +171,9 @@ where
                             .and_then({
                                 |(req, stream)| match req {
                                     Some(request) => futures::future::ok((request, stream)),
-                                    None => {
-                                        dbg!("Empty Stream");
-                                        futures::future::err(RPCError::Custom(
-                                            "Stream terminated early".into(),
-                                        ))
-                                    }
+                                    None => futures::future::err(RPCError::Custom(
+                                        "Stream terminated early".into(),
+                                    )),
                                 }
                             } as FnAndThen<TSocket, TSpec>),
                     )

@@ -136,7 +136,6 @@ where
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, _: ConnectedPoint) {
-        debug!(self.log, "Peer disconnected");
         // inform the rpc handler that the peer has disconnected
         self.events.push(NetworkBehaviourAction::GenerateEvent(
             RPCMessage::PeerDisconnected(peer_id.clone()),
