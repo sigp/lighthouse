@@ -1,3 +1,7 @@
+use crate::attestation_verification::{
+    Error as AttestationError, FullyVerifiedAttestation, VerifiedAggregatedAttestation,
+    VerifiedUnaggregatedAttestation,
+};
 use crate::block_verification::{
     check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
     FullyVerifiedBlock, GossipVerifiedBlock, IntoFullyVerifiedBlock,
@@ -844,6 +848,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
             signature: AggregateSignature::empty_signature(),
         })
+    }
+
+    pub fn verify_unaggregated_attestation_for_gossip(
+        &self,
+        attestation: Attestation<T::EthSpec>,
+    ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+        VerifiedUnaggregatedAttestation::verify(attestation, self)
+    }
+
+    pub fn verify_aggregated_attestation_for_gossip(
+        &self,
+        signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+    ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
+        VerifiedAggregatedAttestation::verify(signed_aggregate, self)
     }
 
     /// Accept a new, potentially invalid attestation from the network.

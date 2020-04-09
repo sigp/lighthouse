@@ -95,11 +95,11 @@ impl From<BeaconChainError> for Error {
     }
 }
 
-pub struct VerifiedAggregateAttestation<T: BeaconChainTypes> {
+pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
     signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
 }
 
-pub struct VerifiedUnaggregateAttestation<T: BeaconChainTypes> {
+pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
 }
 
@@ -107,8 +107,8 @@ pub struct FullyVerifiedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
 }
 
-impl<T: BeaconChainTypes> VerifiedAggregateAttestation<T> {
-    pub fn new(
+impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
+    pub fn verify(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
@@ -191,12 +191,12 @@ impl<T: BeaconChainTypes> VerifiedAggregateAttestation<T> {
             return Err(Error::InvalidSignature);
         }
 
-        Ok(VerifiedAggregateAttestation { signed_aggregate })
+        Ok(VerifiedAggregatedAttestation { signed_aggregate })
     }
 }
 
-impl<T: BeaconChainTypes> VerifiedUnaggregateAttestation<T> {
-    pub fn new(
+impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
+    pub fn verify(
         attestation: Attestation<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
