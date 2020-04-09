@@ -1,7 +1,7 @@
-use super::peer_info::{PeerConnectionStatus, PeerInfo};
+use super::peer_info::{PeerConnectionStatus, PeerInfo, PeerSyncStatus};
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
-use slog::warn;
+use slog::{crit, warn};
 use std::collections::HashMap;
 use types::{EthSpec, SubnetId};
 
@@ -31,6 +31,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             peers: HashMap::new(),
         }
     }
+
+    /* Getters */
+
     /// Gives the reputation of a peer, or DEFAULT_REPUTATION if it is unknown.
     pub fn reputation(&self, peer_id: &PeerId) -> Rep {
         self.peers
@@ -53,11 +56,33 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers.get_mut(peer_id)
     }
 
+    /// Returns true if the peer is synced at least to our current head.
+    pub fn peer_synced(&self, peer_id: &PeerId) -> bool {
+        match self.peers.get(peer_id).map(|info| &info.sync_status) {
+            Some(PeerSyncStatus::Synced { .. }) => true,
+            Some(_) => false,
+            None => false,
+        }
+    }
+
     /// Gives the ids of all known connected peers.
     pub fn connected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
             .filter(|(_, info)| info.connection_status.is_connected())
+            .map(|(peer_id, _)| peer_id)
+    }
+
+    /// Gives the `peer_id` of all known connected and synced peers.
+    pub fn synced_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(|(_, info)| {
+                if let PeerSyncStatus::Synced { .. } = info.sync_status {
+                    return info.connection_status.is_connected();
+                }
+                false
+            })
             .map(|(peer_id, _)| peer_id)
     }
 
@@ -115,6 +140,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(id, _)| id)
     }
 
+    /// Gets the connection status of the peer.
+    pub fn connection_status(&self, peer_id: &PeerId) -> PeerConnectionStatus {
+        self.peer_info(peer_id)
+            .map_or(PeerConnectionStatus::default(), |info| {
+                info.connection_status.clone()
+            })
+    }
+
+    /* Setters */
+
     /// Sets a peer as connected with an ingoing connection
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) {
         let info = self
@@ -126,15 +161,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.n_dc -= 1;
         }
         info.connection_status.connect_ingoing();
-    }
-
-    /// Add the meta data of a peer.
-    pub fn add_metadata(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
-        if let Some(peer_info) = self.peers.get_mut(peer_id) {
-            peer_info.meta_data = Some(meta_data);
-        } else {
-            warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => format!("{}", peer_id));
-        }
     }
 
     /// Sets a peer as connected with an outgoing connection
@@ -197,31 +223,35 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.connection_status.ban();
     }
 
-    /// Inserts a new peer with the default PeerInfo if it is not already present
-    /// Returns if the peer was new to the PeerDB
-    pub fn new_peer(&mut self, peer_id: &PeerId) -> bool {
-        if !self.peers.contains_key(peer_id) {
-            self.peers.insert(peer_id.clone(), Default::default());
-            return true;
+    /// Add the meta data of a peer.
+    pub fn add_metadata(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
+        if let Some(peer_info) = self.peers.get_mut(peer_id) {
+            peer_info.meta_data = Some(meta_data);
+        } else {
+            warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => format!("{}", peer_id));
         }
-        false
     }
 
-    /// Sets the reputation of peer
+    /// Sets the reputation of peer.
     pub fn set_reputation(&mut self, peer_id: &PeerId, rep: Rep) {
-        let log_ref = &self.log;
-        self.peers
-            .entry(peer_id.clone())
-            .or_insert_with(|| {
-                warn!(log_ref, "Setting the reputation of an unknown peer";
-                    "peer_id" => format!("{:?}",peer_id));
-                PeerInfo::default()
-            })
-            .reputation = rep;
+        if let Some(peer_info) = self.peers.get_mut(peer_id) {
+            peer_info.reputation = rep;
+        } else {
+            crit!(self.log, "Tried to modify reputation for an unknown peer"; "peer_id" => format!("{}",peer_id));
+        }
+    }
+
+    /// Sets the syncing status of a peer.
+    pub fn set_sync_status(&mut self, peer_id: &PeerId, sync_status: PeerSyncStatus) {
+        if let Some(peer_info) = self.peers.get_mut(peer_id) {
+            peer_info.sync_status = sync_status;
+        } else {
+            crit!(self.log, "Tried to the sync status for an unknown peer"; "peer_id" => format!("{}",peer_id));
+        }
     }
 
     /// Adds to a peer's reputation by `change`. If the reputation exceeds Rep's
-    /// upper (lower) bounds, it stays at the maximum (minimum) value
+    /// upper (lower) bounds, it stays at the maximum (minimum) value.
     pub fn add_reputation(&mut self, peer_id: &PeerId, change: Rep) {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
@@ -230,13 +260,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerInfo::default()
         });
         info.reputation = info.reputation.saturating_add(change);
-    }
-
-    pub fn connection_status(&self, peer_id: &PeerId) -> PeerConnectionStatus {
-        self.peer_info(peer_id)
-            .map_or(PeerConnectionStatus::default(), |info| {
-                info.connection_status.clone()
-            })
     }
 }
 
@@ -355,9 +378,6 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.new_peer(&p0);
-        pdb.new_peer(&p1);
-        pdb.new_peer(&p2);
         pdb.connect_ingoing(&p0);
         pdb.connect_ingoing(&p1);
         pdb.connect_ingoing(&p2);
@@ -378,9 +398,6 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.new_peer(&p0);
-        pdb.new_peer(&p1);
-        pdb.new_peer(&p2);
         pdb.connect_ingoing(&p0);
         pdb.connect_ingoing(&p1);
         pdb.connect_ingoing(&p2);
@@ -401,7 +418,7 @@ mod tests {
 
         let random_peer = PeerId::random();
 
-        pdb.new_peer(&random_peer);
+        pdb.connect_ingoing(&random_peer);
         assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
 
         pdb.connect_ingoing(&random_peer);

@@ -6,7 +6,7 @@ use beacon_chain::{
 };
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
-use eth2_libp2p::PeerId;
+use eth2_libp2p::{NetworkGlobals, PeerId};
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
@@ -70,6 +70,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn new(
         executor: &tokio::runtime::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
+        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         log: &slog::Logger,
     ) -> Self {
@@ -78,7 +79,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         // spawn the sync thread
         let (sync_send, _sync_exit) = crate::sync::manager::spawn(
             executor,
-            Arc::downgrade(&beacon_chain),
+            beacon_chain.clone(),
+            network_globals,
             network_send.clone(),
             sync_logger,
         );

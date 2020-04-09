@@ -1,6 +1,7 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::peer_manager::PeerDB;
 use crate::rpc::methods::MetaData;
+use crate::types::SyncState;
 use crate::{discovery::enr::Eth2Enr, Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
@@ -24,6 +25,8 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     pub peers: RwLock<PeerDB<TSpec>>,
     /// The current gossipsub topic subscriptions.
     pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
+    /// The current sync status of the node.
+    pub sync_state: RwLock<SyncState>,
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
@@ -45,6 +48,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             listen_port_udp: AtomicU16::new(udp_port),
             peers: RwLock::new(PeerDB::new(log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
+            sync_state: RwLock::new(SyncState::Stalled),
         }
     }
 
@@ -77,5 +81,39 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     /// Returns the number of libp2p connected peers.
     pub fn connected_peers(&self) -> usize {
         self.peers.read().connected_peers().count()
+    }
+
+    /// Returns in the node is syncing.
+    pub fn is_syncing(&self) -> bool {
+        self.sync_state.read().is_syncing()
+    }
+
+    /// Returns the current sync state of the peer.
+    pub fn sync_state(&self) -> SyncState {
+        self.sync_state.read().clone()
+    }
+
+    /// Updates the syncing state of the node.
+    ///
+    /// If there is a new state, the old state and the new states are returned.
+    pub fn update_sync_state(&self) -> Option<(SyncState, SyncState)> {
+        let mut result = None;
+        // if we are in a range sync, nothing changes. Range sync will update this.
+        if !self.is_syncing() {
+            let new_state = self
+                .peers
+                .read()
+                .synced_peers()
+                .next()
+                .map(|_| SyncState::Synced)
+                .unwrap_or_else(|| SyncState::Stalled);
+
+            let mut peer_state = self.sync_state.write();
+            if new_state != *peer_state {
+                result = Some((peer_state.clone(), new_state.clone()));
+            }
+            *peer_state = new_state;
+        }
+        result
     }
 }

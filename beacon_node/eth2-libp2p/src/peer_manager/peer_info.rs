@@ -1,7 +1,7 @@
 use super::peerdb::{Rep, DEFAULT_REPUTATION};
 use crate::rpc::MetaData;
 use std::time::Instant;
-use types::{EthSpec, SubnetId};
+use types::{EthSpec, Slot, SubnetId};
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
@@ -17,7 +17,7 @@ pub struct PeerInfo<T: EthSpec> {
     pub connection_status: PeerConnectionStatus,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
-    pub syncing_status: PeerSyncingStatus,
+    pub sync_status: PeerSyncStatus,
     /// The ENR subnet bitfield of the peer. This may be determined after it's initial
     /// connection.
     pub meta_data: Option<MetaData<T>>,
@@ -33,7 +33,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
                 _version: vec![0],
             },
             connection_status: Default::default(),
-            syncing_status: PeerSyncingStatus::Unknown,
+            sync_status: PeerSyncStatus::Unknown,
             meta_data: None,
         }
     }
@@ -98,14 +98,18 @@ pub enum PeerConnectionStatus {
     },
 }
 
-#[derive(Debug, Clone)]
-pub enum PeerSyncingStatus {
-    /// At the current state as our node.
-    Synced,
-    /// The peer is further ahead than our node and useful for block downloads.
-    Ahead,
+#[derive(Debug, Clone, PartialEq)]
+pub enum PeerSyncStatus {
+    /// At the current state as our node or ahead of us.
+    Synced {
+        /// The last known head slot from the peer's handshake.
+        status_head_slot: Slot,
+    },
     /// Is behind our current head and not useful for block downloads.
-    Behind,
+    Behind {
+        /// The last known head slot from the peer's handshake.
+        status_head_slot: Slot,
+    },
     /// Not currently known as a STATUS handshake has not occurred.
     Unknown,
 }

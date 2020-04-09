@@ -11,7 +11,7 @@ use crate::service::NetworkMessage;
 use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
-    MessageId, PeerId, PubsubMessage, RPCEvent,
+    MessageId, NetworkGlobals, PeerId, PubsubMessage, RPCEvent,
 };
 use futures::future::Future;
 use futures::stream::Stream;
@@ -55,6 +55,7 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Initializes and runs the Router.
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
+        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
@@ -65,7 +66,13 @@ impl<T: BeaconChainTypes> Router<T> {
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         // Initialise a message instance, which itself spawns the syncing thread.
-        let processor = Processor::new(executor, beacon_chain, network_send.clone(), &log);
+        let processor = Processor::new(
+            executor,
+            beacon_chain,
+            network_globals,
+            network_send.clone(),
+            &log,
+        );
 
         // generate the Message handler
         let mut handler = Router {
