@@ -13,7 +13,6 @@ eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2/utils/eth2_config" }
 tree_hash = "0.1.0"
 clap = "2.33.0"
-lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
 eth2_interop_keypairs = { path = "../eth2/utils/eth2_interop_keypairs" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
 rest_types = { path = "../eth2/utils/rest_types" }
