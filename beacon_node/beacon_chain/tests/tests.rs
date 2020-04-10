@@ -6,7 +6,7 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
 };
-use beacon_chain::{AttestationProcessingOutcome, AttestationType};
+use beacon_chain::AttestationProcessingOutcome;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
@@ -361,7 +361,7 @@ fn roundtrip_operation_pool() {
 }
 
 #[test]
-fn free_attestations_added_to_fork_choice_some_none() {
+fn unaggregated_attestations_added_to_fork_choice_some_none() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() / 2;
 
     let harness = get_harness(VALIDATOR_COUNT);
@@ -408,6 +408,7 @@ fn free_attestations_added_to_fork_choice_some_none() {
     }
 }
 
+/*
 #[test]
 fn attestations_with_increasing_slots() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
@@ -425,7 +426,7 @@ fn attestations_with_increasing_slots() {
         );
 
         attestations.append(
-            &mut harness.get_free_attestations(
+            &mut harness.get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &harness.chain.head().expect("should get head").beacon_state,
                 harness
@@ -466,9 +467,10 @@ fn attestations_with_increasing_slots() {
         }
     }
 }
+*/
 
 #[test]
-fn free_attestations_added_to_fork_choice_all_updated() {
+fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
 
     let harness = get_harness(VALIDATOR_COUNT);

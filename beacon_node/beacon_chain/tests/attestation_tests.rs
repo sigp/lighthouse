@@ -1,16 +1,18 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
+/*
 #[macro_use]
 extern crate lazy_static;
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType,
+    AttestationError, AttestationStrategy, BeaconChain, BeaconChainHarness, BlockStrategy,
+    HarnessType,
 };
 use beacon_chain::{AttestationProcessingOutcome, AttestationType};
 use state_processing::per_slot_processing;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, BitList, EthSpec, Hash256,
-    Keypair, MainnetEthSpec, Signature,
+    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BitList, EthSpec,
+    Hash256, Keypair, MainnetEthSpec, Signature,
 };
 
 pub const VALIDATOR_COUNT: usize = 128;
@@ -26,6 +28,14 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<Mainnet
     harness.advance_slot();
 
     harness
+}
+
+fn process_gossip_attestation<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    attestation: &Attestation<T::EthSpec>,
+) -> Result<(), AttestationError> {
+    let gossip_attestation = chain.verify_unaggregated_attestation_for_gossip()?;
+    let fc_attestation =
 }
 
 #[test]
@@ -45,7 +55,7 @@ fn attestation_validity() {
     let current_epoch = chain.epoch().expect("should get epoch");
 
     let valid_attestation = harness
-        .get_free_attestations(
+        .get_unaggregated_attestations(
             &AttestationStrategy::AllValidators,
             &head.beacon_state,
             head.beacon_block_root,
@@ -109,7 +119,7 @@ fn attestation_validity() {
         .expect("should not error getting state")
         .expect("should find state");
     let late_attestation = harness
-        .get_free_attestations(
+        .get_unaggregated_attestations(
             &AttestationStrategy::AllValidators,
             &late_state,
             late_block.canonical_root(),
@@ -248,7 +258,7 @@ fn attestation_that_skips_epochs() {
     }
 
     let attestation = harness
-        .get_free_attestations(
+        .get_unaggregated_attestations(
             &AttestationStrategy::AllValidators,
             &state,
             earlier_block.canonical_root(),
@@ -266,3 +276,4 @@ fn attestation_that_skips_epochs() {
         "should process attestation that skips slots"
     );
 }
+*/
