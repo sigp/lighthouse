@@ -342,17 +342,13 @@ where
         )
         .into_iter()
         .for_each(|attestation| {
-            let gossip_attestation = self
+            let verified_attestation = self
                 .chain
                 .verify_unaggregated_attestation_for_gossip(attestation)
                 .expect("should not error during attestation processing");
-            let fork_choice_attestation = self
-                .chain
-                .apply_attestation_to_fork_choice(gossip_attestation)
-                .expect("should apply attestation to fork choice");
             self.chain
-                .apply_attestation_to_pools(fork_choice_attestation)
-                .expect("should add attestation to pools");
+                .add_to_naive_aggregation_pool(verified_attestation)
+                .expect("should add attestation to naive pool");
         });
     }
 

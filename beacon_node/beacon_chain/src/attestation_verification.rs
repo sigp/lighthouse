@@ -156,6 +156,17 @@ pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
     attestation_type: AttestationType,
 }
 
+impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
+    for ForkChoiceVerifiedAttestation<T>
+{
+    fn into_fork_choice_verified_attestation(
+        self,
+        _: &BeaconChain<T>,
+    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
+        Ok(self)
+    }
+}
+
 impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     pub fn verify(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
@@ -245,6 +256,15 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
             indexed_attestation,
         })
     }
+
+    pub fn into_components(
+        self,
+    ) -> (
+        SignedAggregateAndProof<T::EthSpec>,
+        IndexedAttestation<T::EthSpec>,
+    ) {
+        (self.signed_aggregate, self.indexed_attestation)
+    }
 }
 
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
@@ -304,12 +324,16 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         }
 
         // The signature of attestation is valid.
-        verify_attestation_signature(chain, &indexed_attestation, block_slot)?;
+        verify_attestation_signature(chain, &indexed_attestation)?;
 
         Ok(Self {
             attestation,
             indexed_attestation,
         })
+    }
+
+    pub fn into_components(self) -> (Attestation<T::EthSpec>, IndexedAttestation<T::EthSpec>) {
+        (self.attestation, self.indexed_attestation)
     }
 }
 
@@ -446,7 +470,6 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
 pub fn verify_attestation_signature<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     indexed_attestation: &IndexedAttestation<T::EthSpec>,
-    block_slot: Slot,
 ) -> Result<(), Error> {
     let signature_setup_timer =
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
@@ -505,9 +528,6 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: &IndexedAttestation<T::EthSpec>,
 ) -> Result<bool, Error> {
-    let signature_setup_timer =
-        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
-
     let pubkey_cache = chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)

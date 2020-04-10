@@ -1,7 +1,6 @@
 use crate::attestation_verification::{
-    AttestationType, Error as AttestationError, ForkChoiceVerifiedAttestation,
-    IntoForkChoiceVerifiedAttestation, VerifiedAggregatedAttestation,
-    VerifiedUnaggregatedAttestation,
+    Error as AttestationError, ForkChoiceVerifiedAttestation, IntoForkChoiceVerifiedAttestation,
+    VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
 };
 use crate::block_verification::{
     check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
@@ -857,71 +856,72 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(verified)
     }
 
-    pub fn apply_attestation_to_pools(
+    /// We accept `Attestation` without any specific
+    pub fn add_to_naive_aggregation_pool(
         &self,
-        verified_attestation: ForkChoiceVerifiedAttestation<T>,
+        unaggregated_attestation: VerifiedUnaggregatedAttestation<T>,
     ) -> Result<IndexedAttestation<T::EthSpec>, AttestationError> {
-        let (attestation, indexed_attestation, attestation_type) =
-            verified_attestation.into_components();
+        let (attestation, indexed_attestation) = unaggregated_attestation.into_components();
 
-        match attestation_type {
-            // Attestations that have already been aggregated are added to op_pool` for potential
-            // inclusion in a future block.
-            AttestationType::Aggregated => {
-                // If there's no eth1 chain then it's impossible to produce blocks and therefore
-                // useless to put things in the op pool.
-                if self.eth1_chain.is_some() {
-                    let fork = self
-                        .canonical_head
-                        .try_read_for(HEAD_LOCK_TIMEOUT)
-                        .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
-                        .beacon_state
-                        .fork
-                        .clone();
-
-                    self.op_pool
-                        .insert_attestation(
-                            attestation,
-                            &fork,
-                            self.genesis_validators_root,
-                            &self.spec,
-                        )
-                        .map_err(Error::from)?;
-                }
-            }
-            // Attestations that are not yet aggregated are stored in `self.naive_aggregation_pool`
-            // in the case a validator needs to produce an aggregate.
-            AttestationType::Unaggregated => match self.naive_aggregation_pool.insert(&attestation)
-            {
-                Ok(outcome) => trace!(
+        match self.naive_aggregation_pool.insert(&attestation) {
+            Ok(outcome) => trace!(
+                self.log,
+                "Stored unaggregated attestation";
+                "outcome" => format!("{:?}", outcome),
+                "index" => attestation.data.index,
+                "slot" => attestation.data.slot.as_u64(),
+            ),
+            Err(NaiveAggregationError::SlotTooLow {
+                slot,
+                lowest_permissible_slot,
+            }) => {
+                trace!(
                     self.log,
-                    "Stored unaggregated attestation";
-                    "outcome" => format!("{:?}", outcome),
-                    "index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
-                ),
-                Err(NaiveAggregationError::SlotTooLow {
-                    slot,
-                    lowest_permissible_slot,
-                }) => {
-                    trace!(
+                    "Refused to store unaggregated attestation";
+                    "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                    "slot" => slot.as_u64(),
+                );
+            }
+            Err(e) => {
+                error!(
                         self.log,
-                        "Refused to store unaggregated attestation";
-                        "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
-                        "slot" => slot.as_u64(),
-                    );
-                }
-                Err(e) => {
-                    error!(
-                            self.log,
-                            "Failed to store unaggregated attestation";
-                            "error" => format!("{:?}", e),
-                            "index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
-                    );
-                    return Err(Error::from(e).into());
-                }
-            },
+                        "Failed to store unaggregated attestation";
+                        "error" => format!("{:?}", e),
+                        "index" => attestation.data.index,
+                        "slot" => attestation.data.slot.as_u64(),
+                );
+                return Err(Error::from(e).into());
+            }
+        };
+
+        Ok(indexed_attestation)
+    }
+
+    pub fn add_to_block_inclusion_pool(
+        &self,
+        signed_aggregate: VerifiedAggregatedAttestation<T>,
+    ) -> Result<IndexedAttestation<T::EthSpec>, AttestationError> {
+        let (signed_aggregate, indexed_attestation) = signed_aggregate.into_components();
+
+        // If there's no eth1 chain then it's impossible to produce blocks and therefore
+        // useless to put things in the op pool.
+        if self.eth1_chain.is_some() {
+            let fork = self
+                .canonical_head
+                .try_read_for(HEAD_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
+                .beacon_state
+                .fork
+                .clone();
+
+            self.op_pool
+                .insert_attestation(
+                    signed_aggregate.message.aggregate,
+                    &fork,
+                    self.genesis_validators_root,
+                    &self.spec,
+                )
+                .map_err(Error::from)?;
         }
 
         Ok(indexed_attestation)
