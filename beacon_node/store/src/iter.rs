@@ -328,16 +328,21 @@ impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
             }
 
             // Maintain the invariant of self.current_state and self.next_state always being set to
-            // loaded BeaconState.
-            if self.slot > E::SlotsPerHistoricalRoot::to_u64()
-                && self.slot % E::SlotsPerHistoricalRoot::to_u64() <= 1
-            {
-                self.current_state = self
-                    .next_state
-                    .take()
-                    .expect("invariant violated: absent next state");
-                self.next_state =
-                    Self::next_historical_root_backtrack_state(&*self.store, &self.current_state)?;
+            // loaded BeaconState so that we can detect skipped slots event at
+            // SlotsPerHistoricalRoot boundaries.
+            if self.slot > E::SlotsPerHistoricalRoot::to_u64() {
+                if let Err(BeaconStateError::SlotOutOfBounds) =
+                    self.current_state.get_block_root(self.slot - 1)
+                {
+                    self.current_state = self
+                        .next_state
+                        .take()
+                        .expect("invariant violated: absent next state");
+                    self.next_state = Self::next_historical_root_backtrack_state(
+                        &*self.store,
+                        &self.current_state,
+                    )?;
+                }
             }
 
             let slot = self.slot;

@@ -1972,8 +1972,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut abandoned_states: HashSet<(Slot, BeaconStateHash)> = HashSet::new();
         let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
 
-        self.dump_dot_file("pre.dot");
-
         for (head_hash, head_slot) in self.heads() {
             let mut potentially_abandoned_head: Option<Hash256> = Some(head_hash);
             let mut potentially_abandoned_blocks: Vec<(
@@ -1994,11 +1992,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     break;
                 }
                 if is_skipped_slot {
-                    if newly_finalized_blocks.contains(&block_hash) {
-                        potentially_abandoned_blocks.push((slot, None, Some(state_hash)));
-                    } else {
-                        potentially_abandoned_blocks.push((slot, None, Some(state_hash)));
-                    }
+                    potentially_abandoned_blocks.push((slot, None, Some(state_hash)));
                 } else {
                     if newly_finalized_blocks.contains(&block_hash) {
                         debug_assert!(slot <= new_finalized_slot);
@@ -2021,24 +2015,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             if !potentially_abandoned_blocks.is_empty() {
-                potentially_abandoned_blocks.push((head_slot, Some(head_hash.into()), None));
+                let head_block = self
+                    .store
+                    .get_block(&head_hash)?
+                    .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?;
+                potentially_abandoned_blocks.push((
+                    head_slot,
+                    Some(head_hash.into()),
+                    Some(head_block.state_root().into()),
+                ));
+
+                abandoned_blocks.extend(
+                    potentially_abandoned_blocks
+                        .iter()
+                        .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
+                );
+                abandoned_states.extend(potentially_abandoned_blocks.iter().filter_map(
+                    |(slot, _, maybe_state_hash)| match maybe_state_hash {
+                        None => None,
+                        Some(state_hash) => Some((*slot, *state_hash)),
+                    },
+                ));
+                abandoned_heads.extend(potentially_abandoned_head.into_iter());
+                potentially_abandoned_blocks.clear();
             }
-
-            dbg!(&potentially_abandoned_blocks);
-
-            abandoned_blocks.extend(
-                potentially_abandoned_blocks
-                    .iter()
-                    .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
-            );
-            abandoned_states.extend(potentially_abandoned_blocks.iter().filter_map(
-                |(slot, _, maybe_state_hash)| match maybe_state_hash {
-                    None => None,
-                    Some(state_hash) => Some((*slot, *state_hash)),
-                },
-            ));
-            abandoned_heads.extend(potentially_abandoned_head.into_iter());
-            potentially_abandoned_blocks.clear();
         }
 
         // XXX Should be performed atomically, see
@@ -2052,8 +2052,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for head_hash in abandoned_heads.into_iter() {
             self.head_tracker.remove_head(head_hash);
         }
-
-        self.dump_dot_file("post.dot");
 
         Ok(())
     }

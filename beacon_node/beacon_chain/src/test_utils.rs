@@ -257,17 +257,7 @@ where
                 self.advance_slot();
             }
 
-            let proposer_index = match block_strategy {
-                BlockStrategy::OnCanonicalHead => self
-                    .chain
-                    .block_proposer(slot)
-                    .expect("should get block proposer from chain"),
-                _ => state
-                    .get_beacon_proposer_index(slot, &self.spec)
-                    .expect("should get block proposer from state"),
-            };
-
-            let (block, new_state) = self.build_block(state.clone(), slot, proposer_index);
+            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
             let outcome = self
                 .chain
@@ -308,7 +298,7 @@ where
     pub fn add_block(
         &self,
         state: &BeaconState<E>,
-        proposer_index: usize,
+        block_strategy: BlockStrategy,
         slot: Slot,
         validators: &[usize],
     ) -> (SignedBeaconBlockHash, BeaconState<E>) {
@@ -316,7 +306,7 @@ where
             self.advance_slot();
         }
 
-        let (block, new_state) = self.build_block(state.clone(), slot, proposer_index);
+        let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
         let outcome = self
             .chain
@@ -334,13 +324,13 @@ where
         }
     }
 
-    pub fn add_blocks<F: Fn(Slot, &BeaconState<E>) -> usize>(
+    pub fn add_blocks(
         &self,
         mut state: BeaconState<E>,
         mut slot: Slot,
         num_blocks: usize,
         attesting_validators: &[usize],
-        get_proposer_index: F,
+        block_strategy: BlockStrategy,
     ) -> (
         HashMap<Slot, SignedBeaconBlockHash>,
         HashMap<Slot, BeaconStateHash>,
@@ -351,9 +341,8 @@ where
         let mut blocks: HashMap<Slot, SignedBeaconBlockHash> = HashMap::with_capacity(num_blocks);
         let mut states: HashMap<Slot, BeaconStateHash> = HashMap::with_capacity(num_blocks);
         for _ in 0..num_blocks {
-            let proposer_index = get_proposer_index(slot, &state);
             let (new_root_hash, new_state) =
-                self.add_block(&state, proposer_index, slot, attesting_validators);
+                self.add_block(&state, block_strategy, slot, attesting_validators);
             blocks.insert(slot, new_root_hash);
             states.insert(slot, new_state.tree_hash_root().into());
             state = new_state;
@@ -376,9 +365,14 @@ where
         SignedBeaconBlockHash,
         BeaconState<E>,
     ) {
-        self.add_blocks(state, slot, num_blocks, attesting_validators, |slot, _| {
-            self.chain.block_proposer(slot).unwrap()
-        })
+        let block_strategy = BlockStrategy::OnCanonicalHead;
+        self.add_blocks(
+            state,
+            slot,
+            num_blocks,
+            attesting_validators,
+            block_strategy,
+        )
     }
 
     pub fn add_stray_blocks(
@@ -394,12 +388,16 @@ where
         SignedBeaconBlockHash,
         BeaconState<E>,
     ) {
+        let block_strategy = BlockStrategy::ForkCanonicalChainAt {
+            previous_slot: slot,
+            first_slot: slot + 2,
+        };
         self.add_blocks(
             state,
             slot + 2,
             num_blocks,
             attesting_validators,
-            |slot, state| state.get_beacon_proposer_index(slot, &self.spec).unwrap(),
+            block_strategy,
         )
     }
 
@@ -408,7 +406,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-        proposer_index: usize,
+        block_strategy: BlockStrategy,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         if slot < state.slot {
             panic!("produce slot cannot be prior to the state slot");
@@ -422,6 +420,16 @@ where
         state
             .build_all_caches(&self.spec)
             .expect("should build caches");
+
+        let proposer_index = match block_strategy {
+            BlockStrategy::OnCanonicalHead => self
+                .chain
+                .block_proposer(slot)
+                .expect("should get block proposer from chain"),
+            _ => state
+                .get_beacon_proposer_index(slot, &self.spec)
+                .expect("should get block proposer from state"),
+        };
 
         let sk = &self.keypairs[proposer_index].sk;
         let fork = &state.fork.clone();

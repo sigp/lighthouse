@@ -726,8 +726,6 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         &faulty_validators,
     );
 
-    dbg!(&stray_states);
-
     // Precondition: Ensure all stray_blocks blocks are still known
     for &block_hash in stray_blocks.values() {
         let block = harness.chain.get_block(&block_hash.into()).unwrap();
