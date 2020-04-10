@@ -279,12 +279,7 @@ where
             if let BlockProcessingOutcome::Processed { block_root } = outcome {
                 head_block_root = Some(block_root);
 
-                let current_epoch = self.chain.epoch().expect("chain should have a epoch");
-
-                // Only produce attestations if they will be accepted by the beacon chain.
-                if slot.epoch(E::slots_per_epoch()) + 1 >= current_epoch {
-                    self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
-                }
+                self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
             } else {
                 panic!("block should be successfully processed: {:?}", outcome);
             }
@@ -443,7 +438,7 @@ where
         let (block, state) = self
             .chain
             .produce_block_on_state(state, slot, randao_reveal)
-            .unwrap();
+            .expect("should produce block");
 
         let signed_block = block.sign(sk, &state.fork, state.genesis_validators_root, &self.spec);
 
