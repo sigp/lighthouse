@@ -860,10 +860,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn add_to_naive_aggregation_pool(
         &self,
         unaggregated_attestation: VerifiedUnaggregatedAttestation<T>,
-    ) -> Result<IndexedAttestation<T::EthSpec>, AttestationError> {
-        let (attestation, indexed_attestation) = unaggregated_attestation.into_components();
+    ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+        let attestation = unaggregated_attestation.attestation();
 
-        match self.naive_aggregation_pool.insert(&attestation) {
+        match self.naive_aggregation_pool.insert(attestation) {
             Ok(outcome) => trace!(
                 self.log,
                 "Stored unaggregated attestation";
@@ -894,15 +894,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        Ok(indexed_attestation)
+        Ok(unaggregated_attestation)
     }
 
     pub fn add_to_block_inclusion_pool(
         &self,
         signed_aggregate: VerifiedAggregatedAttestation<T>,
-    ) -> Result<IndexedAttestation<T::EthSpec>, AttestationError> {
-        let (signed_aggregate, indexed_attestation) = signed_aggregate.into_components();
-
+    ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
@@ -916,7 +914,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.op_pool
                 .insert_attestation(
-                    signed_aggregate.message.aggregate,
+                    // TODO: address this clone.
+                    signed_aggregate.attestation().clone(),
                     &fork,
                     self.genesis_validators_root,
                     &self.spec,
@@ -924,7 +923,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(Error::from)?;
         }
 
-        Ok(indexed_attestation)
+        Ok(signed_aggregate)
     }
 
     /// Accept some exit and queue it for inclusion in an appropriate block.

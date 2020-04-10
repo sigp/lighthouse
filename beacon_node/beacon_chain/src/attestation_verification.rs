@@ -27,12 +27,6 @@ use types::{
     RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot,
 };
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum AttestationType {
-    Aggregated,
-    Unaggregated,
-}
-
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
@@ -123,7 +117,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
         ForkChoiceVerifiedAttestation::from_signature_verified_components(
             self.signed_aggregate.message.aggregate,
             self.indexed_attestation,
-            AttestationType::Aggregated,
             chain,
         )
     }
@@ -144,7 +137,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
         ForkChoiceVerifiedAttestation::from_signature_verified_components(
             self.attestation,
             self.indexed_attestation,
-            AttestationType::Unaggregated,
             chain,
         )
     }
@@ -153,7 +145,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
 pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
-    attestation_type: AttestationType,
 }
 
 impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
@@ -257,6 +248,21 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         })
     }
 
+    pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
+        chain.add_to_block_inclusion_pool(self)
+    }
+
+    pub fn add_to_fork_choice(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
+        chain.apply_attestation_to_fork_choice(self)
+    }
+
+    pub fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.signed_aggregate.message.aggregate
+    }
+
     pub fn into_components(
         self,
     ) -> (
@@ -332,6 +338,14 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         })
     }
 
+    pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
+        chain.add_to_naive_aggregation_pool(self)
+    }
+
+    pub fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.attestation
+    }
+
     pub fn into_components(self) -> (Attestation<T::EthSpec>, IndexedAttestation<T::EthSpec>) {
         (self.attestation, self.indexed_attestation)
     }
@@ -341,7 +355,6 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
     fn from_signature_verified_components(
         attestation: Attestation<T::EthSpec>,
         indexed_attestation: IndexedAttestation<T::EthSpec>,
-        attestation_type: AttestationType,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -411,7 +424,6 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
         Ok(Self {
             attestation,
             indexed_attestation,
-            attestation_type,
         })
     }
 
@@ -419,18 +431,8 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
         &self.indexed_attestation
     }
 
-    pub fn into_components(
-        self,
-    ) -> (
-        Attestation<T::EthSpec>,
-        IndexedAttestation<T::EthSpec>,
-        AttestationType,
-    ) {
-        (
-            self.attestation,
-            self.indexed_attestation,
-            self.attestation_type,
-        )
+    pub fn into_components(self) -> (Attestation<T::EthSpec>, IndexedAttestation<T::EthSpec>) {
+        (self.attestation, self.indexed_attestation)
     }
 }
 

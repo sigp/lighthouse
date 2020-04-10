@@ -42,7 +42,7 @@ fn produces_attestations() {
     assert_eq!(state.slot, num_blocks_produced, "head should have updated");
     assert!(
         state.finalized_checkpoint.epoch > 0,
-        "head should have updated"
+        "chain should have finalized"
     );
 
     let current_slot = chain.slot().expect("should get slot");
