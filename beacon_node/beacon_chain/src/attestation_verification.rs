@@ -262,15 +262,6 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
     }
-
-    pub fn into_components(
-        self,
-    ) -> (
-        SignedAggregateAndProof<T::EthSpec>,
-        IndexedAttestation<T::EthSpec>,
-    ) {
-        (self.signed_aggregate, self.indexed_attestation)
-    }
 }
 
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
@@ -344,10 +335,6 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.attestation
-    }
-
-    pub fn into_components(self) -> (Attestation<T::EthSpec>, IndexedAttestation<T::EthSpec>) {
-        (self.attestation, self.indexed_attestation)
     }
 }
 
@@ -429,10 +416,6 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
 
     pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
-    }
-
-    pub fn into_components(self) -> (Attestation<T::EthSpec>, IndexedAttestation<T::EthSpec>) {
-        (self.attestation, self.indexed_attestation)
     }
 }
 

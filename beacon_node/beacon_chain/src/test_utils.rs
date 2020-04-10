@@ -85,8 +85,12 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
+        Self::new_from_spec(eth_spec_instance, keypairs, E::default_spec())
+    }
+
+    /// Instantiate a new harness with `validator_count` initial validators.
+    pub fn new_from_spec(eth_spec_instance: E, keypairs: Vec<Keypair>, spec: ChainSpec) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let spec = E::default_spec();
 
         let log = NullLoggerBuilder.build().expect("logger should build");
 
@@ -519,15 +523,15 @@ where
                     })
                     .collect::<Vec<_>>();
 
-                (aggregates, bc.index)
+                (aggregates, bc)
             })
-            .map(|(aggregates, committee_index)| {
-                if aggregates.is_empty() {
+            .map(|(aggregates, bc)| {
+                if aggregates.is_empty() != bc.committee.is_empty() {
                     panic!(
                         "Unable to produce for signed aggregate for slot {}, committee index {}. \
                         Likely due to failure to find matching selection proof (usually due to \
                         small validator count)",
-                        state.slot, committee_index
+                        state.slot, bc.index
                     )
                 } else {
                     aggregates
