@@ -1,5 +1,6 @@
 use crate::attestation_verification::{
-    Error as AttestationError, FullyVerifiedAttestation, VerifiedAggregatedAttestation,
+    AttestationType, Error as AttestationError, ForkChoiceVerifiedAttestation,
+    IntoForkChoiceVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
 };
 use crate::block_verification::{
@@ -67,23 +68,6 @@ pub const BEACON_CHAIN_DB_KEY: [u8; 32] = [0; 32];
 pub const OP_POOL_DB_KEY: [u8; 32] = [0; 32];
 pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
-
-#[derive(Debug, PartialEq)]
-pub enum AttestationType {
-    /// An attestation with a single-signature that has been published in accordance with the naive
-    /// aggregation strategy.
-    ///
-    /// These attestations may have come from a `committee_index{subnet_id}_beacon_attestation`
-    /// gossip subnet or they have have come directly from a validator attached to our API.
-    ///
-    /// If `should_store == true`, the attestation will be added to the `NaiveAggregationPool`.
-    Unaggregated { should_store: bool },
-    /// An attestation with one more more signatures that has passed through the aggregation phase
-    /// of the naive aggregation scheme.
-    ///
-    /// These attestations must have come from the `beacon_aggregate_and_proof` gossip subnet.
-    Aggregated,
-}
 
 /// The result of a chain segment processing.
 #[derive(Debug)]
@@ -864,6 +848,88 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         VerifiedAggregatedAttestation::verify(signed_aggregate, self)
     }
 
+    pub fn apply_attestation_to_fork_choice(
+        &self,
+        unverified_attestation: impl IntoForkChoiceVerifiedAttestation<T>,
+    ) -> Result<ForkChoiceVerifiedAttestation<T>, AttestationError> {
+        let verified = unverified_attestation.into_fork_choice_verified_attestation(self)?;
+        let indexed_attestation = verified.indexed_attestation();
+        self.fork_choice
+            .process_indexed_attestation(indexed_attestation)
+            .map_err(|e| Error::from(e))?;
+        Ok(verified)
+    }
+
+    pub fn apply_attestation_to_pools(
+        &self,
+        verified_attestation: ForkChoiceVerifiedAttestation<T>,
+    ) -> Result<IndexedAttestation<T::EthSpec>, AttestationError> {
+        let (attestation, indexed_attestation, attestation_type) =
+            verified_attestation.into_components();
+
+        match attestation_type {
+            // Attestations that have already been aggregated are added to op_pool` for potential
+            // inclusion in a future block.
+            AttestationType::Aggregated => {
+                // If there's no eth1 chain then it's impossible to produce blocks and therefore
+                // useless to put things in the op pool.
+                if self.eth1_chain.is_some() {
+                    let fork = self
+                        .canonical_head
+                        .try_read_for(HEAD_LOCK_TIMEOUT)
+                        .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
+                        .beacon_state
+                        .fork
+                        .clone();
+
+                    self.op_pool
+                        .insert_attestation(
+                            attestation,
+                            &fork,
+                            self.genesis_validators_root,
+                            &self.spec,
+                        )
+                        .map_err(Error::from)?;
+                }
+            }
+            // Attestations that are not yet aggregated are stored in `self.naive_aggregation_pool`
+            // in the case a validator needs to produce an aggregate.
+            AttestationType::Unaggregated => match self.naive_aggregation_pool.insert(&attestation)
+            {
+                Ok(outcome) => trace!(
+                    self.log,
+                    "Stored unaggregated attestation";
+                    "outcome" => format!("{:?}", outcome),
+                    "index" => attestation.data.index,
+                    "slot" => attestation.data.slot.as_u64(),
+                ),
+                Err(NaiveAggregationError::SlotTooLow {
+                    slot,
+                    lowest_permissible_slot,
+                }) => {
+                    trace!(
+                        self.log,
+                        "Refused to store unaggregated attestation";
+                        "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                        "slot" => slot.as_u64(),
+                    );
+                }
+                Err(e) => {
+                    error!(
+                            self.log,
+                            "Failed to store unaggregated attestation";
+                            "error" => format!("{:?}", e),
+                            "index" => attestation.data.index,
+                            "slot" => attestation.data.slot.as_u64(),
+                    );
+                    return Err(Error::from(e).into());
+                }
+            },
+        }
+
+        Ok(indexed_attestation)
+    }
+
     /// Accept a new, potentially invalid attestation from the network.
     ///
     /// If valid, the attestation is added to `self.op_pool` and `self.fork_choice`.
@@ -1188,14 +1254,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // op pool.
             if self.eth1_chain.is_some() {
                 match attestation_type {
-                    AttestationType::Unaggregated { should_store } if should_store => {
+                    AttestationType::Unaggregated => {
                         match self.naive_aggregation_pool.insert(&attestation) {
                             Ok(outcome) => trace!(
                                 self.log,
                                 "Stored unaggregated attestation";
                                 "outcome" => format!("{:?}", outcome),
-                                "index" => attestation.data.index,
-                                "slot" => attestation.data.slot.as_u64(),
                             ),
                             Err(NaiveAggregationError::SlotTooLow {
                                 slot,
@@ -1217,12 +1281,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             ),
                         }
                     }
-                    AttestationType::Unaggregated { .. } => trace!(
-                        self.log,
-                        "Did not store unaggregated attestation";
-                        "index" => attestation.data.index,
-                        "slot" => attestation.data.slot.as_u64(),
-                    ),
                     AttestationType::Aggregated => {
                         let index = attestation.data.index;
                         let slot = attestation.data.slot;

@@ -4,13 +4,12 @@ use crate::{
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
     metrics,
-    naive_aggregation_pool::Error as NaiveAggregationError,
     observed_attestations::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
-use slog::{debug, error, trace};
+use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation,
@@ -28,6 +27,13 @@ use types::{
     RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot,
 };
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum AttestationType {
+    Aggregated,
+    Unaggregated,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
@@ -95,16 +101,59 @@ impl From<BeaconChainError> for Error {
     }
 }
 
+pub trait IntoForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
+    fn into_fork_choice_verified_attestation(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error>;
+}
+
 pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
     signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
+    for VerifiedAggregatedAttestation<T>
+{
+    fn into_fork_choice_verified_attestation(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
+        ForkChoiceVerifiedAttestation::from_signature_verified_components(
+            self.signed_aggregate.message.aggregate,
+            self.indexed_attestation,
+            AttestationType::Aggregated,
+            chain,
+        )
+    }
 }
 
 pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-pub struct FullyVerifiedAttestation<T: BeaconChainTypes> {
+impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
+    for VerifiedUnaggregatedAttestation<T>
+{
+    fn into_fork_choice_verified_attestation(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
+        ForkChoiceVerifiedAttestation::from_signature_verified_components(
+            self.attestation,
+            self.indexed_attestation,
+            AttestationType::Unaggregated,
+            chain,
+        )
+    }
+}
+
+pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+    attestation_type: AttestationType,
 }
 
 impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
@@ -191,7 +240,10 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
             return Err(Error::InvalidSignature);
         }
 
-        Ok(VerifiedAggregatedAttestation { signed_aggregate })
+        Ok(VerifiedAggregatedAttestation {
+            signed_aggregate,
+            indexed_attestation,
+        })
     }
 }
 
@@ -254,41 +306,18 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         // The signature of attestation is valid.
         verify_attestation_signature(chain, &indexed_attestation, block_slot)?;
 
-        match chain.naive_aggregation_pool.insert(&attestation) {
-            Ok(outcome) => trace!(
-                chain.log,
-                "Stored unaggregated attestation";
-                "outcome" => format!("{:?}", outcome),
-                "index" => attestation.data.index,
-                "slot" => attestation.data.slot.as_u64(),
-            ),
-            Err(NaiveAggregationError::SlotTooLow {
-                slot,
-                lowest_permissible_slot,
-            }) => {
-                trace!(
-                    chain.log,
-                    "Refused to store unaggregated attestation";
-                    "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
-                    "slot" => slot.as_u64(),
-                );
-            }
-            Err(e) => error!(
-                    chain.log,
-                    "Failed to store unaggregated attestation";
-                    "error" => format!("{:?}", e),
-                    "index" => attestation.data.index,
-                    "slot" => attestation.data.slot.as_u64(),
-            ),
-        }
-
-        Ok(Self { attestation })
+        Ok(Self {
+            attestation,
+            indexed_attestation,
+        })
     }
 }
 
-impl<T: BeaconChainTypes> FullyVerifiedAttestation<T> {
+impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
     fn from_signature_verified_components(
         attestation: Attestation<T::EthSpec>,
+        indexed_attestation: IndexedAttestation<T::EthSpec>,
+        attestation_type: AttestationType,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -355,7 +384,29 @@ impl<T: BeaconChainTypes> FullyVerifiedAttestation<T> {
             });
         }
 
-        Ok(Self { attestation })
+        Ok(Self {
+            attestation,
+            indexed_attestation,
+            attestation_type,
+        })
+    }
+
+    pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
+    }
+
+    pub fn into_components(
+        self,
+    ) -> (
+        Attestation<T::EthSpec>,
+        IndexedAttestation<T::EthSpec>,
+        AttestationType,
+    ) {
+        (
+            self.attestation,
+            self.indexed_attestation,
+            self.attestation_type,
+        )
     }
 }
 

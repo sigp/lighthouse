@@ -6,7 +6,7 @@ use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
-    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, StateSkipConfig,
+    BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
@@ -263,7 +263,7 @@ where
             self.chain.fork_choice().expect("should find head");
 
             head_block_root = Some(block_root);
-            self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
+            self.add_unaggregated_attestations(&attestation_strategy, &new_state, block_root, slot);
 
             state = new_state;
             slot += 1;
@@ -327,14 +327,14 @@ where
     /// Adds attestations to the `BeaconChain` operations pool and fork choice.
     ///
     /// The `attestation_strategy` dictates which validators should attest.
-    fn add_free_attestations(
+    fn add_unaggregated_attestations(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
         head_block_slot: Slot,
     ) {
-        self.get_free_attestations(
+        self.get_unaggregated_attestations(
             attestation_strategy,
             state,
             head_block_root,
@@ -342,19 +342,22 @@ where
         )
         .into_iter()
         .for_each(|attestation| {
-            match self
+            let gossip_attestation = self
                 .chain
-                .process_attestation(attestation, AttestationType::Aggregated)
-                .expect("should not error during attestation processing")
-            {
-                AttestationProcessingOutcome::Processed => (),
-                other => panic!("did not successfully process attestation: {:?}", other),
-            }
+                .verify_unaggregated_attestation_for_gossip(attestation)
+                .expect("should not error during attestation processing");
+            let fork_choice_attestation = self
+                .chain
+                .apply_attestation_to_fork_choice(gossip_attestation)
+                .expect("should apply attestation to fork choice");
+            self.chain
+                .apply_attestation_to_pools(fork_choice_attestation)
+                .expect("should add attestation to pools");
         });
     }
 
     /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
-    pub fn get_free_attestations(
+    pub fn get_unaggregated_attestations(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
