@@ -1,7 +1,7 @@
 use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
 use crate::sync::range_sync::BatchId;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
 use slog::{crit, debug, error, trace, warn};
 use std::sync::{Arc, Weak};
@@ -25,6 +25,8 @@ pub enum BatchProcessResult {
     Success,
     /// The batch processing failed.
     Failed,
+    /// The batch processing failed but managed to import at least one block.
+    Partial,
 }
 
 /// Spawns a thread handling the block processing of a request: range syncing or parent lookup.
@@ -41,11 +43,16 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
             ProcessId::RangeBatchId(batch_id) => {
                 debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
                 let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
-                    Ok(_) => {
+                    (_, Ok(_)) => {
                         debug!(log, "Batch processed"; "id" => *batch_id );
                         BatchProcessResult::Success
                     }
-                    Err(e) => {
+                    (imported_blocks, Err(e)) if imported_blocks > 0 => {
+                        debug!(log, "Batch processing failed but imported some blocks";
+                            "id" => *batch_id, "error" => e, "imported_blocks"=> imported_blocks);
+                        BatchProcessResult::Partial
+                    }
+                    (_, Err(e)) => {
                         debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
                         BatchProcessResult::Failed
                     }
@@ -65,11 +72,15 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
             }
             // this a parent lookup request from the sync manager
             ProcessId::ParentLookup(peer_id) => {
-                debug!(log, "Processing parent lookup"; "last_peer_id" => format!("{}", peer_id), "blocks" => downloaded_blocks.len());
+                debug!(
+                    log, "Processing parent lookup";
+                    "last_peer_id" => format!("{}", peer_id),
+                    "blocks" => downloaded_blocks.len()
+                );
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
                 match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
-                    Err(e) => {
+                    (_, Err(e)) => {
                         warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
                         sync_send
                         .try_send(SyncMessage::ParentLookupFailed(peer_id))
@@ -81,7 +92,7 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                             );
                         });
                     }
-                    Ok(_) => {
+                    (_, Ok(_)) => {
                         debug!(log, "Parent lookup processed successfully");
                     }
                 }
@@ -101,98 +112,39 @@ fn process_blocks<
     chain: Weak<BeaconChain<T>>,
     downloaded_blocks: I,
     log: &slog::Logger,
-) -> Result<(), String> {
+) -> (usize, Result<(), String>) {
     if let Some(chain) = chain.upgrade() {
         let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
-        match chain.process_chain_segment(blocks) {
-            Ok(roots) => {
-                if roots.is_empty() {
+        let (imported_blocks, r) = match chain.process_chain_segment(blocks) {
+            ChainSegmentResult::Successful { imported_blocks } => {
+                if imported_blocks == 0 {
                     debug!(log, "All blocks already known");
                 } else {
                     debug!(
                         log, "Imported blocks from network";
-                        "count" => roots.len(),
+                        "count" => imported_blocks,
                     );
                     // Batch completed successfully with at least one block, run fork choice.
                     // TODO: Verify this logic
                     run_fork_choice(chain, log);
                 }
+
+                (imported_blocks, Ok(()))
             }
-            Err(BlockError::ParentUnknown(parent)) => {
-                // blocks should be sequential and all parents should exist
-                warn!(
-                    log, "Parent block is unknown";
-                    "parent_root" => format!("{}", parent),
-                );
-                return Err(format!("Block has an unknown parent: {}", parent));
+            ChainSegmentResult::Failed {
+                imported_blocks,
+                error,
+            } => {
+                let r = handle_failed_chain_segment(chain, imported_blocks, error, log);
+
+                (imported_blocks, r)
             }
-            Err(BlockError::BlockIsAlreadyKnown) => {
-                // TODO: Check handling of this
-                crit!(log, "Unknown handling of block error");
-            }
-            Err(BlockError::FutureSlot {
-                present_slot,
-                block_slot,
-            }) => {
-                if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
-                    // The block is too far in the future, drop it.
-                    warn!(
-                        log, "Block is ahead of our slot clock";
-                        "msg" => "block for future slot rejected, check your time",
-                        "present_slot" => present_slot,
-                        "block_slot" => block_slot,
-                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
-                    );
-                } else {
-                    // The block is in the future, but not too far.
-                    debug!(
-                        log, "Block is slightly ahead of our slot clock, ignoring.";
-                        "present_slot" => present_slot,
-                        "block_slot" => block_slot,
-                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
-                    );
-                }
-                return Err(format!(
-                    "Block with slot {} is higher than the current slot {}",
-                    block_slot, present_slot
-                ));
-            }
-            Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
-                //TODO: Check handling. Run fork choice?
-                debug!(
-                    log, "Finalized or earlier block processed";
-                );
-                // block reached our finalized slot or was earlier, move to the next block
-                // TODO: How does this logic happen for the chain segment. We would want to
-                // continue processing in this case.
-            }
-            Err(BlockError::GenesisBlock) => {
-                debug!(
-                    log, "Genesis block was processed";
-                );
-                // TODO: Similarly here. Prefer to continue processing.
-            }
-            Err(BlockError::BeaconChainError(e)) => {
-                // TODO: Run fork choice?
-                warn!(
-                    log, "BlockProcessingFailure";
-                    "msg" => "unexpected condition in processing block.",
-                    "outcome" => format!("{:?}", e)
-                );
-                return Err(format!("Internal error whilst processing block: {:?}", e));
-            }
-            other => {
-                // TODO: Run fork choice?
-                warn!(
-                    log, "Invalid block received";
-                    "msg" => "peer sent invalid block",
-                    "outcome" => format!("{:?}", other),
-                );
-                return Err(format!("Peer sent invalid block. Reason: {:?}", other));
-            }
-        }
+        };
+
+        return (imported_blocks, r);
     }
-    Ok(())
+
+    (0, Ok(()))
 }
 
 /// Runs fork-choice on a given chain. This is used during block processing after one successful
@@ -210,5 +162,111 @@ fn run_fork_choice<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>, log: &slog::
             "error" => format!("{:?}", e),
             "location" => "batch import error"
         ),
+    }
+}
+
+/// Helper function to handle a `BlockError` from `process_chain_segment`
+fn handle_failed_chain_segment<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    imported_blocks: usize,
+    error: BlockError,
+    log: &slog::Logger,
+) -> Result<(), String> {
+    match error {
+        BlockError::ParentUnknown(parent) => {
+            // blocks should be sequential and all parents should exist
+            warn!(
+                log, "Parent block is unknown";
+                "parent_root" => format!("{}", parent),
+            );
+
+            // NOTE: logic from master. TODO: check
+            if imported_blocks > 0 {
+                run_fork_choice(chain, log);
+            }
+
+            Err(format!("Block has an unknown parent: {}", parent))
+        }
+        BlockError::BlockIsAlreadyKnown => {
+            // TODO: Check handling of this
+            crit!(log, "Unknown handling of block error");
+
+            Ok(())
+        }
+        BlockError::FutureSlot {
+            present_slot,
+            block_slot,
+        } => {
+            if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
+                // The block is too far in the future, drop it.
+                warn!(
+                    log, "Block is ahead of our slot clock";
+                    "msg" => "block for future slot rejected, check your time",
+                    "present_slot" => present_slot,
+                    "block_slot" => block_slot,
+                    "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                );
+                // NOTE: logic from master. TODO: check
+                if imported_blocks > 0 {
+                    run_fork_choice(chain, log);
+                }
+            } else {
+                // The block is in the future, but not too far.
+                debug!(
+                    log, "Block is slightly ahead of our slot clock, ignoring.";
+                    "present_slot" => present_slot,
+                    "block_slot" => block_slot,
+                    "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                );
+            }
+
+            Err(format!(
+                "Block with slot {} is higher than the current slot {}",
+                block_slot, present_slot
+            ))
+        }
+        BlockError::WouldRevertFinalizedSlot { .. } => {
+            //TODO: Check handling. Run fork choice?
+            debug!(
+                log, "Finalized or earlier block processed";
+            );
+            // block reached our finalized slot or was earlier, move to the next block
+            // TODO: How does this logic happen for the chain segment. We would want to
+            // continue processing in this case.
+
+            Ok(())
+        }
+        BlockError::GenesisBlock => {
+            debug!(
+                log, "Genesis block was processed";
+            );
+            // TODO: Similarly here. Prefer to continue processing.
+
+            Ok(())
+        }
+        BlockError::BeaconChainError(e) => {
+            // TODO: Run fork choice?
+            warn!(
+                log, "BlockProcessingFailure";
+                "msg" => "unexpected condition in processing block.",
+                "outcome" => format!("{:?}", e)
+            );
+
+            Err(format!("Internal error whilst processing block: {:?}", e))
+        }
+        other => {
+            // TODO: Run fork choice?
+            // NOTE: logic from master. TODO: check
+            if imported_blocks > 0 {
+                run_fork_choice(chain, log);
+            }
+            warn!(
+                log, "Invalid block received";
+                "msg" => "peer sent invalid block",
+                "outcome" => format!("{:?}", other),
+            );
+
+            Err(format!("Peer sent invalid block. Reason: {:?}", other))
+        }
     }
 }
