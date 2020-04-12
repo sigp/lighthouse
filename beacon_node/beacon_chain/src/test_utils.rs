@@ -484,6 +484,10 @@ where
                     .copied()
                     .collect::<Vec<_>>();
 
+                if attesters.is_empty() {
+                    return None
+                }
+
                 attesters
                     .iter()
                     .find(|&validator_index| {
@@ -523,16 +527,10 @@ where
                         )
                     })
                     .map(Option::Some)
-                    .unwrap_or_else(|| {
-                        if attesters.len() == 0 {
-                            None
-                        } else {
-                            panic!(
-                                "Committee {} at slot {} with {} attesting validators does not have any aggregators",
-                                bc.index, state.slot, attesters.len()
-                            )
-                        }
-                    })
+                    .expect(&format!(
+                        "Committee {} at slot {} with {} attesting validators does not have any aggregators",
+                        bc.index, state.slot, attesters.len()
+                    ))
             })
             .collect()
     }
