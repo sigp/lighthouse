@@ -85,12 +85,14 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
-        Self::new_from_spec(eth_spec_instance, keypairs, E::default_spec())
-    }
-
-    /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new_from_spec(eth_spec_instance: E, keypairs: Vec<Keypair>, spec: ChainSpec) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
+        let mut spec = E::default_spec();
+
+        // Setting the target aggregators to really high means that _all_ validators in the
+        // committee are required to produce an aggregate. This is overkill, however with small
+        // validator counts it's the only way to be certain there is _at least one_ aggregator per
+        // committee.
+        spec.target_aggregators_per_committee = 1 << 32;
 
         let log = NullLoggerBuilder.build().expect("logger should build");
 
@@ -456,7 +458,8 @@ where
             });
     }
 
-    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
+    /// Attempts to return a single `SignedAggregateAndProof` for each committee for the given
+    /// `state.slot`
     pub fn get_aggregated_attestations(
         &self,
         attestation_strategy: &AttestationStrategy,
@@ -474,17 +477,16 @@ where
             .get_beacon_committees_at_slot(state.slot)
             .expect("should get committees")
             .iter()
-            .map(|bc| {
-                let aggregates = bc
-                    .committee
-                    .par_iter()
-                    .filter_map(|validator_index| {
-                        // Note: searching this array is worst-case `O(n)`. A hashset could be a better
-                        // alternative.
-                        if !attesting_validators.contains(validator_index) {
-                            return None;
-                        }
+            .filter_map(|bc| {
+                let attesters = bc.committee
+                    .iter()
+                    .filter(|validator_index| attesting_validators.contains(validator_index))
+                    .copied()
+                    .collect::<Vec<_>>();
 
+                attesters
+                    .iter()
+                    .find(|&validator_index| {
                         let selection_proof = SelectionProof::new::<E>(
                             state.slot,
                             self.get_sk(*validator_index),
@@ -493,10 +495,9 @@ where
                             spec,
                         );
 
-                        if !selection_proof.is_aggregator(bc.committee.len(), &self.spec) {
-                            return None;
-                        }
-
+                        selection_proof.is_aggregator(bc.committee.len(), &self.spec)
+                    })
+                    .map(|validator_index| {
                         // Note: we're being a little cheeky here by producing a new attestation
                         // and using that data. Validators _should_ reuse the attestation data from
                         // their prior unaggregated attestation.
@@ -512,32 +513,27 @@ where
                             .expect("should not error whilst finding aggregate")
                             .expect("should find aggregate attestation");
 
-                        Some(SignedAggregateAndProof::from_aggregate(
+                        SignedAggregateAndProof::from_aggregate(
                             *validator_index as u64,
                             aggregate,
                             self.get_sk(*validator_index),
                             fork,
                             state.genesis_validators_root,
                             spec,
-                        ))
+                        )
                     })
-                    .collect::<Vec<_>>();
-
-                (aggregates, bc)
+                    .map(Option::Some)
+                    .unwrap_or_else(|| {
+                        if attesters.len() == 0 {
+                            None
+                        } else {
+                            panic!(
+                                "Committee {} at slot {} with {} attesting validators does not have any aggregators",
+                                bc.index, state.slot, attesters.len()
+                            )
+                        }
+                    })
             })
-            .map(|(aggregates, bc)| {
-                if aggregates.is_empty() != bc.committee.is_empty() {
-                    panic!(
-                        "Unable to produce for signed aggregate for slot {}, committee index {}. \
-                        Likely due to failure to find matching selection proof (usually due to \
-                        small validator count)",
-                        state.slot, bc.index
-                    )
-                } else {
-                    aggregates
-                }
-            })
-            .flatten()
             .collect()
     }
 
