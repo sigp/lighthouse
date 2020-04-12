@@ -268,10 +268,11 @@ where
                 .expect("should not error during block processing");
 
             self.chain.fork_choice().expect("should find head");
-
             head_block_root = Some(block_root);
-            self.add_unaggregated_attestations(&attestation_strategy, &new_state, block_root, slot);
-            self.add_aggregated_attestations(&attestation_strategy, &new_state);
+
+            if slot + E::slots_per_epoch() >= self.chain.slot().expect("should get slot") {
+                self.add_attestations_for_slot(&attestation_strategy, &new_state, block_root, slot);
+            }
 
             state = new_state;
             slot += 1;
@@ -332,40 +333,14 @@ where
         (signed_block, state)
     }
 
-    /// Adds attestations to the `BeaconChain` operations pool and fork choice.
-    ///
-    /// The `attestation_strategy` dictates which validators should attest.
-    fn add_unaggregated_attestations(
+    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
+    pub fn add_attestations_for_slot(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
         head_block_slot: Slot,
     ) {
-        self.get_unaggregated_attestations(
-            attestation_strategy,
-            state,
-            head_block_root,
-            head_block_slot,
-        )
-        .into_iter()
-        .for_each(|attestation| {
-            self.chain
-                .verify_unaggregated_attestation_for_gossip(attestation)
-                .expect("should not error during attestation processing")
-                .add_to_pool(&self.chain)
-                .expect("should add attestation to naive pool");
-        });
-    }
-
-    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
-    pub fn get_unaggregated_attestations(
-        &self,
-        attestation_strategy: &AttestationStrategy,
-        state: &BeaconState<E>,
-        head_block_root: Hash256,
-        head_block_slot: Slot,
-    ) -> Vec<Attestation<E>> {
         let spec = &self.spec;
         let fork = &state.fork;
 
@@ -373,168 +348,118 @@ where
             AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
             AttestationStrategy::SomeValidators(vec) => vec.clone(),
         };
-
-        let mut attestations = vec![];
 
         state
             .get_beacon_committees_at_slot(state.slot)
             .expect("should get committees")
             .iter()
             .for_each(|bc| {
-                let mut local_attestations: Vec<Attestation<E>> = bc
+                let attestations: Vec<Attestation<E>> = bc
                     .committee
                     .par_iter()
                     .enumerate()
                     .filter_map(|(i, validator_index)| {
-                        // Note: searching this array is worst-case `O(n)`. A hashset could be a better
-                        // alternative.
-                        if attesting_validators.contains(validator_index) {
-                            let mut attestation = self
-                                .chain
-                                .produce_attestation_for_block(
-                                    head_block_slot,
-                                    bc.index,
-                                    head_block_root,
-                                    Cow::Borrowed(state),
-                                )
-                                .expect("should produce attestation");
-
-                            attestation
-                                .aggregation_bits
-                                .set(i, true)
-                                .expect("should be able to set aggregation bits");
-
-                            attestation.signature = {
-                                let domain = spec.get_domain(
-                                    attestation.data.target.epoch,
-                                    Domain::BeaconAttester,
-                                    fork,
-                                    state.genesis_validators_root,
-                                );
-
-                                let message = attestation.data.signing_root(domain);
-
-                                let mut agg_sig = AggregateSignature::new();
-
-                                agg_sig.add(&Signature::new(
-                                    message.as_bytes(),
-                                    self.get_sk(*validator_index),
-                                ));
-
-                                agg_sig
-                            };
-
-                            Some(attestation)
-                        } else {
-                            None
+                        if !attesting_validators.contains(validator_index) {
+                            return None
                         }
+                        let mut attestation = self
+                            .chain
+                            .produce_attestation_for_block(
+                                head_block_slot,
+                                bc.index,
+                                head_block_root,
+                                Cow::Borrowed(state),
+                            )
+                            .expect("should produce attestation");
+
+                        attestation
+                            .aggregation_bits
+                            .set(i, true)
+                            .expect("should be able to set aggregation bits");
+
+                        attestation.signature = {
+                            let domain = spec.get_domain(
+                                attestation.data.target.epoch,
+                                Domain::BeaconAttester,
+                                fork,
+                                state.genesis_validators_root,
+                            );
+
+                            let message = attestation.data.signing_root(domain);
+
+                            let mut agg_sig = AggregateSignature::new();
+
+                            agg_sig.add(&Signature::new(
+                                message.as_bytes(),
+                                self.get_sk(*validator_index),
+                            ));
+
+                            agg_sig
+                        };
+
+                        self.chain
+                            .verify_unaggregated_attestation_for_gossip(attestation.clone())
+                            .expect("should not error during attestation processing")
+                            .add_to_pool(&self.chain)
+                            .expect("should add attestation to naive pool");
+
+                        Some(attestation)
                     })
                     .collect();
 
-                attestations.append(&mut local_attestations);
-            });
+                if let Some(attestation) = attestations.first() {
+                    let aggregator_index = bc.committee
+                        .iter()
+                        .find(|&validator_index| {
+                            let selection_proof = SelectionProof::new::<E>(
+                                state.slot,
+                                self.get_sk(*validator_index),
+                                fork,
+                                state.genesis_validators_root,
+                                spec,
+                            );
 
-        attestations
-    }
+                            selection_proof.is_aggregator(bc.committee.len(), &self.spec)
+                        })
+                        .copied()
+                        .expect(&format!(
+                            "Committee {} at slot {} with {} attesting validators does not have any aggregators",
+                            bc.index, state.slot, bc.committee.len()
+                        ));
 
-    /// Adds attestations to the `BeaconChain` operations pool and fork choice.
-    ///
-    /// The `attestation_strategy` dictates which validators should attest.
-    fn add_aggregated_attestations(
-        &self,
-        attestation_strategy: &AttestationStrategy,
-        state: &BeaconState<E>,
-    ) {
-        self.get_aggregated_attestations(attestation_strategy, state)
-            .into_iter()
-            .for_each(|signed_aggregate| {
-                self.chain
-                    .verify_aggregated_attestation_for_gossip(signed_aggregate)
-                    .expect("should not error during attestation processing")
-                    .add_to_pool(&self.chain)
-                    .expect("should add attestation to naive aggregation pool")
-                    .add_to_fork_choice(&self.chain)
-                    .expect("should add attestation to fork choice");
-            });
-    }
+                    // If the chain is able to produce an aggregate, use that. Otherwise, build an
+                    // aggregate locally.
+                    let aggregate = self
+                        .chain
+                        .get_aggregated_attestation(&attestation.data)
+                        .expect("should not error whilst finding aggregate")
+                        .unwrap_or_else(|| {
+                            attestations.iter().skip(1).fold(attestation.clone(), |mut agg, att| {
+                                agg.aggregate(att);
+                                agg
+                            })
+                        });
 
-    /// Attempts to return a single `SignedAggregateAndProof` for each committee for the given
-    /// `state.slot`
-    pub fn get_aggregated_attestations(
-        &self,
-        attestation_strategy: &AttestationStrategy,
-        state: &BeaconState<E>,
-    ) -> Vec<SignedAggregateAndProof<E>> {
-        let spec = &self.spec;
-        let fork = &state.fork;
+                    let signed_aggregate = SignedAggregateAndProof::from_aggregate(
+                        aggregator_index as u64,
+                        aggregate,
+                        self.get_sk(aggregator_index),
+                        fork,
+                        state.genesis_validators_root,
+                        spec,
+                    );
 
-        let attesting_validators: Vec<usize> = match attestation_strategy {
-            AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
-            AttestationStrategy::SomeValidators(vec) => vec.clone(),
-        };
+                    self.chain
+                        .verify_aggregated_attestation_for_gossip(signed_aggregate)
+                        .expect("should not error during attestation processing")
+                        .add_to_pool(&self.chain)
+                        .expect("should add attestation to naive aggregation pool")
+                        .add_to_fork_choice(&self.chain)
+                        .expect("should add attestation to fork choice");
 
-        state
-            .get_beacon_committees_at_slot(state.slot)
-            .expect("should get committees")
-            .iter()
-            .filter_map(|bc| {
-                let attesters = bc.committee
-                    .iter()
-                    .filter(|validator_index| attesting_validators.contains(validator_index))
-                    .copied()
-                    .collect::<Vec<_>>();
-
-                if attesters.is_empty() {
-                    return None
                 }
-
-                attesters
-                    .iter()
-                    .find(|&validator_index| {
-                        let selection_proof = SelectionProof::new::<E>(
-                            state.slot,
-                            self.get_sk(*validator_index),
-                            fork,
-                            state.genesis_validators_root,
-                            spec,
-                        );
-
-                        selection_proof.is_aggregator(bc.committee.len(), &self.spec)
-                    })
-                    .map(|validator_index| {
-                        // Note: we're being a little cheeky here by producing a new attestation
-                        // and using that data. Validators _should_ reuse the attestation data from
-                        // their prior unaggregated attestation.
-                        let attestation_data = self
-                            .chain
-                            .produce_attestation(state.slot, bc.index)
-                            .expect("should produce attestation prior to aggregate")
-                            .data;
-
-                        let aggregate = self
-                            .chain
-                            .get_aggregated_attestation(&attestation_data)
-                            .expect("should not error whilst finding aggregate")
-                            .expect("should find aggregate attestation");
-
-                        SignedAggregateAndProof::from_aggregate(
-                            *validator_index as u64,
-                            aggregate,
-                            self.get_sk(*validator_index),
-                            fork,
-                            state.genesis_validators_root,
-                            spec,
-                        )
-                    })
-                    .map(Option::Some)
-                    .expect(&format!(
-                        "Committee {} at slot {} with {} attesting validators does not have any aggregators",
-                        bc.index, state.slot, attesters.len()
-                    ))
-            })
-            .collect()
+            });
     }
-
     /// Creates two forks:
     ///
     ///  - The "honest" fork: created by the `honest_validators` who have built `honest_fork_blocks`

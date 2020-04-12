@@ -51,7 +51,7 @@ pub enum Error {
     AggregatorPubkeyUnknown,
     /// The attestation has been seen before; either in a block, on the gossip network or from a
     /// local validator.
-    AttestationAlreadyKnown,
+    AttestationAlreadyKnown(Hash256),
     AggregatorAlreadyKnown(u64),
     ValidatorIndexTooHigh(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
             .observe_attestation(attestation, Some(attestation_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::AttestationAlreadyKnown);
+            return Err(Error::AttestationAlreadyKnown(attestation_root));
         }
 
         let aggregator_index = signed_aggregate.message.aggregator_index;
