@@ -44,6 +44,8 @@ pub fn get_config<E: EthSpec>(
         client_config = read_from_file(config_file_path.clone())
             .map_err(|e| format!("Unable to parse {:?} file: {:?}", config_file_path, e))?
             .ok_or_else(|| format!("{:?} file does not exist", config_file_path))?;
+    } else {
+        client_config.spec_constants = spec_constants.into();
     }
 
     client_config.testnet_dir = get_testnet_dir(cli_args);
