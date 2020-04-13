@@ -103,7 +103,7 @@ pub enum BlockError {
     InvalidSignature,
     /// The provided block is from an earlier slot than its parent.
     BlockIsNotLaterThanParent { block_slot: Slot, state_slot: Slot },
-    /// At least one block in the chain segement did not have it's parent root set to the root of
+    /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     NonLinearParentRoots,
     /// The slots of the blocks in the chain segment were not strictly increasing. I.e., a child
@@ -153,7 +153,7 @@ impl From<DBError> for BlockError {
 ///
 /// ## Errors
 ///
-/// The given `chain_segement` must span no more than two epochs, otherwise an error will be
+/// The given `chain_segment` must span no more than two epochs, otherwise an error will be
 /// returned.
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     chain_segment: Vec<(Hash256, SignedBeaconBlock<T::EthSpec>)>,
@@ -592,7 +592,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     }
 }
 
-/// Performs simple, cheap checks to ensure that the block is relevant to imported.
+/// Performs simple, cheap checks to ensure that the block is relevant to be imported.
 ///
 /// `Ok(block_root)` is returned if the block passes these checks and should progress with
 /// verification (viz., it is relevant).
