@@ -5,7 +5,6 @@ pub(crate) mod enr;
 pub use enr::build_enr;
 
 use crate::metrics;
-use crate::rpc::MetaData;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
 use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
@@ -167,6 +166,11 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     /// Returns an iterator over all enr entries in the DHT.
     pub fn enr_entries(&mut self) -> impl Iterator<Item = &Enr> {
         self.discovery.enr_entries()
+    }
+
+    /// Returns the ENR of a known peer if it exists.
+    pub fn enr_of_peer(&mut self, peer_id: &PeerId) -> Option<Enr> {
+        self.discovery.enr_of_peer(peer_id)
     }
 
     /// Adds/Removes a subnet from the ENR Bitfield
@@ -351,62 +355,9 @@ where
         self.discovery.addresses_of_peer(peer_id)
     }
 
-    fn inject_connected(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
-        // TODO: Replace with PeerManager with custom behvaviour
-        // Find ENR info about a peer if possible.
+    fn inject_connected(&mut self, _peer_id: PeerId, _endpoint: ConnectedPoint) {}
 
-        match endpoint {
-            ConnectedPoint::Dialer { .. } => {
-                self.network_globals
-                    .peers
-                    .write()
-                    .connect_outgoing(&peer_id);
-            }
-            ConnectedPoint::Listener { .. } => {
-                self.network_globals.peers.write().connect_ingoing(&peer_id);
-            }
-        }
-
-        if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
-            let bitfield = match enr.bitfield::<TSpec>() {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!(self.log, "Peer has invalid ENR bitfield"; 
-                            "peer_id" => format!("{}", peer_id),
-                            "error" => format!("{:?}", e));
-                    return;
-                }
-            };
-
-            // use this as a baseline, until we get the actual meta-data
-            let meta_data = MetaData {
-                seq_number: 0,
-                attnets: bitfield,
-            };
-            self.network_globals
-                .peers
-                .write()
-                .add_metadata(&peer_id, meta_data);
-        }
-
-        // TODO: Drop peers if over max_peer limit
-
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId, _endpoint: ConnectedPoint) {
-        self.network_globals.peers.write().disconnect(peer_id);
-
-        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
-    }
+    fn inject_disconnected(&mut self, _peer_id: &PeerId, _endpoint: ConnectedPoint) {}
 
     fn inject_replaced(
         &mut self,
