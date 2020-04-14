@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, warn, Logger};
+use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
 use std::fs::File;
@@ -36,6 +36,12 @@ pub fn get_config<E: EthSpec>(
     // Create `datadir` and any non-existing parent directories.
     fs::create_dir_all(&client_config.data_dir)
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
+
+    // logs the chosen data directory
+    let mut log_dir = client_config.data_dir.clone();
+    // remove /beacon from the end
+    log_dir.pop();
+    info!(log, "Data directory initialised"; "datadir" => format!("{}",log_dir.into_os_string().into_string().expect("Datadir should be a valid os string")));
 
     // Load the client config, if it exists .
     let config_file_path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
@@ -79,6 +85,7 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| format!("Invalid port: {}", port_str))?;
         client_config.network.libp2p_port = port;
         client_config.network.discovery_port = port;
+        dbg!(&client_config.network.discovery_port);
     }
 
     if let Some(port_str) = cli_args.value_of("discovery-port") {
@@ -131,7 +138,15 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("enr-match") {
-        client_config.network.enr_address = Some(client_config.network.listen_address);
+        // set the enr address to localhost if the address is 0.0.0.0
+        if client_config.network.listen_address
+            == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr")
+        {
+            client_config.network.enr_address =
+                Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        } else {
+            client_config.network.enr_address = Some(client_config.network.listen_address);
+        }
         client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
     }
 

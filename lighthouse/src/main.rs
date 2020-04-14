@@ -59,7 +59,7 @@ fn main() {
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
-                .help("The title of the spec constants for chain config.")
+                .help("The verbosity level for emitting logs.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("info"),
