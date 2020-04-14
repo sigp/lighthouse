@@ -1,6 +1,7 @@
 //! Implementation of a Lighthouse's peer management system.
 
 pub use self::peerdb::*;
+use crate::metrics;
 use crate::rpc::MetaData;
 use crate::{NetworkGlobals, PeerId};
 use futures::prelude::*;
@@ -172,57 +173,41 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         false
     }
 
-    /// Sets a peer as disconnected. If its reputation gets too low requests
-    /// the peer to be banned and to be disconnected otherwise
-    pub fn disconnect(&mut self, peer_id: &PeerId) {
+    /// Requests that a peer get disconnected.
+    pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
+        self.events
+            .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
+    }
+
+    /// Updates the state of the peer as disconnected.
+    pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
         self.update_reputations();
         {
             let mut peerdb = self.network_globals.peers.write();
             peerdb.disconnect(peer_id);
             peerdb.add_reputation(peer_id, PeerAction::Disconnected as Rep);
         }
-        if !self.gets_banned(peer_id) {
-            self.events
-                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
-        }
 
         // remove the ping and status timer for the peer
         self.ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
     }
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) -> bool {
-        self.update_reputations();
-        let mut peerdb = self.network_globals.peers.write();
-        if !peerdb.connection_status(peer_id).is_banned() {
-            peerdb.connect_ingoing(peer_id);
-            // start a ping and status timer for the peer
-            self.ping_peers.insert(peer_id.clone());
-            self.status_peers.insert(peer_id.clone());
-
-            return true;
-        }
-
-        false
+        self.connect_peer(peer_id, false)
     }
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) -> bool {
-        self.update_reputations();
-        let mut peerdb = self.network_globals.peers.write();
-        if !peerdb.connection_status(peer_id).is_banned() {
-            peerdb.connect_outgoing(peer_id);
-            // start a ping and status timer for the peer
-            self.ping_peers.insert(peer_id.clone());
-            self.status_peers.insert(peer_id.clone());
-
-            return true;
-        }
-
-        false
+        self.connect_peer(peer_id, true)
     }
 
     /// Provides a given peer's reputation if it exists.
@@ -255,6 +240,46 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .write()
             .add_reputation(peer_id, action as Rep);
         self.update_reputations();
+    }
+
+    /* Internal functions */
+
+    /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
+    /// dialed or connecting to us.
+    ///
+    /// This is called by `connect_ingoing` and `connect_outgoing`.
+    ///
+    /// This informs if the peer was accepted in to the db or not.
+    // TODO: Drop peers if over max_peer limit
+    fn connect_peer(&mut self, peer_id: &PeerId, outgoing: bool) -> bool {
+        // TODO: Call this on a timer
+        self.update_reputations();
+
+        {
+            let mut peerdb = self.network_globals.peers.write();
+            if peerdb.connection_status(peer_id).is_banned() {
+                return false;
+            }
+
+            if outgoing {
+                peerdb.connect_outgoing(peer_id);
+            } else {
+                peerdb.connect_outgoing(peer_id);
+            }
+        }
+
+        // start a ping and status timer for the peer
+        self.ping_peers.insert(peer_id.clone());
+        self.status_peers.insert(peer_id.clone());
+
+        // increment prometheus metrics
+        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
+
+        true
     }
 }
 

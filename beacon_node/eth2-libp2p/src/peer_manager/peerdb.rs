@@ -140,7 +140,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(id, _)| id)
     }
 
-    /// Gets the connection status of the peer.
+    /// Returns the peer's connection status. Returns unknown if the peer is not in the DB.
     pub fn connection_status(&self, peer_id: &PeerId) -> PeerConnectionStatus {
         self.peer_info(peer_id)
             .map_or(PeerConnectionStatus::default(), |info| {
