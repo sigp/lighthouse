@@ -57,15 +57,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("discovery-port")
                 .long("discovery-port")
                 .value_name("PORT")
-                .help("The UDP port that discovery will listen on.")
-                .default_value("9000")
+                .help("The UDP port that discovery will listen on. Defaults to `port`")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("maxpeers")
                 .long("maxpeers")
                 .help("The maximum number of peers.")
-                .default_value("10")
+                .default_value("50")
                 .takes_value(true),
         )
         .arg(

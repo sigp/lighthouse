@@ -119,15 +119,16 @@ impl Default for Config {
             .ping_interval(Duration::from_secs(300))
             .build();
 
+        // NOTE: Some of these get overridden by the corresponding CLI default values.
         Config {
             network_dir,
-            listen_address: "127.0.0.1".parse().expect("valid ip address"),
+            listen_address: "0.0.0.0".parse().expect("valid ip address"),
             libp2p_port: 9000,
             discovery_port: 9000,
             enr_address: None,
             enr_udp_port: None,
             enr_tcp_port: None,
-            max_peers: 10,
+            max_peers: 50,
             secret_key_hex: None,
             gs_config,
             discv5_config,
