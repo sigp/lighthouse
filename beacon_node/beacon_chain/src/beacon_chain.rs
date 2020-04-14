@@ -34,7 +34,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
-    ReverseStateRootIterator, SlotBlockStateIterator, StateRootsIterator,
+    ReverseStateRootIterator, RootsIterator, StateRootsIterator,
 };
 use store::{Error as DBError, Migrate, StateBatch, Store};
 use tree_hash::TreeHash;
@@ -1959,11 +1959,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .message
             .slot;
 
-        // Collect hashes from new_finalized_block up to old_finalized_block
-        let newly_finalized_blocks: HashSet<SignedBeaconBlockHash> = HashSet::from_iter(
+        // Collect hashes from new_finalized_block back to old_finalized_block (inclusive)
+        let mut found_block = false; // hack for `take_until`
+        let newly_finalized_blocks: HashMap<SignedBeaconBlockHash, Slot> = HashMap::from_iter(
             ParentRootBlockIterator::new(&*self.store, new_finalized_block_hash.into())
-                .take_while(|(block_hash, _)| *block_hash != old_finalized_block_hash.into())
-                .map(|(block_hash, _)| block_hash.into()),
+                .take_while(|(block_hash, _)| {
+                    if found_block {
+                        false
+                    } else {
+                        found_block |= *block_hash == old_finalized_block_hash.into();
+                        true
+                    }
+                })
+                .map(|(block_hash, block)| (block_hash.into(), block.slot())),
         );
 
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
@@ -1980,36 +1988,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Option<BeaconStateHash>,
             )> = Vec::new();
 
-            for result in
-                SlotBlockStateIterator::from_block(Arc::clone(&self.store), head_hash.into())?
+            for (block_hash, state_hash, slot) in
+                RootsIterator::from_block(self.store.clone(), head_hash)?
             {
-                let (slot, is_skipped_slot, block_hash, state_hash) = result?;
-
-                if slot <= old_finalized_slot {
+                if slot < old_finalized_slot {
                     // We must assume here any candidate chains include old_finalized_block_hash,
                     // i.e. there aren't any forks starting at a block that is a strict ancestor of
                     // old_finalized_block_hash.
                     break;
                 }
-                if is_skipped_slot {
-                    potentially_abandoned_blocks.push((slot, None, Some(state_hash)));
-                } else {
-                    if newly_finalized_blocks.contains(&block_hash) {
-                        debug_assert!(slot <= new_finalized_slot);
-                        if slot == new_finalized_slot {
+                match newly_finalized_blocks.get(&block_hash.into()).copied() {
+                    // Block is not finalized, mark it and its state for deletion
+                    None => {
+                        potentially_abandoned_blocks.push((
+                            slot,
+                            Some(block_hash.into()),
+                            Some(state_hash.into()),
+                        ));
+                    }
+                    Some(finalized_slot) => {
+                        // Block root is finalized, and we have reached the slot it was finalized
+                        // at: we've hit a shared part of the chain.
+                        if finalized_slot == slot {
                             // The first finalized block of a candidate chain lies after (in terms
                             // of slots order) the newly finalized block.  It's not a candidate for
                             // prunning.
-                            potentially_abandoned_blocks.clear();
-                            potentially_abandoned_head.take();
+                            if finalized_slot == new_finalized_slot {
+                                potentially_abandoned_blocks.clear();
+                                potentially_abandoned_head.take();
+                            }
+
                             break;
                         }
-                    } else {
-                        potentially_abandoned_blocks.push((
-                            slot,
-                            Some(block_hash),
-                            Some(state_hash),
-                        ));
+                        // Block root is finalized, but we're at a skip slot: delete the state only.
+                        else {
+                            potentially_abandoned_blocks.push((
+                                slot,
+                                None,
+                                Some(state_hash.into()),
+                            ));
+                        }
                     }
                 }
             }

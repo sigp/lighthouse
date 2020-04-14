@@ -44,12 +44,95 @@ impl<'a, U: Store<E>, E: EthSpec> AncestorIter<U, E, StateRootsIterator<'a, E, U
 }
 
 pub struct StateRootsIterator<'a, T: EthSpec, U> {
+    inner: RootsIterator<'a, T, U>,
+}
+
+impl<'a, T: EthSpec, U> Clone for StateRootsIterator<'a, T, U> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<'a, T: EthSpec, U: Store<T>> StateRootsIterator<'a, T, U> {
+    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
+        Self {
+            inner: RootsIterator::new(store, beacon_state),
+        }
+    }
+
+    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>) -> Self {
+        Self {
+            inner: RootsIterator::owned(store, beacon_state),
+        }
+    }
+}
+
+impl<'a, T: EthSpec, U: Store<T>> Iterator for StateRootsIterator<'a, T, U> {
+    type Item = (Hash256, Slot);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|(_, state_root, slot)| (state_root, slot))
+    }
+}
+
+/// Iterates backwards through block roots. If any specified slot is unable to be retrieved, the
+/// iterator returns `None` indefinitely.
+///
+/// Uses the `block_roots` field of `BeaconState` as the source of block roots and will
+/// perform a lookup on the `Store` for a prior `BeaconState` if `block_roots` has been
+/// exhausted.
+///
+/// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
+pub struct BlockRootsIterator<'a, T: EthSpec, U> {
+    inner: RootsIterator<'a, T, U>,
+}
+
+impl<'a, T: EthSpec, U> Clone for BlockRootsIterator<'a, T, U> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<'a, T: EthSpec, U: Store<T>> BlockRootsIterator<'a, T, U> {
+    /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
+    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
+        Self {
+            inner: RootsIterator::new(store, beacon_state),
+        }
+    }
+
+    /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
+    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>) -> Self {
+        Self {
+            inner: RootsIterator::owned(store, beacon_state),
+        }
+    }
+}
+
+impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockRootsIterator<'a, T, U> {
+    type Item = (Hash256, Slot);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|(block_root, _, slot)| (block_root, slot))
+    }
+}
+
+/// Iterator over state and block roots that backtracks using the vectors from a `BeaconState`.
+pub struct RootsIterator<'a, T: EthSpec, U> {
     store: Arc<U>,
     beacon_state: Cow<'a, BeaconState<T>>,
     slot: Slot,
 }
 
-impl<'a, T: EthSpec, U> Clone for StateRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U> Clone for RootsIterator<'a, T, U> {
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
@@ -59,7 +142,7 @@ impl<'a, T: EthSpec, U> Clone for StateRootsIterator<'a, T, U> {
     }
 }
 
-impl<'a, T: EthSpec, U: Store<T>> StateRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> RootsIterator<'a, T, U> {
     pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             store,
@@ -75,10 +158,21 @@ impl<'a, T: EthSpec, U: Store<T>> StateRootsIterator<'a, T, U> {
             beacon_state: Cow::Owned(beacon_state),
         }
     }
+
+    pub fn from_block(store: Arc<U>, block_hash: Hash256) -> Result<Self, Error> {
+        let block = store
+            .get_block(&block_hash)?
+            .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
+        let state = store
+            .get_state(&block.state_root(), Some(block.slot()))?
+            .ok_or_else(|| BeaconStateError::MissingBeaconState(block.state_root().into()))?;
+        Ok(Self::owned(store, state))
+    }
 }
 
-impl<'a, T: EthSpec, U: Store<T>> Iterator for StateRootsIterator<'a, T, U> {
-    type Item = (Hash256, Slot);
+impl<'a, T: EthSpec, U: Store<T>> Iterator for RootsIterator<'a, T, U> {
+    /// (block_root, state_root, slot)
+    type Item = (Hash256, Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.slot == 0 || self.slot > self.beacon_state.slot {
@@ -87,18 +181,22 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for StateRootsIterator<'a, T, U> {
 
         self.slot -= 1;
 
-        match self.beacon_state.get_state_root(self.slot) {
-            Ok(root) => Some((*root, self.slot)),
-            Err(BeaconStateError::SlotOutOfBounds) => {
+        match (
+            self.beacon_state.get_block_root(self.slot),
+            self.beacon_state.get_state_root(self.slot),
+        ) {
+            (Ok(block_root), Ok(state_root)) => Some((*block_root, *state_root, self.slot)),
+            (Err(BeaconStateError::SlotOutOfBounds), Err(BeaconStateError::SlotOutOfBounds)) => {
                 // Read a `BeaconState` from the store that has access to prior historical roots.
                 let beacon_state =
                     next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
 
                 self.beacon_state = Cow::Owned(beacon_state);
 
-                let root = self.beacon_state.get_state_root(self.slot).ok()?;
+                let block_root = *self.beacon_state.get_block_root(self.slot).ok()?;
+                let state_root = *self.beacon_state.get_state_root(self.slot).ok()?;
 
-                Some((*root, self.slot))
+                Some((block_root, state_root, self.slot))
             }
             _ => None,
         }
@@ -166,79 +264,7 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockIterator<'a, T, U> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let (root, _slot) = self.roots.next()?;
-        self.roots.store.get_block(&root).ok()?
-    }
-}
-
-/// Iterates backwards through block roots. If any specified slot is unable to be retrieved, the
-/// iterator returns `None` indefinitely.
-///
-/// Uses the `block_roots` field of `BeaconState` as the source of block roots and will
-/// perform a lookup on the `Store` for a prior `BeaconState` if `block_roots` has been
-/// exhausted.
-///
-/// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
-pub struct BlockRootsIterator<'a, T: EthSpec, U> {
-    store: Arc<U>,
-    beacon_state: Cow<'a, BeaconState<T>>,
-    slot: Slot,
-}
-
-impl<'a, T: EthSpec, U> Clone for BlockRootsIterator<'a, T, U> {
-    fn clone(&self) -> Self {
-        Self {
-            store: self.store.clone(),
-            beacon_state: self.beacon_state.clone(),
-            slot: self.slot,
-        }
-    }
-}
-
-impl<'a, T: EthSpec, U: Store<T>> BlockRootsIterator<'a, T, U> {
-    /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
-    pub fn new(store: Arc<U>, beacon_state: &'a BeaconState<T>) -> Self {
-        Self {
-            store,
-            slot: beacon_state.slot,
-            beacon_state: Cow::Borrowed(beacon_state),
-        }
-    }
-
-    /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
-    pub fn owned(store: Arc<U>, beacon_state: BeaconState<T>) -> Self {
-        Self {
-            store,
-            slot: beacon_state.slot,
-            beacon_state: Cow::Owned(beacon_state),
-        }
-    }
-}
-
-impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockRootsIterator<'a, T, U> {
-    type Item = (Hash256, Slot);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.slot == 0 || self.slot > self.beacon_state.slot {
-            return None;
-        }
-
-        self.slot -= 1;
-
-        match self.beacon_state.get_block_root(self.slot) {
-            Ok(root) => Some((*root, self.slot)),
-            Err(BeaconStateError::SlotOutOfBounds) => {
-                // Read a `BeaconState` from the store that has access to prior historical roots.
-                let beacon_state =
-                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
-
-                self.beacon_state = Cow::Owned(beacon_state);
-
-                let root = self.beacon_state.get_block_root(self.slot).ok()?;
-
-                Some((*root, self.slot))
-            }
-            _ => None,
-        }
+        self.roots.inner.store.get_block(&root).ok()?
     }
 }
 
@@ -260,119 +286,6 @@ fn next_historical_root_backtrack_state<E: EthSpec, S: Store<E>>(
 fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
     let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
     (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
-}
-
-pub struct SlotBlockStateIterator<E: EthSpec, S> {
-    store: Arc<S>,
-    slot: Slot,
-    current_state: BeaconState<E>,
-    next_state: Option<BeaconState<E>>,
-    prev_block_parent: SignedBeaconBlockHash,
-}
-
-impl<'a, E: EthSpec, S: Store<E>> SlotBlockStateIterator<E, S> {
-    fn next_historical_root_backtrack_state(
-        store: &S,
-        current_state: &BeaconState<E>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
-        let &new_state_hash = current_state.get_state_root(new_state_slot)?;
-        store.get_state(&new_state_hash, Some(new_state_slot))
-    }
-
-    pub fn from_block(store: Arc<S>, block_hash: SignedBeaconBlockHash) -> Result<Self, Error> {
-        let block = store
-            .get_block(&block_hash.into())?
-            .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?;
-        let slot = block.slot();
-        let current_state = store
-            .get_state(&block.state_root(), Some(slot))?
-            .ok_or_else(|| BeaconStateError::MissingBeaconState(block.state_root().into()))?;
-        let next_state = if slot <= E::SlotsPerHistoricalRoot::to_u64() {
-            None
-        } else {
-            Self::next_historical_root_backtrack_state(&*store, &current_state)?
-        };
-        let result = Self {
-            store: Arc::clone(&store),
-            slot: slot - 1,
-            current_state: current_state,
-            next_state: next_state,
-            prev_block_parent: block.parent_root().into(),
-        };
-        Ok(result)
-    }
-
-    fn is_skipped_slot(&self, slot: Slot) -> Result<bool, Error> {
-        let result = if slot % E::SlotsPerHistoricalRoot::to_u64() >= 1 {
-            self.current_state.get_block_root(slot)?
-                == self.current_state.get_block_root(slot - 1)?
-        } else {
-            // We're at the boundary of a historical batch.
-            if let Some(next) = &self.next_state {
-                self.current_state.get_block_root(slot)? == next.get_block_root(slot - 1)?
-            } else {
-                debug_assert_eq!(slot, 0);
-                false
-            }
-        };
-        Ok(result)
-    }
-
-    fn do_next(
-        &mut self,
-    ) -> Result<Option<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash)>, Error> {
-        loop {
-            if self.slot == 0 {
-                return Ok(None);
-            }
-
-            // Maintain the invariant of self.current_state and self.next_state always being set to
-            // loaded BeaconState so that we can detect skipped slots event at
-            // SlotsPerHistoricalRoot boundaries.
-            if self.slot > E::SlotsPerHistoricalRoot::to_u64() {
-                if let Err(BeaconStateError::SlotOutOfBounds) =
-                    self.current_state.get_block_root(self.slot - 1)
-                {
-                    self.current_state = self
-                        .next_state
-                        .take()
-                        .expect("invariant violated: absent next state");
-                    self.next_state = Self::next_historical_root_backtrack_state(
-                        &*self.store,
-                        &self.current_state,
-                    )?;
-                }
-            }
-
-            let slot = self.slot;
-            let (block_hash, state_hash) = self.current_state.get_block_state_roots(slot)?;
-            let is_skipped_slot = self.is_skipped_slot(slot)?;
-
-            if is_skipped_slot {
-                debug_assert_eq!(block_hash, self.prev_block_parent);
-                self.slot -= 1;
-                return Ok(Some((slot, is_skipped_slot, block_hash, state_hash)));
-            } else {
-                self.prev_block_parent = self
-                    .store
-                    .get_block(&block_hash.into())?
-                    .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash))?
-                    .parent_root()
-                    .into();
-                self.slot -= 1;
-                return Ok(Some((slot, is_skipped_slot, block_hash, state_hash)));
-            }
-        }
-    }
-}
-
-impl<'a, E: EthSpec, S: Store<E>> Iterator for SlotBlockStateIterator<E, S> {
-    type Item = Result<(Slot, bool, SignedBeaconBlockHash, BeaconStateHash), Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.do_next().transpose()
-    }
 }
 
 pub type ReverseBlockRootIterator<'a, E, S> =
