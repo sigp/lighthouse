@@ -19,7 +19,7 @@ TL;DR isn't adequate.
 
 ```bash
 lcli new-testnet
-lcli interop-genesis
+lcli interop-genesis 128
 lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http
 lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insecure 0 128
 ```
