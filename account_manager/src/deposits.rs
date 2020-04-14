@@ -1,20 +1,15 @@
-use crate::local_validator::LocalValidator;
 use clap::{App, Arg, ArgMatches};
 use clap_utils;
-use deposit_contract::DEPOSIT_GAS;
-use ethsign::{KeyFile, Protected, SecretKey};
-use futures::Future;
-use std::io;
+use environment::Environment;
+use std::fs;
 use std::path::PathBuf;
-use web3::{
-    transports::Http,
-    types::{Address, TransactionRequest, U256},
-    Transport, Web3,
-};
+use types::EthSpec;
+use validator_client::validator_directory::ValidatorDirectoryBuilder;
+use web3::{transports::Ipc, types::Address, Web3};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("deposit")
-        .about("Create a validator and have it deposit to the Eth1 chain.")
+    App::new("deposited")
+        .about("Create new validators with corresponding deposits to the Eth1 deposit contract.")
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
@@ -24,20 +19,30 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("eth1-keystore")
-                .long("eth1-keystore")
-                .short("k")
-                .value_name("KEYSTORE_PATH")
-                .help("Path to an Eth1 keystore to sign the transaction")
+            Arg::with_name("eth1-ipc")
+                .long("eth1-ipc")
+                .short("i")
+                .value_name("ETH1_IPC_PATH")
+                .help("Path to an Eth1 JSON-RPC IPC endpoint")
                 .takes_value(true)
-                .required(true),
+                .required(true)
         )
         .arg(
-            Arg::with_name("eth1-password")
-                .long("eth1-password")
-                .short("p")
-                .value_name("PASSWORD")
-                .help("The password for the --eth1-keystore file")
+            Arg::with_name("from-address")
+                .long("from-address")
+                .short("f")
+                .value_name("FROM_ETH1_ADDRESS")
+                .help("The address that will submit the eth1 deposit. Must be unlocked.")
+                .takes_value(true)
+                .required(true)
+        )
+        .arg(
+            Arg::with_name("deposit-gwei")
+                .long("deposit-gwei")
+                .short("g")
+                .value_name("DEPOSIT_GWEI")
+                .help("The GWEI value of the deposit amount. Defaults to the minimum amount
+                    required for an active validator (MAX_EFFECTIVE_BALANCE.")
                 .takes_value(true),
         )
         .arg(
@@ -60,129 +65,57 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
+pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Result<(), String> {
+    let spec = env.core_context().eth2_config.spec;
+
     let datadir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
         "datadir",
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
-    let eth1_keystore_dir: PathBuf = clap_utils::parse_required(matches, "eth1-keystore")?;
-    let eth1_keystore_pass: String = clap_utils::parse_required(matches, "eth1-password")?;
+    let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
+    let from_address: Address = clap_utils::parse_required(matches, "from-address")?;
+    let deposit_gwei = clap_utils::parse_optional(matches, "deposit-gwei")?
+        .unwrap_or_else(|| spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, "count")?;
     let limit: Option<usize> = clap_utils::parse_optional(matches, "limit")?;
 
-    todo!()
-}
-
-pub enum Error {
-    /// There was an error reading the eth1 key-store crypto keysj.
-    KeystoreCryptoError(ethsign::Error),
-    /// There was an Error reading the key-store from disk.
-    KeystoreOpenError(io::Error),
-    /// There was an Error parsing the key-store JSON.
-    KeystoreJsonError(serde_json::Error),
-    KeystoreEth1AddressTooShort,
-    KeystoreMissingSecretKey,
-    Eth1AddressUnknown,
-    DepositAmountUnknown,
-    DepositDataUnknown,
-    FailedToSubmitDepositTx(web3::Error),
-}
-
-impl From<ethsign::Error> for Error {
-    fn from(e: ethsign::Error) -> Self {
-        Error::KeystoreCryptoError(e)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::KeystoreOpenError(e)
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(e: serde_json::Error) -> Self {
-        Error::KeystoreJsonError(e)
-    }
-}
-
-struct ValidatorDepositor<T: Transport> {
-    web3: Web3<T>,
-    eth1_secret_key: SecretKey,
-    eth1_keystore_address: Address,
-    eth1_deposit_contract: Address,
-}
-
-impl<T: Transport> ValidatorDepositor<T> {
-    pub fn new(
-        transport: T,
-        eth1_deposit_contract: Address,
-        keystore_path: PathBuf,
-        keystore_password: Protected,
-    ) -> Result<Self, Error> {
-        let file = std::fs::File::open(keystore_path)?;
-        let key: KeyFile = serde_json::from_reader(file)?;
-        let eth1_secret_key = key.to_secret_key(&keystore_password)?;
-        let eth1_keystore_address = key
-            .address
-            .map::<Result<_, Error>, _>(|bytes| {
-                let slice = bytes
-                    .0
-                    .get(0..20)
-                    .ok_or_else(|| Error::KeystoreEth1AddressTooShort)?;
-                Ok(Address::from_slice(slice))
-            })
-            .ok_or_else(|| Error::KeystoreMissingSecretKey)??;
-
-        Ok(Self {
-            web3: Web3::new(transport),
-            eth1_secret_key,
-            eth1_keystore_address,
-            eth1_deposit_contract,
-        })
-    }
-
-    fn submit_deposit(
-        &self,
-        deposit_amount: u64,
-        deposit_data: Vec<u8>,
-    ) -> impl Future<Item = (), Error = Error> {
-        self.web3
-            .eth()
-            .send_transaction(TransactionRequest {
-                from: self.eth1_keystore_address,
-                to: Some(self.eth1_deposit_contract),
-                gas: Some(DEPOSIT_GAS.into()),
-                gas_price: None,
-                value: Some(deposit_amount.into()),
-                data: Some(deposit_data.into()),
-                nonce: None,
-                condition: None,
-            })
-            .map(|_tx| ())
-            .map_err(Error::FailedToSubmitDepositTx)
-    }
-}
-
-/*
-pub fn deposit_validators(matches: &ArgMatches) -> Result<(), String> {
-    let datadir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        "datadir",
-        PathBuf::new().join(".lighthouse").join("validators"),
-    )?;
-    let eth1_keystore_dir: PathBuf = clap_utils::parse_required(matches, "eth1-keystore")?;
-    let eth1_keystore_pass: String = clap_utils::parse_required(matches, "eth1-password")?;
-    let count: Option<usize> = clap_utils::parse_optional(matches, "count")?;
-    let limit: Option<usize> = clap_utils::parse_optional(matches, "limit")?;
-
-    /*
-    let  = match (count, limit) {
-        (Some(_), Some(_)) => Err("Cannot supply count and limit")
+    let n = match (count, limit) {
+        (Some(_), Some(_)) => Err("Cannot supply --count and --limit".to_string()),
+        (None, None) => Err("Must supply either --count or --limit".to_string()),
+        (Some(count), None) => Ok(count),
+        (None, Some(limit)) => fs::read_dir(datadir)
+            .map(|iter| limit.saturating_sub(iter.count()))
+            .map_err(|e| format!("Unable to read datadir: {}", e)),
     }?;
-    */
+
+    let deposit_contract = env
+        .testnet
+        .deposit_contract_address()
+        .map_err(|e| format!("Unable to parse deposit contract address: {}", e))?;
+
+    let (_event_loop_handle, transport) =
+        Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
+    let web3 = Web3::new(transport);
+
+    for _ in 0..n {
+        let validator = env
+            .runtime()
+            .block_on(
+                ValidatorDirectoryBuilder::default()
+                    .spec(spec.clone())
+                    .custom_deposit_amount(deposit_gwei)
+                    .thread_random_keypairs()
+                    .submit_eth1_deposit(web3.clone(), from_address, deposit_contract),
+            )?
+            .write_keypair_files()?
+            .write_eth1_data_file()?
+            .build()?;
+
+        if let Some(voting_keypair) = validator.voting_keypair {
+            println!("{:?}", voting_keypair.pk)
+        }
+    }
 
     Ok(())
 }
-*/

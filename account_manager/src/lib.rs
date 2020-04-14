@@ -1,6 +1,5 @@
 mod cli;
 mod deposits;
-mod local_validator;
 
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
@@ -62,6 +61,7 @@ fn run_account_manager<T: EthSpec>(
 
     match matches.subcommand() {
         ("validator", Some(matches)) => match matches.subcommand() {
+            ("deposited", Some(matches)) => deposits::cli_run(matches, env)?,
             ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, env)?,
             _ => {
                 return Err("Invalid 'validator new' command. See --help.".to_string());

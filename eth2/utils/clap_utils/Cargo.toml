@@ -11,3 +11,4 @@ clap = "2.33.0"
 hex = "0.3"
 dirs = "2.0"
 types = { path = "../../types" }
+eth2_testnet_config = { path = "../eth2_testnet_config" }

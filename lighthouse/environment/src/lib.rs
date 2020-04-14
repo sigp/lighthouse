@@ -28,6 +28,7 @@ pub struct EnvironmentBuilder<E: EthSpec> {
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
+    testnet: Option<Eth2TestnetConfig<E>>,
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
@@ -38,6 +39,7 @@ impl EnvironmentBuilder<MinimalEthSpec> {
             log: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
+            testnet: None,
         }
     }
 }
@@ -50,6 +52,7 @@ impl EnvironmentBuilder<MainnetEthSpec> {
             log: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
+            testnet: None,
         }
     }
 }
@@ -62,6 +65,7 @@ impl EnvironmentBuilder<InteropEthSpec> {
             log: None,
             eth_spec_instance: InteropEthSpec,
             eth2_config: Eth2Config::interop(),
+            testnet: None,
         }
     }
 }
@@ -140,7 +144,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Setups eth2 config using the CLI arguments.
     pub fn eth2_testnet_config(
         mut self,
-        eth2_testnet_config: &Eth2TestnetConfig<E>,
+        eth2_testnet_config: Eth2TestnetConfig<E>,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
         self.eth2_config.spec = eth2_testnet_config
@@ -154,6 +158,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     &self.eth2_config.spec_constants
                 )
             })?;
+
+        self.testnet = Some(eth2_testnet_config);
 
         Ok(self)
     }
@@ -169,6 +175,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 .ok_or_else(|| "Cannot build environment without log".to_string())?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
+            testnet: self
+                .testnet
+                .ok_or_else(|| "Cannot build environment without testnet".to_string())?,
         })
     }
 }
@@ -211,6 +220,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
+    pub testnet: Eth2TestnetConfig<E>,
 }
 
 impl<E: EthSpec> Environment<E> {

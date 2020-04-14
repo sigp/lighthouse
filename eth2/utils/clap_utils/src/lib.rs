@@ -1,15 +1,38 @@
 use clap::ArgMatches;
+use eth2_testnet_config::Eth2TestnetConfig;
 use hex;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::Address;
+use types::{Address, EthSpec};
 
 pub fn time_now() -> Result<u64, String> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .map_err(|e| format!("Unable to get time: {:?}", e))
+}
+
+pub fn parse_testnet_dir_with_hardcoded_default<E: EthSpec>(
+    matches: &ArgMatches,
+    name: &'static str,
+) -> Result<Eth2TestnetConfig<E>, String> {
+    parse_required::<PathBuf>(matches, name)
+        .and_then(|path| {
+            Eth2TestnetConfig::load(path.clone())
+                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
+        })
+        .map(Result::Ok)
+        .unwrap_or_else(|_| {
+            Eth2TestnetConfig::hard_coded().map_err(|e| {
+                format!(
+                    "The hard-coded testnet directory was invalid. \
+                     This happens when Lighthouse is migrating between spec versions. \
+                     Error : {}",
+                    e
+                )
+            })
+        })
 }
 
 pub fn parse_path_with_default_in_home_dir(
