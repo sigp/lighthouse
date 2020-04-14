@@ -294,7 +294,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if !config_file_existed {
-        write_to_file(CLIENT_CONFIG_FILENAME.into(), &client_config)?;
+        write_to_file(config_file_path, &client_config)?;
     }
 
     Ok(client_config)
