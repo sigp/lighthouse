@@ -1,18 +1,17 @@
+//! A helper library for parsing values from `clap::ArgMatches`.
+
 use clap::ArgMatches;
 use eth2_testnet_config::Eth2TestnetConfig;
 use hex;
+use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
-use types::{Address, EthSpec};
+use types::EthSpec;
 
-pub fn time_now() -> Result<u64, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .map_err(|e| format!("Unable to get time: {:?}", e))
-}
-
+/// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
+/// the path cannot be found or the testnet dir is invalid.
+///
+/// If `name` is not in `matches`, attempts to return the "hard coded" testnet dir.
 pub fn parse_testnet_dir_with_hardcoded_default<E: EthSpec>(
     matches: &ArgMatches,
     name: &'static str,
@@ -35,6 +34,8 @@ pub fn parse_testnet_dir_with_hardcoded_default<E: EthSpec>(
         })
 }
 
+/// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
+/// home directory and appends `default` to it.
 pub fn parse_path_with_default_in_home_dir(
     matches: &ArgMatches,
     name: &'static str,
@@ -53,6 +54,8 @@ pub fn parse_path_with_default_in_home_dir(
         })
 }
 
+/// Returns the value of `name` or an error if it is not in `matches` or does not parse
+/// successfully using `std::string::FromStr`.
 pub fn parse_required<T>(matches: &ArgMatches, name: &'static str) -> Result<T, String>
 where
     T: FromStr,
@@ -61,6 +64,8 @@ where
     parse_optional(matches, name)?.ok_or_else(|| format!("{} not specified", name))
 }
 
+/// Returns the value of `name` (if present) or an error if it does not parse successfully using
+/// `std::string::FromStr`.
 pub fn parse_optional<T>(matches: &ArgMatches, name: &'static str) -> Result<Option<T>, String>
 where
     T: FromStr,
@@ -75,48 +80,25 @@ where
         .transpose()
 }
 
-pub fn parse_path(matches: &ArgMatches, name: &'static str) -> Result<PathBuf, String> {
-    matches
-        .value_of(name)
-        .ok_or_else(|| format!("{} not specified", name))?
-        .parse()
-        .map_err(|e| format!("Unable to parse {}: {}", name, e))
+/// Returns the value of `name` or an error if it is not in `matches` or does not parse
+/// successfully using `ssz::Decode`.
+///
+/// Expects the value of `name` to be 0x-prefixed ASCII-hex.
+pub fn parse_ssz_required<T: Decode>(
+    matches: &ArgMatches,
+    name: &'static str,
+) -> Result<T, String> {
+    parse_ssz_optional(matches, name)?.ok_or_else(|| format!("{} not specified", name))
 }
 
-pub fn parse_u64(matches: &ArgMatches, name: &'static str) -> Result<u64, String> {
-    matches
-        .value_of(name)
-        .ok_or_else(|| format!("{} not specified", name))?
-        .parse::<u64>()
-        .map_err(|e| format!("Unable to parse {}: {}", name, e))
-}
-
-pub fn parse_u64_opt(matches: &ArgMatches, name: &'static str) -> Result<Option<u64>, String> {
-    matches
-        .value_of(name)
-        .map(|val| {
-            val.parse::<u64>()
-                .map_err(|e| format!("Unable to parse {}: {}", name, e))
-        })
-        .transpose()
-}
-
-pub fn parse_address(matches: &ArgMatches, name: &'static str) -> Result<Address, String> {
-    matches
-        .value_of(name)
-        .ok_or_else(|| format!("{} not specified", name))
-        .and_then(|val| {
-            if val.starts_with("0x") {
-                val[2..]
-                    .parse()
-                    .map_err(|e| format!("Unable to parse {}: {:?}", name, e))
-            } else {
-                Err(format!("Unable to parse {}, must have 0x prefix", name))
-            }
-        })
-}
-
-pub fn parse_fork_opt(matches: &ArgMatches, name: &'static str) -> Result<Option<[u8; 4]>, String> {
+/// Returns the value of `name` (if present) or an error if it does not parse successfully using
+/// `ssz::Decode`.
+///
+/// Expects the value of `name` (if any) to be 0x-prefixed ASCII-hex.
+pub fn parse_ssz_optional<T: Decode>(
+    matches: &ArgMatches,
+    name: &'static str,
+) -> Result<Option<T>, String> {
     matches
         .value_of(name)
         .map(|val| {
@@ -124,29 +106,11 @@ pub fn parse_fork_opt(matches: &ArgMatches, name: &'static str) -> Result<Option
                 let vec = hex::decode(&val[2..])
                     .map_err(|e| format!("Unable to parse {} as hex: {:?}", name, e))?;
 
-                if vec.len() != 4 {
-                    Err(format!("{} must be exactly 4 bytes", name))
-                } else {
-                    let mut arr = [0; 4];
-                    arr.copy_from_slice(&vec);
-                    Ok(arr)
-                }
+                T::from_ssz_bytes(&vec)
+                    .map_err(|e| format!("Unable to parse {} as SSZ: {:?}", name, e))
             } else {
                 Err(format!("Unable to parse {}, must have 0x prefix", name))
             }
         })
         .transpose()
-}
-
-pub fn parse_hex_bytes(matches: &ArgMatches, name: &'static str) -> Result<Vec<u8>, String> {
-    matches
-        .value_of(name)
-        .ok_or_else(|| format!("{} not specified", name))
-        .and_then(|val| {
-            if val.starts_with("0x") {
-                hex::decode(&val[2..]).map_err(|e| format!("Unable to parse {}: {:?}", name, e))
-            } else {
-                Err(format!("Unable to parse {}, must have 0x prefix", name))
-            }
-        })
 }

@@ -1,9 +1,10 @@
 use clap::ArgMatches;
 use clap_utils::{
-    parse_fork_opt, parse_optional, parse_path_with_default_in_home_dir, parse_required, time_now,
+    parse_optional, parse_path_with_default_in_home_dir, parse_required, parse_ssz_optional,
 };
 use eth2_testnet_config::Eth2TestnetConfig;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use types::{Address, EthSpec, YamlConfig};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
@@ -22,7 +23,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let ejection_balance = parse_required(matches, "ejection-balance")?;
     let eth1_follow_distance = parse_required(matches, "eth1-follow-distance")?;
     let deposit_contract_deploy_block = parse_required(matches, "deposit-contract-deploy-block")?;
-    let genesis_fork_version = parse_fork_opt(matches, "genesis-fork-version")?;
+    let genesis_fork_version = parse_ssz_optional::<[u8; 4]>(matches, "genesis-fork-version")?;
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
 
     if testnet_dir_path.exists() {
@@ -58,4 +59,11 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     };
 
     testnet.write_to_file(testnet_dir_path)
+}
+
+pub fn time_now() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|e| format!("Unable to get time: {:?}", e))
 }
