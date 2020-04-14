@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, Logger};
+use slog::{crit, warn, Logger};
 use ssz::Encode;
 use std::fs;
 use std::fs::File;
@@ -44,6 +44,8 @@ pub fn get_config<E: EthSpec>(
         client_config = read_from_file(config_file_path.clone())
             .map_err(|e| format!("Unable to parse {:?} file: {:?}", config_file_path, e))?
             .ok_or_else(|| format!("{:?} file does not exist", config_file_path))?;
+    } else {
+        client_config.spec_constants = spec_constants.into();
     }
 
     client_config.testnet_dir = get_testnet_dir(cli_args);
@@ -292,6 +294,23 @@ pub fn get_config<E: EthSpec>(
         client_config.network.boot_nodes.append(&mut boot_nodes)
     }
 
+    /*
+     * Load the eth2 testnet dir to obtain some addition config values.
+     */
+    let eth2_testnet_config: Eth2TestnetConfig<E> =
+        get_eth2_testnet_config(&client_config.testnet_dir)?;
+
+    client_config.eth1.deposit_contract_address =
+        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
+    client_config.eth1.deposit_contract_deploy_block =
+        eth2_testnet_config.deposit_contract_deploy_block;
+    client_config.eth1.lowest_cached_block_number =
+        client_config.eth1.deposit_contract_deploy_block;
+
+    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
+        client_config.network.boot_nodes.append(&mut boot_nodes)
+    }
+
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
@@ -304,7 +323,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if !config_file_existed {
-        write_to_file(CLIENT_CONFIG_FILENAME.into(), &client_config)?;
+        write_to_file(config_file_path, &client_config)?;
     }
 
     Ok(client_config)
