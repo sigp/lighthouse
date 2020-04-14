@@ -15,7 +15,7 @@ use types::EthSpec;
 mod peer_info;
 mod peerdb;
 
-pub use peer_info::PeerInfo;
+pub use peer_info::{PeerInfo, PeerSyncStatus};
 /// The minimum reputation before a peer is disconnected.
 // Most likely this needs tweaking
 const MINIMUM_REPUTATION_BEFORE_BAN: Rep = 20;
@@ -196,14 +196,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) -> bool {
         self.update_reputations();
         let mut peerdb = self.network_globals.peers.write();
-        peerdb.new_peer(peer_id);
         if !peerdb.connection_status(peer_id).is_banned() {
             peerdb.connect_ingoing(peer_id);
+            // start a ping and status timer for the peer
+            self.ping_peers.insert(peer_id.clone());
+            self.status_peers.insert(peer_id.clone());
+
             return true;
         }
-        // start a ping and status timer for the peer
-        self.ping_peers.insert(peer_id.clone());
-        self.status_peers.insert(peer_id.clone());
 
         false
     }
@@ -213,14 +213,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) -> bool {
         self.update_reputations();
         let mut peerdb = self.network_globals.peers.write();
-        peerdb.new_peer(peer_id);
         if !peerdb.connection_status(peer_id).is_banned() {
             peerdb.connect_outgoing(peer_id);
+            // start a ping and status timer for the peer
+            self.ping_peers.insert(peer_id.clone());
+            self.status_peers.insert(peer_id.clone());
+
             return true;
         }
-        // start a ping and status timer for the peer
-        self.ping_peers.insert(peer_id.clone());
-        self.status_peers.insert(peer_id.clone());
 
         false
     }

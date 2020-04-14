@@ -11,6 +11,7 @@ use slog::debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use types::Slot;
 
 fn into_boxfut<F: IntoFuture + 'static>(item: F) -> BoxFut
 where
@@ -44,7 +45,20 @@ pub fn route<T: BeaconChainTypes>(
             // Methods for Client
             (&Method::GET, "/node/version") => into_boxfut(node::get_version(req)),
             (&Method::GET, "/node/syncing") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+                // inform the current slot, or set to 0
+                let current_slot = beacon_chain
+                    .head_info()
+                    .map(|info| info.slot)
+                    .unwrap_or_else(|_| Slot::from(0u64));
+
+                into_boxfut(node::syncing::<T::EthSpec>(
+                    req,
+                    network_globals,
+                    current_slot,
+                ))
+            }
+            (&Method::GET, "/node/lighthouse_syncing") => {
+                into_boxfut(node::lighthouse_syncing::<T::EthSpec>(req, network_globals))
             }
 
             // Methods for Network

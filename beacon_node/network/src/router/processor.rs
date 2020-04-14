@@ -6,7 +6,7 @@ use beacon_chain::{
 };
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
-use eth2_libp2p::PeerId;
+use eth2_libp2p::{NetworkGlobals, PeerId};
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
@@ -70,6 +70,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn new(
         executor: &tokio::runtime::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
+        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         log: &slog::Logger,
     ) -> Self {
@@ -78,7 +79,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         // spawn the sync thread
         let (sync_send, _sync_exit) = crate::sync::manager::spawn(
             executor,
-            Arc::downgrade(&beacon_chain),
+            beacon_chain.clone(),
+            network_globals,
             network_send.clone(),
             sync_logger,
         );
@@ -170,7 +172,16 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Process a `Status` response from a peer.
     pub fn on_status_response(&mut self, peer_id: PeerId, status: StatusMessage) {
-        trace!(self.log, "StatusResponse"; "peer" => format!("{:?}", peer_id));
+        trace!(
+            self.log,
+            "Received Status Response";
+            "peer" => format!("{:?}", peer_id),
+            "fork_digest" => format!("{:?}", status.fork_digest),
+            "finalized_root" => format!("{:?}", status.finalized_root),
+            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
+            "head_root" => format!("{}", status.head_root),
+            "head_slot" => format!("{}", status.head_slot),
+        );
 
         // Process the status message, without sending back another status.
         self.process_status(peer_id, status);
@@ -268,7 +279,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             .exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
-            trace!(
+            debug!(
                 self.log, "Peer with known chain found";
                 "peer" => format!("{:?}", peer_id),
                 "remote_head_slot" => remote.head_slot,

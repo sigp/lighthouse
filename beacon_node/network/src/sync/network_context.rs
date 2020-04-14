@@ -8,7 +8,7 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, trace, warn};
-use std::sync::Weak;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
 
@@ -34,24 +34,22 @@ impl<T: EthSpec> SyncNetworkContext<T> {
 
     pub fn status_peer<U: BeaconChainTypes>(
         &mut self,
-        chain: Weak<BeaconChain<U>>,
+        chain: Arc<BeaconChain<U>>,
         peer_id: PeerId,
     ) {
-        if let Some(chain) = chain.upgrade() {
-            if let Some(status_message) = status_message(&chain) {
-                debug!(
-                    self.log,
-                    "Sending Status Request";
-                    "peer" => format!("{:?}", peer_id),
-                    "fork_digest" => format!("{:?}", status_message.fork_digest),
-                    "finalized_root" => format!("{:?}", status_message.finalized_root),
-                    "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
-                    "head_root" => format!("{}", status_message.head_root),
-                    "head_slot" => format!("{}", status_message.head_slot),
-                );
+        if let Some(status_message) = status_message(&chain) {
+            debug!(
+                self.log,
+                "Sending Status Request";
+                "peer" => format!("{:?}", peer_id),
+                "fork_digest" => format!("{:?}", status_message.fork_digest),
+                "finalized_root" => format!("{:?}", status_message.finalized_root),
+                "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
+                "head_root" => format!("{}", status_message.head_root),
+                "head_slot" => format!("{}", status_message.head_slot),
+            );
 
-                let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
-            }
+            let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
         }
     }
 

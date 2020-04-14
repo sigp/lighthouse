@@ -4,6 +4,7 @@
 
 mod beacon;
 mod consensus;
+mod node;
 mod validator;
 
 pub use beacon::{
@@ -16,3 +17,5 @@ pub use validator::{
 };
 
 pub use consensus::{IndividualVote, IndividualVotesRequest, IndividualVotesResponse};
+
+pub use node::{SyncingResponse, SyncingStatus};

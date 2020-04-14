@@ -8,7 +8,7 @@ use eth2_libp2p::PeerId;
 use rand::prelude::*;
 use slog::{crit, debug, warn};
 use std::collections::HashSet;
-use std::sync::Weak;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Hash256, SignedBeaconBlock, Slot};
 
@@ -82,7 +82,8 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// back once batch processing has completed.
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
 
-    chain: Weak<BeaconChain<T>>,
+    /// A reference to the underlying beacon chain.
+    chain: Arc<BeaconChain<T>>,
 
     /// A reference to the sync logger.
     log: slog::Logger,
@@ -103,7 +104,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_root: Hash256,
         peer_id: PeerId,
         sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-        chain: Weak<BeaconChain<T>>,
+        chain: Arc<BeaconChain<T>>,
         log: slog::Logger,
     ) -> Self {
         let mut peer_pool = HashSet::new();
@@ -244,7 +245,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch_id = ProcessId::RangeBatchId(batch.id.clone());
         self.current_processing_batch = Some(batch);
         spawn_block_processor(
-            self.chain.clone(),
+            Arc::downgrade(&self.chain.clone()),
             batch_id,
             downloaded_blocks,
             self.sync_send.clone(),
