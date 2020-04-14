@@ -16,7 +16,7 @@ use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
 use futures::{future, Future, IntoFuture};
-use genesis::{generate_deterministic_keypairs, interop_genesis_state, Eth1GenesisService};
+use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slog::info;
 use ssz::Decode;
@@ -25,7 +25,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// Interval between polling the eth1 node for genesis information.

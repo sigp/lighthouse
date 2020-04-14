@@ -75,6 +75,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("testnet-dir")
+                .short("t")
                 .long("testnet-dir")
                 .value_name("DIR")
                 .help(
