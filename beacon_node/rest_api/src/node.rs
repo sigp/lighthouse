@@ -27,7 +27,7 @@ pub fn syncing<T: EthSpec>(
             start_slot,
             head_slot,
         } => (start_slot, head_slot),
-        SyncState::Synced | SyncState::Stalled => (Slot::from(0u64), Slot::from(0u64)),
+        SyncState::Synced | SyncState::Stalled => (Slot::from(0u64), current_slot),
     };
 
     let sync_status = SyncingStatus {
