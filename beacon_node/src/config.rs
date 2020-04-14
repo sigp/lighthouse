@@ -1,3 +1,4 @@
+use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
@@ -35,8 +36,28 @@ pub fn get_config<E: EthSpec>(
 
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge") {
-        fs::remove_dir_all(&client_config.data_dir)
-            .map_err(|e| format!("Failed to purge data dir: {}", e))?;
+        // Remove the chain_db.
+        fs::remove_dir_all(
+            client_config
+                .get_db_path()
+                .ok_or("Failed to get db_path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // Remove the freezer db.
+        fs::remove_dir_all(
+            client_config
+                .get_freezer_db_path()
+                .ok_or("Failed to get freezer db path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // Remove the pubkey cache file if it exists
+        let pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
+        if pubkey_cache_file.exists() {
+            fs::remove_file(&pubkey_cache_file)
+                .map_err(|e| format!("Failed to remove {:?}: {:?}", pubkey_cache_file, e))?;
+        }
     }
 
     // Create `datadir` and any non-existing parent directories.
