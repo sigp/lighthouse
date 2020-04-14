@@ -1,3 +1,4 @@
+use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
@@ -10,6 +11,9 @@ const TESTNET_SPEC_CONSTANTS: &str = "minimal";
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
+
+/// Trap file indicating if chain_db was purged
+const CHAIN_DB_PURGED_TRAP_FILE: &str = ".db_purged";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +99,68 @@ impl Config {
     pub fn get_db_path(&self) -> Option<PathBuf> {
         self.get_data_dir()
             .map(|data_dir| data_dir.join(&self.db_name))
+    }
+
+    /// Get the path of the chain db purged trap file
+    pub fn get_db_purged_trap_file_path(&self) -> Option<PathBuf> {
+        self.get_data_dir()
+            .map(|data_dir| data_dir.join(CHAIN_DB_PURGED_TRAP_FILE))
+    }
+
+    /// returns whether chain_db was recently purged
+    pub fn chain_db_was_purged(&self) -> bool {
+        self.get_db_purged_trap_file_path()
+            .map_or(false, |trap_file| trap_file.exists())
+    }
+
+    /// purges the chain_db and creates trap file
+    pub fn purge_chain_db(&self) -> Result<(), String> {
+        // create the trap file
+        let trap_file = self
+            .get_db_purged_trap_file_path()
+            .ok_or("Failed to get trap file path".to_string())?;
+        fs::File::create(trap_file)
+            .map_err(|err| format!("Failed to create trap file: {}", err))?;
+
+        // remove the chain_db
+        fs::remove_dir_all(
+            self.get_db_path()
+                .ok_or("Failed to get db_path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // remove the freezer db
+        fs::remove_dir_all(
+            self.get_freezer_db_path()
+                .ok_or("Failed to get freezer db path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // also need to remove pubkey cache file if it exists
+        let pubkey_cache_file = self
+            .get_data_dir()
+            .map(|data_dir| data_dir.join(PUBKEY_CACHE_FILENAME))
+            .ok_or("Failed to get pubkey cache file path".to_string())?;
+        if !pubkey_cache_file.exists() {
+            return Ok(());
+        }
+        fs::remove_file(pubkey_cache_file)
+            .map_err(|err| format!("Failed to remove pubkey cache: {}", err))?;
+
+        Ok(())
+    }
+
+    /// cleans up purge_db trap file
+    pub fn cleanup_after_purge_db(&self) -> Result<(), String> {
+        let trap_file = self
+            .get_db_purged_trap_file_path()
+            .ok_or("Failed to get trap file path".to_string())?;
+        if !trap_file.exists() {
+            return Ok(());
+        }
+        fs::remove_file(trap_file).map_err(|err| format!("Failed to remove trap file: {}", err))?;
+
+        Ok(())
     }
 
     /// Get the database path, creating it if necessary.
