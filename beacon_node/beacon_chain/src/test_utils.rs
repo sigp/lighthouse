@@ -281,20 +281,18 @@ where
         head_block_root.expect("did not produce any blocks")
     }
 
+    /// Returns current canonical head slot
     pub fn get_chain_slot(&self) -> Slot {
         self.chain.slot().unwrap()
     }
 
-    pub fn get_chain_state(&self, slot: Slot) -> BeaconState<E> {
-        self.chain
-            .state_at_slot(slot, StateSkipConfig::WithStateRoots)
-            .unwrap()
-    }
-
+    /// Returns current canonical head state
     pub fn get_head_state(&self) -> BeaconState<E> {
         self.chain.head().unwrap().beacon_state
     }
 
+    /// Adds a single block (synchronously) onto either the canonical chain (block_strategy ==
+    /// OnCanonicalHead) or a fork (block_strategy == ForkCanonicalChainAt).
     pub fn add_block(
         &self,
         state: &BeaconState<E>,
@@ -324,6 +322,7 @@ where
         }
     }
 
+    /// `add_block()` repeated `num_blocks` times.
     pub fn add_blocks(
         &self,
         mut state: BeaconState<E>,
@@ -352,6 +351,7 @@ where
         (blocks, states, slot, head_hash, state)
     }
 
+    /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
     pub fn add_canonical_chain_blocks(
         &self,
         state: BeaconState<E>,
@@ -375,6 +375,7 @@ where
         )
     }
 
+    /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
     pub fn add_stray_blocks(
         &self,
         state: BeaconState<E>,

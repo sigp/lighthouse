@@ -1947,6 +1947,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    /// Traverses live heads and prunes blocks and states of chains that we know can't be built
+    /// upon because finalization would prohibit it.  This is a optimisation intended to save disk
+    /// space.
+    ///
+    /// Assumptions:
+    ///  * It is called after every finalization.
     fn prune_abandoned_forks(
         &self,
         old_finalized_block_hash: SignedBeaconBlockHash,

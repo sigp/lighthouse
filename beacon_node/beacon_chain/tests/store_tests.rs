@@ -815,7 +815,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
     // Fill up 0th epoch
     let slot = harness.get_chain_slot();
-    let state = harness.get_chain_state(slot);
+    let state = harness.get_head_state();
     let (canonical_blocks_zeroth_epoch, _, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
@@ -919,7 +919,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
     // Fill up 0th epoch with canonical chain blocks
     let slot = harness.get_chain_slot();
-    let state = harness.get_chain_state(slot);
+    let state = harness.get_head_state();
     let (canonical_blocks_zeroth_epoch, _, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
@@ -1009,7 +1009,7 @@ fn prunes_fork_running_past_finalized_checkpoint() {
 
     // Fill up 0th epoch with canonical chain blocks
     let slot = harness.get_chain_slot();
-    let state = harness.get_chain_state(slot);
+    let state = harness.get_head_state();
     let (canonical_blocks_zeroth_epoch, _, slot, _, state) =
         harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
 
@@ -1138,7 +1138,7 @@ fn prunes_skipped_slots_states() {
     // responsible for storing state outside of normal block processing.
 
     let canonical_slot = harness.get_chain_slot();
-    let canonical_state = harness.get_chain_state(canonical_slot);
+    let canonical_state = harness.get_head_state();
     let (canonical_blocks_zeroth_epoch, _, canonical_slot, _, canonical_state) = harness
         .add_canonical_chain_blocks(
             canonical_state,

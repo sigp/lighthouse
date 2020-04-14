@@ -3,8 +3,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    typenum::Unsigned, BeaconState, BeaconStateError, BeaconStateHash, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHash, Slot,
+    typenum::Unsigned, BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.

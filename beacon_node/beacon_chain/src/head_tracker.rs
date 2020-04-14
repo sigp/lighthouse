@@ -29,12 +29,14 @@ impl HeadTracker {
         map.insert(block_root, block.slot);
     }
 
+    /// Removes abandoned head.
     pub fn remove_head(&self, block_root: Hash256) {
         let mut map = self.0.write();
         debug_assert!(map.contains_key(&block_root));
         map.remove(&block_root);
     }
 
+    /// Returns true iff `block_root` is a recognized head.
     pub fn contains_head(&self, block_root: Hash256) -> bool {
         self.0.read().contains_key(&block_root)
     }
