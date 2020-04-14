@@ -172,7 +172,16 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Process a `Status` response from a peer.
     pub fn on_status_response(&mut self, peer_id: PeerId, status: StatusMessage) {
-        trace!(self.log, "StatusResponse"; "peer" => format!("{:?}", peer_id));
+        trace!(
+            self.log,
+            "Received Status Response";
+            "peer" => format!("{:?}", peer_id),
+            "fork_digest" => format!("{:?}", status.fork_digest),
+            "finalized_root" => format!("{:?}", status.finalized_root),
+            "finalized_epoch" => format!("{:?}", status.finalized_epoch),
+            "head_root" => format!("{}", status.head_root),
+            "head_slot" => format!("{}", status.head_slot),
+        );
 
         // Process the status message, without sending back another status.
         self.process_status(peer_id, status);
@@ -270,7 +279,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             .exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
-            trace!(
+            debug!(
                 self.log, "Peer with known chain found";
                 "peer" => format!("{:?}", peer_id),
                 "remote_head_slot" => remote.head_slot,

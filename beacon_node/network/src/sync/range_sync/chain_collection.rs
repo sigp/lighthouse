@@ -116,11 +116,22 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         self.state = state;
 
         if self.state == RangeSyncState::Idle {
-            if let Some((old_state, new_state)) = self.network_globals.update_sync_state() {
-                info!(self.log, "Sync state updated"; "old_state" => format!("{}",old_state), "new_state" => format!("{}",new_state));
+            // there is no range sync, let the state of peers determine the global node sync state
+            let new_state = self
+                .network_globals
+                .peers
+                .read()
+                .synced_peers()
+                .next()
+                .map(|_| SyncState::Synced)
+                .unwrap_or_else(|| SyncState::Stalled);
+            let mut peer_state = self.network_globals.sync_state.write();
+            if new_state != *peer_state {
+                info!(self.log, "Sync state updated"; "old_state" => format!("{}",peer_state), "new_state" => format!("{}",new_state));
             }
+            *peer_state = new_state;
         } else {
-            // The state based on a range sync state, update it
+            // The state is based on a range sync state, update it
             let mut node_sync_state = self.network_globals.sync_state.write();
             let new_state: SyncState = self.state.clone().into();
             if *node_sync_state != new_state {
