@@ -17,24 +17,27 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use tokio::codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
-use unsigned_varint::{decode, encode};
+use unsigned_varint::codec::Uvi;
 
 /* Inbound Codec */
 
 pub struct SSZSnappyInboundCodec<TSpec: EthSpec> {
     protocol: ProtocolId,
-    phantom: PhantomData<TSpec>,
+    inner: Uvi<usize>,
     len: Option<usize>,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
+    phantom: PhantomData<TSpec>,
 }
 
 impl<T: EthSpec> SSZSnappyInboundCodec<T> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
+        let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
         SSZSnappyInboundCodec {
+            inner: uvi_codec,
             protocol,
             len: None,
             phantom: PhantomData,
@@ -70,12 +73,15 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
                 "attempting to encode data > max_packet_size".into(),
             ));
         }
+        // Inserts the length prefix of the uncompressed bytes into dst
+        self.inner
+            .encode(bytes.len(), dst)
+            .map_err(RPCError::from)?;
+
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&bytes).map_err(RPCError::from)?;
         writer.flush().map_err(RPCError::from)?;
 
-        // Length prefix uncompressed bytes
-        dst.extend_from_slice(encode::u64(bytes.len() as u64, &mut encode::u64_buffer()));
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
         Ok(())
@@ -90,25 +96,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Decode the length of the uncompressed bytes
         if self.len.is_none() {
-            match decode::u64(src) {
-                Err(decode::Error::Insufficient) => return Ok(None), // Need more bytes to read len
-                Err(decode::Error::Overflow) => {
-                    return Err(RPCError::Custom(
-                        "Overflow while reading uncompressed length from snappy frame".into(),
-                    ))
-                }
-                Err(_) => {
-                    return Err(RPCError::Custom(
-                        "Failed to read length from snappy frame".into(),
-                    ))
-                }
-                Ok((length, remaining)) => {
-                    // split the incoming buffer to remove the read length bytes
-                    let input_len = src.len();
-                    let remaining_len = remaining.len();
-                    src.split_to(input_len - remaining_len);
+            match self.inner.decode(src).map_err(RPCError::from)? {
+                Some(length) => {
                     self.len = Some(length as usize);
                 }
+                None => return Ok(None),
             }
         };
 
@@ -190,6 +182,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
 /* Outbound Codec: Codec for initiating RPC requests */
 pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
+    inner: Uvi<usize>,
     len: Option<usize>,
     protocol: ProtocolId,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
@@ -199,10 +192,12 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
+        let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
         debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
 
         SSZSnappyOutboundCodec {
+            inner: uvi_codec,
             protocol,
             max_packet_size,
             len: None,
@@ -231,12 +226,18 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
                 "attempting to encode data > max_packet_size".into(),
             ));
         }
+
+        // Inserts the length prefix of the uncompressed bytes into dst
+        self.inner
+            .encode(bytes.len(), dst)
+            .map_err(RPCError::from)?;
+
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&bytes).map_err(RPCError::from)?;
         writer.flush().map_err(RPCError::from)?;
 
         // Length prefix uncompressed bytes
-        dst.extend_from_slice(encode::u64(bytes.len() as u64, &mut encode::u64_buffer()));
+        // dst.extend_from_slice(encode::u64(bytes.len() as u64, &mut encode::u64_buffer()));
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
         Ok(())
@@ -255,25 +256,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Decode the length of the uncompressed bytes
         if self.len.is_none() {
-            match decode::u64(src) {
-                Err(decode::Error::Insufficient) => return Ok(None), // Need more bytes to read len
-                Err(decode::Error::Overflow) => {
-                    return Err(RPCError::Custom(
-                        "Overflow while reading uncompressed length from snappy frame".into(),
-                    ))
-                }
-                Err(_) => {
-                    return Err(RPCError::Custom(
-                        "Failed to read length from snappy frame".into(),
-                    ))
-                }
-                Ok((length, remaining)) => {
-                    // split the incoming buffer to remove the read length bytes
-                    let input_len = src.len();
-                    let remaining_len = remaining.len();
-                    src.split_to(input_len - remaining_len);
+            match self.inner.decode(src).map_err(RPCError::from)? {
+                Some(length) => {
                     self.len = Some(length as usize);
                 }
+                None => return Ok(None),
             }
         };
 
@@ -349,25 +336,11 @@ impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
         // Decode the length of the uncompressed bytes
         if self.len.is_none() {
-            match decode::u64(src) {
-                Err(decode::Error::Insufficient) => return Ok(None), // Need more bytes to read len
-                Err(decode::Error::Overflow) => {
-                    return Err(RPCError::Custom(
-                        "Overflow while reading uncompressed length from snappy frame".into(),
-                    ))
-                }
-                Err(_) => {
-                    return Err(RPCError::Custom(
-                        "Failed to read length from snappy frame".into(),
-                    ))
-                }
-                Ok((length, remaining)) => {
-                    // split the incoming buffer to remove the read length bytes
-                    let input_len = src.len();
-                    let remaining_len = remaining.len();
-                    src.split_to(input_len - remaining_len);
+            match self.inner.decode(src).map_err(RPCError::from)? {
+                Some(length) => {
                     self.len = Some(length as usize);
                 }
+                None => return Ok(None),
             }
         };
 
