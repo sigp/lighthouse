@@ -5,7 +5,6 @@ mod change_genesis_time;
 mod check_deposit_data;
 mod deploy_deposit_contract;
 mod eth1_genesis;
-mod helpers;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;

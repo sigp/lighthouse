@@ -1,12 +1,12 @@
-use crate::helpers::{parse_hex_bytes, parse_u64};
 use clap::ArgMatches;
+use clap_utils::{parse_hex_bytes, parse_required};
 use deposit_contract::{decode_eth1_tx_data, DEPOSIT_DATA_LEN};
 use tree_hash::TreeHash;
 use types::EthSpec;
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let rlp_bytes = parse_hex_bytes(matches, "deposit-data")?;
-    let amount = parse_u64(matches, "deposit-amount")?;
+    let amount = parse_required(matches, "deposit-amount")?;
 
     if rlp_bytes.len() != DEPOSIT_DATA_LEN {
         return Err(format!(
