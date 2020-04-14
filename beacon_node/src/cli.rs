@@ -217,9 +217,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Purge.
          */
         .arg(
-            Arg::with_name("purge")
-                .long("purge")
-                .help("If present, the entire datadir will be removed. This deletes any existing
-                    databases and configuration. Use with caution.")
+            Arg::with_name("purge-db")
+                .long("purge-db")
+                .help("If present, the chain database will be deleted. Use with caution.")
         )
 }

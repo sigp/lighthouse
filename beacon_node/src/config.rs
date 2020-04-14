@@ -35,7 +35,7 @@ pub fn get_config<E: EthSpec>(
     client_config.data_dir = get_data_dir(cli_args);
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir.exists() && cli_args.is_present("purge") {
+    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
         fs::remove_dir_all(
             client_config
