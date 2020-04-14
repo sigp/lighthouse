@@ -1,4 +1,6 @@
 mod cli;
+mod deposits;
+mod local_validator;
 
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
