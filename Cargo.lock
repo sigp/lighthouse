@@ -1824,7 +1824,6 @@ name = "lcli"
 version = "0.2.0"
 dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "clap_utils 0.1.0",
  "deposit_contract 0.2.0",
  "dirs 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "environment 0.2.0",
