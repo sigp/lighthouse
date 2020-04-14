@@ -74,6 +74,7 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
             ));
         }
         // Inserts the length prefix of the uncompressed bytes into dst
+        // encoded as a unsigned varint
         self.inner
             .encode(bytes.len(), dst)
             .map_err(RPCError::from)?;
@@ -94,17 +95,16 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // Decode the length of the uncompressed bytes
         if self.len.is_none() {
+            // Decode the length of the uncompressed bytes from an unsigned varint
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
-                    self.len = Some(length as usize);
+                    self.len = Some(length);
                 }
-                None => return Ok(None),
+                None => return Ok(None), // need more bytes to decode length
             }
         };
 
-        // TODO: Double check that this never panics
         let length = self.len.expect("length should be Some");
 
         // Should not attempt to decode rpc chunks with length > max_packet_size
@@ -228,6 +228,7 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
         }
 
         // Inserts the length prefix of the uncompressed bytes into dst
+        // encoded as a unsigned varint
         self.inner
             .encode(bytes.len(), dst)
             .map_err(RPCError::from)?;
@@ -236,8 +237,6 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
         writer.write_all(&bytes).map_err(RPCError::from)?;
         writer.flush().map_err(RPCError::from)?;
 
-        // Length prefix uncompressed bytes
-        // dst.extend_from_slice(encode::u64(bytes.len() as u64, &mut encode::u64_buffer()));
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
         Ok(())
@@ -254,17 +253,16 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // Decode the length of the uncompressed bytes
         if self.len.is_none() {
+            // Decode the length of the uncompressed bytes from an unsigned varint
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
                     self.len = Some(length as usize);
                 }
-                None => return Ok(None),
+                None => return Ok(None), // need more bytes to decode length
             }
         };
 
-        // TODO: Double check that this never panics
         let length = self.len.expect("length should be Some");
 
         // Should not attempt to decode rpc chunks with length > max_packet_size
@@ -334,17 +332,16 @@ impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
     type ErrorType = ErrorMessage;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
-        // Decode the length of the uncompressed bytes
         if self.len.is_none() {
+            // Decode the length of the uncompressed bytes from an unsigned varint
             match self.inner.decode(src).map_err(RPCError::from)? {
                 Some(length) => {
                     self.len = Some(length as usize);
                 }
-                None => return Ok(None),
+                None => return Ok(None), // need more bytes to decode length
             }
         };
 
-        // TODO: Double check that this never panics
         let length = self.len.expect("length should be Some");
 
         // Should not attempt to decode rpc chunks with length > max_packet_size
