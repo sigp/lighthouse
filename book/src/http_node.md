@@ -21,7 +21,7 @@ Requests the beacon node's version.
 | --- |--- |
 Path | `/node/version`
 Method | GET
-JSON Encoding | String 
+JSON Encoding | String
 Query Parameters | None
 Typical Responses | 200
 
@@ -51,9 +51,9 @@ Typical Responses | 200
 {
 	is_syncing: true,
 	sync_status: {
-	    starting_slot: 1213123123123123123123123122,
-    	current_slot: 1213123123123123123123123122,
-    	highest_slot: 1213123123123123123123123122,
+	    starting_slot: 0,
+    	current_slot: 100,
+    	highest_slot: 200,
 	}
 }
 ```
@@ -75,12 +75,30 @@ Typical Responses | 200
 
 ### Example Response
 
+If the node is undergoing a finalization sync:
 ```json
 {
-	"syncing_finalized": {
+	"SyncingFinalized": {
 		"start_slot": 10,
 		"head_slot": 20,
-		"head_root":"0x0000000000000000000000000000000000000000000000000100000000000000"
-		}
+		"head_root":"0x74020d0e3c3c02d2ea6279d5760f7d0dd376c4924beaaec4d5c0cefd1c0c4465"
+	}
+}
+```
+
+If the node is undergoing a head chain sync:
+```json
+{
+	"SyncingHead": {
+		"start_slot":0,
+		"head_slot":1195
+	}
+}
+```
+
+If the node is synced
+```json
+{
+"Synced"
 }
 ```
