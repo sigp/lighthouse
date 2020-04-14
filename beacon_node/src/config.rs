@@ -33,6 +33,12 @@ pub fn get_config<E: EthSpec>(
 
     client_config.data_dir = get_data_dir(cli_args);
 
+    // If necessary, remove any existing database and configuration
+    if client_config.data_dir.exists() && cli_args.is_present("purge") {
+        fs::remove_dir_all(&client_config.data_dir)
+            .map_err(|e| format!("Failed to purge data dir: {}", e))?;
+    }
+
     // Create `datadir` and any non-existing parent directories.
     fs::create_dir_all(&client_config.data_dir)
         .map_err(|e| format!("Failed to create data dir: {}", e))?;

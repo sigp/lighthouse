@@ -213,4 +213,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many states the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
+        /*
+         * Purge.
+         */
+        .arg(
+            Arg::with_name("purge")
+                .long("purge")
+                .help("If present, any existing databases and configuration will be removed. Use
+                    with caution.")
+        )
 }
