@@ -189,15 +189,27 @@ pub fn get_config<E: EthSpec>(
         ("testnet", Some(sub_cmd_args)) => {
             process_testnet_subcommand(&mut client_config, &eth2_config, sub_cmd_args)?
         }
+        ("purge", _) => {
+            client_config.purge_chain_db()?;
+            println!("Successfully purged chain db");
+            std::process::exit(0);
+        }
         // No sub-command assumes a resume operation.
         _ => {
             // If no primary subcommand was given, start the beacon chain from an existing
             // database.
             client_config.genesis = ClientGenesis::Resume;
 
+            let db_path_exists: bool = match client_config.get_db_path() {
+                Some(path) => path.exists(),
+                None => false,
+            };
+
             // Whilst there is no large testnet or mainnet force the user to specify how they want
             // to start a new chain (e.g., from a genesis YAML file, another node, etc).
-            if !client_config.data_dir.exists() {
+            if !client_config.data_dir.exists()
+                || (!db_path_exists && client_config.chain_db_was_purged())
+            {
                 info!(
                     log,
                     "Starting from an empty database";
@@ -392,7 +404,8 @@ fn init_new_client<E: EthSpec>(
 ///
 /// Returns an error if `self.data_dir` already exists.
 pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config) -> Result<()> {
-    if client_config.data_dir.exists() {
+    let rebuild_db = client_config.chain_db_was_purged();
+    if client_config.data_dir.exists() && !rebuild_db {
         return Err(format!(
             "Data dir already exists at {:?}",
             client_config.data_dir
@@ -407,7 +420,9 @@ pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config
         ($file: ident, $variable: ident) => {
             let file = client_config.data_dir.join($file);
             if file.exists() {
-                return Err(format!("Datadir is not clean, {} exists.", $file));
+                if !rebuild_db {
+                    return Err(format!("Datadir is not clean, {} exists.", $file));
+                }
             } else {
                 // Write the onfig to a TOML file in the datadir.
                 write_to_file(client_config.data_dir.join($file), $variable)
@@ -418,6 +433,7 @@ pub fn create_new_datadir(client_config: &ClientConfig, eth2_config: &Eth2Config
 
     write_to_file!(CLIENT_CONFIG_FILENAME, client_config);
     write_to_file!(ETH2_CONFIG_FILENAME, eth2_config);
+    client_config.cleanup_after_purge_db()?;
 
     Ok(())
 }
