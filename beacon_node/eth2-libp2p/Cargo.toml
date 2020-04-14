@@ -12,7 +12,7 @@ libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "4e3003d5283040fe
 types = { path =  "../../eth2/types" }
 hashmap_delay = { path = "../../eth2/utils/hashmap_delay" }
 eth2_ssz_types = { path =  "../../eth2/utils/ssz_types" }
-serde = "1.0.102"
+serde = { version = "1.0.102", features = ["derive"] }
 serde_derive = "1.0.102"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"

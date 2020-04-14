@@ -65,15 +65,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     )> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
-        // Get a reference to the beacon chain store
+        // get a reference to the beacon chain store
         let store = beacon_chain.store.clone();
-        // launch the router task
-        let router_send = Router::spawn(
-            beacon_chain.clone(),
-            network_send.clone(),
-            executor,
-            network_log.clone(),
-        )?;
 
         let propagation_percentage = config.propagation_percentage;
 
@@ -95,7 +88,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // This is currently used to obtain the listening addresses from the libp2p service.
         let initial_delay = Delay::new(Instant::now() + Duration::from_secs(1));
 
-        // create the attestation service
+        // launch derived network services
+
+        // router task
+        let router_send = Router::spawn(
+            beacon_chain.clone(),
+            network_globals.clone(),
+            network_send.clone(),
+            executor,
+            network_log.clone(),
+        )?;
+
+        // attestation service
         let attestation_service =
             AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
 
