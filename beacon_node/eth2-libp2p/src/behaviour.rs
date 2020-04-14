@@ -5,7 +5,7 @@ use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use libp2p::{
-    core::identity::Keypair,
+    core::{identity::Keypair, ConnectedPoint},
     discv5::Discv5Event,
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
@@ -366,6 +366,43 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
 {
     fn inject_event(&mut self, event: RPCMessage<TSpec>) {
         match event {
+            // TODO: These are temporary methods to give access to injected behaviour
+            // events to the
+            // peer manager. After a behaviour re-write remove these:
+            RPCMessage::PeerConnectedHack(peer_id, connected_point) => {
+                match connected_point {
+                    ConnectedPoint::Dialer { .. } => self.peer_manager.connect_outgoing(&peer_id),
+                    ConnectedPoint::Listener { .. } => self.peer_manager.connect_ingoing(&peer_id),
+                };
+
+                // Find ENR info about a peer if possible.
+                if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
+                    let bitfield = match enr.bitfield::<TSpec>() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warn!(self.log, "Peer has invalid ENR bitfield"; 
+                                        "peer_id" => format!("{}", peer_id),
+                                        "error" => format!("{:?}", e));
+                            return;
+                        }
+                    };
+
+                    // use this as a baseline, until we get the actual meta-data
+                    let meta_data = MetaData {
+                        seq_number: 0,
+                        attnets: bitfield,
+                    };
+                    // TODO: Shift to the peer manager
+                    self.network_globals
+                        .peers
+                        .write()
+                        .add_metadata(&peer_id, meta_data);
+                }
+            }
+            RPCMessage::PeerDisconnectedHack(peer_id, _connected_point) => {
+                self.peer_manager.notify_disconnect(&peer_id)
+            }
+
             RPCMessage::PeerDialed(peer_id) => {
                 self.events.push(BehaviourEvent::PeerDialed(peer_id))
             }
@@ -402,7 +439,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                         // propagate the STATUS message upwards
                         self.events.push(BehaviourEvent::RPC(peer_id, rpc_event));
                     }
-
                     _ => {
                         // propagate all other RPC messages upwards
                         self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))

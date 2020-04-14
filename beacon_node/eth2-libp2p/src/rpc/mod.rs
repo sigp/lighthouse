@@ -175,4 +175,8 @@ pub enum RPCMessage<TSpec: EthSpec> {
     RPC(PeerId, RPCEvent<TSpec>),
     PeerDialed(PeerId),
     PeerDisconnected(PeerId),
+    // TODO: This is a hack to give access to connections to peer manager. Remove this once
+    // behaviour is re-written
+    PeerConnectedHack(PeerId, ConnectedPoint),
+    PeerDisconnectedHack(PeerId, ConnectedPoint),
 }
