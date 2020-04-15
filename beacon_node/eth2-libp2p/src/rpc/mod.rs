@@ -118,6 +118,10 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, connected_point: ConnectedPoint) {
+        // TODO: Remove this on proper peer discovery
+        self.events.push(NetworkBehaviourAction::GenerateEvent(
+            RPCMessage::PeerConnectedHack(peer_id.clone(), connected_point.clone()),
+        ));
         // if initialised the connection, report this upwards to send the HELLO request
         if let ConnectedPoint::Dialer { .. } = connected_point {
             self.events.push(NetworkBehaviourAction::GenerateEvent(
@@ -135,7 +139,12 @@ where
         });
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId, _: ConnectedPoint) {
+    fn inject_disconnected(&mut self, peer_id: &PeerId, connected_point: ConnectedPoint) {
+        // TODO: Remove this on proper peer discovery
+        self.events.push(NetworkBehaviourAction::GenerateEvent(
+            RPCMessage::PeerDisconnectedHack(peer_id.clone(), connected_point.clone()),
+        ));
+
         // inform the rpc handler that the peer has disconnected
         self.events.push(NetworkBehaviourAction::GenerateEvent(
             RPCMessage::PeerDisconnected(peer_id.clone()),
