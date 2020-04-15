@@ -339,7 +339,7 @@ fn main() {
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
-                        .default_value("0x01030307")    // [1, 3, 3, 7]
+                        .default_value("0x00000000") 
                         .help("Used to avoid reply attacks between testnets. Recommended to set to
                               non-default."),
                 )

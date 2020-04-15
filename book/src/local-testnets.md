@@ -55,7 +55,7 @@ Once you have `lcli` installed, create a new testnet directory with:
 lcli new-testnet
 ```
 
-> - This will create a "mainnet" spec testnet. To create a minimal spec use `lcli --spec minim new-testnet`.
+> - This will create a "mainnet" spec testnet. To create a minimal spec use `lcli --spec minimal new-testnet`.
 > - The `lcli new-testnet` command has many options, use `lcli new-testnet --help` to see them.
 
 ### 1.3 Create a genesis state
