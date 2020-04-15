@@ -3,8 +3,11 @@ use crate::local_network::LocalNetwork;
 use clap::ArgMatches;
 use futures::{future, stream, Future, IntoFuture, Stream};
 use node_test_rig::ClientConfig;
-use node_test_rig::{environment::EnvironmentBuilder, testing_client_config, ValidatorConfig};
-use std::time::Duration;
+use node_test_rig::{
+    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
+};
+use std::net::{IpAddr, Ipv4Addr};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::timer::Interval;
 use types::{Epoch, EthSpec};
 
@@ -48,15 +51,32 @@ fn syncing_sim(
 
     let spec = &mut env.eth2_config.spec;
     let end_after_checks = true;
+    let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
 
-    spec.milliseconds_per_slot = spec.milliseconds_per_slot / speed_up_factor;
+    spec.milliseconds_per_slot /= speed_up_factor;
+    spec.eth1_follow_distance = 16;
+    spec.min_genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
-    spec.min_genesis_active_validator_count = 16;
+    spec.min_genesis_active_validator_count = 64;
+    spec.seconds_per_eth1_block = 1;
 
+    let num_validators = 8;
     let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
     let context = env.core_context();
-    let num_validators = 8;
-    let beacon_config = testing_client_config();
+    let mut beacon_config = testing_client_config();
+
+    let genesis_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "should get system time")?
+        + Duration::from_secs(5);
+    beacon_config.genesis = ClientGenesis::Interop {
+        validator_count: num_validators,
+        genesis_time: genesis_time.as_secs(),
+    };
+    beacon_config.dummy_eth1_backend = true;
+    beacon_config.sync_eth1_chain = true;
+
+    beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
     let future = LocalNetwork::new(context, beacon_config.clone())
         /*
