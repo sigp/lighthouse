@@ -7,7 +7,7 @@ use tree_hash_derive::TreeHash;
 
 /// Casper FFG checkpoint, used in attestations.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(
     Debug,
     Clone,

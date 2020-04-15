@@ -1,4 +1,3 @@
-use beacon_chain::BeaconChainTypes;
 use eth2_libp2p::Enr;
 use rlp;
 use std::sync::Arc;

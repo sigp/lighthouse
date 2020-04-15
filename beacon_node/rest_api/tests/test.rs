@@ -48,17 +48,15 @@ fn get_randao_reveal<T: BeaconChainTypes>(
     slot: Slot,
     spec: &ChainSpec,
 ) -> Signature {
-    let fork = beacon_chain
-        .head()
-        .expect("should get head")
-        .beacon_state
-        .fork;
+    let head = beacon_chain.head().expect("should get head");
+    let fork = head.beacon_state.fork;
+    let genesis_validators_root = head.beacon_state.genesis_validators_root;
     let proposer_index = beacon_chain
         .block_proposer(slot)
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
     let epoch = slot.epoch(E::slots_per_epoch());
-    let domain = spec.get_domain(epoch, Domain::Randao, &fork);
+    let domain = spec.get_domain(epoch, Domain::Randao, &fork, genesis_validators_root);
     let message = epoch.signing_root(domain);
     Signature::new(message.as_bytes(), &keypair.sk)
 }
@@ -69,16 +67,14 @@ fn sign_block<T: BeaconChainTypes>(
     block: BeaconBlock<T::EthSpec>,
     spec: &ChainSpec,
 ) -> SignedBeaconBlock<T::EthSpec> {
-    let fork = beacon_chain
-        .head()
-        .expect("should get head")
-        .beacon_state
-        .fork;
+    let head = beacon_chain.head().expect("should get head");
+    let fork = head.beacon_state.fork;
+    let genesis_validators_root = head.beacon_state.genesis_validators_root;
     let proposer_index = beacon_chain
         .block_proposer(block.slot)
         .expect("should get proposer index");
     let keypair = generate_deterministic_keypair(proposer_index);
-    block.sign(&keypair.sk, &fork, spec)
+    block.sign(&keypair.sk, &fork, genesis_validators_root, spec)
 }
 
 #[test]
@@ -94,6 +90,7 @@ fn validator_produce_attestation() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain");
+    let genesis_validators_root = beacon_chain.genesis_validators_root;
     let state = beacon_chain.head().expect("should get head").beacon_state;
 
     let validator_index = 0;
@@ -192,6 +189,7 @@ fn validator_produce_attestation() {
                 .attestation_committee_position
                 .expect("should have committee position"),
             &state.fork,
+            state.genesis_validators_root,
             spec,
         )
         .expect("should sign attestation");
@@ -228,6 +226,7 @@ fn validator_produce_attestation() {
         aggregated_attestation,
         &keypair.sk,
         &state.fork,
+        genesis_validators_root,
         spec,
     );
 
@@ -636,6 +635,31 @@ fn genesis_time() {
 }
 
 #[test]
+fn genesis_validators_root() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let genesis_validators_root = env
+        .runtime()
+        .block_on(remote_node.http.beacon().get_genesis_validators_root())
+        .expect("should fetch genesis time from http api");
+
+    assert_eq!(
+        node.client
+            .beacon_chain()
+            .expect("should have beacon chain")
+            .head()
+            .expect("should get head")
+            .beacon_state
+            .genesis_validators_root,
+        genesis_validators_root,
+        "should match genesis time from head state"
+    );
+}
+
+#[test]
 fn fork() {
     let mut env = build_env();
 
@@ -974,6 +998,7 @@ fn proposer_slashing() {
         proposer_index as u64,
         &key,
         fork,
+        state.genesis_validators_root,
         spec,
     );
 
@@ -998,6 +1023,7 @@ fn proposer_slashing() {
         proposer_index as u64,
         &key,
         fork,
+        state.genesis_validators_root,
         spec,
     );
     invalid_proposer_slashing.signed_header_2 = invalid_proposer_slashing.signed_header_1.clone();
@@ -1052,6 +1078,7 @@ fn attester_slashing() {
         &validator_indices[..],
         &secret_keys[..],
         fork,
+        state.genesis_validators_root,
         spec,
     );
 
@@ -1077,6 +1104,7 @@ fn attester_slashing() {
         &validator_indices[..],
         &secret_keys[..],
         fork,
+        state.genesis_validators_root,
         spec,
     );
     invalid_attester_slashing.attestation_2 = invalid_attester_slashing.attestation_1.clone();

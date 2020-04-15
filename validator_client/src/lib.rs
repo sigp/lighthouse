@@ -139,101 +139,125 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         }
                     })
             })
-            .and_then(move |(beacon_node, remote_eth2_config, genesis_time)| {
-                let log = log_4.clone();
+            .and_then(|(beacon_node, eth2_config, genesis_time)| {
+                beacon_node
+                    .http
+                    .beacon()
+                    .get_genesis_validators_root()
+                    .map(move |genesis_validators_root| {
+                        (
+                            beacon_node,
+                            eth2_config,
+                            genesis_time,
+                            genesis_validators_root,
+                        )
+                    })
+                    .map_err(|e| {
+                        format!(
+                            "Unable to read genesis validators root from beacon node: {:?}",
+                            e
+                        )
+                    })
+            })
+            .and_then(
+                move |(beacon_node, remote_eth2_config, genesis_time, genesis_validators_root)| {
+                    let log = log_4.clone();
 
-                // Do not permit a connection to a beacon node using different spec constants.
-                if context.eth2_config.spec_constants != remote_eth2_config.spec_constants {
-                    return Err(format!(
-                        "Beacon node is using an incompatible spec. Got {}, expected {}",
-                        remote_eth2_config.spec_constants, context.eth2_config.spec_constants
-                    ));
-                }
+                    // Do not permit a connection to a beacon node using different spec constants.
+                    if context.eth2_config.spec_constants != remote_eth2_config.spec_constants {
+                        return Err(format!(
+                            "Beacon node is using an incompatible spec. Got {}, expected {}",
+                            remote_eth2_config.spec_constants, context.eth2_config.spec_constants
+                        ));
+                    }
 
-                // Note: here we just assume the spec variables of the remote node. This is very useful
-                // for testnets, but perhaps a security issue when it comes to mainnet.
-                //
-                // A damaging attack would be for a beacon node to convince the validator client of a
-                // different `SLOTS_PER_EPOCH` variable. This could result in slashable messages being
-                // produced. We are safe from this because `SLOTS_PER_EPOCH` is a type-level constant
-                // for Lighthouse.
-                context.eth2_config = remote_eth2_config;
+                    // Note: here we just assume the spec variables of the remote node. This is very useful
+                    // for testnets, but perhaps a security issue when it comes to mainnet.
+                    //
+                    // A damaging attack would be for a beacon node to convince the validator client of a
+                    // different `SLOTS_PER_EPOCH` variable. This could result in slashable messages being
+                    // produced. We are safe from this because `SLOTS_PER_EPOCH` is a type-level constant
+                    // for Lighthouse.
+                    context.eth2_config = remote_eth2_config;
 
-                let slot_clock = SystemTimeSlotClock::new(
-                    context.eth2_config.spec.genesis_slot,
-                    Duration::from_secs(genesis_time),
-                    Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
-                );
+                    let slot_clock = SystemTimeSlotClock::new(
+                        context.eth2_config.spec.genesis_slot,
+                        Duration::from_secs(genesis_time),
+                        Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot),
+                    );
 
-                let fork_service = ForkServiceBuilder::new()
-                    .slot_clock(slot_clock.clone())
-                    .beacon_node(beacon_node.clone())
-                    .runtime_context(context.service_context("fork".into()))
-                    .build()?;
+                    let fork_service = ForkServiceBuilder::new()
+                        .slot_clock(slot_clock.clone())
+                        .beacon_node(beacon_node.clone())
+                        .runtime_context(context.service_context("fork".into()))
+                        .build()?;
 
-                let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
-                    match &config.key_source {
-                        // Load pre-existing validators from the data dir.
-                        //
-                        // Use the `account_manager` to generate these files.
-                        KeySource::Disk => ValidatorStore::load_from_disk(
-                            config.data_dir.clone(),
-                            context.eth2_config.spec.clone(),
-                            fork_service.clone(),
-                            log.clone(),
-                        )?,
-                        // Generate ephemeral insecure keypairs for testing purposes.
-                        //
-                        // Do not use in production.
-                        KeySource::InsecureKeypairs(indices) => {
-                            ValidatorStore::insecure_ephemeral_validators(
-                                &indices,
+                    let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
+                        match &config.key_source {
+                            // Load pre-existing validators from the data dir.
+                            //
+                            // Use the `account_manager` to generate these files.
+                            KeySource::Disk => ValidatorStore::load_from_disk(
+                                config.data_dir.clone(),
+                                genesis_validators_root,
                                 context.eth2_config.spec.clone(),
                                 fork_service.clone(),
                                 log.clone(),
-                            )?
-                        }
-                    };
+                            )?,
+                            // Generate ephemeral insecure keypairs for testing purposes.
+                            //
+                            // Do not use in production.
+                            KeySource::InsecureKeypairs(indices) => {
+                                ValidatorStore::insecure_ephemeral_validators(
+                                    &indices,
+                                    genesis_validators_root,
+                                    context.eth2_config.spec.clone(),
+                                    fork_service.clone(),
+                                    log.clone(),
+                                )?
+                            }
+                        };
 
-                info!(
-                    log,
-                    "Loaded validator keypair store";
-                    "voting_validators" => validator_store.num_voting_validators()
-                );
+                    info!(
+                        log,
+                        "Loaded validator keypair store";
+                        "voting_validators" => validator_store.num_voting_validators()
+                    );
 
-                let duties_service = DutiesServiceBuilder::new()
-                    .slot_clock(slot_clock.clone())
-                    .validator_store(validator_store.clone())
-                    .beacon_node(beacon_node.clone())
-                    .runtime_context(context.service_context("duties".into()))
-                    .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
-                    .build()?;
+                    let duties_service = DutiesServiceBuilder::new()
+                        .slot_clock(slot_clock.clone())
+                        .validator_store(validator_store.clone())
+                        .beacon_node(beacon_node.clone())
+                        .runtime_context(context.service_context("duties".into()))
+                        .allow_unsynced_beacon_node(config.allow_unsynced_beacon_node)
+                        .build()?;
 
-                let block_service = BlockServiceBuilder::new()
-                    .duties_service(duties_service.clone())
-                    .slot_clock(slot_clock.clone())
-                    .validator_store(validator_store.clone())
-                    .beacon_node(beacon_node.clone())
-                    .runtime_context(context.service_context("block".into()))
-                    .build()?;
+                    let block_service = BlockServiceBuilder::new()
+                        .duties_service(duties_service.clone())
+                        .slot_clock(slot_clock.clone())
+                        .validator_store(validator_store.clone())
+                        .beacon_node(beacon_node.clone())
+                        .runtime_context(context.service_context("block".into()))
+                        .build()?;
 
-                let attestation_service = AttestationServiceBuilder::new()
-                    .duties_service(duties_service.clone())
-                    .slot_clock(slot_clock)
-                    .validator_store(validator_store)
-                    .beacon_node(beacon_node)
-                    .runtime_context(context.service_context("attestation".into()))
-                    .build()?;
+                    let attestation_service = AttestationServiceBuilder::new()
+                        .duties_service(duties_service.clone())
+                        .slot_clock(slot_clock)
+                        .validator_store(validator_store)
+                        .beacon_node(beacon_node)
+                        .runtime_context(context.service_context("attestation".into()))
+                        .build()?;
 
-                Ok(Self {
-                    context,
-                    duties_service,
-                    fork_service,
-                    block_service,
-                    attestation_service,
-                    exit_signals: vec![],
-                })
-            })
+                    Ok(Self {
+                        context,
+                        duties_service,
+                        fork_service,
+                        block_service,
+                        attestation_service,
+                        exit_signals: vec![],
+                    })
+                },
+            )
     }
 
     pub fn start_service(&mut self) -> Result<(), String> {

@@ -12,13 +12,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, PublicKey, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, PublicKey,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
     validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
+    genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
@@ -29,6 +30,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn load_from_disk(
         base_dir: PathBuf,
+        genesis_validators_root: Hash256,
         spec: ChainSpec,
         fork_service: ForkService<T, E>,
         log: Logger,
@@ -66,6 +68,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         Ok(Self {
             validators: Arc::new(RwLock::new(HashMap::from_par_iter(validator_key_values))),
+            genesis_validators_root,
             spec: Arc::new(spec),
             log,
             temp_dir: None,
@@ -76,6 +79,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn insecure_ephemeral_validators(
         validator_indices: &[usize],
+        genesis_validators_root: Hash256,
         spec: ChainSpec,
         fork_service: ForkService<T, E>,
         log: Logger,
@@ -107,6 +111,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         Ok(Self {
             validators: Arc::new(RwLock::new(HashMap::from_iter(validators))),
+            genesis_validators_root,
             spec: Arc::new(spec),
             log,
             temp_dir: Some(Arc::new(temp_dir)),
@@ -144,7 +149,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                let domain = self.spec.get_domain(epoch, Domain::Randao, &self.fork()?);
+                let domain = self.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &self.fork()?,
+                    self.genesis_validators_root,
+                );
                 let message = epoch.signing_root(domain);
 
                 Some(Signature::new(message.as_bytes(), &voting_keypair.sk))
@@ -162,7 +172,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .get(validator_pubkey)
             .and_then(|validator_dir| {
                 let voting_keypair = validator_dir.voting_keypair.as_ref()?;
-                Some(block.sign(&voting_keypair.sk, &self.fork()?, &self.spec))
+                Some(block.sign(
+                    &voting_keypair.sk,
+                    &self.fork()?,
+                    self.genesis_validators_root,
+                    &self.spec,
+                ))
             })
     }
 
@@ -184,6 +199,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                         &voting_keypair.sk,
                         validator_committee_position,
                         &self.fork()?,
+                        self.genesis_validators_root,
                         &self.spec,
                     )
                     .map_err(|e| {
@@ -217,6 +233,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             aggregate,
             &voting_keypair.sk,
             &self.fork()?,
+            self.genesis_validators_root,
             &self.spec,
         ))
     }
@@ -235,6 +252,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             slot,
             &voting_keypair.sk,
             &self.fork()?,
+            self.genesis_validators_root,
             &self.spec,
         ))
     }

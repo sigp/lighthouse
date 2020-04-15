@@ -15,7 +15,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 ///
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
@@ -49,7 +49,7 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
 /// Returns a descriptive `Err` if the attestation is malformed or does not accurately reflect the
 /// prior blocks in `state`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn verify_attestation_for_state<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
@@ -57,6 +57,13 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<()> {
     let data = &attestation.data;
+
+    // This emptiness check is required *in addition* to the length check in `get_attesting_indices`
+    // because we can parse a bitfield and know its length, even if it has no bits set.
+    verify!(
+        !attestation.aggregation_bits.is_zero(),
+        Invalid::AggregationBitfieldIsEmpty
+    );
 
     verify!(
         data.index < state.get_committee_count_at_slot(data.slot)?,
@@ -76,7 +83,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
 
 /// Check target epoch and source checkpoint.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn verify_casper_ffg_vote<T: EthSpec>(
     attestation: &Attestation<T>,
     state: &BeaconState<T>,

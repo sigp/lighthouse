@@ -22,7 +22,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    EthSpec, Fork, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator,
+    EthSpec, Fork, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator,
 };
 
 #[derive(Default, Debug)]
@@ -58,9 +58,10 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         attestation: Attestation<T>,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<(), AttestationValidationError> {
-        let id = AttestationId::from_data(&attestation.data, fork, spec);
+        let id = AttestationId::from_data(&attestation.data, fork, genesis_validators_root, spec);
 
         // Take a write lock on the attestations map.
         let mut attestations = self.attestations.write();
@@ -106,9 +107,18 @@ impl<T: EthSpec> OperationPool<T> {
         // Attestations for the current fork, which may be from the current or previous epoch.
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
-        let prev_domain_bytes = AttestationId::compute_domain_bytes(prev_epoch, &state.fork, spec);
-        let curr_domain_bytes =
-            AttestationId::compute_domain_bytes(current_epoch, &state.fork, spec);
+        let prev_domain_bytes = AttestationId::compute_domain_bytes(
+            prev_epoch,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
+        let curr_domain_bytes = AttestationId::compute_domain_bytes(
+            current_epoch,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
         let reader = self.attestations.read();
         let active_indices = state
             .get_cached_active_validator_indices(RelativeEpoch::Current)
@@ -168,7 +178,7 @@ impl<T: EthSpec> OperationPool<T> {
         verify_proposer_slashing(&slashing, state, VerifySignatures::True, spec)?;
         self.proposer_slashings
             .write()
-            .insert(slashing.proposer_index, slashing);
+            .insert(slashing.signed_header_1.message.proposer_index, slashing);
         Ok(())
     }
 
@@ -181,8 +191,18 @@ impl<T: EthSpec> OperationPool<T> {
         spec: &ChainSpec,
     ) -> (AttestationId, AttestationId) {
         (
-            AttestationId::from_data(&slashing.attestation_1.data, &state.fork, spec),
-            AttestationId::from_data(&slashing.attestation_2.data, &state.fork, spec),
+            AttestationId::from_data(
+                &slashing.attestation_1.data,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
+            AttestationId::from_data(
+                &slashing.attestation_2.data,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
         )
     }
 
@@ -214,7 +234,7 @@ impl<T: EthSpec> OperationPool<T> {
             |slashing| {
                 state
                     .validators
-                    .get(slashing.proposer_index as usize)
+                    .get(slashing.signed_header_1.message.proposer_index as usize)
                     .map_or(false, |validator| !validator.slashed)
             },
             T::MaxProposerSlashings::to_usize(),
@@ -224,7 +244,7 @@ impl<T: EthSpec> OperationPool<T> {
         // slashings.
         let mut to_be_slashed = proposer_slashings
             .iter()
-            .map(|s| s.proposer_index)
+            .map(|s| s.signed_header_1.message.proposer_index)
             .collect::<HashSet<_>>();
 
         let epoch = state.current_epoch();
@@ -428,6 +448,7 @@ mod release_tests {
             signers,
             &committee_keys,
             &state.fork,
+            state.genesis_validators_root,
             spec,
         );
         extra_signer.map(|c_idx| {
@@ -437,6 +458,7 @@ mod release_tests {
                 &[validator_index],
                 &[&keypairs[validator_index].sk],
                 &state.fork,
+                state.genesis_validators_root,
                 spec,
             )
         });
@@ -549,7 +571,9 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_attestation(att, &state.fork, state.genesis_validators_root, spec)
+                    .unwrap();
             }
         }
 
@@ -618,9 +642,16 @@ mod release_tests {
                 None,
             );
             op_pool
-                .insert_attestation(att.clone(), &state.fork, spec)
+                .insert_attestation(
+                    att.clone(),
+                    &state.fork,
+                    state.genesis_validators_root,
+                    spec,
+                )
                 .unwrap();
-            op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+            op_pool
+                .insert_attestation(att, &state.fork, state.genesis_validators_root, spec)
+                .unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -657,7 +688,9 @@ mod release_tests {
                     spec,
                     None,
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_attestation(att, &state.fork, state.genesis_validators_root, spec)
+                    .unwrap();
             }
         }
 
@@ -705,7 +738,9 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_attestation(att, &state.fork, state.genesis_validators_root, spec)
+                    .unwrap();
             }
         };
 
@@ -778,7 +813,9 @@ mod release_tests {
                     spec,
                     if i == 0 { None } else { Some(0) },
                 );
-                op_pool.insert_attestation(att, &state.fork, spec).unwrap();
+                op_pool
+                    .insert_attestation(att, &state.fork, state.genesis_validators_root, spec)
+                    .unwrap();
             }
         };
 

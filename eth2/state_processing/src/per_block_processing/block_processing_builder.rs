@@ -56,9 +56,18 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
+        builder.set_proposer_index(proposer_index as u64);
+
         match randao_sk {
-            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
-            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+            Some(sk) => {
+                builder.set_randao_reveal(&sk, &state.fork, state.genesis_validators_root, spec)
+            }
+            None => builder.set_randao_reveal(
+                &keypair.sk,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
         }
 
         self.block_builder.insert_deposits(
@@ -70,7 +79,12 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             spec,
         );
 
-        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        let block = self.block_builder.build(
+            &keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         (block, state)
     }
@@ -96,9 +110,18 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
+        builder.set_proposer_index(proposer_index as u64);
+
         match randao_sk {
-            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
-            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+            Some(sk) => {
+                builder.set_randao_reveal(&sk, &state.fork, state.genesis_validators_root, spec)
+            }
+            None => builder.set_randao_reveal(
+                &keypair.sk,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
         }
         match test_task {
             ExitTestTask::AlreadyInitiated => {
@@ -125,7 +148,12 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
             }
         }
 
-        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        let block = self.block_builder.build(
+            &keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         (block, state)
     }
@@ -151,9 +179,18 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
+        builder.set_proposer_index(proposer_index as u64);
+
         match randao_sk {
-            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
-            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+            Some(sk) => {
+                builder.set_randao_reveal(&sk, &state.fork, state.genesis_validators_root, spec)
+            }
+            None => builder.set_randao_reveal(
+                &keypair.sk,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
         }
 
         let all_secret_keys: Vec<&SecretKey> = keypairs.iter().map(|keypair| &keypair.sk).collect();
@@ -166,7 +203,12 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
                 spec,
             )
             .unwrap();
-        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        let block = self.block_builder.build(
+            &keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         (block, state)
     }
@@ -192,9 +234,18 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
+        builder.set_proposer_index(proposer_index as u64);
+
         match randao_sk {
-            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
-            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+            Some(sk) => {
+                builder.set_randao_reveal(&sk, &state.fork, state.genesis_validators_root, spec)
+            }
+            None => builder.set_randao_reveal(
+                &keypair.sk,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
         }
 
         let mut validator_indices = vec![];
@@ -210,10 +261,16 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
                 &validator_indices,
                 &secret_keys,
                 &state.fork,
+                state.genesis_validators_root,
                 spec,
             );
         }
-        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        let block = self.block_builder.build(
+            &keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         (block, state)
     }
@@ -239,9 +296,18 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
+        builder.set_proposer_index(proposer_index as u64);
+
         match randao_sk {
-            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
-            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+            Some(sk) => {
+                builder.set_randao_reveal(&sk, &state.fork, state.genesis_validators_root, spec)
+            }
+            None => builder.set_randao_reveal(
+                &keypair.sk,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
         }
 
         for i in 0..num_proposer_slashings {
@@ -252,10 +318,16 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
                 validator_indices,
                 &secret_keys,
                 &state.fork,
+                state.genesis_validators_root,
                 spec,
             );
         }
-        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        let block = self.block_builder.build(
+            &keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         (block, state)
     }
@@ -279,12 +351,26 @@ impl<T: EthSpec> BlockProcessingBuilder<T> {
         let proposer_index = state.get_beacon_proposer_index(state.slot, spec).unwrap();
         let keypair = &keypairs[proposer_index];
 
+        builder.set_proposer_index(proposer_index as u64);
+
         match randao_sk {
-            Some(sk) => builder.set_randao_reveal(&sk, &state.fork, spec),
-            None => builder.set_randao_reveal(&keypair.sk, &state.fork, spec),
+            Some(sk) => {
+                builder.set_randao_reveal(&sk, &state.fork, state.genesis_validators_root, spec)
+            }
+            None => builder.set_randao_reveal(
+                &keypair.sk,
+                &state.fork,
+                state.genesis_validators_root,
+                spec,
+            ),
         }
 
-        let block = self.block_builder.build(&keypair.sk, &state.fork, spec);
+        let block = self.block_builder.build(
+            &keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         (block, state)
     }

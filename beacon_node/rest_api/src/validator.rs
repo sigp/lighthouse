@@ -209,19 +209,12 @@ fn return_validator_duties<T: BeaconChainTypes>(
             // The `beacon_chain` can return a validator index that does not exist in all states.
             // Therefore, we must check to ensure that the validator index is valid for our
             // `state`.
-            let validator_index = if let Some(i) = beacon_chain
+            let validator_index = beacon_chain
                 .validator_index(&validator_pubkey)
                 .map_err(|e| {
-                ApiError::ServerError(format!("Unable to get validator index: {:?}", e))
-            })? {
-                if i < state.validators.len() {
-                    Some(i)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+                    ApiError::ServerError(format!("Unable to get validator index: {:?}", e))
+                })?
+                .filter(|i| *i < state.validators.len());
 
             if let Some(validator_index) = validator_index {
                 let duties = state
@@ -554,6 +547,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                 // TODO: More efficient way of getting a fork?
                 let fork = &beacon_chain.head()?.beacon_state.fork;
 
+                // TODO: Update to shift this task to dedicated task using await
                 signed_proofs.par_iter().try_for_each(|signed_proof| {
                     let agg_proof = &signed_proof.message;
                     let validator_pubkey = &beacon_chain.validator_pubkey(agg_proof.aggregator_index as usize)?.ok_or_else(|| {
@@ -573,7 +567,7 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                      * I (Paul H) will pick this up in a future PR.
                      */
 
-                    if signed_proof.is_valid(validator_pubkey, fork, &beacon_chain.spec) {
+                    if signed_proof.is_valid(validator_pubkey, fork, beacon_chain.genesis_validators_root, &beacon_chain.spec) {
                         let attestation = &agg_proof.aggregate;
 
                         match beacon_chain.process_attestation(attestation.clone(), AttestationType::Aggregated) {

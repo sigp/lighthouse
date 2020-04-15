@@ -88,17 +88,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .help("Epoch delay for new beacon node to start syncing (default 50)"),
                 )
                 .arg(
-                    Arg::with_name("sync_delay")
-                        .long("sync_delay")
+                    Arg::with_name("sync_timeout")
+                        .long("sync_timeout")
                         .takes_value(true)
-                        .help("Epoch delay for newly added beacon nodes get synced (default 10)"),
+                        .help("Number of epochs after which newly added beacon nodes must be synced (default 10)"),
                 )
                 .arg(
                     Arg::with_name("strategy")
                         .long("strategy")
                         .takes_value(true)
                         .possible_values(&["one-node", "two-nodes", "mixed", "all"])
-                        .help("Sync strategy to run. (default all)"),
+                        .help("Sync verification strategy to run. (default all)"),
                 ),
         )
 }

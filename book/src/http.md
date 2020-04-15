@@ -14,6 +14,7 @@ detail:
 
 Endpoint | Description |
 | --- | -- |
+[`/node`](./node.md) | General information about the beacon node.
 [`/beacon`](./http_beacon.md) | General information about the beacon chain.
 [`/validator`](./http_validator.md) | Provides functionality to validator clients.
 [`/consensus`](./http_consensus.md) | Proof-of-stake voting statistics.

@@ -12,7 +12,7 @@ use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeError};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
-use slog::{crit, debug, error, warn};
+use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::time::{Duration, Instant};
@@ -318,7 +318,22 @@ where
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
         match rpc_event {
-            RPCEvent::Request(id, request) if request.expect_response() => {
+            RPCEvent::Request(mut id, request) if request.expect_response() => {
+                // outbound requests can be sent from various aspects of lighthouse which don't
+                // track request ids. In the future these will be flagged as None, currently they
+                // are flagged as 0. These can overlap. In this case, we pick the highest request
+                // Id available
+                if id == 0 && self.outbound_substreams.get(&id).is_some() {
+                    // have duplicate outbound request with no id. Pick one that will not collide
+                    let mut new_id = std::usize::MAX;
+                    while self.outbound_substreams.get(&new_id).is_some() {
+                        // panic all outbound substreams are full
+                        new_id -= 1;
+                    }
+                    trace!(self.log, "New outbound stream id created"; "id" => new_id);
+                    id = RequestId::from(new_id);
+                }
+
                 // new outbound request. Store the stream and tag the output.
                 let delay_key = self
                     .outbound_substreams_delay
@@ -331,7 +346,7 @@ where
                     .outbound_substreams
                     .insert(id, (awaiting_stream, delay_key))
                 {
-                    warn!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
+                    crit!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
                 }
             }
             _ => { // a response is not expected, drop the stream for all other requests
@@ -401,7 +416,7 @@ where
                         }
                     }
                     None => {
-                        debug!(self.log, "Stream has expired. Response not sent"; "response" => format!("{}",response));
+                        warn!(self.log, "Stream has expired. Response not sent"; "response" => format!("{}",response));
                     }
                 };
             }
@@ -473,12 +488,14 @@ where
                 }
                 ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(err)) => {
                     // IO/Decode/Custom Error, report to the application
+                    debug!(self.log, "Upgrade Error"; "error" => format!("{}",err));
                     return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                         RPCEvent::Error(request_id, err),
                     )));
                 }
                 ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Select(err)) => {
                     // Error during negotiation
+                    debug!(self.log, "Upgrade Error"; "error" => format!("{}",err));
                     return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
                         RPCEvent::Error(request_id, RPCError::Custom(format!("{}", err))),
                     )));
@@ -496,10 +513,11 @@ where
         }
 
         // purge expired inbound substreams and send an error
-        while let Async::Ready(Some(stream_id)) = self
-            .inbound_substreams_delay
-            .poll()
-            .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
+        while let Async::Ready(Some(stream_id)) =
+            self.inbound_substreams_delay.poll().map_err(|e| {
+                warn!(self.log, "Inbound substream poll failed"; "error" => format!("{:?}", e));
+                ProtocolsHandlerUpgrErr::Timer
+            })?
         {
             let rpc_id = stream_id.get_ref();
 
@@ -517,10 +535,11 @@ where
         }
 
         // purge expired outbound substreams
-        if let Async::Ready(Some(stream_id)) = self
-            .outbound_substreams_delay
-            .poll()
-            .map_err(|_| ProtocolsHandlerUpgrErr::Timer)?
+        if let Async::Ready(Some(stream_id)) =
+            self.outbound_substreams_delay.poll().map_err(|e| {
+                warn!(self.log, "Outbound substream poll failed"; "error" => format!("{:?}", e));
+                ProtocolsHandlerUpgrErr::Timer
+            })?
         {
             self.outbound_substreams.remove(stream_id.get_ref());
             // notify the user

@@ -79,6 +79,19 @@ pub enum AttestationType {
     Aggregated,
 }
 
+/// The result of a chain segment processing.
+#[derive(Debug)]
+pub enum ChainSegmentResult {
+    /// Processing this chain segment finished successfully.
+    Successful { imported_blocks: usize },
+    /// There was an error processing this chain segment. Before the error, some blocks could
+    /// have been imported.
+    Failed {
+        imported_blocks: usize,
+        error: BlockError,
+    },
+}
+
 /// The accepted clock drift for nodes gossiping blocks and attestations (spec v0.11.0). See:
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.11.0/specs/phase0/p2p-interface.md#configuration
@@ -140,6 +153,8 @@ pub struct HeadInfo {
     pub current_justified_checkpoint: types::Checkpoint,
     pub finalized_checkpoint: types::Checkpoint,
     pub fork: Fork,
+    pub genesis_time: u64,
+    pub genesis_validators_root: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -176,6 +191,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) canonical_head: TimeoutRwLock<BeaconSnapshot<T::EthSpec>>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
+    /// The root of the list of genesis validators, used during syncing.
+    pub genesis_validators_root: Hash256,
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
     pub fork_choice: ForkChoice<T>,
@@ -468,6 +485,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             current_justified_checkpoint: head.beacon_state.current_justified_checkpoint.clone(),
             finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
             fork: head.beacon_state.fork.clone(),
+            genesis_time: head.beacon_state.genesis_time,
+            genesis_validators_root: head.beacon_state.genesis_validators_root,
         })
     }
 
@@ -814,7 +833,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     root: target_root,
                 },
             },
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty_signature(),
         })
     }
 
@@ -1084,11 +1103,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?;
 
-        let fork = self
+        let (fork, genesis_validators_root) = self
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)
-            .map(|head| head.beacon_state.fork.clone())?;
+            .map(|head| {
+                (
+                    head.beacon_state.fork.clone(),
+                    head.beacon_state.genesis_validators_root,
+                )
+            })?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
             |validator_index| {
@@ -1099,6 +1123,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &attestation.signature,
             &indexed_attestation,
             &fork,
+            genesis_validators_root,
             &self.spec,
         )
         .map_err(Error::SignatureSetError)?;
@@ -1175,10 +1200,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let index = attestation.data.index;
                         let slot = attestation.data.slot;
 
-                        match self
-                            .op_pool
-                            .insert_attestation(attestation, &fork, &self.spec)
-                        {
+                        match self.op_pool.insert_attestation(
+                            attestation,
+                            &fork,
+                            genesis_validators_root,
+                            &self.spec,
+                        ) {
                             Ok(_) => {}
                             Err(e) => {
                                 error!(
@@ -1293,8 +1320,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_chain_segment(
         &self,
         chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<Vec<Hash256>, BlockError> {
+    ) -> ChainSegmentResult {
         let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
+        let mut imported_blocks = 0;
 
         // Produce a list of the parent root and slot of the child of each block.
         //
@@ -1315,12 +1343,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Without this check it would be possible to have a block verified using the
                 // incorrect shuffling. That would be bad, mmkay.
                 if block_root != *child_parent_root {
-                    return Err(BlockError::NonLinearParentRoots);
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::NonLinearParentRoots,
+                    };
                 }
 
-                // Ensure that the slots are strictly increasing throughout the chain segement.
+                // Ensure that the slots are strictly increasing throughout the chain segment.
                 if *child_slot <= block.slot() {
-                    return Err(BlockError::NonLinearSlots);
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::NonLinearSlots,
+                    };
                 }
             }
 
@@ -1334,15 +1368,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
                 Err(BlockError::BeaconChainError(e)) => {
-                    return Err(BlockError::BeaconChainError(e))
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::BeaconChainError(e),
+                    }
                 }
                 // If the block was decided to be irrelevant for any other reason, don't include
                 // this block or any of it's children in the filtered chain segment.
                 _ => break,
             }
         }
-
-        let mut roots = Vec::with_capacity(filtered_chain_segment.len());
 
         while !filtered_chain_segment.is_empty() {
             // Determine the epoch of the first block in the remaining segment.
@@ -1369,15 +1404,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
             // Verify the signature of the blocks, returning early if the signature is invalid.
-            let signature_verified_blocks = signature_verify_chain_segment(blocks, self)?;
+            let signature_verified_blocks = match signature_verify_chain_segment(blocks, self) {
+                Ok(blocks) => blocks,
+                Err(error) => {
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error,
+                    }
+                }
+            };
 
             // Import the blocks into the chain.
             for signature_verified_block in signature_verified_blocks {
-                roots.push(self.process_block(signature_verified_block)?);
+                match self.process_block(signature_verified_block) {
+                    Ok(_) => imported_blocks += 1,
+                    Err(error) => {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error,
+                        }
+                    }
+                }
             }
         }
 
-        Ok(roots)
+        ChainSegmentResult::Successful { imported_blocks }
     }
 
     /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the
@@ -1674,6 +1725,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
+                proposer_index: state.get_beacon_proposer_index(state.slot, &self.spec)? as u64,
                 parent_root,
                 state_root: Hash256::zero(),
                 body: BeaconBlockBody {
@@ -2009,12 +2061,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(dump)
     }
 
-    /// Gets the current EnrForkId.
+    /// Gets the current `EnrForkId`.
     pub fn enr_fork_id(&self) -> EnrForkId {
         // If we are unable to read the slot clock we assume that it is prior to genesis and
         // therefore use the genesis slot.
         let slot = self.slot().unwrap_or_else(|_| self.spec.genesis_slot);
-        self.spec.enr_fork_id(slot)
+
+        self.spec.enr_fork_id(slot, self.genesis_validators_root)
     }
 
     /// Calculates the `Duration` to the next fork, if one exists.
@@ -2063,5 +2116,14 @@ impl From<ForkChoiceError> for Error {
 impl From<BeaconStateError> for Error {
     fn from(e: BeaconStateError) -> Error {
         Error::BeaconStateError(e)
+    }
+}
+
+impl ChainSegmentResult {
+    pub fn to_block_error(self) -> Result<(), BlockError> {
+        match self {
+            ChainSegmentResult::Failed { error, .. } => Err(error),
+            ChainSegmentResult::Successful { .. } => Ok(()),
+        }
     }
 }

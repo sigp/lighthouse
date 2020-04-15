@@ -166,6 +166,7 @@ Returns an object containing a single [`SignedBeaconBlock`](https://github.com/e
     "beacon_block": {
         "message": {
             "slot": 0,
+            "proposer_index": 14,
             "parent_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "state_root": "0xf15690b6be4ed42ea1ee0741eb4bfd4619d37be8229b84b4ddd480fb028dcc8f",
             "body": {
@@ -444,7 +445,7 @@ canonical chain.
 ### Returns
 
 Returns an object containing a single
-[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/beacon-chain.md#beaconstate)
+[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/specs/phase0/beacon-chain.md#beaconstate)
 and its tree hash root.
 
 ### Example Response
@@ -454,6 +455,7 @@ and its tree hash root.
     "root": "0x528e54ca5d4c957729a73f40fc513ae312e054c7295775c4a2b21f423416a72b",
     "beacon_state": {
         "genesis_time": 1575652800,
+        "genesis_validators_root": "0xa8a9226edee1b2627fb4117d7dea4996e64dec2998f37f6e824f74f2ce39a538",
         "slot": 18478
 	}
 }
@@ -505,7 +507,7 @@ Typical Responses | 200
 ### Returns
 
 Returns an object containing the genesis
-[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/beacon-chain.md#beaconstate).
+[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/specs/phase0/beacon-chain.md#beaconstate).
 
 ### Example Response
 
@@ -565,7 +567,7 @@ Typical Responses | 200
 
 ### Returns
 
-Returns an object containing the [`Fork`](https://github.com/ethereum/eth2.0-specs/blob/v0.10.1/specs/phase0/beacon-chain.md#fork) of the current head.
+Returns an object containing the [`Fork`](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/specs/phase0/beacon-chain.md#fork) of the current head.
 
 ### Example Response
 

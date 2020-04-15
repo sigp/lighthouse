@@ -82,7 +82,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         let proposer_slashings = RwLock::new(
             self.proposer_slashings
                 .into_iter()
-                .map(|slashing| (slashing.proposer_index, slashing))
+                .map(|slashing| (slashing.signed_header_1.message.proposer_index, slashing))
                 .collect(),
         );
         let voluntary_exits = RwLock::new(

@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use beacon_node::ProductionBeaconNode;
+use beacon_node::{get_eth2_testnet_config, get_testnet_dir, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
@@ -59,7 +59,7 @@ fn main() {
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
-                .help("The title of the spec constants for chain config.")
+                .help("The verbosity level for emitting logs.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("info"),
@@ -72,6 +72,19 @@ fn main() {
                 .global(true)
                 .help("Data directory for lighthouse keys and databases.")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("testnet-dir")
+                .short("t")
+                .long("testnet-dir")
+                .value_name("DIR")
+                .help(
+                    "Path to directory containing eth2_testnet specs. Defaults to \
+                      a hard-coded Lighthouse testnet. Only effective if there is no \
+                      existing database.",
+                )
+                .takes_value(true)
+                .global(true),
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(validator_client::cli_app())
@@ -110,10 +123,12 @@ fn run<E: EthSpec>(
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
 
     let log_format = matches.value_of("log-format");
+    let eth2_testnet_config = get_eth2_testnet_config(&get_testnet_dir(matches))?;
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
+        .eth2_testnet_config(&eth2_testnet_config)?
         .build()?;
 
     let log = environment.core_context().log;

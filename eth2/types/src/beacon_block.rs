@@ -10,11 +10,12 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,
+    pub proposer_index: u64,
     pub parent_root: Hash256,
     pub state_root: Hash256,
     pub body: BeaconBlockBody<T>,
@@ -25,10 +26,11 @@ impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlock {
             slot: spec.genesis_slot,
+            proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
             body: BeaconBlockBody {
@@ -52,10 +54,12 @@ impl<T: EthSpec> BeaconBlock<T> {
     pub fn full(spec: &ChainSpec) -> BeaconBlock<T> {
         let header = BeaconBlockHeader {
             slot: Slot::new(1),
+            proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
             body_root: Hash256::zero(),
         };
+
         let signed_header = SignedBeaconBlockHeader {
             message: header,
             signature: Signature::empty_signature(),
@@ -77,7 +81,6 @@ impl<T: EthSpec> BeaconBlock<T> {
             signature: SignatureBytes::empty(),
         };
         let proposer_slashing = ProposerSlashing {
-            proposer_index: 0,
             signed_header_1: signed_header.clone(),
             signed_header_2: signed_header.clone(),
         };
@@ -148,7 +151,7 @@ impl<T: EthSpec> BeaconBlock<T> {
 
     /// Returns the `tree_hash_root` of the block.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
@@ -160,10 +163,11 @@ impl<T: EthSpec> BeaconBlock<T> {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
+            proposer_index: self.proposer_index,
             parent_root: self.parent_root,
             state_root: self.state_root,
             body_root: Hash256::from_slice(&self.body.tree_hash_root()[..]),
@@ -172,7 +176,7 @@ impl<T: EthSpec> BeaconBlock<T> {
 
     /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
     ///
-    /// Spec v0.10.1
+    /// Spec v0.11.1
     pub fn temporary_block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: Hash256::zero(),
@@ -185,9 +189,15 @@ impl<T: EthSpec> BeaconBlock<T> {
         self,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedBeaconBlock<T> {
-        let domain = spec.get_domain(self.epoch(), Domain::BeaconProposer, fork);
+        let domain = spec.get_domain(
+            self.epoch(),
+            Domain::BeaconProposer,
+            fork,
+            genesis_validators_root,
+        );
         let message = self.signing_root(domain);
         let signature = Signature::new(message.as_bytes(), secret_key);
         SignedBeaconBlock {

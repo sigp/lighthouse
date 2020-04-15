@@ -2,7 +2,7 @@ use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
     Signature, SignedRoot, SubnetId,
 };
-use crate::test_utils::TestRandom;
+use crate::{test_utils::TestRandom, Hash256};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -17,7 +17,7 @@ pub enum Error {
 
 /// Details an attestation that can be slashable.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct Attestation<T: EthSpec> {
@@ -53,6 +53,7 @@ impl<T: EthSpec> Attestation<T> {
         secret_key: &SecretKey,
         committee_position: usize,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self
@@ -66,7 +67,12 @@ impl<T: EthSpec> Attestation<T> {
                 .set(committee_position, true)
                 .map_err(Error::SszTypesError)?;
 
-            let domain = spec.get_domain(self.data.target.epoch, Domain::BeaconAttester, fork);
+            let domain = spec.get_domain(
+                self.data.target.epoch,
+                Domain::BeaconAttester,
+                fork,
+                genesis_validators_root,
+            );
             let message = self.data.signing_root(domain);
 
             self.signature
