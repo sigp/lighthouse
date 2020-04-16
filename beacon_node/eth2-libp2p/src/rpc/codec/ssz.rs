@@ -1,7 +1,7 @@
 use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
-    protocol::{Protocol, ProtocolId, RPCError},
+    protocol::{Encoding, Protocol, ProtocolId, RPCError},
 };
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
@@ -25,7 +25,7 @@ impl<T: EthSpec> SSZInboundCodec<T> {
         uvi_codec.set_max_len(max_packet_size);
 
         // this encoding only applies to ssz.
-        debug_assert!(protocol.encoding.as_str() == "ssz");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZ);
 
         SSZInboundCodec {
             inner: uvi_codec,
@@ -143,7 +143,7 @@ impl<TSpec: EthSpec> SSZOutboundCodec<TSpec> {
         uvi_codec.set_max_len(max_packet_size);
 
         // this encoding only applies to ssz.
-        debug_assert!(protocol.encoding.as_str() == "ssz");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZ);
 
         SSZOutboundCodec {
             inner: uvi_codec,

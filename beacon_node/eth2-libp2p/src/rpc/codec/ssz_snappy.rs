@@ -1,7 +1,7 @@
 use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
-    protocol::{Protocol, ProtocolId, RPCError},
+    protocol::{Encoding, Protocol, ProtocolId, RPCError},
 };
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::BytesMut;
@@ -31,7 +31,7 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
-        debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZSnappy);
 
         SSZSnappyInboundCodec {
             inner: uvi_codec,
@@ -190,7 +190,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
-        debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZSnappy);
 
         SSZSnappyOutboundCodec {
             inner: uvi_codec,
