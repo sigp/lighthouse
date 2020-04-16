@@ -8,7 +8,7 @@ use ssz::Encode;
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use types::EthSpec;
@@ -174,6 +174,30 @@ pub fn get_config<E: EthSpec>(
             client_config.network.enr_address = Some(client_config.network.listen_address);
         }
         client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
+    }
+
+    if let Some(discovery_dns_addr) = cli_args.value_of("discovery-dns-address") {
+        let resolved_addr = match discovery_dns_addr.parse::<IpAddr>() {
+            Ok(addr) => addr, // Input is an IpAddr
+            Err(_) => {
+                // If IpAddr parsing fails, assume the input is a dns hostname and try to resolve it
+                let mut addr = discovery_dns_addr.to_string();
+                // Appending some random port to the end to appease `to_socket_addrs()` parsing
+                addr.push_str(":8080");
+                // Note: `to_socket_addrs()` is a blocking call
+                if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
+                    // Pick the first ip
+                    resolved_addrs
+                        .next()
+                        .map(|a| a.ip())
+                        .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
+                } else {
+                    return Err("Failed to resolve dns address".into());
+                }
+            }
+        };
+        client_config.network.enr_address = Some(resolved_addr);
+        client_config.network.discv5_config.enr_update = false;
     }
 
     if cli_args.is_present("disable_enr_auto_update") {
