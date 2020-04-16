@@ -43,10 +43,6 @@ impl Slot {
     pub fn max_value() -> Slot {
         Slot(u64::max_value())
     }
-
-    pub fn is_epoch_boundary_slot(self, slots_per_epoch: u64) -> bool {
-        self.0 % slots_per_epoch == 0
-    }
 }
 
 impl Epoch {

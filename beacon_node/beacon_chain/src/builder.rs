@@ -5,6 +5,7 @@ use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
 use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::HeadTracker;
+use crate::migrate::Migrate;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
@@ -14,7 +15,6 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconSnapshot, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
 };
-use crate::migrate::Migrate;
 use eth1::Config as Eth1Config;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use proto_array_fork_choice::ProtoArrayForkChoice;
@@ -643,12 +643,12 @@ fn genesis_block<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::migrate::{MemoryStore, NullMigrator};
     use eth2_hashing::hash;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
-    use migrate::{NullMigrator, MemoryStore};
     use tempfile::tempdir;
     use types::{EthSpec, MinimalEthSpec, Slot};
 

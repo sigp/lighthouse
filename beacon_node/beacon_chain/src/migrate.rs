@@ -1,16 +1,21 @@
-use store::{
-    hot_cold_store::HotColdDBError, DiskStore, Error, MemoryStore, SimpleDiskStore, Store,
-};
+use crate::errors::BeaconChainError;
+use crate::head_tracker::HeadTracker;
 use parking_lot::Mutex;
 use slog::{debug, warn, Logger};
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
+use store::iter::{ParentRootBlockIterator, RootsIterator};
+use store::{hot_cold_store::HotColdDBError, Error, SimpleDiskStore, Store};
+pub use store::{DiskStore, MemoryStore};
+use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
 
 /// Trait for migration processes that update the database upon finalization.
-pub trait Migrate<S, E: EthSpec>: Send + Sync + 'static {
+pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
     fn new(db: Arc<S>, log: Logger) -> Self;
 
     fn freeze_to_state(
@@ -18,7 +23,143 @@ pub trait Migrate<S, E: EthSpec>: Send + Sync + 'static {
         _state_root: Hash256,
         _state: BeaconState<E>,
         _max_finality_distance: u64,
+        _head_tracker: Arc<HeadTracker>,
+        _old_finalized_block_hash: SignedBeaconBlockHash,
+        _new_finalized_block_hash: SignedBeaconBlockHash,
+        _new_finalized_slot: Slot,
     ) {
+    }
+
+    /// Traverses live heads and prunes blocks and states of chains that we know can't be built
+    /// upon because finalization would prohibit it.  This is a optimisation intended to save disk
+    /// space.
+    ///
+    /// Assumptions:
+    ///  * It is called after every finalization.
+    fn prune_abandoned_forks(
+        store: Arc<S>,
+        head_tracker: Arc<HeadTracker>,
+        old_finalized_block_hash: SignedBeaconBlockHash,
+        new_finalized_block_hash: SignedBeaconBlockHash,
+        new_finalized_slot: Slot,
+    ) -> Result<(), BeaconChainError> {
+        let old_finalized_slot = store
+            .get_block(&old_finalized_block_hash.into())?
+            .ok_or_else(|| BeaconChainError::MissingBeaconBlock(old_finalized_block_hash.into()))?
+            .slot();
+
+        // Collect hashes from new_finalized_block back to old_finalized_block (inclusive)
+        let mut found_block = false; // hack for `take_until`
+        let newly_finalized_blocks: HashMap<SignedBeaconBlockHash, Slot> = HashMap::from_iter(
+            ParentRootBlockIterator::new(&*store, new_finalized_block_hash.into())
+                .take_while(|(block_hash, _)| {
+                    if found_block {
+                        false
+                    } else {
+                        found_block |= *block_hash == old_finalized_block_hash.into();
+                        true
+                    }
+                })
+                .map(|(block_hash, block)| (block_hash.into(), block.slot())),
+        );
+
+        // We don't know which blocks are shared among abandoned chains, so we buffer and delete
+        // everything in one fell swoop.
+        let mut abandoned_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
+        let mut abandoned_states: HashSet<(Slot, BeaconStateHash)> = HashSet::new();
+        let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
+
+        for (head_hash, head_slot) in head_tracker.heads() {
+            let mut potentially_abandoned_head: Option<Hash256> = Some(head_hash);
+            let mut potentially_abandoned_blocks: Vec<(
+                Slot,
+                Option<SignedBeaconBlockHash>,
+                Option<BeaconStateHash>,
+            )> = Vec::new();
+
+            for (block_hash, state_hash, slot) in
+                RootsIterator::from_block(Arc::clone(&store), head_hash)?
+            {
+                if slot < old_finalized_slot {
+                    // We must assume here any candidate chains include old_finalized_block_hash,
+                    // i.e. there aren't any forks starting at a block that is a strict ancestor of
+                    // old_finalized_block_hash.
+                    break;
+                }
+                match newly_finalized_blocks.get(&block_hash.into()).copied() {
+                    // Block is not finalized, mark it and its state for deletion
+                    None => {
+                        potentially_abandoned_blocks.push((
+                            slot,
+                            Some(block_hash.into()),
+                            Some(state_hash.into()),
+                        ));
+                    }
+                    Some(finalized_slot) => {
+                        // Block root is finalized, and we have reached the slot it was finalized
+                        // at: we've hit a shared part of the chain.
+                        if finalized_slot == slot {
+                            // The first finalized block of a candidate chain lies after (in terms
+                            // of slots order) the newly finalized block.  It's not a candidate for
+                            // prunning.
+                            if finalized_slot == new_finalized_slot {
+                                potentially_abandoned_blocks.clear();
+                                potentially_abandoned_head.take();
+                            }
+
+                            break;
+                        }
+                        // Block root is finalized, but we're at a skip slot: delete the state only.
+                        else {
+                            potentially_abandoned_blocks.push((
+                                slot,
+                                None,
+                                Some(state_hash.into()),
+                            ));
+                        }
+                    }
+                }
+            }
+
+            if !potentially_abandoned_blocks.is_empty() {
+                let head_block = store
+                    .get_block(&head_hash)?
+                    .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?;
+                potentially_abandoned_blocks.push((
+                    head_slot,
+                    Some(head_hash.into()),
+                    Some(head_block.state_root().into()),
+                ));
+
+                abandoned_blocks.extend(
+                    potentially_abandoned_blocks
+                        .iter()
+                        .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
+                );
+                abandoned_states.extend(potentially_abandoned_blocks.iter().filter_map(
+                    |(slot, _, maybe_state_hash)| match maybe_state_hash {
+                        None => None,
+                        Some(state_hash) => Some((*slot, *state_hash)),
+                    },
+                ));
+                abandoned_heads.extend(potentially_abandoned_head.into_iter());
+                potentially_abandoned_blocks.clear();
+            }
+        }
+
+        // XXX Should be performed atomically, see
+        // https://github.com/sigp/lighthouse/issues/692
+        for block_hash in abandoned_blocks.into_iter() {
+            store.delete_block(&block_hash.into())?;
+        }
+        for (slot, state_hash) in abandoned_states.into_iter() {
+            store.delete_state(&state_hash.into(), slot)?;
+        }
+        for head_hash in abandoned_heads.into_iter() {
+            head_tracker.remove_head(head_hash);
+        }
+
+        Ok(())
     }
 }
 
@@ -54,15 +195,36 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
         state_root: Hash256,
         state: BeaconState<E>,
         _max_finality_distance: u64,
+        head_tracker: Arc<HeadTracker>,
+        old_finalized_block_hash: SignedBeaconBlockHash,
+        new_finalized_block_hash: SignedBeaconBlockHash,
+        new_finalized_slot: Slot,
     ) {
         if let Err(e) = S::freeze_to_state(self.db.clone(), state_root, &state) {
             // This migrator is only used for testing, so we just log to stderr without a logger.
             eprintln!("Migration error: {:?}", e);
         }
+
+        if let Err(e) = Self::prune_abandoned_forks(
+            self.db.clone(),
+            head_tracker,
+            old_finalized_block_hash,
+            new_finalized_block_hash,
+            new_finalized_slot,
+        ) {
+            eprintln!("Pruning error: {:?}", e);
+        }
     }
 }
 
-type MpscSender<E> = mpsc::Sender<(Hash256, BeaconState<E>)>;
+type MpscSender<E> = mpsc::Sender<(
+    Hash256,
+    BeaconState<E>,
+    Arc<HeadTracker>,
+    SignedBeaconBlockHash,
+    SignedBeaconBlockHash,
+    Slot,
+)>;
 
 /// Migrator that runs a background thread to migrate state from the hot to the cold database.
 pub struct BackgroundMigrator<E: EthSpec> {
@@ -83,6 +245,10 @@ impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
         finalized_state_root: Hash256,
         finalized_state: BeaconState<E>,
         max_finality_distance: u64,
+        head_tracker: Arc<HeadTracker>,
+        old_finalized_block_hash: SignedBeaconBlockHash,
+        new_finalized_block_hash: SignedBeaconBlockHash,
+        new_finalized_slot: Slot,
     ) {
         if !self.needs_migration(finalized_state.slot, max_finality_distance) {
             return;
@@ -90,7 +256,14 @@ impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
 
         let (ref mut tx, ref mut thread) = *self.tx_thread.lock();
 
-        if let Err(tx_err) = tx.send((finalized_state_root, finalized_state)) {
+        if let Err(tx_err) = tx.send((
+            finalized_state_root,
+            finalized_state,
+            head_tracker,
+            old_finalized_block_hash,
+            new_finalized_block_hash,
+            new_finalized_slot,
+        )) {
             let (new_tx, new_thread) = Self::spawn_thread(self.db.clone(), self.log.clone());
 
             drop(mem::replace(tx, new_tx));
@@ -126,12 +299,27 @@ impl<E: EthSpec> BackgroundMigrator<E> {
         db: Arc<DiskStore<E>>,
         log: Logger,
     ) -> (
-        mpsc::Sender<(Hash256, BeaconState<E>)>,
+        mpsc::Sender<(
+            Hash256,
+            BeaconState<E>,
+            Arc<HeadTracker>,
+            SignedBeaconBlockHash,
+            SignedBeaconBlockHash,
+            Slot,
+        )>,
         thread::JoinHandle<()>,
     ) {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
-            while let Ok((state_root, state)) = rx.recv() {
+            while let Ok((
+                state_root,
+                state,
+                head_tracker,
+                old_finalized_block_hash,
+                new_finalized_block_hash,
+                new_finalized_slot,
+            )) = rx.recv()
+            {
                 match DiskStore::freeze_to_state(db.clone(), state_root, &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
@@ -148,6 +336,17 @@ impl<E: EthSpec> BackgroundMigrator<E> {
                             "error" => format!("{:?}", e)
                         );
                     }
+                };
+
+                match Self::prune_abandoned_forks(
+                    db.clone(),
+                    head_tracker,
+                    old_finalized_block_hash,
+                    new_finalized_block_hash,
+                    new_finalized_slot,
+                ) {
+                    Ok(()) => {}
+                    Err(e) => warn!(log, "Block pruning failed: {:?}", e),
                 }
             }
         });

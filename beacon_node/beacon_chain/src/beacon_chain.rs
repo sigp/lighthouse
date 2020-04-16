@@ -4,6 +4,7 @@ use crate::events::{EventHandler, EventKind};
 use crate::fork_choice::{Error as ForkChoiceError, ForkChoice};
 use crate::head_tracker::HeadTracker;
 use crate::metrics;
+use crate::migrate::Migrate;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -29,15 +30,13 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io::prelude::*;
-use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
-    ReverseStateRootIterator, RootsIterator, StateRootsIterator,
+    ReverseStateRootIterator, StateRootsIterator,
 };
 use store::{Error as DBError, StateBatch, Store};
-use crate::migrate::Migrate;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -1948,138 +1947,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Traverses live heads and prunes blocks and states of chains that we know can't be built
-    /// upon because finalization would prohibit it.  This is a optimisation intended to save disk
-    /// space.
-    ///
-    /// Assumptions:
-    ///  * It is called after every finalization.
-    fn prune_abandoned_forks(
-        store: Arc<T::Store>,
-        head_tracker: Arc<HeadTracker>,
-        old_finalized_block_hash: SignedBeaconBlockHash,
-        new_finalized_block_hash: SignedBeaconBlockHash,
-        new_finalized_slot: Slot,
-    ) -> Result<(), Error> {
-        let old_finalized_slot = store
-            .get_block(&old_finalized_block_hash.into())?
-            .ok_or_else(|| Error::MissingBeaconBlock(old_finalized_block_hash.into()))?
-            .slot();
-
-        // Collect hashes from new_finalized_block back to old_finalized_block (inclusive)
-        let mut found_block = false; // hack for `take_until`
-        let newly_finalized_blocks: HashMap<SignedBeaconBlockHash, Slot> = HashMap::from_iter(
-            ParentRootBlockIterator::new(&*store, new_finalized_block_hash.into())
-                .take_while(|(block_hash, _)| {
-                    if found_block {
-                        false
-                    } else {
-                        found_block |= *block_hash == old_finalized_block_hash.into();
-                        true
-                    }
-                })
-                .map(|(block_hash, block)| (block_hash.into(), block.slot())),
-        );
-
-        // We don't know which blocks are shared among abandoned chains, so we buffer and delete
-        // everything in one fell swoop.
-        let mut abandoned_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
-        let mut abandoned_states: HashSet<(Slot, BeaconStateHash)> = HashSet::new();
-        let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
-
-        for (head_hash, head_slot) in head_tracker.heads() {
-            let mut potentially_abandoned_head: Option<Hash256> = Some(head_hash);
-            let mut potentially_abandoned_blocks: Vec<(
-                Slot,
-                Option<SignedBeaconBlockHash>,
-                Option<BeaconStateHash>,
-            )> = Vec::new();
-
-            for (block_hash, state_hash, slot) in
-                RootsIterator::from_block(Arc::clone(&store), head_hash)?
-            {
-                if slot < old_finalized_slot {
-                    // We must assume here any candidate chains include old_finalized_block_hash,
-                    // i.e. there aren't any forks starting at a block that is a strict ancestor of
-                    // old_finalized_block_hash.
-                    break;
-                }
-                match newly_finalized_blocks.get(&block_hash.into()).copied() {
-                    // Block is not finalized, mark it and its state for deletion
-                    None => {
-                        potentially_abandoned_blocks.push((
-                            slot,
-                            Some(block_hash.into()),
-                            Some(state_hash.into()),
-                        ));
-                    }
-                    Some(finalized_slot) => {
-                        // Block root is finalized, and we have reached the slot it was finalized
-                        // at: we've hit a shared part of the chain.
-                        if finalized_slot == slot {
-                            // The first finalized block of a candidate chain lies after (in terms
-                            // of slots order) the newly finalized block.  It's not a candidate for
-                            // prunning.
-                            if finalized_slot == new_finalized_slot {
-                                potentially_abandoned_blocks.clear();
-                                potentially_abandoned_head.take();
-                            }
-
-                            break;
-                        }
-                        // Block root is finalized, but we're at a skip slot: delete the state only.
-                        else {
-                            potentially_abandoned_blocks.push((
-                                slot,
-                                None,
-                                Some(state_hash.into()),
-                            ));
-                        }
-                    }
-                }
-            }
-
-            if !potentially_abandoned_blocks.is_empty() {
-                let head_block = store
-                    .get_block(&head_hash)?
-                    .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?;
-                potentially_abandoned_blocks.push((
-                    head_slot,
-                    Some(head_hash.into()),
-                    Some(head_block.state_root().into()),
-                ));
-
-                abandoned_blocks.extend(
-                    potentially_abandoned_blocks
-                        .iter()
-                        .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
-                );
-                abandoned_states.extend(potentially_abandoned_blocks.iter().filter_map(
-                    |(slot, _, maybe_state_hash)| match maybe_state_hash {
-                        None => None,
-                        Some(state_hash) => Some((*slot, *state_hash)),
-                    },
-                ));
-                abandoned_heads.extend(potentially_abandoned_head.into_iter());
-                potentially_abandoned_blocks.clear();
-            }
-        }
-
-        // XXX Should be performed atomically, see
-        // https://github.com/sigp/lighthouse/issues/692
-        for block_hash in abandoned_blocks.into_iter() {
-            store.delete_block(&block_hash.into())?;
-        }
-        for (slot, state_hash) in abandoned_states.into_iter() {
-            store.delete_state(&state_hash.into(), slot)?;
-        }
-        for head_hash in abandoned_heads.into_iter() {
-            head_tracker.remove_head(head_hash);
-        }
-
-        Ok(())
-    }
-
     /// Called after `self` has had a new block finalized.
     ///
     /// Performs pruning and finality-based optimizations.
@@ -2124,13 +1991,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
             self.op_pool.prune_all(&finalized_state, &self.spec);
-            Self::prune_abandoned_forks(
-                Arc::clone(&self.store),
-                Arc::clone(&self.head_tracker),
-                old_finalized_root,
-                finalized_block_root.into(),
-                finalized_block.slot,
-            )?;
 
             // TODO: configurable max finality distance
             let max_finality_distance = 0;
@@ -2138,6 +1998,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 finalized_block.state_root,
                 finalized_state,
                 max_finality_distance,
+                Arc::clone(&self.head_tracker),
+                old_finalized_root,
+                finalized_block_root.into(),
+                finalized_block.slot,
             );
 
             let _ = self.event_handler.register(EventKind::BeaconFinalization {
@@ -2243,10 +2107,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 visited.insert(block_hash);
 
-                if signed_beacon_block
-                    .slot()
-                    .is_epoch_boundary_slot(T::EthSpec::slots_per_epoch())
-                {
+                if signed_beacon_block.slot() % T::EthSpec::slots_per_epoch() == 0 {
                     let block = self.get_block(&block_hash).unwrap().unwrap();
                     let state = self
                         .get_state(&block.state_root(), Some(block.slot()))

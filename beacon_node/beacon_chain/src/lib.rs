@@ -11,13 +11,13 @@ pub mod events;
 mod fork_choice;
 mod head_tracker;
 mod metrics;
+pub mod migrate;
 mod persisted_beacon_chain;
 mod shuffling_cache;
 mod snapshot_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
 mod validator_pubkey_cache;
-mod migrate;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,

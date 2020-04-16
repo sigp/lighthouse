@@ -701,6 +701,7 @@ fn check_shuffling_compatible(
             );
         }
     }
+}
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[test]
@@ -801,6 +802,8 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
 #[test]
 fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
+    const VALIDATOR_COUNT: usize = 24;
+    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
@@ -883,7 +886,8 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
                 .get_block(&block_hash.into())
                 .unwrap()
                 .is_none(),
-            "stray blocks should have been pruned",
+            "stray block {} should have been pruned",
+            block_hash,
         );
     }
 
@@ -903,6 +907,8 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
 #[test]
 fn pruning_does_not_touch_blocks_prior_to_finalization() {
+    const VALIDATOR_COUNT: usize = 24;
+    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
@@ -1114,6 +1120,8 @@ fn prunes_fork_running_past_finalized_checkpoint() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[test]
 fn prunes_skipped_slots_states() {
+    const VALIDATOR_COUNT: usize = 24;
+    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
