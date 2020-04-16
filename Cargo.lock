@@ -1828,6 +1828,7 @@ dependencies = [
  "dirs 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "environment 0.2.0",
  "eth1_test_rig 0.2.0",
+ "eth2-libp2p 0.2.0",
  "eth2_ssz 0.1.2",
  "eth2_testnet_config 0.2.0",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
