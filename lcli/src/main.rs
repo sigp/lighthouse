@@ -26,8 +26,7 @@ fn main() {
 
     let matches = App::new("Lighthouse CLI Tool")
         .about(
-            "Performs various testing-related tasks, modelled after zcli. \
-             by @protolambda.",
+            "Performs various testing-related tasks, including defining testnets.",
         )
         .arg(
             Arg::with_name("spec")
@@ -118,13 +117,22 @@ fn main() {
                     "Deploy a testing eth1 deposit contract.",
                 )
                 .arg(
-                    Arg::with_name("eth1-endpoint")
+                    Arg::with_name("eth1-ipc")
+                        .long("eth1-ipc")
                         .short("e")
-                        .long("eth1-endpoint")
-                        .value_name("HTTP_SERVER")
+                        .value_name("ETH1_IPC_PATH")
+                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
                         .takes_value(true)
-                        .default_value("http://localhost:8545")
-                        .help("The URL to the eth1 JSON-RPC http API."),
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("from-address")
+                        .long("from-address")
+                        .short("f")
+                        .value_name("FROM_ETH1_ADDRESS")
+                        .help("The address that will submit the contract creation. Must be unlocked.")
+                        .takes_value(true)
+                        .required(true)
                 )
                 .arg(
                     Arg::with_name("confirmations")
@@ -134,13 +142,6 @@ fn main() {
                         .default_value("3")
                         .help("The number of block confirmations before declaring the contract deployed."),
                 )
-                .arg(
-                    Arg::with_name("password")
-                        .long("password")
-                        .value_name("FILE")
-                        .takes_value(true)
-                        .help("The password file to unlock the eth1 account (see --index)"),
-                )
         )
         .subcommand(
             SubCommand::with_name("refund-deposit-contract")
@@ -148,37 +149,32 @@ fn main() {
                     "Calls the steal() function on a testnet eth1 contract.",
                 )
                 .arg(
-                    Arg::with_name("testnet-dir")
-                        .short("d")
-                        .long("testnet-dir")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
-                )
-                .arg(
-                    Arg::with_name("eth1-endpoint")
+                    Arg::with_name("eth1-ipc")
+                        .long("eth1-ipc")
                         .short("e")
-                        .long("eth1-endpoint")
-                        .value_name("HTTP_SERVER")
+                        .value_name("ETH1_IPC_PATH")
+                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
                         .takes_value(true)
-                        .default_value("http://localhost:8545")
-                        .help("The URL to the eth1 JSON-RPC http API."),
+                        .required(true)
                 )
                 .arg(
-                    Arg::with_name("password")
-                        .long("password")
-                        .value_name("FILE")
+                    Arg::with_name("from-address")
+                        .long("from-address")
+                        .short("f")
+                        .value_name("FROM_ETH1_ADDRESS")
+                        .help("The address that will submit the contract creation. Must be unlocked.")
                         .takes_value(true)
-                        .help("The password file to unlock the eth1 account (see --index)"),
+                        .required(true)
                 )
                 .arg(
-                    Arg::with_name("account-index")
-                        .short("i")
-                        .long("account-index")
-                        .value_name("INDEX")
+                    Arg::with_name("contract-address")
+                        .long("contract-address")
+                        .short("c")
+                        .value_name("CONTRACT_ETH1_ADDRESS")
+                        .help("The address of the contract to be refunded. Its owner must match
+                            --from-address.")
                         .takes_value(true)
-                        .default_value("0")
-                        .help("The eth1 accounts[] index which will send the transaction"),
+                        .required(true)
                 )
         )
         .subcommand(

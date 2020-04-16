@@ -21,7 +21,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("eth1-ipc")
                 .long("eth1-ipc")
-                .short("i")
+                .short("e")
                 .value_name("ETH1_IPC_PATH")
                 .help("Path to an Eth1 JSON-RPC IPC endpoint")
                 .takes_value(true)
