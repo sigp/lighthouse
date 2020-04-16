@@ -431,7 +431,7 @@ where
             event_handler: self
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
-            head_tracker: self.head_tracker.unwrap_or_default(),
+            head_tracker: Arc::new(self.head_tracker.unwrap_or_default()),
             block_processing_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 canonical_head,
