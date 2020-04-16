@@ -20,7 +20,7 @@ use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
-use store::{migrate::BackgroundMigrator, DiskStore};
+use migrate::{BackgroundMigrator, DiskStore};
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.

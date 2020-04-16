@@ -36,7 +36,8 @@ use store::iter::{
     BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
     ReverseStateRootIterator, RootsIterator, StateRootsIterator,
 };
-use store::{Error as DBError, Migrate, StateBatch, Store};
+use store::{Error as DBError, StateBatch, Store};
+use crate::migrate::Migrate;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -173,7 +174,7 @@ pub struct HeadInfo {
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store<Self::EthSpec>;
-    type StoreMigrator: store::Migrate<Self::Store, Self::EthSpec>;
+    type StoreMigrator: Migrate<Self::Store, Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec, Self::Store>;
     type EthSpec: types::EthSpec;

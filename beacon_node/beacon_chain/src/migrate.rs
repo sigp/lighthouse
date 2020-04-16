@@ -1,8 +1,8 @@
-use crate::{
+use store::{
     hot_cold_store::HotColdDBError, DiskStore, Error, MemoryStore, SimpleDiskStore, Store,
 };
 use parking_lot::Mutex;
-use slog::{debug, warn};
+use slog::{debug, warn, Logger};
 use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use types::{BeaconState, EthSpec, Hash256, Slot};
 
 /// Trait for migration processes that update the database upon finalization.
 pub trait Migrate<S, E: EthSpec>: Send + Sync + 'static {
-    fn new(db: Arc<S>) -> Self;
+    fn new(db: Arc<S>, log: Logger) -> Self;
 
     fn freeze_to_state(
         &self,
@@ -26,13 +26,13 @@ pub trait Migrate<S, E: EthSpec>: Send + Sync + 'static {
 pub struct NullMigrator;
 
 impl<E: EthSpec> Migrate<SimpleDiskStore<E>, E> for NullMigrator {
-    fn new(_: Arc<SimpleDiskStore<E>>) -> Self {
+    fn new(_: Arc<SimpleDiskStore<E>>, _: Logger) -> Self {
         NullMigrator
     }
 }
 
 impl<E: EthSpec> Migrate<MemoryStore<E>, E> for NullMigrator {
-    fn new(_: Arc<MemoryStore<E>>) -> Self {
+    fn new(_: Arc<MemoryStore<E>>, _: Logger) -> Self {
         NullMigrator
     }
 }
@@ -40,11 +40,13 @@ impl<E: EthSpec> Migrate<MemoryStore<E>, E> for NullMigrator {
 /// Migrator that immediately calls the store's migration function, blocking the current execution.
 ///
 /// Mostly useful for tests.
-pub struct BlockingMigrator<S>(Arc<S>);
+pub struct BlockingMigrator<S> {
+    db: Arc<S>,
+}
 
 impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
-    fn new(db: Arc<S>) -> Self {
-        BlockingMigrator(db)
+    fn new(db: Arc<S>, _: Logger) -> Self {
+        BlockingMigrator { db }
     }
 
     fn freeze_to_state(
@@ -53,7 +55,7 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
         state: BeaconState<E>,
         _max_finality_distance: u64,
     ) {
-        if let Err(e) = S::freeze_to_state(self.0.clone(), state_root, &state) {
+        if let Err(e) = S::freeze_to_state(self.db.clone(), state_root, &state) {
             // This migrator is only used for testing, so we just log to stderr without a logger.
             eprintln!("Migration error: {:?}", e);
         }
@@ -66,12 +68,13 @@ type MpscSender<E> = mpsc::Sender<(Hash256, BeaconState<E>)>;
 pub struct BackgroundMigrator<E: EthSpec> {
     db: Arc<DiskStore<E>>,
     tx_thread: Mutex<(MpscSender<E>, thread::JoinHandle<()>)>,
+    log: Logger,
 }
 
 impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
-    fn new(db: Arc<DiskStore<E>>) -> Self {
-        let tx_thread = Mutex::new(Self::spawn_thread(db.clone()));
-        Self { db, tx_thread }
+    fn new(db: Arc<DiskStore<E>>, log: Logger) -> Self {
+        let tx_thread = Mutex::new(Self::spawn_thread(db.clone(), log.clone()));
+        Self { db, tx_thread, log }
     }
 
     /// Perform the freezing operation on the database,
@@ -88,7 +91,7 @@ impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
         let (ref mut tx, ref mut thread) = *self.tx_thread.lock();
 
         if let Err(tx_err) = tx.send((finalized_state_root, finalized_state)) {
-            let (new_tx, new_thread) = Self::spawn_thread(self.db.clone());
+            let (new_tx, new_thread) = Self::spawn_thread(self.db.clone(), self.log.clone());
 
             drop(mem::replace(tx, new_tx));
             let old_thread = mem::replace(thread, new_thread);
@@ -97,7 +100,7 @@ impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
             // halted normally just now as a result of us dropping the old `mpsc::Sender`.
             if let Err(thread_err) = old_thread.join() {
                 warn!(
-                    self.db.log,
+                    self.log,
                     "Migration thread died, so it was restarted";
                     "reason" => format!("{:?}", thread_err)
                 );
@@ -121,6 +124,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
     /// Return a channel handle for sending new finalized states to the thread.
     fn spawn_thread(
         db: Arc<DiskStore<E>>,
+        log: Logger,
     ) -> (
         mpsc::Sender<(Hash256, BeaconState<E>)>,
         thread::JoinHandle<()>,
@@ -132,14 +136,14 @@ impl<E: EthSpec> BackgroundMigrator<E> {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                         debug!(
-                            db.log,
+                            log,
                             "Database migration postponed, unaligned finalized block";
                             "slot" => slot.as_u64()
                         );
                     }
                     Err(e) => {
                         warn!(
-                            db.log,
+                            log,
                             "Database migration failed";
                             "error" => format!("{:?}", e)
                         );

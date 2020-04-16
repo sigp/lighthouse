@@ -14,6 +14,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconSnapshot, Eth1Chain, Eth1ChainBackend, EventHandler,
     ForkChoice,
 };
+use crate::migrate::Migrate;
 use eth1::Config as Eth1Config;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use proto_array_fork_choice::ProtoArrayForkChoice;
@@ -47,7 +48,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler> 
     for Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -96,7 +97,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -463,7 +464,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -533,7 +534,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -571,7 +572,7 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -610,7 +611,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -647,7 +648,7 @@ mod test {
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
-    use store::{migrate::NullMigrator, MemoryStore};
+    use migrate::{NullMigrator, MemoryStore};
     use tempfile::tempdir;
     use types::{EthSpec, MinimalEthSpec, Slot};
 

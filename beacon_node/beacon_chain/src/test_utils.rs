@@ -9,6 +9,7 @@ use crate::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
     StateSkipConfig,
 };
+use crate::migrate::{Migrate, BlockingMigrator, NullMigrator};
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -19,8 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
-    migrate::{BlockingMigrator, NullMigrator},
-    DiskStore, MemoryStore, Migrate, Store,
+    DiskStore, MemoryStore, Store,
 };
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
@@ -139,7 +139,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
+            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store, log.clone()))
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
@@ -179,7 +179,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
+            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store, log.clone()))
             .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
