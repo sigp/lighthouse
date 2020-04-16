@@ -2,13 +2,13 @@
 pub(crate) mod enr;
 
 // Allow external use of the lighthouse ENR builder
-pub use enr::build_enr;
+pub use enr::{build_enr, CombinedKey, Keypair};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
 use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
-use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
+use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
 use libp2p::discv5::enr::NodeId;
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
@@ -30,7 +30,7 @@ const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
 /// Initial delay between peer searches.
 const INITIAL_SEARCH_DELAY: u64 = 5;
 /// Local ENR storage filename.
-const ENR_FILENAME: &str = "enr.dat";
+pub const ENR_FILENAME: &str = "enr.dat";
 /// Number of peers we'd like to have connected to a given long-lived subnet.
 const TARGET_SUBNET_PEERS: u64 = 3;
 

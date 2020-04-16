@@ -5,6 +5,7 @@ mod change_genesis_time;
 mod check_deposit_data;
 mod deploy_deposit_contract;
 mod eth1_genesis;
+mod generate_bootnode_enr;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
@@ -37,6 +38,15 @@ fn main() {
                 .required(true)
                 .possible_values(&["minimal", "mainnet"])
                 .default_value("mainnet")
+        )
+        .arg(
+            Arg::with_name("testnet-dir")
+                .short("d")
+                .long("testnet-dir")
+                .value_name("PATH")
+                .takes_value(true)
+                .global(true)
+                .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
         )
         .subcommand(
             SubCommand::with_name("genesis_yaml")
@@ -183,14 +193,6 @@ fn main() {
                     "Listens to the eth1 chain and finds the genesis beacon state",
                 )
                 .arg(
-                    Arg::with_name("testnet-dir")
-                        .short("d")
-                        .long("testnet-dir")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
-                )
-                .arg(
                     Arg::with_name("eth1-endpoint")
                         .short("e")
                         .long("eth1-endpoint")
@@ -204,14 +206,6 @@ fn main() {
             SubCommand::with_name("interop-genesis")
                 .about(
                     "Produces an interop-compatible genesis state using deterministic keypairs",
-                )
-                .arg(
-                    Arg::with_name("testnet-dir")
-                        .short("d")
-                        .long("testnet-dir")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
                 )
                 .arg(
                     Arg::with_name("validator-count")
@@ -257,13 +251,6 @@ fn main() {
             SubCommand::with_name("new-testnet")
                 .about(
                     "Produce a new testnet directory.",
-                )
-                .arg(
-                    Arg::with_name("testnet-dir")
-                        .long("testnet-dir")
-                        .value_name("DIRECTORY")
-                        .takes_value(true)
-                        .help("The output path for the new testnet directory. Defaults to ~/.lighthouse/testnet"),
                 )
                 .arg(
                     Arg::with_name("min-genesis-time")
@@ -379,6 +366,44 @@ fn main() {
                             function signature."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("generate-bootnode-enr")
+                .about(
+                    "Generates an ENR address to be used as a pre-genesis boot node..",
+                )
+                .arg(
+                    Arg::with_name("ip")
+                        .long("ip")
+                        .value_name("IP_ADDRESS")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The IP address to be included in the ENR and used for discovery"),
+                )
+                .arg(
+                    Arg::with_name("udp-port")
+                        .long("udp-port")
+                        .value_name("UDP_PORT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The UDP port to be included in the ENR and used for discovery"),
+                )
+                .arg(
+                    Arg::with_name("tcp-port")
+                        .long("tcp-port")
+                        .value_name("TCP_PORT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The TCP port to be included in the ENR and used for application comms"),
+                )
+                .arg(
+                    Arg::with_name("output-dir")
+                        .long("output-dir")
+                        .value_name("OUTPUT_DIRECTORY")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The directory in which to create the network dir"),
+                )
+        )
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -467,6 +492,8 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
             .unwrap_or_else(|e| error!("Failed to run new_testnet command: {}", e)),
         ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
             .unwrap_or_else(|e| error!("Failed to run check-deposit-data command: {}", e)),
+        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
+            .unwrap_or_else(|e| error!("Failed to run generate-bootnode-enr command: {}", e)),
         (other, _) => error!("Unknown subcommand {}. See --help.", other),
     }
 }
