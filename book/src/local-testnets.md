@@ -139,3 +139,14 @@ all subsequent nodes will update automatically.
 
 
 This node should now connect to the original node, sync and follow it's head.
+
+## 4. Updating genesis time
+
+To re-use a testnet directory one may simply update the genesis time and repeat
+the process. 
+
+To update the genesis time of a `genesis.ssz` file, use the following command:
+
+```bash
+$ lcli change-genesis-time ~/.lighthouse/testnet/genesis.ssz $(date +%s)
+```
