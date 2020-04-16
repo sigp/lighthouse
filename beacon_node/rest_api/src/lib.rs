@@ -10,6 +10,7 @@ pub mod config;
 mod consensus;
 mod error;
 mod helpers;
+mod lighthouse;
 mod metrics;
 mod network;
 mod node;

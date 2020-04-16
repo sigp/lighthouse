@@ -1,6 +1,6 @@
 use crate::{
-    advanced, beacon, consensus, error::ApiError, helpers, metrics, network, node, spec, validator,
-    BoxFut, NetworkChannel,
+    advanced, beacon, consensus, error::ApiError, helpers, lighthouse, metrics, network, node,
+    spec, validator, BoxFut, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_config::Eth2Config;
@@ -56,9 +56,6 @@ pub fn route<T: BeaconChainTypes>(
                     network_globals,
                     current_slot,
                 ))
-            }
-            (&Method::GET, "/node/lighthouse_syncing") => {
-                into_boxfut(node::lighthouse_syncing::<T::EthSpec>(req, network_globals))
             }
 
             // Methods for Network
@@ -213,6 +210,11 @@ pub fn route<T: BeaconChainTypes>(
                 db_path,
                 freezer_db_path,
             )),
+
+            // Lighthouse specific
+            (&Method::GET, "/lighthouse/syncing") => {
+                into_boxfut(lighthouse::syncing::<T::EthSpec>(req, network_globals))
+            }
 
             _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
