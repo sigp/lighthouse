@@ -109,7 +109,7 @@ fn main() {
                 .arg(
                     Arg::with_name("path")
                         .index(2)
-                        .value_name("HEX")
+                        .value_name("SSZ_FILE")
                         .takes_value(true)
                         .required(true)
                         .help("A file contains SSZ bytes"),
