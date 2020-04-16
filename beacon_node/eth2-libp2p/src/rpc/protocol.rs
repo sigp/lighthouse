@@ -34,18 +34,35 @@ const TTFB_TIMEOUT: u64 = 5;
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Protocol names to be used.
-/// The Status protocol name.
-pub const RPC_STATUS: &str = "status";
-/// The Goodbye protocol name.
-pub const RPC_GOODBYE: &str = "goodbye";
-/// The `BlocksByRange` protocol name.
-pub const RPC_BLOCKS_BY_RANGE: &str = "beacon_blocks_by_range";
-/// The `BlocksByRoot` protocol name.
-pub const RPC_BLOCKS_BY_ROOT: &str = "beacon_blocks_by_root";
-/// The `Ping` protocol name.
-pub const RPC_PING: &str = "ping";
-/// The `MetaData` protocol name.
-pub const RPC_META_DATA: &str = "metadata";
+#[derive(Debug, Clone)]
+pub enum Protocol {
+    /// The Status protocol name.
+    Status,
+    /// The Goodbye protocol name.
+    Goodbye,
+    /// The `BlocksByRange` protocol name.
+    BlocksByRange,
+    /// The `BlocksByRoot` protocol name.
+    BlocksByRoot,
+    /// The `Ping` protocol name.
+    Ping,
+    /// The `MetaData` protocol name.
+    MetaData,
+}
+
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let repr = match self {
+            Protocol::Status => "status",
+            Protocol::Goodbye => "goodbye",
+            Protocol::BlocksByRange => "beacon_blocks_by_range",
+            Protocol::BlocksByRoot => "beacon_blocks_by_root",
+            Protocol::Ping => "ping",
+            Protocol::MetaData => "metadata",
+        };
+        f.write_str(repr)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
@@ -59,18 +76,18 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            ProtocolId::new(RPC_STATUS, "1", "ssz_snappy"),
-            ProtocolId::new(RPC_STATUS, "1", "ssz"),
-            ProtocolId::new(RPC_GOODBYE, "1", "ssz_snappy"),
-            ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
-            ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz_snappy"),
-            ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
-            ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
-            ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
-            ProtocolId::new(RPC_PING, "1", "ssz_snappy"),
-            ProtocolId::new(RPC_PING, "1", "ssz"),
-            ProtocolId::new(RPC_META_DATA, "1", "ssz_snappy"),
-            ProtocolId::new(RPC_META_DATA, "1", "ssz"),
+            ProtocolId::new(Protocol::Status, "1", "ssz_snappy"),
+            ProtocolId::new(Protocol::Status, "1", "ssz"),
+            ProtocolId::new(Protocol::Goodbye, "1", "ssz_snappy"),
+            ProtocolId::new(Protocol::Goodbye, "1", "ssz"),
+            ProtocolId::new(Protocol::BlocksByRange, "1", "ssz_snappy"),
+            ProtocolId::new(Protocol::BlocksByRange, "1", "ssz"),
+            ProtocolId::new(Protocol::BlocksByRoot, "1", "ssz_snappy"),
+            ProtocolId::new(Protocol::BlocksByRoot, "1", "ssz"),
+            ProtocolId::new(Protocol::Ping, "1", "ssz_snappy"),
+            ProtocolId::new(Protocol::Ping, "1", "ssz"),
+            ProtocolId::new(Protocol::MetaData, "1", "ssz_snappy"),
+            ProtocolId::new(Protocol::MetaData, "1", "ssz"),
         ]
     }
 }
@@ -79,7 +96,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 #[derive(Clone, Debug)]
 pub struct ProtocolId {
     /// The rpc message type/name.
-    pub message_name: String,
+    pub message_name: Protocol,
 
     /// The version of the RPC.
     pub version: String,
@@ -93,7 +110,7 @@ pub struct ProtocolId {
 
 /// An RPC protocol ID.
 impl ProtocolId {
-    pub fn new(message_name: &str, version: &str, encoding: &str) -> Self {
+    pub fn new(message_name: Protocol, version: &str, encoding: &str) -> Self {
         let protocol_id = format!(
             "{}/{}/{}/{}",
             PROTOCOL_PREFIX, message_name, version, encoding
@@ -171,13 +188,13 @@ where
         let socket = Framed::new(timed_socket, codec);
 
         // MetaData requests should be empty, return the stream
-        if protocol_name == RPC_META_DATA {
-            futures::future::Either::A(futures::future::ok((
+        match protocol_name {
+            Protocol::MetaData => futures::future::Either::A(futures::future::ok((
                 RPCRequest::MetaData(PhantomData),
                 socket,
-            )))
-        } else {
-            futures::future::Either::B(
+            ))),
+
+            _ => futures::future::Either::B(
                 socket
                     .into_future()
                     .timeout(Duration::from_secs(REQUEST_TIMEOUT))
@@ -190,7 +207,7 @@ where
                             )),
                         }
                     } as FnAndThen<TSocket, TSpec>),
-            )
+            ),
         }
     }
 }
@@ -226,28 +243,28 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
         match self {
             // add more protocols when versions/encodings are supported
             RPCRequest::Status(_) => vec![
-                ProtocolId::new(RPC_STATUS, "1", "ssz_snappy"),
-                ProtocolId::new(RPC_STATUS, "1", "ssz"),
+                ProtocolId::new(Protocol::Status, "1", "ssz_snappy"),
+                ProtocolId::new(Protocol::Status, "1", "ssz"),
             ],
             RPCRequest::Goodbye(_) => vec![
-                ProtocolId::new(RPC_GOODBYE, "1", "ssz_snappy"),
-                ProtocolId::new(RPC_GOODBYE, "1", "ssz"),
+                ProtocolId::new(Protocol::Goodbye, "1", "ssz_snappy"),
+                ProtocolId::new(Protocol::Goodbye, "1", "ssz"),
             ],
             RPCRequest::BlocksByRange(_) => vec![
-                ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz_snappy"),
-                ProtocolId::new(RPC_BLOCKS_BY_RANGE, "1", "ssz"),
+                ProtocolId::new(Protocol::BlocksByRange, "1", "ssz_snappy"),
+                ProtocolId::new(Protocol::BlocksByRange, "1", "ssz"),
             ],
             RPCRequest::BlocksByRoot(_) => vec![
-                ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz_snappy"),
-                ProtocolId::new(RPC_BLOCKS_BY_ROOT, "1", "ssz"),
+                ProtocolId::new(Protocol::BlocksByRoot, "1", "ssz_snappy"),
+                ProtocolId::new(Protocol::BlocksByRoot, "1", "ssz"),
             ],
             RPCRequest::Ping(_) => vec![
-                ProtocolId::new(RPC_PING, "1", "ssz_snappy"),
-                ProtocolId::new(RPC_PING, "1", "ssz"),
+                ProtocolId::new(Protocol::Ping, "1", "ssz_snappy"),
+                ProtocolId::new(Protocol::Ping, "1", "ssz"),
             ],
             RPCRequest::MetaData(_) => vec![
-                ProtocolId::new(RPC_META_DATA, "1", "ssz_snappy"),
-                ProtocolId::new(RPC_META_DATA, "1", "ssz"),
+                ProtocolId::new(Protocol::MetaData, "1", "ssz_snappy"),
+                ProtocolId::new(Protocol::MetaData, "1", "ssz"),
             ],
         }
     }
