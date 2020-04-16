@@ -91,6 +91,8 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
 
     let deposit_contract = env
         .testnet
+        .as_ref()
+        .ok_or_else(|| "Unable to run account manager without a testnet dir".to_string())?
         .deposit_contract_address()
         .map_err(|e| format!("Unable to parse deposit contract address: {}", e))?;
 

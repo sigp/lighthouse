@@ -175,9 +175,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 .ok_or_else(|| "Cannot build environment without log".to_string())?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
-            testnet: self
-                .testnet
-                .ok_or_else(|| "Cannot build environment without testnet".to_string())?,
+            testnet: self.testnet,
         })
     }
 }
@@ -220,7 +218,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
-    pub testnet: Eth2TestnetConfig<E>,
+    pub testnet: Option<Eth2TestnetConfig<E>>,
 }
 
 impl<E: EthSpec> Environment<E> {
