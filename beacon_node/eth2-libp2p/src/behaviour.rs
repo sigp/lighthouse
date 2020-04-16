@@ -19,7 +19,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{EnrForkId, EthSpec, SubnetId};
 
-const MAX_IDENTIFY_ADDRESSES: usize = 20;
+const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
@@ -508,10 +508,13 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventPr
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,
-                        "More than 20 addresses have been identified, truncating"
+                        "More than 10 addresses have been identified, truncating"
                     );
                     info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
                 }
+                // send peer info to the peer manager.
+                self.peer_manager.identify(&peer_id, &info);
+
                 debug!(self.log, "Identified Peer"; "peer" => format!("{}", peer_id),
                 "protocol_version" => info.protocol_version,
                 "agent_version" => info.agent_version,
