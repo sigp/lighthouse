@@ -59,7 +59,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             .map_err(|e| format!("Failed to execute deployment: {:?}", e)),
     )?;
 
-    println!("deposit_contract_address: {}", address);
+    println!("deposit_contract_address: {:?}", address);
     println!("deposit_contract_deploy_block: {}", deploy_block);
 
     Ok(())
