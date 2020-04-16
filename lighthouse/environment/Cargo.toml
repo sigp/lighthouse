@@ -5,11 +5,13 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
+clap = "2.33.0"
 tokio = "0.1.22"
 slog = { version = "^2.2.3" , features = ["max_level_trace"] }
 sloggers = "0.3.4"
 types = { "path" = "../../eth2/types" }
 eth2_config = { "path" = "../../eth2/utils/eth2_config" }
+eth2_testnet_config = { path = "../../eth2/utils/eth2_testnet_config" }
 env_logger = "0.6.1"
 logging = { path = "../../eth2/utils/logging" }
 slog-term = "^2.4.0"
@@ -18,3 +20,6 @@ ctrlc = { version = "3.1.1", features = ["termination"] }
 futures = "0.1.25"
 parking_lot = "0.7"
 slog-json = "2.3.0"
+
+[dev-dependencies]
+beacon_node = { path = "../../beacon_node" }

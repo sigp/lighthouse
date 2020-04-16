@@ -3,8 +3,8 @@ use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use rayon::prelude::*;
 use ssz::{Decode, Encode};
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconState, CloneConfig, Epoch, Eth1Data, EthSpec,
-    Hash256, MainnetEthSpec, Validator,
+    test_utils::generate_deterministic_keypair, BeaconState, Epoch, Eth1Data, EthSpec, Hash256,
+    MainnetEthSpec, Validator,
 };
 
 fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
@@ -84,19 +84,6 @@ fn all_benches(c: &mut Criterion) {
             b.iter_batched_ref(
                 || inner_state.clone(),
                 |state| black_box(state.clone()),
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(10),
-    );
-
-    let inner_state = state.clone();
-    c.bench(
-        &format!("{}_validators", validator_count),
-        Benchmark::new("clone_without_caches/beacon_state", move |b| {
-            b.iter_batched_ref(
-                || inner_state.clone(),
-                |state| black_box(state.clone_with(CloneConfig::none())),
                 criterion::BatchSize::SmallInput,
             )
         })

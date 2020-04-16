@@ -1,4 +1,4 @@
-use super::SlotClock;
+use super::{ManualSlotClock, SlotClock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::Slot;
 
@@ -7,95 +7,45 @@ pub use std::time::SystemTimeError;
 /// Determines the present slot based upon the present system time.
 #[derive(Clone)]
 pub struct SystemTimeSlotClock {
-    genesis_slot: Slot,
-    genesis_duration: Duration,
-    slot_duration: Duration,
+    clock: ManualSlotClock,
 }
 
 impl SlotClock for SystemTimeSlotClock {
     fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self {
-        if slot_duration.as_millis() == 0 {
-            panic!("SystemTimeSlotClock cannot have a < 1ms slot duration.");
-        }
-
         Self {
-            genesis_slot,
-            genesis_duration,
-            slot_duration,
+            clock: ManualSlotClock::new(genesis_slot, genesis_duration, slot_duration),
         }
     }
 
     fn now(&self) -> Option<Slot> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-        let genesis = self.genesis_duration;
+        self.clock.slot_of(now)
+    }
 
-        if now >= genesis {
-            let since_genesis = now
-                .checked_sub(genesis)
-                .expect("Control flow ensures now is greater than or equal to genesis");
-            let slot =
-                Slot::from((since_genesis.as_millis() / self.slot_duration.as_millis()) as u64);
-            Some(slot + self.genesis_slot)
-        } else {
-            None
-        }
+    fn now_duration(&self) -> Option<Duration> {
+        SystemTime::now().duration_since(UNIX_EPOCH).ok()
+    }
+
+    fn slot_of(&self, now: Duration) -> Option<Slot> {
+        self.clock.slot_of(now)
     }
 
     fn duration_to_next_slot(&self) -> Option<Duration> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-        let genesis = self.genesis_duration;
-
-        let slot_start = |slot: Slot| -> Duration {
-            let slot = slot.as_u64() as u32;
-            genesis + slot * self.slot_duration
-        };
-
-        if now >= genesis {
-            Some(
-                slot_start(self.now()? + 1)
-                    .checked_sub(now)
-                    .expect("The next slot cannot start before now"),
-            )
-        } else {
-            Some(
-                genesis
-                    .checked_sub(now)
-                    .expect("Control flow ensures genesis is greater than or equal to now"),
-            )
-        }
+        self.clock.duration_to_next_slot_from(now)
     }
 
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-        let genesis = self.genesis_duration;
-
-        let slot_start = |slot: Slot| -> Duration {
-            let slot = slot.as_u64() as u32;
-            genesis + slot * self.slot_duration
-        };
-
-        let epoch_start_slot = self
-            .now()
-            .map(|slot| slot.epoch(slots_per_epoch))
-            .map(|epoch| (epoch + 1).start_slot(slots_per_epoch))?;
-
-        if now >= genesis {
-            Some(
-                slot_start(epoch_start_slot)
-                    .checked_sub(now)
-                    .expect("The next epoch cannot start before now"),
-            )
-        } else {
-            Some(
-                genesis
-                    .checked_sub(now)
-                    .expect("Control flow ensures genesis is greater than or equal to now"),
-            )
-        }
+        self.clock.duration_to_next_epoch_from(now, slots_per_epoch)
     }
 
     fn slot_duration(&self) -> Duration {
-        self.slot_duration
+        self.clock.slot_duration()
+    }
+
+    fn genesis_slot(&self) -> Slot {
+        self.clock.genesis_slot()
     }
 }
 

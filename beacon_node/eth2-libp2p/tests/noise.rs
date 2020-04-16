@@ -114,12 +114,14 @@ fn test_secio_noise_fallback() {
 
     let log = common::build_log(log_level, enable_logging);
 
-    let noisy_config = common::build_config(56010, vec![], None);
+    let port = common::unused_port("tcp").unwrap();
+    let noisy_config = common::build_config(port, vec![], None);
     let mut noisy_node = Service::new(&noisy_config, log.clone())
         .expect("should build a libp2p instance")
         .1;
 
-    let secio_config = common::build_config(56011, vec![common::get_enr(&noisy_node)], None);
+    let port = common::unused_port("tcp").unwrap();
+    let secio_config = common::build_config(port, vec![common::get_enr(&noisy_node)], None);
 
     // Building a custom Libp2pService from outside the crate isn't possible because of
     // private fields in the Libp2pService struct. A swarm is good enough for testing

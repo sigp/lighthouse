@@ -313,7 +313,9 @@ where
 
         let randao_reveal = {
             let epoch = slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(epoch, Domain::Randao, fork);
+            let domain =
+                self.spec
+                    .get_domain(epoch, Domain::Randao, fork, state.genesis_validators_root);
             let message = epoch.signing_root(domain);
             Signature::new(message.as_bytes(), sk)
         };
@@ -323,7 +325,7 @@ where
             .produce_block_on_state(state, slot, randao_reveal)
             .expect("should produce block");
 
-        let signed_block = block.sign(sk, &state.fork, &self.spec);
+        let signed_block = block.sign(sk, &state.fork, state.genesis_validators_root, &self.spec);
 
         (signed_block, state)
     }
@@ -408,6 +410,7 @@ where
                                     attestation.data.target.epoch,
                                     Domain::BeaconAttester,
                                     fork,
+                                    state.genesis_validators_root,
                                 );
 
                                 let message = attestation.data.signing_root(domain);
