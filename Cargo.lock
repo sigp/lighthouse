@@ -1079,7 +1079,7 @@ dependencies = [
  "toml 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "tree_hash 0.1.1",
  "types 0.2.0",
- "web3 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "web3 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

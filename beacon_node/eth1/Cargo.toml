@@ -8,7 +8,7 @@ edition = "2018"
 eth1_test_rig = { path = "../../tests/eth1_test_rig" }
 environment = { path = "../../lighthouse/environment" }
 toml = "^0.5"
-web3 = "0.8.0"
+web3 = "0.10.0"
 
 [dependencies]
 reqwest = "0.9"
