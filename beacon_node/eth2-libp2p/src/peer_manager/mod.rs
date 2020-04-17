@@ -7,12 +7,14 @@ use crate::{NetworkGlobals, PeerId};
 use futures::prelude::*;
 use futures::Stream;
 use hashmap_delay::HashSetDelay;
+use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use types::EthSpec;
 
+mod client;
 mod peer_info;
 mod peerdb;
 
@@ -240,6 +242,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .write()
             .add_reputation(peer_id, action as Rep);
         self.update_reputations();
+    }
+
+    /// Updates `PeerInfo` with `identify` information.
+    pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
+        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            peer_info.client = client::Client::from_identify_info(info);
+            peer_info.listening_addresses = info.listen_addrs.clone();
+        } else {
+            crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => format!("{}", peer_id));
+        }
     }
 
     /* Internal functions */

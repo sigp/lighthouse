@@ -1,5 +1,7 @@
+use super::client::Client;
 use super::peerdb::{Rep, DEFAULT_REPUTATION};
 use crate::rpc::MetaData;
+use crate::Multiaddr;
 use std::time::Instant;
 use types::{EthSpec, Slot, SubnetId};
 use PeerConnectionStatus::*;
@@ -12,9 +14,11 @@ pub struct PeerInfo<T: EthSpec> {
     /// The peers reputation
     pub reputation: Rep,
     /// Client managing this peer
-    _client: Client,
+    pub client: Client,
     /// Connection status of this peer
     pub connection_status: PeerConnectionStatus,
+    /// The known listening addresses of this peer.
+    pub listening_addresses: Vec<Multiaddr>,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
     pub sync_status: PeerSyncStatus,
@@ -26,13 +30,11 @@ pub struct PeerInfo<T: EthSpec> {
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
     fn default() -> PeerInfo<TSpec> {
         PeerInfo {
-            reputation: DEFAULT_REPUTATION,
             _status: Default::default(),
-            _client: Client {
-                _client_name: "Unknown".into(),
-                _version: vec![0],
-            },
+            reputation: DEFAULT_REPUTATION,
+            client: Client::default(),
             connection_status: Default::default(),
+            listening_addresses: vec![],
             sync_status: PeerSyncStatus::Unknown,
             meta_data: None,
         }
@@ -64,15 +66,6 @@ impl Default for PeerStatus {
     fn default() -> Self {
         PeerStatus::Healthy
     }
-}
-
-/// Representation of the client managing a peer
-#[derive(Debug)]
-pub struct Client {
-    /// The client's name (Ex: lighthouse, prism, nimbus, etc)
-    _client_name: String,
-    /// The client's version
-    _version: Vec<u8>,
 }
 
 /// Connection Status of the peer
