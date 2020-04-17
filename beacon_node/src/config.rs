@@ -182,11 +182,19 @@ pub fn get_config<E: EthSpec>(
             Err(_) => {
                 // If IpAddr parsing fails, assume the input is a dns hostname and try to resolve it
                 let mut addr = discovery_dns_addr.to_string();
-                // Appending some random port to the end to appease `to_socket_addrs()` parsing
-                addr.push_str(":8080");
+                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing
+                if let Some(enr_udp_port) = client_config.network.enr_udp_port {
+                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                } else {
+                    return Err(
+                        "enr-udp-port must be set for node to be discoverable with dns address"
+                            .into(),
+                    );
+                }
+                // `to_socket_addr()` does the dns resolution
                 // Note: `to_socket_addrs()` is a blocking call
                 if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
-                    // Pick the first ip
+                    // Pick the first ip from the list of resolved addresses
                     resolved_addrs
                         .next()
                         .map(|a| a.ip())
