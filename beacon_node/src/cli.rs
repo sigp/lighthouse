@@ -1,4 +1,4 @@
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -24,15 +24,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("freezer-dir")
                 .value_name("DIR")
                 .help("Data directory for the freezer database.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("testnet-dir")
-                .long("testnet-dir")
-                .value_name("DIR")
-                .help("Path to directory containing eth2_testnet specs. Defaults to \
-                      a hard-coded Lighthouse testnet. Only effective if there is no \
-                      existing database.")
                 .takes_value(true)
         )
         /*
@@ -118,6 +109,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        without 0x prefix). Default is either loaded from disk or generated \
                        automatically.")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("random-propagation")
+                .long("random-propagation")
+                .value_name("INTEGER")
+                .takes_value(true)
+                .help("Specifies (as a percentage) the likelihood of propagating blocks and \
+                       attestations. This should only be used for testing networking elements. The \
+                       value must like in the range 1-100. Default is 100.")
         )
         /* REST API related arguments */
         .arg(
@@ -214,107 +214,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         /*
-         * The "testnet" sub-command.
-         *
-         * Allows for creating a new datadir with testnet-specific configs.
+         * Purge.
          */
-        .subcommand(SubCommand::with_name("testnet")
-            .about("Create a new Lighthouse datadir using a testnet strategy.")
-            .arg(
-                Arg::with_name("random-datadir")
-                    .long("random-datadir")
-                    .short("r")
-                    .help("If present, append a random string to the datadir path. Useful for fast development \
-                          iteration.")
-            )
-            .arg(
-                Arg::with_name("force")
-                    .long("force")
-                    .short("f")
-                    .help("If present, will create new config and database files and move the any existing to a \
-                           backup directory.")
-                    .conflicts_with("random-datadir")
-            )
-            .arg(
-                Arg::with_name("random-propagation")
-                    .long("random-propagation")
-                    .value_name("INTEGER")
-                    .takes_value(true)
-                    .help("Specifies (as a percentage) the likelihood of propagating blocks and \
-                           attestations. This should only be used for testing networking elements. The \
-                           value must like in the range 1-100. Default is 100.")
-            )
-            .arg(
-                Arg::with_name("slot-time")
-                    .long("slot-time")
-                    .short("t")
-                    .value_name("MILLISECONDS")
-                    .help("Defines the slot time when creating a new testnet. The default is \
-                           specified by the spec.")
-            )
-            /*
-             * `recent`
-             *
-             * Start a new node, with a specified number of validators with a genesis time in the last
-             * 30-minutes.
-             */
-            .subcommand(SubCommand::with_name("recent")
-                .about("Creates a new genesis state where the genesis time was at the previous \
-                       MINUTES boundary (e.g., when MINUTES == 30; 12:00, 12:30, 13:00, etc.)")
-                .arg(Arg::with_name("validator_count")
-                    .value_name("VALIDATOR_COUNT")
-                    .required(true)
-                    .help("The number of validators in the genesis state"))
-                .arg(Arg::with_name("minutes")
-                    .long("minutes")
-                    .short("m")
-                    .value_name("MINUTES")
-                    .required(true)
-                    .default_value("30")
-                    .help("The maximum number of minutes that will have elapsed before genesis"))
-            )
-            /*
-             * `quick`
-             *
-             * Start a new node, specifying the number of validators and genesis time
-             */
-            .subcommand(SubCommand::with_name("quick")
-                .about("Creates a new genesis state from the specified validator count and genesis time. \
-                        Compatible with the `quick-start genesis` defined in the eth2.0-pm repo.")
-                .arg(Arg::with_name("validator_count")
-                    .value_name("VALIDATOR_COUNT")
-                    .required(true)
-                    .help("The number of validators in the genesis state"))
-                .arg(Arg::with_name("genesis_time")
-                    .value_name("UNIX_EPOCH_SECONDS")
-                    .required(true)
-                    .help("The genesis time for the given state."))
-            )
-            /*
-             * `yaml`
-             *
-             * Start a new node, using a genesis state loaded from a YAML file
-             */
-            .subcommand(SubCommand::with_name("file")
-                .about("Creates a new datadir where the genesis state is read from file. May fail to parse \
-                       a file that was generated to a different spec than that specified by --spec.")
-                .arg(Arg::with_name("format")
-                    .value_name("FORMAT")
-                    .required(true)
-                    .possible_values(&["ssz"])
-                    .help("The encoding of the state in the file."))
-                .arg(Arg::with_name("file")
-                    .value_name("FILE")
-                    .required(true)
-                    .help("A file from which to read the state"))
-            )
-        )
-        /*
-         * The "purge" sub-command.
-         *
-         * Allows user to purge beacon database
-         */
-        .subcommand(SubCommand::with_name("purge")
-            .about("Purge the beacon chain database.")
+        .arg(
+            Arg::with_name("purge-db")
+                .long("purge-db")
+                .help("If present, the chain database will be deleted. Use with caution.")
         )
 }

@@ -1,4 +1,8 @@
 #![cfg(test)]
+/*
+ *
+ * TODO: disabled until hardcoded testnet config is updated for v0.11
+ *
 
 use clap::ArgMatches;
 use environment::EnvironmentBuilder;
@@ -22,10 +26,6 @@ fn eth2_testnet_config() -> Eth2TestnetConfig<MainnetEthSpec> {
     Eth2TestnetConfig::hard_coded().expect("should decode hard_coded params")
 }
 
-/*
- *
- * TODO: disabled until hardcoded testnet config is updated for v0.11
- *
 mod setup_eth2_config {
     use super::*;
 
