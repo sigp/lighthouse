@@ -229,7 +229,7 @@ where
             .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .ok_or_else(|| {
-                "No persisted beacon chain found in store. Try deleting the .lighthouse/beacon dir."
+                "No persisted beacon chain found in store. Try purging the beacon chain database."
                     .to_string()
             })?;
 
