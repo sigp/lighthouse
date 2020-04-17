@@ -96,6 +96,10 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
         .deposit_contract_address()
         .map_err(|e| format!("Unable to parse deposit contract address: {}", e))?;
 
+    if deposit_contract == Address::zero() {
+        return Err("Refusing to deposit to the zero address. Check testnet configuration.".into());
+    }
+
     let (_event_loop_handle, transport) =
         Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
     let web3 = Web3::new(transport);
