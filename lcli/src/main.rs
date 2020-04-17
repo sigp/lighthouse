@@ -2,7 +2,6 @@
 extern crate log;
 
 mod change_genesis_time;
-use std::process;
 mod check_deposit_data;
 mod deploy_deposit_contract;
 mod eth1_genesis;
@@ -19,6 +18,7 @@ use log::Level;
 use parse_hex::run_parse_hex;
 use std::fs::File;
 use std::path::PathBuf;
+use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};

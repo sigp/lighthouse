@@ -166,7 +166,7 @@ fn run<E: EthSpec>(
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        account_manager::run(sub_matches, environment);
+        account_manager::run(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
