@@ -4,6 +4,7 @@ use eth2_libp2p::Multiaddr;
 use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
 use slog::{debug, error, o, Drain};
+use std::net::{TcpListener, UdpSocket};
 use std::time::Duration;
 use types::{EnrForkId, MinimalEthSpec};
 
@@ -20,6 +21,38 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     } else {
         slog::Logger::root(drain.filter(|_| false).fuse(), o!())
     }
+}
+
+// A bit of hack to find an unused port.
+///
+/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// unused before the function started (i.e., it does not reserve a port).
+pub fn unused_port(transport: &str) -> Result<u16, String> {
+    let local_addr = match transport {
+        "tcp" => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
+                format!("Failed to create TCP listener to find unused port: {:?}", e)
+            })?;
+            listener.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read TCP listener local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        "udp" => {
+            let socket = UdpSocket::bind("127.0.0.1:0")
+                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
+            socket.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read UDP socket local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        _ => return Err("Invalid transport to find unused port".into()),
+    };
+    Ok(local_addr.port())
 }
 
 pub fn build_config(

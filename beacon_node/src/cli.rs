@@ -235,4 +235,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many states the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
+        /*
+         * Purge.
+         */
+        .arg(
+            Arg::with_name("purge-db")
+                .long("purge-db")
+                .help("If present, the chain database will be deleted. Use with caution.")
+        )
 }

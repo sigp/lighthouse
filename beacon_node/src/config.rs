@@ -1,8 +1,9 @@
+use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use ssz::Encode;
 use std::fs;
 use std::fs::File;
@@ -32,6 +33,32 @@ pub fn get_config<E: EthSpec>(
     let mut client_config = ClientConfig::default();
 
     client_config.data_dir = get_data_dir(cli_args);
+
+    // If necessary, remove any existing database and configuration
+    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+        // Remove the chain_db.
+        fs::remove_dir_all(
+            client_config
+                .get_db_path()
+                .ok_or("Failed to get db_path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // Remove the freezer db.
+        fs::remove_dir_all(
+            client_config
+                .get_freezer_db_path()
+                .ok_or("Failed to get freezer db path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // Remove the pubkey cache file if it exists
+        let pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
+        if pubkey_cache_file.exists() {
+            fs::remove_file(&pubkey_cache_file)
+                .map_err(|e| format!("Failed to remove {:?}: {:?}", pubkey_cache_file, e))?;
+        }
+    }
 
     // Create `datadir` and any non-existing parent directories.
     fs::create_dir_all(&client_config.data_dir)
@@ -293,24 +320,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Load the eth2 testnet dir to obtain some addition config values.
-     */
-    let eth2_testnet_config: Eth2TestnetConfig<E> =
-        get_eth2_testnet_config(&client_config.testnet_dir)?;
-
-    client_config.eth1.deposit_contract_address =
-        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
-    client_config.eth1.deposit_contract_deploy_block =
-        eth2_testnet_config.deposit_contract_deploy_block;
-    client_config.eth1.lowest_cached_block_number =
-        client_config.eth1.deposit_contract_deploy_block;
-
-    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config.network.boot_nodes.append(&mut boot_nodes)
-    }
-
-    /*
-     * Load the eth2 testnet dir to obtain some addition config values.
+     * Load the eth2 testnet dir to obtain some additional config values.
      */
     let eth2_testnet_config: Eth2TestnetConfig<E> =
         get_eth2_testnet_config(&client_config.testnet_dir)?;

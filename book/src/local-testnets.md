@@ -27,6 +27,7 @@ lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insec
 Optionally update the genesis time to now:
 
 ```bash
+<<<<<<< HEAD
 lcli change-genesis-time ~/.lighthouse/testnet/genesis.ssz $(date +%s)
 ```
 
