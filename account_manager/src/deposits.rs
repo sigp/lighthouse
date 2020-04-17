@@ -84,7 +84,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
         (Some(_), Some(_)) => Err("Cannot supply --count and --limit".to_string()),
         (None, None) => Err("Must supply either --count or --limit".to_string()),
         (Some(count), None) => Ok(count),
-        (None, Some(limit)) => fs::read_dir(datadir)
+        (None, Some(limit)) => fs::read_dir(&datadir)
             .map(|iter| limit.saturating_sub(iter.count()))
             .map_err(|e| format!("Unable to read datadir: {}", e)),
     }?;
@@ -114,6 +114,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
                     .thread_random_keypairs()
                     .submit_eth1_deposit(web3.clone(), from_address, deposit_contract),
             )?
+            .create_directory(datadir.clone())?
             .write_keypair_files()?
             .write_eth1_data_file()?
             .build()?;
