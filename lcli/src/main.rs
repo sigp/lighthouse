@@ -2,6 +2,7 @@
 extern crate log;
 
 mod change_genesis_time;
+use std::process;
 mod check_deposit_data;
 mod deploy_deposit_contract;
 mod eth1_genesis;
