@@ -94,8 +94,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("discovery-dns-address")
                 .long("discovery-dns-address")
                 .value_name("ADDRESS")
-                .help("The static ip we set our ENR to. Setting this option will disable changing \
-                the discovery address based on PONG responses from connected peers in discv5")
+                .help("The dns address for discovery. The enr-address is set to the ip address that the provided address resolves to. \
+                    Setting this option will disable changing the discovery address based on PONG responses from connected peers in discv5")
                 .takes_value(true)
         )
         .arg(
