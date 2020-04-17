@@ -293,7 +293,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Load the eth2 testnet dir to obtain some addition config values.
+     * Load the eth2 testnet dir to obtain some additional config values.
      */
     let eth2_testnet_config: Eth2TestnetConfig<E> =
         get_eth2_testnet_config(&client_config.testnet_dir)?;
