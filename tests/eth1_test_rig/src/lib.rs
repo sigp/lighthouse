@@ -190,31 +190,31 @@ impl DepositContract {
                     .get(DEPOSIT_ACCOUNTS_INDEX)
                     .cloned()
                     .ok_or_else(|| "Insufficient accounts for deposit".to_string())
-            })
-            .and_then(move |from| {
-                let tx_request = TransactionRequest {
-                    from,
-                    to: Some(contract.address()),
-                    gas: Some(U256::from(DEPOSIT_GAS)),
-                    gas_price: None,
-                    value: Some(from_gwei(deposit_data.amount)),
-                    // Note: the reason we use this `TransactionRequest` instead of just using the
-                    // function in `self.contract` is so that the `encode_eth1_tx_data` function gets used
-                    // during testing.
-                    //
-                    // It's important that `encode_eth1_tx_data` stays correct and does not suffer from
-                    // code-rot.
-                    data: encode_eth1_tx_data(&deposit_data).map(Into::into).ok(),
-                    nonce: None,
-                    condition: None,
-                };
+            })?;
+        let tx_request = TransactionRequest {
+            from,
+            to: Some(self.contract.address()),
+            gas: Some(U256::from(DEPOSIT_GAS)),
+            gas_price: None,
+            value: Some(from_gwei(deposit_data.amount)),
+            // Note: the reason we use this `TransactionRequest` instead of just using the
+            // function in `self.contract` is so that the `eth1_tx_data` function gets used
+            // during testing.
+            //
+            // It's important that `eth1_tx_data` stays correct and does not suffer from
+            // code-rot.
+            data: encode_eth1_tx_data(&deposit_data).map(Into::into).ok(),
+            nonce: None,
+            condition: None,
+        };
 
-                web3_1
-                    .eth()
-                    .send_transaction(tx_request)
-                    .compa().await()
-                    .map_err(|e| format!("Failed to call deposit fn: {:?}", e))?;
-                Ok())
+        self.web3
+            .eth()
+            .send_transaction(tx_request)
+            .compat()
+            .await
+            .map_err(|e| format!("Failed to call deposit fn: {:?}", e))?;
+        Ok(())
     }
 
     /// Peforms many deposits, each preceded by a delay.
