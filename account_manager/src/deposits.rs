@@ -9,11 +9,16 @@ use web3::{transports::Ipc, types::Address, Web3};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("deposited")
-        .about("Create new validators with corresponding deposits to the Eth1 deposit contract.")
+        .about("Creates new Lighthouse validator keys and directories. Each newly-created validator
+        will have a deposit transaction formed and submitted to the deposit contract via
+        --eth1-ipc. Will only write each validator keys to disk if the deposit transaction returns
+        successfully from the eth1 node. The process exits immediately if any Eth1 tx fails. Does
+        not wait for Eth1 confirmation blocks, so there is no guarantee that a deposit will be
+        accepted in the Eth1 chain.")
         .arg(
-            Arg::with_name("datadir")
-                .long("datadir")
-                .value_name("DATA_DIRECTORY")
+            Arg::with_name("validator-dir")
+                .long("validator-dir")
+                .value_name("VALIDATOR_DIRECTORY")
                 .help("The path where the validator directories will be created. Defaults to ~/.lighthouse/validators")
                 .takes_value(true),
         )
@@ -29,7 +34,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("from-address")
                 .long("from-address")
                 .value_name("FROM_ETH1_ADDRESS")
-                .help("The address that will submit the eth1 deposit. Must be unlocked.")
+                .help("The address that will submit the eth1 deposit. Must be unlocked on the node
+                    at --eth1-ipc.")
                 .takes_value(true)
                 .required(true)
         )
@@ -53,8 +59,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("at-least")
                 .long("at-least")
                 .value_name("VALIDATOR_COUNT")
-                .help("Observe the number of validators in --datadir, only creating enough to
-                    ensure reach the given count. Never deletes an existing validator.")
+                .help("Observe the number of validators in --validator-dir, only creating enough to
+                ensure reach the given count. Never deletes an existing validator.")
                 .conflicts_with("count")
                 .takes_value(true),
         )
@@ -63,9 +69,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
-    let datadir = clap_utils::parse_path_with_default_in_home_dir(
+    let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
-        "datadir",
+        "validator_dir",
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
     let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
@@ -79,9 +85,9 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
         (Some(_), Some(_)) => Err("Cannot supply --count and --at-least".to_string()),
         (None, None) => Err("Must supply either --count or --at-least".to_string()),
         (Some(count), None) => Ok(count),
-        (None, Some(at_least)) => fs::read_dir(&datadir)
+        (None, Some(at_least)) => fs::read_dir(&validator_dir)
             .map(|iter| at_least.saturating_sub(iter.count()))
-            .map_err(|e| format!("Unable to read datadir: {}", e)),
+            .map_err(|e| format!("Unable to read {:?}: {}", validator_dir, e)),
     }?;
 
     let deposit_contract = env
@@ -109,7 +115,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
                     .thread_random_keypairs()
                     .submit_eth1_deposit(web3.clone(), from_address, deposit_contract),
             )?
-            .create_directory(datadir.clone())?
+            .create_directory(validator_dir.clone())?
             .write_keypair_files()?
             .write_eth1_data_file()?
             .build()?;
