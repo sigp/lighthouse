@@ -16,7 +16,7 @@ use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, Pr
 use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -37,6 +37,9 @@ const TARGET_SUBNET_PEERS: u64 = 3;
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
 pub struct Discovery<TSubstream, TSpec: EthSpec> {
+    /// Events to be processed by the behaviour.
+    events: VecDeque<NetworkBehaviourAction<void::Void, Discv5Event>>,
+
     /// The currently banned peers.
     banned_peers: HashSet<PeerId>,
 
@@ -117,6 +120,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         }
 
         Ok(Self {
+            events: VecDeque::with_capacity(16),
             banned_peers: HashSet::new(),
             max_peers: config.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
@@ -451,18 +455,12 @@ where
                                 // if we need more peers, attempt a connection
 
                                 if self.network_globals.connected_peers() < self.max_peers
-                                    && self
-                                        .network_globals
-                                        .peers
-                                        .read()
-                                        .peer_info(&peer_id)
-                                        .is_none()
+                                    && !self.network_globals.peers.read().is_connected(&peer_id)
                                     && !self.banned_peers.contains(&peer_id)
                                 {
                                     debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
-                                    return Async::Ready(NetworkBehaviourAction::DialPeer {
-                                        peer_id,
-                                    });
+                                    self.events
+                                        .push_back(NetworkBehaviourAction::DialPeer { peer_id });
                                 }
                             }
                         }
@@ -474,6 +472,12 @@ where
                 Async::NotReady => break,
             }
         }
+
+        // process any queued events
+        if let Some(event) = self.events.pop_front() {
+            return Async::Ready(event);
+        }
+
         Async::NotReady
     }
 }

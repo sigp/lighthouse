@@ -1151,6 +1151,7 @@ dependencies = [
  "types 0.2.0",
  "unsigned-varint 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "version 0.2.0",
+ "void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
