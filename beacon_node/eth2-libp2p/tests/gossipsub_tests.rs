@@ -25,8 +25,7 @@ fn test_gossipsub_forward() {
     let log = common::build_log(Level::Info, false);
 
     let num_nodes = 20;
-    let base_port = 54236;
-    let mut nodes = common::build_linear(log.clone(), num_nodes, Some(base_port));
+    let mut nodes = common::build_linear(log.clone(), num_nodes);
     let mut received_count = 0;
     let spec = E::default_spec();
     let empty_block = BeaconBlock::empty(&spec);
@@ -99,8 +98,7 @@ fn test_gossipsub_full_mesh_publish() {
     // as nodes may get pruned out of the mesh before the gossipsub message
     // is published to them.
     let num_nodes = 12;
-    let base_port = 5264;
-    let mut nodes = common::build_full_mesh(log, num_nodes, Some(base_port));
+    let mut nodes = common::build_full_mesh(log, num_nodes);
     let mut publishing_node = nodes.pop().unwrap();
     let spec = E::default_spec();
     let empty_block = BeaconBlock::empty(&spec);
