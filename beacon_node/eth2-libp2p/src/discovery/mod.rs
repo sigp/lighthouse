@@ -13,7 +13,7 @@ use libp2p::discv5::enr::NodeId;
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
-use slog::{crit, debug, info, trace, warn};
+use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::collections::HashSet;
@@ -105,7 +105,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 "peer_id" => format!("{}", bootnode_enr.peer_id()),
                 "ip" => format!("{:?}", bootnode_enr.ip()),
                 "udp" => format!("{:?}", bootnode_enr.udp()),
-                "tcp" => format!("{:?}", bootnode_enr.udp())
+                "tcp" => format!("{:?}", bootnode_enr.tcp())
             );
             let _ = discovery.add_enr(bootnode_enr).map_err(|e| {
                 warn!(
@@ -409,16 +409,18 @@ where
             match self.discovery.poll(params) {
                 Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
                     match event {
-                        Discv5Event::Discovered(enr) => {
+                        Discv5Event::Discovered(_enr) => {
                             // peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
+                            /*
                             if enr.eth2() == self.local_enr().eth2() {
                                 trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             } else {
                                 // this is temporary warning for debugging the DHT
                                 warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             }
+                            */
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
