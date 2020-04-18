@@ -58,6 +58,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let log = log_2.clone();
 
             let connected_peer_count = network.connected_peers();
+            let sync_state = network.sync_state();
 
             let head_info = beacon_chain.head_info()
                 .map_err(|e| error!(
@@ -67,7 +68,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 ))?;
 
             let head_slot = head_info.slot;
-            let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
                     log,
@@ -101,15 +101,17 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 "head_block" => format!("{}", head_root),
                 "head_slot" => head_slot,
                 "current_slot" => current_slot,
+                "sync_state" =>format!("{}", sync_state) 
             );
 
-            if head_epoch + 1 < current_epoch {
+
+            // Log if we are syncing
+            if sync_state.is_syncing() {
                 let distance = format!(
                     "{} slots ({})",
                     head_distance.as_u64(),
                     slot_distance_pretty(head_distance, slot_duration)
                 );
-
                 info!(
                     log,
                     "Syncing";
@@ -118,15 +120,21 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "speed" => sync_speed_pretty(speedo.slots_per_second()),
                     "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                 );
-
-                return Ok(());
-            };
-
-            macro_rules! not_quite_synced_log {
-                ($message: expr) => {
+            } else {
+                if sync_state.is_synced() { 
                     info!(
                         log_2,
-                        $message;
+                        "Synced";
+                        "peers" => peer_count_pretty(connected_peer_count),
+                        "finalized_root" => format!("{}", finalized_root),
+                        "finalized_epoch" => finalized_epoch,
+                        "epoch" => current_epoch,
+                        "slot" => current_slot,
+                    );
+                } else { 
+                    info!(
+                        log_2,
+                        "waiting for useful peers";
                         "peers" => peer_count_pretty(connected_peer_count),
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
@@ -135,23 +143,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     );
                 }
             }
-
-            if head_epoch + 1 == current_epoch {
-                not_quite_synced_log!("Synced to previous epoch")
-            } else if head_slot != current_slot {
-                not_quite_synced_log!("Synced to current epoch")
-            } else {
-                info!(
-                    log_2,
-                    "Synced";
-                    "peers" => peer_count_pretty(connected_peer_count),
-                    "finalized_root" => format!("{}", finalized_root),
-                    "finalized_epoch" => finalized_epoch,
-                    "epoch" => current_epoch,
-                    "slot" => current_slot,
-                );
-            };
-
             Ok(())
         })
         .then(move |result| {
