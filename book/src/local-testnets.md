@@ -44,10 +44,6 @@ Install `lcli` from the root directory of this repository with:
 make install-lcli
 ```
 
-```bash
-cargo install --path lcli --force
-```
-
 ### 1.2 Create a testnet directory
 
 The default location for a testnet directory is `~/.lighthouse/testnet`. We'll
