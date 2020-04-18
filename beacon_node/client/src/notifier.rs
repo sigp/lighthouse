@@ -134,7 +134,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 } else { 
                     info!(
                         log_2,
-                        "waiting for useful peers";
+                        "Searching for peers";
                         "peers" => peer_count_pretty(connected_peer_count),
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
