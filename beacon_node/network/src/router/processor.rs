@@ -13,7 +13,8 @@ use std::sync::Arc;
 use store::Store;
 use tokio::sync::{mpsc, oneshot};
 use types::{
-    Attestation, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, Slot,
+    Attestation, ChainSpec, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock,
+    Slot,
 };
 
 //TODO: Rate limit requests
@@ -644,10 +645,13 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<StatusMessage> {
     let head_info = beacon_chain.head_info().ok()?;
+    let genesis_validators_root = beacon_chain.genesis_validators_root;
 
-    // TODO: Update fork digest calculation
+    let fork_digest =
+        ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
+
     Some(StatusMessage {
-        fork_digest: head_info.fork.current_version,
+        fork_digest,
         finalized_root: head_info.finalized_checkpoint.root,
         finalized_epoch: head_info.finalized_checkpoint.epoch,
         head_root: head_info.block_root,

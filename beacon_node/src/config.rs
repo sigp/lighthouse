@@ -3,7 +3,7 @@ use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, info, warn, Logger};
+use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
 use std::fs::File;
