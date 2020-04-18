@@ -13,7 +13,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
-                .short("d")
                 .value_name("DATA_DIRECTORY")
                 .help("The path where the validator directories will be created. Defaults to ~/.lighthouse/validators")
                 .takes_value(true),
@@ -21,7 +20,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("eth1-ipc")
                 .long("eth1-ipc")
-                .short("e")
                 .value_name("ETH1_IPC_PATH")
                 .help("Path to an Eth1 JSON-RPC IPC endpoint")
                 .takes_value(true)
@@ -30,7 +28,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("from-address")
                 .long("from-address")
-                .short("f")
                 .value_name("FROM_ETH1_ADDRESS")
                 .help("The address that will submit the eth1 deposit. Must be unlocked.")
                 .takes_value(true)
@@ -39,7 +36,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("deposit-gwei")
                 .long("deposit-gwei")
-                .short("g")
                 .value_name("DEPOSIT_GWEI")
                 .help("The GWEI value of the deposit amount. Defaults to the minimum amount
                     required for an active validator (MAX_EFFECTIVE_BALANCE.")
@@ -48,18 +44,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("count")
                 .long("count")
-                .short("c")
                 .value_name("DEPOSIT_COUNT")
                 .help("The number of deposits to create, regardless of how many already exist")
                 .conflicts_with("limit")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("limit")
-                .long("limit")
-                .short("l")
-                .value_name("VALIDATOR_LIMIT")
-                .help("Observe the number of validators in --datadir, only creating enough to ensure the given limit")
+            Arg::with_name("at-least")
+                .long("at-least")
+                .value_name("VALIDATOR_COUNT")
+                .help("Observe the number of validators in --datadir, only creating enough to
+                    ensure reach the given count. Never deletes an existing validator.")
                 .conflicts_with("count")
                 .takes_value(true),
         )
@@ -78,14 +73,14 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
     let deposit_gwei = clap_utils::parse_optional(matches, "deposit-gwei")?
         .unwrap_or_else(|| spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, "count")?;
-    let limit: Option<usize> = clap_utils::parse_optional(matches, "limit")?;
+    let at_least: Option<usize> = clap_utils::parse_optional(matches, "at-least")?;
 
-    let n = match (count, limit) {
-        (Some(_), Some(_)) => Err("Cannot supply --count and --limit".to_string()),
-        (None, None) => Err("Must supply either --count or --limit".to_string()),
+    let n = match (count, at_least) {
+        (Some(_), Some(_)) => Err("Cannot supply --count and --at-least".to_string()),
+        (None, None) => Err("Must supply either --count or --at-least".to_string()),
         (Some(count), None) => Ok(count),
-        (None, Some(limit)) => fs::read_dir(&datadir)
-            .map(|iter| limit.saturating_sub(iter.count()))
+        (None, Some(at_least)) => fs::read_dir(&datadir)
+            .map(|iter| at_least.saturating_sub(iter.count()))
             .map_err(|e| format!("Unable to read datadir: {}", e)),
     }?;
 
