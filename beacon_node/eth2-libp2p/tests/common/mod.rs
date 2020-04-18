@@ -99,13 +99,9 @@ pub fn get_enr(node: &LibP2PService<E>) -> Enr {
 
 // Returns `n` libp2p peers in fully connected topology.
 #[allow(dead_code)]
-pub fn build_full_mesh(
-    log: slog::Logger,
-    n: usize,
-    start_port: Option<u16>,
-) -> Vec<LibP2PService<E>> {
-    let base_port = start_port.unwrap_or(10000);
-    let mut nodes: Vec<LibP2PService<E>> = (base_port..base_port + n as u16)
+pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
+    let mut nodes: Vec<LibP2PService<E>> = (0..n)
+        .map(|_| unused_port("tcp").unwrap())
         .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
@@ -149,9 +145,9 @@ pub fn build_node_pair(
 
 // Returns `n` peers in a linear topology
 #[allow(dead_code)]
-pub fn build_linear(log: slog::Logger, n: usize, start_port: Option<u16>) -> Vec<LibP2PService<E>> {
-    let base_port = start_port.unwrap_or(9000);
-    let mut nodes: Vec<LibP2PService<E>> = (base_port..base_port + n as u16)
+pub fn build_linear(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
+    let mut nodes: Vec<LibP2PService<E>> = (0..n)
+        .map(|_| unused_port("tcp").unwrap())
         .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
