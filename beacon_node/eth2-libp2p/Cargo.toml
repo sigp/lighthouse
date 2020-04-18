@@ -8,7 +8,7 @@ edition = "2018"
 hex = "0.3"
 # rust-libp2p is presently being sourced from a Sigma Prime fork of the
 # `libp2p/rust-libp2p` repository.
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "4e20bad2ff36a34f0e8a54673b6f997497e03815" }
+libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "2b6d002161f142b1db350f6d1302b4a84a1d4234" }
 types = { path =  "../../eth2/types" }
 hashmap_delay = { path = "../../eth2/utils/hashmap_delay" }
 eth2_ssz_types = { path =  "../../eth2/utils/ssz_types" }
