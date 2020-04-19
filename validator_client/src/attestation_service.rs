@@ -276,7 +276,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     validator_index,
                     attestation_committee_index,
                     slot,
-                    is_aggregator: selection_proof.is_aggregator(modulo),
+                    is_aggregator: selection_proof.is_aggregator_from_modulo(modulo),
                 };
 
                 Some((subscription, (duty, selection_proof)))
