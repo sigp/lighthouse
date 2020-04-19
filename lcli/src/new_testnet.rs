@@ -1,8 +1,11 @@
-use crate::helpers::*;
 use clap::ArgMatches;
+use clap_utils::{
+    parse_optional, parse_path_with_default_in_home_dir, parse_required, parse_ssz_optional,
+};
 use eth2_testnet_config::Eth2TestnetConfig;
 use std::path::PathBuf;
-use types::{EthSpec, YamlConfig};
+use std::time::{SystemTime, UNIX_EPOCH};
+use types::{Address, EthSpec, YamlConfig};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let testnet_dir_path = parse_path_with_default_in_home_dir(
@@ -10,18 +13,18 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         "testnet-dir",
         PathBuf::from(".lighthouse/testnet"),
     )?;
-    let min_genesis_time = parse_u64_opt(matches, "min-genesis-time")?;
-    let min_genesis_delay = parse_u64(matches, "min-genesis-delay")?;
+    let min_genesis_time = parse_optional(matches, "min-genesis-time")?;
+    let min_genesis_delay = parse_required(matches, "min-genesis-delay")?;
     let min_genesis_active_validator_count =
-        parse_u64(matches, "min-genesis-active-validator-count")?;
-    let min_deposit_amount = parse_u64(matches, "min-deposit-amount")?;
-    let max_effective_balance = parse_u64(matches, "max-effective-balance")?;
-    let effective_balance_increment = parse_u64(matches, "effective-balance-increment")?;
-    let ejection_balance = parse_u64(matches, "ejection-balance")?;
-    let eth1_follow_distance = parse_u64(matches, "eth1-follow-distance")?;
-    let deposit_contract_deploy_block = parse_u64(matches, "deposit-contract-deploy-block")?;
-    let genesis_fork_version = parse_fork_opt(matches, "genesis-fork-version")?;
-    let deposit_contract_address = parse_address(matches, "deposit-contract-address")?;
+        parse_required(matches, "min-genesis-active-validator-count")?;
+    let min_deposit_amount = parse_required(matches, "min-deposit-amount")?;
+    let max_effective_balance = clap_utils::parse_required(matches, "max-effective-balance")?;
+    let effective_balance_increment = parse_required(matches, "effective-balance-increment")?;
+    let ejection_balance = parse_required(matches, "ejection-balance")?;
+    let eth1_follow_distance = parse_required(matches, "eth1-follow-distance")?;
+    let deposit_contract_deploy_block = parse_required(matches, "deposit-contract-deploy-block")?;
+    let genesis_fork_version = parse_ssz_optional::<[u8; 4]>(matches, "genesis-fork-version")?;
+    let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
 
     if testnet_dir_path.exists() {
         return Err(format!(
@@ -56,4 +59,11 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     };
 
     testnet.write_to_file(testnet_dir_path)
+}
+
+pub fn time_now() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|e| format!("Unable to get time: {:?}", e))
 }

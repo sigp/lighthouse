@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-web3 = "0.8.0"
+web3 = "0.10.0"
 tokio = "0.1.22"
 futures = "0.1.25"
 types = { path = "../../eth2/types"}

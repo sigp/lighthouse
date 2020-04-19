@@ -27,7 +27,7 @@ use types::{EnrForkId, EthSpec};
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
 
-const NETWORK_KEY_FILENAME: &str = "key";
+pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
 /// flushed and protocols to be negotiated.
 const BAN_PEER_WAIT_TIMEOUT: u64 = 200;

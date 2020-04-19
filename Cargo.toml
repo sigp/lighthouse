@@ -5,6 +5,7 @@ members = [
     "eth2/state_processing",
     "eth2/types",
     "eth2/utils/bls",
+    "eth2/utils/clap_utils",
     "eth2/utils/compare_fields",
     "eth2/utils/compare_fields_derive",
     "eth2/utils/deposit_contract",

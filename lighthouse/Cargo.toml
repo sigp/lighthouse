@@ -19,3 +19,4 @@ environment = { path = "./environment" }
 futures = "0.1.25"
 validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }
+clap_utils = { path = "../eth2/utils/clap_utils" }
