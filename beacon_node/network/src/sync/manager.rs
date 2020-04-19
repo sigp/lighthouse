@@ -252,14 +252,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // Check if the peer is significantly behind us. If within `SLOT_IMPORT_TOLERANCE`
         // treat them as a fully synced peer. If not, ignore them in the sync process
         if local.head_slot.sub(remote.head_slot).as_usize() < SLOT_IMPORT_TOLERANCE {
+            // Add the peer to our RangeSync
+            self.range_sync
+                .add_peer(&mut self.network, peer_id.clone(), remote);
             self.synced_peer(&peer_id, remote.head_slot);
         } else {
             self.behind_peer(&peer_id, remote.head_slot);
-            return;
         }
-
-        // Add the peer to our RangeSync
-        self.range_sync.add_peer(&mut self.network, peer_id, remote);
     }
 
     /// The response to a `BlocksByRoot` request.

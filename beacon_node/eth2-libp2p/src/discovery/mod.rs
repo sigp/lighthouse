@@ -13,10 +13,10 @@ use libp2p::discv5::enr::NodeId;
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
-use slog::{crit, debug, info, trace, warn};
+use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -37,6 +37,9 @@ const TARGET_SUBNET_PEERS: u64 = 3;
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
 pub struct Discovery<TSubstream, TSpec: EthSpec> {
+    /// Events to be processed by the behaviour.
+    events: VecDeque<NetworkBehaviourAction<void::Void, Discv5Event>>,
+
     /// The currently banned peers.
     banned_peers: HashSet<PeerId>,
 
@@ -105,7 +108,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 "peer_id" => format!("{}", bootnode_enr.peer_id()),
                 "ip" => format!("{:?}", bootnode_enr.ip()),
                 "udp" => format!("{:?}", bootnode_enr.udp()),
-                "tcp" => format!("{:?}", bootnode_enr.udp())
+                "tcp" => format!("{:?}", bootnode_enr.tcp())
             );
             let _ = discovery.add_enr(bootnode_enr).map_err(|e| {
                 warn!(
@@ -117,6 +120,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         }
 
         Ok(Self {
+            events: VecDeque::with_capacity(16),
             banned_peers: HashSet::new(),
             max_peers: config.max_peers,
             peer_discovery_delay: Delay::new(Instant::now()),
@@ -409,16 +413,18 @@ where
             match self.discovery.poll(params) {
                 Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
                     match event {
-                        Discv5Event::Discovered(enr) => {
+                        Discv5Event::Discovered(_enr) => {
                             // peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
+                            /*
                             if enr.eth2() == self.local_enr().eth2() {
                                 trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             } else {
                                 // this is temporary warning for debugging the DHT
                                 warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             }
+                            */
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
@@ -449,18 +455,12 @@ where
                                 // if we need more peers, attempt a connection
 
                                 if self.network_globals.connected_peers() < self.max_peers
-                                    && self
-                                        .network_globals
-                                        .peers
-                                        .read()
-                                        .peer_info(&peer_id)
-                                        .is_none()
+                                    && !self.network_globals.peers.read().is_connected(&peer_id)
                                     && !self.banned_peers.contains(&peer_id)
                                 {
                                     debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
-                                    return Async::Ready(NetworkBehaviourAction::DialPeer {
-                                        peer_id,
-                                    });
+                                    self.events
+                                        .push_back(NetworkBehaviourAction::DialPeer { peer_id });
                                 }
                             }
                         }
@@ -472,6 +472,12 @@ where
                 Async::NotReady => break,
             }
         }
+
+        // process any queued events
+        if let Some(event) = self.events.pop_front() {
+            return Async::Ready(event);
+        }
+
         Async::NotReady
     }
 }
