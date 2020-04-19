@@ -334,10 +334,6 @@ where
                     id = RequestId::from(new_id);
                 }
 
-                if let RPCRequest::MetaData(_) = request {
-                    debug!(self.log, "Outbound metadata opened!!");
-                }
-
                 // new outbound request. Store the stream and tag the output.
                 let delay_key = self
                     .outbound_substreams_delay
