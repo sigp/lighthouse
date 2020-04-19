@@ -148,6 +148,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             })
     }
 
+    /// Returns if the peer is already connected.
+    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
+        if let PeerConnectionStatus::Connected { .. } = self.connection_status(peer_id) {
+            true
+        } else {
+            false
+        }
+    }
+
     /* Setters */
 
     /// Sets a peer as connected with an ingoing connection
