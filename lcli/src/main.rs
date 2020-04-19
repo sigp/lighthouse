@@ -251,7 +251,8 @@ fn main() {
         .subcommand(
             SubCommand::with_name("new-testnet")
                 .about(
-                    "Produce a new testnet directory.",
+                    "Produce a new testnet directory. If any of the optional flags are not
+                    supplied the values will remain the default for the --spec flag",
                 )
                 .arg(
                     Arg::with_name("min-genesis-time")
@@ -266,7 +267,6 @@ fn main() {
                         .long("min-genesis-active-validator-count")
                         .value_name("INTEGER")
                         .takes_value(true)
-                        .default_value("16384")
                         .help("The number of validators required to trigger eth2 genesis."),
                 )
                 .arg(
@@ -274,7 +274,6 @@ fn main() {
                         .long("min-genesis-delay")
                         .value_name("SECONDS")
                         .takes_value(true)
-                        .default_value("3600")    // 10 minutes
                         .help("The delay between sufficient eth1 deposits and eth2 genesis."),
                 )
                 .arg(
@@ -282,7 +281,6 @@ fn main() {
                         .long("min-deposit-amount")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("100000000")    // 0.1 Eth
                         .help("The minimum permitted deposit amount."),
                 )
                 .arg(
@@ -290,7 +288,6 @@ fn main() {
                         .long("max-effective-balance")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("3200000000")    // 3.2 Eth
                         .help("The amount required to become a validator."),
                 )
                 .arg(
@@ -298,7 +295,6 @@ fn main() {
                         .long("effective-balance-increment")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("100000000")    // 0.1 Eth
                         .help("The steps in effective balance calculation."),
                 )
                 .arg(
@@ -306,7 +302,6 @@ fn main() {
                         .long("ejection-balance")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("1600000000")    // 1.6 Eth
                         .help("The balance at which a validator gets ejected."),
                 )
                 .arg(
@@ -314,7 +309,6 @@ fn main() {
                         .long("eth1-follow-distance")
                         .value_name("ETH1_BLOCKS")
                         .takes_value(true)
-                        .default_value("16")
                         .help("The distance to follow behind the eth1 chain head."),
                 )
                 .arg(
@@ -322,7 +316,6 @@ fn main() {
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
-                        .default_value("0x00000000") 
                         .help("Used to avoid reply attacks between testnets. Recommended to set to
                               non-default."),
                 )
@@ -331,7 +324,7 @@ fn main() {
                         .long("deposit-contract-address")
                         .value_name("ETH1_ADDRESS")
                         .takes_value(true)
-                        .default_value("0x0000000000000000000000000000000000000000")
+                        .required(true)
                         .help("The address of the deposit contract."),
                 )
                 .arg(
