@@ -1,8 +1,9 @@
 #[macro_use]
 extern crate clap;
 
-use beacon_node::{get_eth2_testnet_config, get_testnet_dir, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
+use clap_utils;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use slog::{crit, info, warn};
@@ -123,12 +124,13 @@ fn run<E: EthSpec>(
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
 
     let log_format = matches.value_of("log-format");
-    let eth2_testnet_config = get_eth2_testnet_config(&get_testnet_dir(matches))?;
+    let eth2_testnet_config =
+        clap_utils::parse_testnet_dir_with_hardcoded_default(matches, "testnet-dir")?;
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .eth2_testnet_config(&eth2_testnet_config)?
+        .eth2_testnet_config(eth2_testnet_config)?
         .build()?;
 
     let log = environment.core_context().log;
@@ -164,7 +166,7 @@ fn run<E: EthSpec>(
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        account_manager::run(sub_matches, environment);
+        account_manager::run(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());

@@ -1,5 +1,6 @@
 use bls::get_withdrawal_credentials;
-use deposit_contract::encode_eth1_tx_data;
+use deposit_contract::{encode_eth1_tx_data, DEPOSIT_GAS};
+use futures::{Future, IntoFuture};
 use hex;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -11,6 +12,10 @@ use std::path::PathBuf;
 use types::{
     test_utils::generate_deterministic_keypair, ChainSpec, DepositData, Hash256, Keypair,
     PublicKey, SecretKey, Signature,
+};
+use web3::{
+    types::{Address, TransactionRequest, U256},
+    Transport, Web3,
 };
 
 const VOTING_KEY_PREFIX: &str = "voting";
@@ -241,7 +246,7 @@ impl ValidatorDirectoryBuilder {
         Ok(())
     }
 
-    pub fn write_eth1_data_file(mut self) -> Result<Self, String> {
+    fn get_deposit_data(&self) -> Result<(Vec<u8>, u64), String> {
         let voting_keypair = self
             .voting_keypair
             .as_ref()
@@ -254,30 +259,35 @@ impl ValidatorDirectoryBuilder {
             .amount
             .ok_or_else(|| "write_eth1_data_file requires an amount")?;
         let spec = self.spec.as_ref().ok_or_else(|| "build requires a spec")?;
+
+        let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
+            &withdrawal_keypair.pk,
+            spec.bls_withdrawal_prefix_byte,
+        ));
+
+        let mut deposit_data = DepositData {
+            pubkey: voting_keypair.pk.clone().into(),
+            withdrawal_credentials,
+            amount,
+            signature: Signature::empty_signature().into(),
+        };
+
+        deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
+
+        let deposit_data = encode_eth1_tx_data(&deposit_data)
+            .map_err(|e| format!("Unable to encode eth1 deposit tx data: {:?}", e))?;
+
+        Ok((deposit_data, amount))
+    }
+
+    pub fn write_eth1_data_file(mut self) -> Result<Self, String> {
         let path = self
             .directory
             .as_ref()
             .map(|directory| directory.join(ETH1_DEPOSIT_DATA_FILE))
             .ok_or_else(|| "write_eth1_data_filer requires a directory")?;
 
-        let deposit_data = {
-            let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
-                &withdrawal_keypair.pk,
-                spec.bls_withdrawal_prefix_byte,
-            ));
-
-            let mut deposit_data = DepositData {
-                pubkey: voting_keypair.pk.clone().into(),
-                withdrawal_credentials,
-                amount,
-                signature: Signature::empty_signature().into(),
-            };
-
-            deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
-
-            encode_eth1_tx_data(&deposit_data)
-                .map_err(|e| format!("Unable to encode eth1 deposit tx data: {:?}", e))?
-        };
+        let (deposit_data, _) = self.get_deposit_data()?;
 
         if path.exists() {
             return Err(format!("Eth1 data file already exists at: {:?}", path));
@@ -293,6 +303,31 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
+    pub fn submit_eth1_deposit<T: Transport>(
+        self,
+        web3: Web3<T>,
+        from: Address,
+        deposit_contract: Address,
+    ) -> impl Future<Item = Self, Error = String> {
+        self.get_deposit_data()
+            .into_future()
+            .and_then(move |(deposit_data, deposit_amount)| {
+                web3.eth()
+                    .send_transaction(TransactionRequest {
+                        from,
+                        to: Some(deposit_contract),
+                        gas: Some(DEPOSIT_GAS.into()),
+                        gas_price: None,
+                        value: Some(from_gwei(deposit_amount)),
+                        data: Some(deposit_data.into()),
+                        nonce: None,
+                        condition: None,
+                    })
+                    .map_err(|e| format!("Failed to send transaction: {:?}", e))
+            })
+            .map(|_tx| self)
+    }
+
     pub fn build(self) -> Result<ValidatorDirectory, String> {
         Ok(ValidatorDirectory {
             directory: self.directory.ok_or_else(|| "build requires a directory")?,
@@ -301,6 +336,11 @@ impl ValidatorDirectoryBuilder {
             deposit_data: self.deposit_data,
         })
     }
+}
+
+/// Converts gwei to wei.
+fn from_gwei(gwei: u64) -> U256 {
+    U256::from(gwei) * U256::exp10(9)
 }
 
 #[cfg(test)]

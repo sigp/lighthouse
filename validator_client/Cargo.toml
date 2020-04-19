@@ -41,3 +41,4 @@ bls = { path = "../eth2/utils/bls" }
 remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }
 tempdir = "0.3"
 rayon = "1.2.0"
+web3 = "0.10.0"
