@@ -10,7 +10,7 @@ use rand::seq::SliceRandom;
 use rest_types::ValidatorSubscription;
 use slog::{crit, debug, error, o, warn};
 use slot_clock::SlotClock;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use types::{Attestation, EthSpec, Slot, SubnetId};
@@ -176,7 +176,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // sophisticated logic should be added using known future forks.
             // TODO: Implement
 
-            if subscription.is_aggregator() {
+            if subscription.is_aggregator {
                 // set the subscription timer to subscribe to the next subnet if required
                 if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
                     warn!(self.log, "Subscription to subnet error"; "error" => e);
