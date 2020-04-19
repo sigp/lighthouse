@@ -121,7 +121,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                 );
             } else {
-                if sync_state.is_synced() { 
+                if sync_state.is_synced() {
                     info!(
                         log_2,
                         "Synced";
@@ -131,7 +131,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "epoch" => current_epoch,
                         "slot" => current_slot,
                     );
-                } else { 
+                } else {
                     info!(
                         log_2,
                         "Searching for peers";
