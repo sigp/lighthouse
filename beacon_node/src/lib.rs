@@ -10,6 +10,7 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
 pub use eth2_config::Eth2Config;
 
+use beacon_chain::migrate::{BackgroundMigrator, DiskStore};
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, events::WebSocketSender,
     slot_clock::SystemTimeSlotClock,
@@ -20,7 +21,6 @@ use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
-use store::{migrate::BackgroundMigrator, DiskStore};
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.

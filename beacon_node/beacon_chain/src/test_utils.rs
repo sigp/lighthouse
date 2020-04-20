@@ -1,6 +1,7 @@
 pub use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
 };
+use crate::migrate::{BlockingMigrator, Migrate, NullMigrator};
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{
     builder::{BeaconChainBuilder, Witness},
@@ -15,16 +16,16 @@ use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{
-    migrate::{BlockingMigrator, NullMigrator},
-    DiskStore, MemoryStore, Migrate, Store,
-};
+use store::{DiskStore, MemoryStore, Store};
 use tempfile::{tempdir, TempDir};
+use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, BeaconState, ChainSpec, Domain, EthSpec, Hash256, Keypair,
-    SecretKey, Signature, SignedBeaconBlock, SignedRoot, Slot,
+    AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, EthSpec,
+    Hash256, Keypair, SecretKey, Signature, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot,
+    Slot,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -136,7 +137,10 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
+            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
+                store,
+                log.clone(),
+            ))
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
@@ -176,7 +180,10 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(store))
+            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
+                store,
+                log.clone(),
+            ))
             .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
@@ -276,6 +283,127 @@ where
         }
 
         head_block_root.expect("did not produce any blocks")
+    }
+
+    /// Returns current canonical head slot
+    pub fn get_chain_slot(&self) -> Slot {
+        self.chain.slot().unwrap()
+    }
+
+    /// Returns current canonical head state
+    pub fn get_head_state(&self) -> BeaconState<E> {
+        self.chain.head().unwrap().beacon_state
+    }
+
+    /// Adds a single block (synchronously) onto either the canonical chain (block_strategy ==
+    /// OnCanonicalHead) or a fork (block_strategy == ForkCanonicalChainAt).
+    pub fn add_block(
+        &self,
+        state: &BeaconState<E>,
+        block_strategy: BlockStrategy,
+        slot: Slot,
+        validators: &[usize],
+    ) -> (SignedBeaconBlockHash, BeaconState<E>) {
+        while self.chain.slot().expect("should have a slot") < slot {
+            self.advance_slot();
+        }
+
+        let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+
+        let outcome = self
+            .chain
+            .process_block(block)
+            .expect("should not error during block processing");
+
+        self.chain.fork_choice().expect("should find head");
+
+        if let BlockProcessingOutcome::Processed { block_root } = outcome {
+            let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
+            self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
+            (block_root.into(), new_state)
+        } else {
+            panic!("block should be successfully processed: {:?}", outcome);
+        }
+    }
+
+    /// `add_block()` repeated `num_blocks` times.
+    pub fn add_blocks(
+        &self,
+        mut state: BeaconState<E>,
+        mut slot: Slot,
+        num_blocks: usize,
+        attesting_validators: &[usize],
+        block_strategy: BlockStrategy,
+    ) -> (
+        HashMap<Slot, SignedBeaconBlockHash>,
+        HashMap<Slot, BeaconStateHash>,
+        Slot,
+        SignedBeaconBlockHash,
+        BeaconState<E>,
+    ) {
+        let mut blocks: HashMap<Slot, SignedBeaconBlockHash> = HashMap::with_capacity(num_blocks);
+        let mut states: HashMap<Slot, BeaconStateHash> = HashMap::with_capacity(num_blocks);
+        for _ in 0..num_blocks {
+            let (new_root_hash, new_state) =
+                self.add_block(&state, block_strategy, slot, attesting_validators);
+            blocks.insert(slot, new_root_hash);
+            states.insert(slot, new_state.tree_hash_root().into());
+            state = new_state;
+            slot += 1;
+        }
+        let head_hash = blocks[&(slot - 1)];
+        (blocks, states, slot, head_hash, state)
+    }
+
+    /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
+    pub fn add_canonical_chain_blocks(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        num_blocks: usize,
+        attesting_validators: &[usize],
+    ) -> (
+        HashMap<Slot, SignedBeaconBlockHash>,
+        HashMap<Slot, BeaconStateHash>,
+        Slot,
+        SignedBeaconBlockHash,
+        BeaconState<E>,
+    ) {
+        let block_strategy = BlockStrategy::OnCanonicalHead;
+        self.add_blocks(
+            state,
+            slot,
+            num_blocks,
+            attesting_validators,
+            block_strategy,
+        )
+    }
+
+    /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
+    pub fn add_stray_blocks(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        num_blocks: usize,
+        attesting_validators: &[usize],
+    ) -> (
+        HashMap<Slot, SignedBeaconBlockHash>,
+        HashMap<Slot, BeaconStateHash>,
+        Slot,
+        SignedBeaconBlockHash,
+        BeaconState<E>,
+    ) {
+        let block_strategy = BlockStrategy::ForkCanonicalChainAt {
+            previous_slot: slot,
+            first_slot: slot + 2,
+        };
+        self.add_blocks(
+            state,
+            slot + 2,
+            num_blocks,
+            attesting_validators,
+            block_strategy,
+        )
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
