@@ -353,7 +353,9 @@ where
                 .process_attestation(attestation)
                 .expect("should not error during attestation processing")
             {
-                AttestationProcessingOutcome::Processed => (),
+                // PastEpoch can occur if we fork over several epochs
+                AttestationProcessingOutcome::Processed
+                | AttestationProcessingOutcome::PastEpoch { .. } => (),
                 other => panic!("did not successfully process attestation: {:?}", other),
             }
         });
