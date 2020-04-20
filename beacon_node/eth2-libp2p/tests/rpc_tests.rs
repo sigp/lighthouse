@@ -25,8 +25,7 @@ fn test_status_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let port = common::unused_port("tcp").unwrap();
-    let (mut sender, mut receiver) = common::build_node_pair(&log, port);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // Dummy STATUS RPC message
     let rpc_request = RPCRequest::Status(StatusMessage {
@@ -141,8 +140,7 @@ fn test_blocks_by_range_chunked_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let port = common::unused_port("tcp").unwrap();
-    let (mut sender, mut receiver) = common::build_node_pair(&log, port);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
@@ -277,8 +275,7 @@ fn test_blocks_by_range_single_empty_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let port = common::unused_port("tcp").unwrap();
-    let (mut sender, mut receiver) = common::build_node_pair(&log, port);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
@@ -414,8 +411,7 @@ fn test_blocks_by_root_chunked_rpc() {
     let spec = E::default_spec();
 
     // get sender/receiver
-    let port = common::unused_port("tcp").unwrap();
-    let (mut sender, mut receiver) = common::build_node_pair(&log, port);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // BlocksByRoot Request
     let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
@@ -543,8 +539,7 @@ fn test_goodbye_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let port = common::unused_port("tcp").unwrap();
-    let (mut sender, mut receiver) = common::build_node_pair(&log, port);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // Goodbye Request
     let rpc_request = RPCRequest::Goodbye(GoodbyeReason::ClientShutdown);
