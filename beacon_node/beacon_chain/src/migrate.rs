@@ -18,7 +18,7 @@ use types::{BeaconState, EthSpec, Hash256, Slot};
 pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
     fn new(db: Arc<S>, log: Logger) -> Self;
 
-    fn freeze_to_state(
+    fn process_finalization(
         &self,
         _state_root: Hash256,
         _state: BeaconState<E>,
@@ -185,7 +185,7 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
         BlockingMigrator { db }
     }
 
-    fn freeze_to_state(
+    fn process_finalization(
         &self,
         state_root: Hash256,
         state: BeaconState<E>,
@@ -195,7 +195,7 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
         new_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_slot: Slot,
     ) {
-        if let Err(e) = S::freeze_to_state(self.db.clone(), state_root, &state) {
+        if let Err(e) = S::process_finalization(self.db.clone(), state_root, &state) {
             // This migrator is only used for testing, so we just log to stderr without a logger.
             eprintln!("Migration error: {:?}", e);
         }
@@ -235,7 +235,7 @@ impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
     }
 
     /// Perform the freezing operation on the database,
-    fn freeze_to_state(
+    fn process_finalization(
         &self,
         finalized_state_root: Hash256,
         finalized_state: BeaconState<E>,
@@ -315,7 +315,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
                 new_finalized_slot,
             )) = rx.recv()
             {
-                match DiskStore::freeze_to_state(db.clone(), state_root, &state) {
+                match DiskStore::process_finalization(db.clone(), state_root, &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                         debug!(

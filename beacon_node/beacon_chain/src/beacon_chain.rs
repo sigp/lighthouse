@@ -1994,7 +1994,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // TODO: configurable max finality distance
             let max_finality_distance = 0;
-            self.store_migrator.freeze_to_state(
+            self.store_migrator.process_finalization(
                 finalized_block.state_root,
                 finalized_state,
                 max_finality_distance,

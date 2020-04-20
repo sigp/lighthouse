@@ -130,7 +130,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
-    fn freeze_to_state(
+    fn process_finalization(
         _store: Arc<Self>,
         _frozen_head_root: Hash256,
         _frozen_head: &BeaconState<E>,
