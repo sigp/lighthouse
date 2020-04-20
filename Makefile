@@ -41,6 +41,11 @@ test: test-release
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef
 
+# Lints the code for bad style and potentially unsafe arithmetic using Clippy.
+# Clippy lints are opt-in per-crate for now, which is why we allow all by default.
+lint:
+	cargo clippy --all -- -A clippy::all
+
 # Runs the makefile in the `ef_tests` repo.
 #
 # May download and extract an archive of test vectors from the ethereum

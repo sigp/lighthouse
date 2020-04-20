@@ -1,9 +1,10 @@
 use super::signature_sets::Error as SignatureSetError;
 use merkle_proof::MerkleTreeError;
+use safe_arith::ArithError;
 use types::*;
 
 /// The error returned from the `per_block_processing` function. Indicates that a block is either
-/// invalid, or we were unable to determine it's validity (we encountered an unexpected error).
+/// invalid, or we were unable to determine its validity (we encountered an unexpected error).
 ///
 /// Any of the `...Error` variants indicate that at some point during block (and block operation)
 /// verification, there was an error. There is no indication as to _where_ that error happened
@@ -48,6 +49,7 @@ pub enum BlockProcessingError {
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
     MerkleTreeError(MerkleTreeError),
+    ArithError(ArithError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -68,6 +70,12 @@ impl From<ssz_types::Error> for BlockProcessingError {
     }
 }
 
+impl From<ArithError> for BlockProcessingError {
+    fn from(e: ArithError) -> Self {
+        BlockProcessingError::ArithError(e)
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -75,6 +83,7 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+            BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
     }
 }
@@ -101,6 +110,7 @@ macro_rules! impl_into_block_processing_error_with_index {
                         BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
                         BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
                         BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                        BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
                     }
                 }
             }
@@ -130,6 +140,7 @@ pub enum BlockOperationError<T> {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    ArithError(ArithError),
 }
 
 impl<T> BlockOperationError<T> {
@@ -152,6 +163,12 @@ impl<T> From<SignatureSetError> for BlockOperationError<T> {
 impl<T> From<ssz_types::Error> for BlockOperationError<T> {
     fn from(error: ssz_types::Error) -> Self {
         BlockOperationError::SszTypesError(error)
+    }
+}
+
+impl<T> From<ArithError> for BlockOperationError<T> {
+    fn from(e: ArithError) -> Self {
+        BlockOperationError::ArithError(e)
     }
 }
 
@@ -265,6 +282,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
             BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
         }
     }
 }

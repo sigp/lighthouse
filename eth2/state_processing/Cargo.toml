@@ -27,6 +27,7 @@ eth2_ssz = "0.1.2"
 eth2_ssz_types = { path = "../utils/ssz_types" }
 merkle_proof = { path = "../utils/merkle_proof" }
 log = "0.4.8"
+safe_arith = { path = "../utils/safe_arith" }
 tree_hash = "0.1.0"
 tree_hash_derive = "0.2"
 types = { path = "../types" }

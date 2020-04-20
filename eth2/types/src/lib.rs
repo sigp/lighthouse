@@ -2,6 +2,8 @@
 
 // Required for big type-level numbers
 #![recursion_limit = "128"]
+// Clippy lint set up
+#![deny(clippy::integer_arithmetic)]
 
 #[macro_use]
 pub mod test_utils;

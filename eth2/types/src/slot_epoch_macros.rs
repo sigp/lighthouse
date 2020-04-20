@@ -107,20 +107,21 @@ macro_rules! impl_math_between {
 
             fn div(self, rhs: $other) -> $main {
                 let rhs: u64 = rhs.into();
-                if rhs == 0 {
-                    panic!("Cannot divide by zero-valued Slot/Epoch")
-                }
-                $main::from(self.0 / rhs)
+                $main::from(
+                    self.0
+                        .checked_div(rhs)
+                        .expect("Cannot divide by zero-valued Slot/Epoch"),
+                )
             }
         }
 
         impl DivAssign<$other> for $main {
             fn div_assign(&mut self, rhs: $other) {
                 let rhs: u64 = rhs.into();
-                if rhs == 0 {
-                    panic!("Cannot divide by zero-valued Slot/Epoch")
-                }
-                self.0 = self.0 / rhs
+                self.0 = self
+                    .0
+                    .checked_div(rhs)
+                    .expect("Cannot divide by zero-valued Slot/Epoch");
             }
         }
 
@@ -129,7 +130,11 @@ macro_rules! impl_math_between {
 
             fn rem(self, modulus: $other) -> $main {
                 let modulus: u64 = modulus.into();
-                $main::from(self.0 % modulus)
+                $main::from(
+                    self.0
+                        .checked_rem(modulus)
+                        .expect("Cannot divide by zero-valued Slot/Epoch"),
+                )
             }
         }
     };
@@ -234,7 +239,7 @@ macro_rules! impl_ssz {
             }
 
             fn tree_hash_packing_factor() -> usize {
-                32 / 8
+                32usize.wrapping_div(8)
             }
 
             fn tree_hash_root(&self) -> tree_hash::Hash256 {

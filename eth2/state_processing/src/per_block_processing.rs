@@ -1,6 +1,7 @@
 use crate::common::{initiate_validator_exit, slash_validator};
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
+use safe_arith::{ArithError, SafeArith};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::convert::TryInto;
 use tree_hash::TreeHash;
@@ -239,7 +240,7 @@ pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
 ) -> Result<(), Error> {
-    if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data) {
+    if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data)? {
         state.eth1_data = new_eth1_data;
     }
 
@@ -248,14 +249,14 @@ pub fn process_eth1_data<T: EthSpec>(
     Ok(())
 }
 
-/// Returns `Some(eth1_data)` if adding the given `eth1_data` to `state.eth1_data_votes` would
+/// Returns `Ok(Some(eth1_data))` if adding the given `eth1_data` to `state.eth1_data_votes` would
 /// result in a change to `state.eth1_data`.
 ///
 /// Spec v0.11.1
 pub fn get_new_eth1_data<T: EthSpec>(
     state: &BeaconState<T>,
     eth1_data: &Eth1Data,
-) -> Option<Eth1Data> {
+) -> Result<Option<Eth1Data>, ArithError> {
     let num_votes = state
         .eth1_data_votes
         .iter()
@@ -263,10 +264,10 @@ pub fn get_new_eth1_data<T: EthSpec>(
         .count();
 
     // The +1 is to account for the `eth1_data` supplied to the function.
-    if 2 * (num_votes + 1) > T::SlotsPerEth1VotingPeriod::to_usize() {
-        Some(eth1_data.clone())
+    if num_votes.safe_add(1)?.safe_mul(2)? > T::SlotsPerEth1VotingPeriod::to_usize() {
+        Ok(Some(eth1_data.clone()))
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -318,7 +319,8 @@ pub fn process_attester_slashings<T: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     // Verify the `IndexedAttestation`s in parallel (these are the resource-consuming objects, not
     // the `AttesterSlashing`s themselves).
-    let mut indexed_attestations: Vec<&_> = Vec::with_capacity(attester_slashings.len() * 2);
+    let mut indexed_attestations: Vec<&_> =
+        Vec::with_capacity(attester_slashings.len().safe_mul(2)?);
     for attester_slashing in attester_slashings {
         indexed_attestations.push(&attester_slashing.attestation_1);
         indexed_attestations.push(&attester_slashing.attestation_2);
@@ -432,8 +434,13 @@ pub fn process_deposits<T: EthSpec>(
         .par_iter()
         .enumerate()
         .try_for_each(|(i, deposit)| {
-            verify_deposit_merkle_proof(state, deposit, state.eth1_deposit_index + i as u64, spec)
-                .map_err(|e| e.into_with_index(i))
+            verify_deposit_merkle_proof(
+                state,
+                deposit,
+                state.eth1_deposit_index.safe_add(i as u64)?,
+                spec,
+            )
+            .map_err(|e| e.into_with_index(i))
         })?;
 
     // Update the state in series.
@@ -459,7 +466,7 @@ pub fn process_deposit<T: EthSpec>(
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    state.eth1_deposit_index += 1;
+    state.eth1_deposit_index.increment()?;
 
     // Ensure the state's pubkey cache is fully up-to-date, it will be used to check to see if the
     // depositing validator already exists in the registry.
@@ -495,7 +502,7 @@ pub fn process_deposit<T: EthSpec>(
             exit_epoch: spec.far_future_epoch,
             withdrawable_epoch: spec.far_future_epoch,
             effective_balance: std::cmp::min(
-                amount - amount % spec.effective_balance_increment,
+                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
                 spec.max_effective_balance,
             ),
             slashed: false,
