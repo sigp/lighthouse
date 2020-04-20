@@ -49,6 +49,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     /// A cache of recently seen gossip messages. This is used to filter out any possible
     /// duplicates that may still be seen over gossipsub.
     #[behaviour(ignore)]
+    // TODO: Remove this
     seen_gossip_messages: LruCache<MessageId, ()>,
     /// A collections of variables accessible outside the network service.
     #[behaviour(ignore)]
@@ -349,7 +350,14 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                         }
                     }
                 } else {
-                    warn!(self.log, "A duplicate gossipsub message was received"; "message" => format!("{:?}", gs_msg));
+                    match PubsubMessage::<TSpec>::decode(&gs_msg.topics, &gs_msg.data) {
+                        Err(e) => {
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                        }
+                        Ok(msg) => {
+                            crit!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
+                        }
+                    }
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
