@@ -1,5 +1,4 @@
 use clap::ArgMatches;
-use environment::Environment;
 use eth1_test_rig::DepositContract;
 use futures::compat::Future01CompatExt;
 use std::fs::File;
@@ -7,7 +6,7 @@ use std::io::Read;
 use types::EthSpec;
 use web3::{transports::Http, Web3};
 
-pub async fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
     let confirmations = matches
         .value_of("confirmations")
         .ok_or_else(|| "Confirmations not specified")?
