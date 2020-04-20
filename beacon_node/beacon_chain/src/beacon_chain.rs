@@ -1445,7 +1445,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
-        GossipVerifiedBlock::new(block, self)
+        let slot = block.message.slot;
+        let graffiti_string = String::from_utf8(block.message.body.graffiti[..].to_vec())
+            .unwrap_or_else(|_| format!("{:?}", &block.message.body.graffiti[..]));
+
+        match GossipVerifiedBlock::new(block, self) {
+            Ok(verified) => {
+                debug!(
+                    self.log,
+                    "Successfully processed gossip block";
+                    "graffiti" => graffiti_string,
+                    "slot" => slot,
+                    "root" => format!("{:?}", verified.block_root()),
+                );
+
+                Ok(verified)
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Rejected gossip block";
+                    "error" => format!("{:?}", e),
+                    "graffiti" => graffiti_string,
+                    "slot" => slot,
+                );
+
+                Err(e)
+            }
+        }
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
