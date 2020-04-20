@@ -1714,7 +1714,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut shuffling_filter_cache = HashMap::new();
         let attestation_filter = |att: &&Attestation<T::EthSpec>| -> bool {
             *shuffling_filter_cache
-                .entry(att.data.beacon_block_root)
+                .entry((att.data.beacon_block_root, att.data.target.epoch))
                 .or_insert_with(|| {
                     self.shuffling_is_compatible(
                         &att.data.beacon_block_root,
