@@ -60,7 +60,7 @@ impl<T: BeaconChainTypes> Router<T> {
         executor: &tokio::runtime::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
-        let message_handler_log = log.new(o!("service"=> "msg_handler"));
+        let message_handler_log = log.new(o!("service"=> "router"));
         trace!(message_handler_log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
@@ -262,16 +262,18 @@ impl<T: BeaconChainTypes> Router<T> {
                     AttestationType::Unaggregated { should_store: true },
                 );
             }
-            PubsubMessage::BeaconBlock(block) => match self.processor.should_forward_block(block) {
-                Ok(verified_block) => {
-                    self.propagate_message(id, peer_id.clone());
-                    self.processor.on_block_gossip(peer_id, verified_block);
-                }
-                Err(e) => {
-                    warn!(self.log, "Could not verify block for gossip";
+            PubsubMessage::BeaconBlock(block) => {
+                match self.processor.should_forward_block(&peer_id, block) {
+                    Ok(verified_block) => {
+                        self.propagate_message(id, peer_id.clone());
+                        self.processor.on_block_gossip(peer_id, verified_block);
+                    }
+                    Err(e) => {
+                        warn!(self.log, "Could not verify block for gossip";
                             "error" => format!("{:?}", e));
+                    }
                 }
-            },
+            }
             PubsubMessage::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
