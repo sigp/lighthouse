@@ -2,7 +2,7 @@ use crate::{
     hot_cold_store::HotColdDBError, DiskStore, Error, MemoryStore, SimpleDiskStore, Store,
 };
 use parking_lot::Mutex;
-use slog::{info, warn};
+use slog::{debug, warn};
 use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -131,7 +131,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
                 match DiskStore::freeze_to_state(db.clone(), state_root, &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
-                        info!(
+                        debug!(
                             db.log,
                             "Database migration postponed, unaligned finalized block";
                             "slot" => slot.as_u64()

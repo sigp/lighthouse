@@ -1,5 +1,8 @@
 use super::errors::{BlockOperationError, ExitInvalid};
-use crate::per_block_processing::{signature_sets::exit_signature_set, VerifySignatures};
+use crate::per_block_processing::{
+    signature_sets::{exit_signature_set, get_pubkey_from_state},
+    VerifySignatures,
+};
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<ExitInvalid>>;
@@ -13,7 +16,7 @@ fn error(reason: ExitInvalid) -> BlockOperationError<ExitInvalid> {
 ///
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn verify_exit<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &SignedVoluntaryExit,
@@ -25,7 +28,7 @@ pub fn verify_exit<T: EthSpec>(
 
 /// Like `verify_exit` but doesn't run checks which may become true in future states.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn verify_exit_time_independent_only<T: EthSpec>(
     state: &BeaconState<T>,
     exit: &SignedVoluntaryExit,
@@ -37,7 +40,7 @@ pub fn verify_exit_time_independent_only<T: EthSpec>(
 
 /// Parametric version of `verify_exit` that skips some checks if `time_independent_only` is true.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn verify_exit_parametric<T: EthSpec>(
     state: &BeaconState<T>,
     signed_exit: &SignedVoluntaryExit,
@@ -84,7 +87,13 @@ fn verify_exit_parametric<T: EthSpec>(
 
     if verify_signatures.is_true() {
         verify!(
-            exit_signature_set(state, signed_exit, spec)?.is_valid(),
+            exit_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                signed_exit,
+                spec
+            )?
+            .is_valid(),
             ExitInvalid::BadSignature
         );
     }

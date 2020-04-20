@@ -82,6 +82,7 @@ impl BeaconTreeHashCache {
         let mut hasher = MerkleHasher::with_leaves(NUM_BEACON_STATE_HASHING_FIELDS);
 
         hasher.write(state.genesis_time.tree_hash_root().as_bytes())?;
+        hasher.write(state.genesis_validators_root.tree_hash_root().as_bytes())?;
         hasher.write(state.slot.tree_hash_root().as_bytes())?;
         hasher.write(state.fork.tree_hash_root().as_bytes())?;
         hasher.write(state.latest_block_header.tree_hash_root().as_bytes())?;
@@ -152,6 +153,14 @@ impl BeaconTreeHashCache {
         hasher.write(state.finalized_checkpoint.tree_hash_root().as_bytes())?;
 
         hasher.finish().map_err(Into::into)
+    }
+
+    /// Updates the cache and provides the root of the given `validators`.
+    pub fn recalculate_validators_tree_hash_root(
+        &mut self,
+        validators: &[Validator],
+    ) -> Result<Hash256, Error> {
+        self.validators.recalculate_tree_hash_root(validators)
     }
 }
 

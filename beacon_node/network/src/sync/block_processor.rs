@@ -1,12 +1,23 @@
-use super::batch::Batch;
 use crate::message_processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
+use crate::sync::range_sync::BatchId;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
+use types::SignedBeaconBlock;
 
-/// The result of attempting to process a batch of blocks.
+/// Id associated to a block processing request, either a batch or a single block.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProcessId {
+    /// Processing Id of a range syncing batch.
+    RangeBatchId(BatchId),
+    /// Processing Id of the parent lookup of a block
+    ParentLookup(PeerId),
+}
+
+/// The result of a block processing request.
 // TODO: When correct batch error handling occurs, we will include an error type.
 #[derive(Debug)]
 pub enum BatchProcessResult {
@@ -16,46 +27,81 @@ pub enum BatchProcessResult {
     Failed,
 }
 
-// TODO: Refactor to async fn, with stable futures
-pub fn spawn_batch_processor<T: BeaconChainTypes>(
+/// Spawns a thread handling the block processing of a request: range syncing or parent lookup.
+pub fn spawn_block_processor<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
-    process_id: u64,
-    batch: Batch<T::EthSpec>,
+    process_id: ProcessId,
+    downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
     std::thread::spawn(move || {
-        debug!(log, "Processing batch"; "id" => *batch.id);
-        let result = match process_batch(chain, &batch, &log) {
-            Ok(_) => BatchProcessResult::Success,
-            Err(_) => BatchProcessResult::Failed,
-        };
+        match process_id {
+            // this a request from the range sync
+            ProcessId::RangeBatchId(batch_id) => {
+                debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
+                let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
+                    Ok(_) => {
+                        debug!(log, "Batch processed"; "id" => *batch_id );
+                        BatchProcessResult::Success
+                    }
+                    Err(e) => {
+                        debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
+                        BatchProcessResult::Failed
+                    }
+                };
 
-        debug!(log, "Batch processed"; "id" => *batch.id, "result" => format!("{:?}", result));
-
-        sync_send
-            .try_send(SyncMessage::BatchProcessed {
-                process_id,
-                batch: Box::new(batch),
-                result,
-            })
-            .unwrap_or_else(|_| {
-                debug!(
-                    log,
-                    "Batch result could not inform sync. Likely shutting down."
-                );
-            });
+                let msg = SyncMessage::BatchProcessed {
+                    batch_id: batch_id,
+                    downloaded_blocks: downloaded_blocks,
+                    result,
+                };
+                sync_send.try_send(msg).unwrap_or_else(|_| {
+                    debug!(
+                        log,
+                        "Block processor could not inform range sync result. Likely shutting down."
+                    );
+                });
+            }
+            // this a parent lookup request from the sync manager
+            ProcessId::ParentLookup(peer_id) => {
+                debug!(log, "Processing parent lookup"; "last_peer_id" => format!("{}", peer_id), "blocks" => downloaded_blocks.len());
+                // parent blocks are ordered from highest slot to lowest, so we need to process in
+                // reverse
+                match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
+                    Err(e) => {
+                        warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
+                        sync_send
+                        .try_send(SyncMessage::ParentLookupFailed(peer_id))
+                        .unwrap_or_else(|_| {
+                            // on failure, inform to downvote the peer
+                            debug!(
+                                log,
+                                "Block processor could not inform parent lookup result. Likely shutting down."
+                            );
+                        });
+                    }
+                    Ok(_) => {
+                        debug!(log, "Parent lookup processed successfully");
+                    }
+                }
+            }
+        }
     });
 }
 
-// Helper function to process block batches which only consumes the chain and blocks to process
-fn process_batch<T: BeaconChainTypes>(
+/// Helper function to process blocks batches which only consumes the chain and blocks to process.
+fn process_blocks<
+    'a,
+    T: BeaconChainTypes,
+    I: Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
+>(
     chain: Weak<BeaconChain<T>>,
-    batch: &Batch<T::EthSpec>,
+    downloaded_blocks: I,
     log: &slog::Logger,
 ) -> Result<(), String> {
     let mut successful_block_import = false;
-    for block in &batch.downloaded_blocks {
+    for block in downloaded_blocks {
         if let Some(chain) = chain.upgrade() {
             let processing_result = chain.process_block(block.clone());
 
@@ -72,6 +118,7 @@ fn process_batch<T: BeaconChainTypes>(
                     }
                     BlockProcessingOutcome::ParentUnknown { parent, .. } => {
                         // blocks should be sequential and all parents should exist
+                        // this is a failure if blocks do not have parents
                         warn!(
                             log, "Parent block is unknown";
                             "parent_root" => format!("{}", parent),

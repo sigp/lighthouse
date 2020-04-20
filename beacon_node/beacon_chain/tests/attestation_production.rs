@@ -106,7 +106,7 @@ fn produces_attestations() {
             );
             assert_eq!(
                 attestation.signature,
-                AggregateSignature::new(),
+                AggregateSignature::empty_signature(),
                 "bad signature"
             );
             assert_eq!(data.index, index, "bad index");

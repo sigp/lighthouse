@@ -3,143 +3,104 @@
 > This section is about running your own private local testnets.
 > - If you wish to join the ongoing public testnet, please read [become a validator](./become-a-validator.md).
 
-The `beacon_node` and `validator` commands have a `testnet` sub-command to
-allow creating or connecting to Eth2 beacon chain testnets.
+It is possible to create local, short-lived Lighthouse testnets that _don't_
+require a deposit contract and Eth1 connection. There are two components
+required for this:
 
-For detailed documentation, use the `--help` flag on the CLI:
+1. Creating a "testnet directory", containing the configuration of your new
+   testnet.
+1. Using the `--dummy-eth1` flag on your beacon node to avoid needing an Eth1
+   node for block production.
 
-```bash
-$ lighthouse bn testnet --help
-```
+There is a TL;DR (too long; didn't read), followed by detailed steps if the
+TL;DR isn't adequate.
 
-```bash
-$ lighthouse vc testnet --help
-```
-
-## Examples
-
-All examples assume a working [development environment](./setup.md) and
-commands are based in the `target/release` directory (this is the build dir for
-`cargo`).
-
-### Start a beacon node given a validator count and genesis_time
-
-
-To start a brand-new beacon node (with no history) use:
+##  TL;DR
 
 ```bash
-$ lighthouse bn testnet -f quick 8 <GENESIS_TIME>
+lcli new-testnet
+lcli interop-genesis 128
+lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http
+lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insecure 0 128
 ```
 
-Where `GENESIS_TIME` is in [unix time](https://duckduckgo.com/?q=unix+time&t=ffab&ia=answer).
-
-> Notes:
->
-> - This method conforms the ["Quick-start
-genesis"](https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#quick-start-genesis)
-method in the `ethereum/eth2.0-pm` repository.
-> - The `-f` flag ignores any existing database or configuration, backing them
->   up before re-initializing.
-> - `8` is the validator count and `1567222226` is the genesis time.
-> - See `$ lighthouse bn testnet quick --help` for more configuration options.
-
-### Start a beacon node given a genesis state file
-
-A genesis state can be read from file using the `testnet file` subcommand.
-There are three supported formats:
-
-- `ssz` (default)
-- `json`
-- `yaml`
-
-Start a new node using `/tmp/genesis.ssz` as the genesis state:
+Optionally update the genesis time to now:
 
 ```bash
-$ lighthouse bn testnet --spec minimal -f file ssz /tmp/genesis.ssz
+lcli change-genesis-time ~/.lighthouse/testnet/genesis.ssz $(date +%s)
 ```
 
-> Notes:
->
-> - The `-f` flag ignores any existing database or configuration, backing them
->   up before re-initializing.
-> - See `$ lighthouse bn testnet file --help` for more configuration options.
-> - The `--spec` flag is required to allow SSZ parsing of fixed-length lists.
->   Here the `minimal` eth2 specification is chosen, allowing for lower
->   validator counts. See
->   [eth2.0-specs/configs](https://github.com/ethereum/eth2.0-specs/tree/dev/configs)
->   for more info.
+## 1. Creating a testnet directory
 
-### Start an auto-configured validator client
+### 1.1 Install `lcli`
 
-To start a brand-new validator client (with no history) use:
+This guide requires `lcli`, the "Lighthouse CLI tool". It is a development tool
+used for starting testnets and debugging.
+
+Install `lcli` from the root directory of this repository with:
 
 ```bash
-$ lighthouse vc testnet insecure 0 8
+cargo install --path lcli --force
 ```
 
-> Notes:
->
-> - The `insecure` command dictates that the [interop keypairs](https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#pubkeyprivkey-generation)
->   will be used.
-> - The `0 8` indicates that this validator client should manage 8 validators,
->   starting at validator 0 (the first deposited validator).
-> - The validator client will try to connect to the beacon node at `localhost`.
->   See `--help` to configure that address and other features.
-> - The validator client will operate very unsafely in `testnet` mode, happily
->   swapping between chains and creating double-votes.
+### 1.2 Create a testnet directory
 
-### Exporting a genesis file
+The default location for a testnet directory is `~/.lighthouse/testnet`. We'll
+use this directory to keep the examples simple, however you can always specify
+a different directory using the `--testnet-dir` flag.
 
-Genesis states can downloaded from a running Lighthouse node via the HTTP API. Three content-types are supported:
-
-- `application/json`
-- `application/yaml`
-- `application/ssz`
-
-Using `curl`, a genesis state can be downloaded to `/tmp/genesis.ssz`:
+Once you have `lcli` installed, create a new testnet directory with:
 
 ```bash
-$ curl --header "Content-Type: application/ssz" "localhost:5052/beacon/state/genesis" -o /tmp/genesis.ssz
+lcli new-testnet
 ```
 
-## Advanced
+> - This will create a "mainnet" spec testnet. To create a minimal spec use `lcli --spec minim new-testnet`.
+> - The `lcli new-testnet` command has many options, use `lcli new-testnet --help` to see them.
 
-Below are some CLI commands useful when working with testnets.
+### 1.3 Create a genesis state
 
-### Specify a boot node by multiaddr
+Your new testnet directory at `~/.lighthouse/testnet` doesn't yet have a
+genesis state (`genesis.ssz`). Since there's no deposit contract in this
+testnet, there's no way for nodes to find genesis themselves.
 
-You can specify a static list of multiaddrs when booting Lighthouse using
-the `--libp2p-addresses` command.
-
-#### Example:
+Manually create an "interop" genesis state with `128` validators:
 
 ```bash
-$ lighthouse bn --libp2p-addresses /ip4/192.168.0.1/tcp/9000
+lcli interop-genesis 128
 ```
 
-### Specify a boot node by ENR (Ethereum Name Record)
+> - A custom genesis time can be provided with `-t`.
+> - See `lcli interop-genesis --help` for more info.
 
-You can specify a static list of Discv5 addresses when booting Lighthouse using
-the `--boot-nodes` command.
+## 2. Start the beacon nodes and validator clients
 
-#### Example:
+Now the testnet has been specified in `~/.lighthouse/testnet`, it's time to
+start a beacon node and validator client.
+
+### 2.1 Start a beacon node
+
+Start a beacon node:
 
 ```bash
-$ lighthouse bn --boot-nodes -IW4QB2Hi8TPuEzQ41Cdf1r2AUU1FFVFDBJdJyOkWk2qXpZfFZQy2YnJIyoT_5fnbtrXUouoskmydZl4pIg90clIkYUDgmlwhH8AAAGDdGNwgiMog3VkcIIjKIlzZWNwMjU2azGhAjg0-DsTkQynhJCRnLLttBK1RS78lmUkLa-wgzAi-Ob5
+lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http
 ```
 
-### Start a testnet with a custom slot time
+> - `--testnet-dir` instructs the beacon node to use the spec we generated earlier.
+> - `--dummy-eth1` uses deterministic "junk data" for linking to the eth1 chain, avoiding the requirement for an eth1 node. The downside is that new validators cannot be on-boarded after genesis.
+> - `--http` starts the REST API so the validator client can produce blocks.
 
-Lighthouse can run at quite low slot times when there are few validators (e.g.,
-`500 ms` slot times should be fine for 8 validators).
+### 2.2 Start a validator client
 
-#### Example:
-
-The `-t` (`--slot-time`) flag specifies the milliseconds per slot.
+Once the beacon node has started and begun trying to sync, start a validator
+client:
 
 ```bash
-$ lighthouse bn testnet -t 500 recent 8
+lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insecure 0 128
 ```
 
-> Note: `bootstrap` loads the slot time via HTTP and therefore conflicts with
-> this flag.
+> - `--testnet-dir` instructs the validator client to use the spec we generated earlier.
+> - `--allow-unsynced` stops the validator client checking to see if the beacon node is synced prior to producing blocks.
+> - `testnet insecure 0 128` instructs the validator client to use insecure
+>    testnet private keys and that it should control validators from `0` to
+>    `127` (inclusive).

@@ -12,9 +12,10 @@ impl TestingProposerSlashingBuilder {
     /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
     pub fn double_vote<T>(
         test_task: ProposerSlashingTestTask,
-        mut proposer_index: u64,
+        proposer_index: u64,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> ProposerSlashing
     where
@@ -31,6 +32,7 @@ impl TestingProposerSlashingBuilder {
         let mut signed_header_1 = SignedBeaconBlockHeader {
             message: BeaconBlockHeader {
                 slot,
+                proposer_index,
                 parent_root: hash_1,
                 state_root: hash_1,
                 body_root: hash_1,
@@ -54,19 +56,25 @@ impl TestingProposerSlashingBuilder {
         };
 
         if test_task != ProposerSlashingTestTask::BadProposal1Signature {
-            signed_header_1 = signed_header_1.message.sign::<T>(secret_key, fork, spec);
+            signed_header_1 =
+                signed_header_1
+                    .message
+                    .sign::<T>(secret_key, fork, genesis_validators_root, spec);
         }
 
         if test_task != ProposerSlashingTestTask::BadProposal2Signature {
-            signed_header_2 = signed_header_2.message.sign::<T>(secret_key, fork, spec);
+            signed_header_2 =
+                signed_header_2
+                    .message
+                    .sign::<T>(secret_key, fork, genesis_validators_root, spec);
         }
 
         if test_task == ProposerSlashingTestTask::ProposerUnknown {
-            proposer_index = 3_141_592;
+            signed_header_1.message.proposer_index = 3_141_592;
+            signed_header_2.message.proposer_index = 3_141_592;
         }
 
         ProposerSlashing {
-            proposer_index,
             signed_header_1,
             signed_header_2,
         }

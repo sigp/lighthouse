@@ -11,7 +11,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PartialBeaconState<T>
 where
@@ -19,6 +19,7 @@ where
 {
     // Versioning
     pub genesis_time: u64,
+    pub genesis_validators_root: Hash256,
     pub slot: Slot,
     pub fork: Fork,
 
@@ -72,6 +73,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         // TODO: could use references/Cow for fields to avoid cloning
         PartialBeaconState {
             genesis_time: s.genesis_time,
+            genesis_validators_root: s.genesis_validators_root,
             slot: s.slot,
             fork: s.fork.clone(),
 
@@ -181,6 +183,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
 
         Ok(BeaconState {
             genesis_time: self.genesis_time,
+            genesis_validators_root: self.genesis_validators_root,
             slot: self.slot,
             fork: self.fork,
 

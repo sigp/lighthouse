@@ -5,14 +5,14 @@ use types::{BeaconState, EthSpec, Hash256, SignedBeaconBlock};
 /// Represents some block and its associated state. Generally, this will be used for tracking the
 /// head, justified head and finalized head.
 #[derive(Clone, Serialize, PartialEq, Debug, Encode, Decode)]
-pub struct CheckPoint<E: EthSpec> {
+pub struct BeaconSnapshot<E: EthSpec> {
     pub beacon_block: SignedBeaconBlock<E>,
     pub beacon_block_root: Hash256,
     pub beacon_state: BeaconState<E>,
     pub beacon_state_root: Hash256,
 }
 
-impl<E: EthSpec> CheckPoint<E> {
+impl<E: EthSpec> BeaconSnapshot<E> {
     /// Create a new checkpoint.
     pub fn new(
         beacon_block: SignedBeaconBlock<E>,
