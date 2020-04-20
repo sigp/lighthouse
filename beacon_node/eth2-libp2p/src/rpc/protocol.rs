@@ -50,6 +50,13 @@ pub enum Protocol {
     MetaData,
 }
 
+/// RPC Versions
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Version {
+    /// Version 1 of RPC
+    V1,
+}
+
 /// RPC Encondings supported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Encoding {
@@ -81,6 +88,15 @@ impl std::fmt::Display for Encoding {
     }
 }
 
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let repr = match self {
+            Version::V1 => "1",
+        };
+        f.write_str(repr)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
     pub phantom: PhantomData<TSpec>,
@@ -93,18 +109,18 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
         vec![
-            ProtocolId::new(Protocol::Status, "1", Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Status, "1", Encoding::SSZ),
-            ProtocolId::new(Protocol::Goodbye, "1", Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Goodbye, "1", Encoding::SSZ),
-            ProtocolId::new(Protocol::BlocksByRange, "1", Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRange, "1", Encoding::SSZ),
-            ProtocolId::new(Protocol::BlocksByRoot, "1", Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, "1", Encoding::SSZ),
-            ProtocolId::new(Protocol::Ping, "1", Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Ping, "1", Encoding::SSZ),
-            ProtocolId::new(Protocol::MetaData, "1", Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::MetaData, "1", Encoding::SSZ),
+            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZ),
+            ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZ),
+            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZ),
+            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZ),
+            ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZ),
+            ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZ),
         ]
     }
 }
@@ -116,7 +132,7 @@ pub struct ProtocolId {
     pub message_name: Protocol,
 
     /// The version of the RPC.
-    pub version: String,
+    pub version: Version,
 
     /// The encoding of the RPC.
     pub encoding: Encoding,
@@ -127,7 +143,7 @@ pub struct ProtocolId {
 
 /// An RPC protocol ID.
 impl ProtocolId {
-    pub fn new(message_name: Protocol, version: &str, encoding: Encoding) -> Self {
+    pub fn new(message_name: Protocol, version: Version, encoding: Encoding) -> Self {
         let protocol_id = format!(
             "{}/{}/{}/{}",
             PROTOCOL_PREFIX, message_name, version, encoding
@@ -135,7 +151,7 @@ impl ProtocolId {
 
         ProtocolId {
             message_name,
-            version: version.into(),
+            version: version,
             encoding,
             protocol_id,
         }
@@ -194,7 +210,7 @@ where
                     BaseInboundCodec::new(SSZSnappyInboundCodec::new(protocol, MAX_RPC_SIZE));
                 InboundCodec::SSZSnappy(ssz_snappy_codec)
             }
-            Encoding::SSZ | _ => {
+            Encoding::SSZ => {
                 let ssz_codec = BaseInboundCodec::new(SSZInboundCodec::new(protocol, MAX_RPC_SIZE));
                 InboundCodec::SSZ(ssz_codec)
             }
@@ -260,28 +276,28 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
         match self {
             // add more protocols when versions/encodings are supported
             RPCRequest::Status(_) => vec![
-                ProtocolId::new(Protocol::Status, "1", Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::Status, "1", Encoding::SSZ),
+                ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZ),
             ],
             RPCRequest::Goodbye(_) => vec![
-                ProtocolId::new(Protocol::Goodbye, "1", Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::Goodbye, "1", Encoding::SSZ),
+                ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZ),
             ],
             RPCRequest::BlocksByRange(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRange, "1", Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRange, "1", Encoding::SSZ),
+                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZ),
             ],
             RPCRequest::BlocksByRoot(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRoot, "1", Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRoot, "1", Encoding::SSZ),
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZ),
             ],
             RPCRequest::Ping(_) => vec![
-                ProtocolId::new(Protocol::Ping, "1", Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::Ping, "1", Encoding::SSZ),
+                ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZ),
             ],
             RPCRequest::MetaData(_) => vec![
-                ProtocolId::new(Protocol::MetaData, "1", Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::MetaData, "1", Encoding::SSZ),
+                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZ),
             ],
         }
     }
@@ -356,7 +372,7 @@ where
                     BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(protocol, MAX_RPC_SIZE));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)
             }
-            Encoding::SSZ | _ => {
+            Encoding::SSZ => {
                 let ssz_codec =
                     BaseOutboundCodec::new(SSZOutboundCodec::new(protocol, MAX_RPC_SIZE));
                 OutboundCodec::SSZ(ssz_codec)
