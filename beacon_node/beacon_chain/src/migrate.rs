@@ -77,9 +77,14 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
                 Option<BeaconStateHash>,
             )> = Vec::new();
 
-            for (block_hash, state_hash, slot) in
-                RootsIterator::from_block(Arc::clone(&store), head_hash)?
-            {
+            let head_state_hash = store
+                .get_block(&head_hash)?
+                .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?
+                .state_root();
+
+            let iterator = std::iter::once((head_hash, head_state_hash, head_slot))
+                .chain(RootsIterator::from_block(Arc::clone(&store), head_hash)?);
+            for (block_hash, state_hash, slot) in iterator {
                 if slot < old_finalized_slot {
                     // We must assume here any candidate chains include old_finalized_block_hash,
                     // i.e. there aren't any forks starting at a block that is a strict ancestor of
@@ -121,16 +126,8 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
                 }
             }
 
+            abandoned_heads.extend(potentially_abandoned_head.into_iter());
             if !potentially_abandoned_blocks.is_empty() {
-                let head_block = store
-                    .get_block(&head_hash)?
-                    .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?;
-                potentially_abandoned_blocks.push((
-                    head_slot,
-                    Some(head_hash.into()),
-                    Some(head_block.state_root().into()),
-                ));
-
                 abandoned_blocks.extend(
                     potentially_abandoned_blocks
                         .iter()
@@ -142,8 +139,6 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
                         Some(state_hash) => Some((*slot, *state_hash)),
                     },
                 ));
-                abandoned_heads.extend(potentially_abandoned_head.into_iter());
-                potentially_abandoned_blocks.clear();
             }
         }
 
