@@ -112,7 +112,6 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| format!("Invalid port: {}", port_str))?;
         client_config.network.libp2p_port = port;
         client_config.network.discovery_port = port;
-        dbg!(&client_config.network.discovery_port);
     }
 
     if let Some(port_str) = cli_args.value_of("discovery-port") {

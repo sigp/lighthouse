@@ -304,6 +304,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             Err(BlockError::ProposalSignatureInvalid)
         }
     }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
+    }
 }
 
 impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for GossipVerifiedBlock<T> {
