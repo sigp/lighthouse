@@ -9,6 +9,7 @@ mod helpers;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
+mod parse_ssz;
 mod refund_deposit_contract;
 mod transition_blocks;
 
@@ -36,7 +37,6 @@ fn main() {
                 .long("spec")
                 .value_name("STRING")
                 .takes_value(true)
-                .required(true)
                 .possible_values(&["minimal", "mainnet"])
                 .default_value("mainnet")
         )
@@ -92,6 +92,27 @@ fn main() {
                         .required(true)
                         .default_value("./output.ssz")
                         .help("Path to output a SSZ file."),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("pretty-ssz")
+                .about("Parses a file of raw (not hex-encoded) SSZ bytes")
+                .arg(
+                    Arg::with_name("type")
+                        .index(1)
+                        .value_name("TYPE")
+                        .takes_value(true)
+                        .required(true)
+                        .possible_values(&["SignedBeaconBlock"])
+                        .help("The schema of the supplied SSZ."),
+                )
+                .arg(
+                    Arg::with_name("path")
+                        .index(2)
+                        .value_name("SSZ_FILE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("A file contains SSZ bytes"),
                 ),
         )
         .subcommand(
@@ -452,6 +473,14 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) {
         }
         ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(matches)
             .unwrap_or_else(|e| error!("Failed to transition blocks: {}", e)),
+        ("pretty-ssz", Some(sub_matches)) => {
+            let result = match matches.value_of("spec").expect("spec is required by slog") {
+                "minimal" => parse_ssz::run::<MinimalEthSpec>(sub_matches),
+                "mainnet" => parse_ssz::run::<MainnetEthSpec>(sub_matches),
+                _ => unreachable!("guarded by slog possible_values"),
+            };
+            result.unwrap_or_else(|e| error!("Failed to run eth1-genesis command: {}", e))
+        }
         ("pretty-hex", Some(matches)) => run_parse_hex::<T>(matches)
             .unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e)),
         ("deploy-deposit-contract", Some(matches)) => {
