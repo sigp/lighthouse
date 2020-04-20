@@ -224,29 +224,44 @@ where
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let fixed_len = N::to_usize();
+
         if bytes.is_empty() {
             Err(ssz::DecodeError::InvalidByteLength {
                 len: 0,
                 expected: 1,
             })
         } else if T::is_ssz_fixed_len() {
+            let num_items = bytes
+                .len()
+                .checked_div(T::ssz_fixed_len())
+                .ok_or_else(|| ssz::DecodeError::ZeroLengthItem)?;
+
+            if num_items != fixed_len {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "FixedVector of {} items has {} items",
+                    num_items, fixed_len
+                )));
+            }
+
             bytes
                 .chunks(T::ssz_fixed_len())
                 .map(|chunk| T::from_ssz_bytes(chunk))
                 .collect::<Result<Vec<T>, _>>()
                 .and_then(|vec| {
-                    if vec.len() == N::to_usize() {
+                    if vec.len() == fixed_len {
                         Ok(vec.into())
                     } else {
                         Err(ssz::DecodeError::BytesInvalid(format!(
-                            "wrong number of vec elements, got: {}, expected: {}",
+                            "Wrong number of FixedVector elements, got: {}, expected: {}",
                             vec.len(),
                             N::to_usize()
                         )))
                     }
                 })
         } else {
-            ssz::decode_list_of_variable_length_items(bytes).and_then(|vec| Ok(vec.into()))
+            ssz::decode_list_of_variable_length_items(bytes, Some(fixed_len))
+                .and_then(|vec| Ok(vec.into()))
         }
     }
 }
