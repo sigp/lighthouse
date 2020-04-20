@@ -2001,7 +2001,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Arc::clone(&self.head_tracker),
                 old_finalized_root,
                 finalized_block_root.into(),
-                finalized_block.slot,
             );
 
             let _ = self.event_handler.register(EventKind::BeaconFinalization {

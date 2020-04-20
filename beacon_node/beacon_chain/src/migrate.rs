@@ -21,12 +21,11 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
     fn process_finalization(
         &self,
         _state_root: Hash256,
-        _state: BeaconState<E>,
+        _new_finalized_state: BeaconState<E>,
         _max_finality_distance: u64,
         _head_tracker: Arc<HeadTracker>,
         _old_finalized_block_hash: SignedBeaconBlockHash,
         _new_finalized_block_hash: SignedBeaconBlockHash,
-        _new_finalized_slot: Slot,
     ) {
     }
 
@@ -188,14 +187,13 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
     fn process_finalization(
         &self,
         state_root: Hash256,
-        state: BeaconState<E>,
+        new_finalized_state: BeaconState<E>,
         _max_finality_distance: u64,
         head_tracker: Arc<HeadTracker>,
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
-        new_finalized_slot: Slot,
     ) {
-        if let Err(e) = S::process_finalization(self.db.clone(), state_root, &state) {
+        if let Err(e) = S::process_finalization(self.db.clone(), state_root, &new_finalized_state) {
             // This migrator is only used for testing, so we just log to stderr without a logger.
             eprintln!("Migration error: {:?}", e);
         }
@@ -205,7 +203,7 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
             head_tracker,
             old_finalized_block_hash,
             new_finalized_block_hash,
-            new_finalized_slot,
+            new_finalized_state.slot,
         ) {
             eprintln!("Pruning error: {:?}", e);
         }
@@ -238,22 +236,22 @@ impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
     fn process_finalization(
         &self,
         finalized_state_root: Hash256,
-        finalized_state: BeaconState<E>,
+        new_finalized_state: BeaconState<E>,
         max_finality_distance: u64,
         head_tracker: Arc<HeadTracker>,
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
-        new_finalized_slot: Slot,
     ) {
-        if !self.needs_migration(finalized_state.slot, max_finality_distance) {
+        if !self.needs_migration(new_finalized_state.slot, max_finality_distance) {
             return;
         }
 
         let (ref mut tx, ref mut thread) = *self.tx_thread.lock();
 
+        let new_finalized_slot = new_finalized_state.slot;
         if let Err(tx_err) = tx.send((
             finalized_state_root,
-            finalized_state,
+            new_finalized_state,
             head_tracker,
             old_finalized_block_hash,
             new_finalized_block_hash,
