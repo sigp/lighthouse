@@ -2,12 +2,17 @@ use super::client::Client;
 use super::peerdb::{Rep, DEFAULT_REPUTATION};
 use crate::rpc::MetaData;
 use crate::Multiaddr;
+use serde::{
+    ser::{SerializeStructVariant, Serializer},
+    Serialize,
+};
 use std::time::Instant;
 use types::{EthSpec, Slot, SubnetId};
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(bound = "T: EthSpec")]
 pub struct PeerInfo<T: EthSpec> {
     /// The connection status of the peer
     _status: PeerStatus,
@@ -54,7 +59,7 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub enum PeerStatus {
     /// The peer is healthy
     Healthy,
@@ -69,7 +74,7 @@ impl Default for PeerStatus {
 }
 
 /// Connection Status of the peer
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum PeerConnectionStatus {
     Connected {
         /// number of ingoing connections
@@ -86,12 +91,41 @@ pub enum PeerConnectionStatus {
         since: Instant,
     },
     Unknown {
-        /// time since we know of this peer
+        /// time since we last saw this peer
         since: Instant,
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// Serialization for http requests.
+impl Serialize for PeerConnectionStatus {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Connected { n_in, n_out } => {
+                let mut s = serializer.serialize_struct_variant("", 0, "Connected", 2)?;
+                s.serialize_field("in", n_in)?;
+                s.serialize_field("out", n_out)?;
+                s.end()
+            }
+            Disconnected { since } => {
+                let mut s = serializer.serialize_struct_variant("", 1, "Disconnected", 1)?;
+                s.serialize_field("since", &since.elapsed().as_secs())?;
+                s.end()
+            }
+            Banned { since } => {
+                let mut s = serializer.serialize_struct_variant("", 2, "Banned", 1)?;
+                s.serialize_field("since", &since.elapsed().as_secs())?;
+                s.end()
+            }
+            Unknown { since } => {
+                let mut s = serializer.serialize_struct_variant("", 3, "Unknown", 1)?;
+                s.serialize_field("since", &since.elapsed().as_secs())?;
+                s.end()
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub enum PeerSyncStatus {
     /// At the current state as our node or ahead of us.
     Synced {

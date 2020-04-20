@@ -80,7 +80,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
 
     /// Returns the number of libp2p connected peers.
     pub fn connected_peers(&self) -> usize {
-        self.peers.read().connected_peers().count()
+        self.peers.read().connected_peer_ids().count()
     }
 
     /// Returns in the node is syncing.
