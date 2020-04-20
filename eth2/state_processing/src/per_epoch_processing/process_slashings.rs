@@ -14,7 +14,7 @@ pub fn process_slashings<T: EthSpec>(
 
     for (index, validator) in state.validators.iter().enumerate() {
         if validator.slashed
-            && epoch + T::EpochsPerSlashingsVector::to_u64().wrapping_div(2)
+            && epoch + T::EpochsPerSlashingsVector::to_u64().safe_div(2)?
                 == validator.withdrawable_epoch
         {
             let increment = spec.effective_balance_increment;
