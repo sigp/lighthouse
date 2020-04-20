@@ -3,22 +3,19 @@
 //! This service allows task execution on the beacon node for various functionality.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use futures::{future, prelude::*};
-use slog::error;
+use futures::stream::{StreamExt};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::runtime::TaskExecutor;
-use tokio::timer::Interval;
+use std::time::Duration;
+use tokio::sync::oneshot::error::TryRecvError;
+use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
-pub fn spawn<T: BeaconChainTypes>(
-    executor: &TaskExecutor,
+pub async fn spawn<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,
-    log: slog::Logger,
 ) -> Result<tokio::sync::oneshot::Sender<()>, &'static str> {
-    let (exit_signal, exit) = tokio::sync::oneshot::channel();
+    let (exit_signal, mut exit) = tokio::sync::oneshot::channel();
 
     let start_instant = Instant::now()
         + beacon_chain
@@ -26,25 +23,19 @@ pub fn spawn<T: BeaconChainTypes>(
             .duration_to_next_slot()
             .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
 
-    let timer_future = Interval::new(start_instant, Duration::from_millis(milliseconds_per_slot))
-        .map_err(move |e| {
-            error!(
-                log,
-                "Beacon chain timer failed";
-                "error" => format!("{:?}", e)
-            )
-        })
-        .for_each(move |_| {
+    // Warning: `interval_at` panics on error
+    let mut timer_future = interval_at(start_instant, Duration::from_millis(milliseconds_per_slot));
+    let timer_future = async move {
+        while let Some(_) = timer_future.next().await {
             beacon_chain.per_slot_task();
-            future::ok(())
-        });
+            match exit.try_recv() {
+                Ok(_) | Err(TryRecvError::Closed) => break,
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+    };
 
-    executor.spawn(
-        exit.map_err(|_| ())
-            .select(timer_future)
-            .map(|_| ())
-            .map_err(|_| ()),
-    );
+    tokio::task::spawn(timer_future);
 
     Ok(exit_signal)
 }
