@@ -14,7 +14,6 @@ use crate::test_utils::TestRandom;
 use crate::SignedRoot;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use slog;
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
@@ -38,7 +37,7 @@ impl Slot {
     }
 
     pub fn epoch(self, slots_per_epoch: u64) -> Epoch {
-        Epoch::from(self.0 / slots_per_epoch)
+        Epoch::from(self.0) / Epoch::from(slots_per_epoch)
     }
 
     pub fn max_value() -> Slot {
@@ -77,8 +76,8 @@ impl Epoch {
         let start = self.start_slot(slots_per_epoch);
         let end = self.end_slot(slots_per_epoch);
 
-        if (slot >= start) && (slot <= end) {
-            Some(slot.as_usize() - start.as_usize())
+        if slot >= start && slot <= end {
+            slot.as_usize().checked_sub(start.as_usize())
         } else {
             None
         }
@@ -110,7 +109,7 @@ impl<'a> Iterator for SlotIter<'a> {
         } else {
             let start_slot = self.epoch.start_slot(self.slots_per_epoch);
             let previous = self.current_iteration;
-            self.current_iteration += 1;
+            self.current_iteration = self.current_iteration.checked_add(1)?;
             Some(start_slot + previous)
         }
     }
