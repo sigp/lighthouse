@@ -5,6 +5,7 @@ use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
 use crate::fork_choice::SszForkChoice;
 use crate::head_tracker::HeadTracker;
+use crate::migrate::Migrate;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
@@ -47,7 +48,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler> 
     for Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -96,7 +97,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -431,7 +432,7 @@ where
             event_handler: self
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,
-            head_tracker: self.head_tracker.unwrap_or_default(),
+            head_tracker: Arc::new(self.head_tracker.unwrap_or_default()),
             block_processing_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 canonical_head,
@@ -463,7 +464,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -533,7 +534,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -571,7 +572,7 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -610,7 +611,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -642,12 +643,12 @@ fn genesis_block<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::migrate::{MemoryStore, NullMigrator};
     use eth2_hashing::hash;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
-    use store::{migrate::NullMigrator, MemoryStore};
     use tempfile::tempdir;
     use types::{EthSpec, MinimalEthSpec, Slot};
 

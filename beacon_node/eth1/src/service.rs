@@ -408,7 +408,7 @@ impl Service {
                         .map(|vec| {
                             let first = vec.first().cloned().unwrap_or_else(|| 0);
                             let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
-                            (first..last)
+                            first..last
                         })
                         .collect::<Vec<Range<u64>>>()
                 })

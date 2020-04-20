@@ -69,7 +69,7 @@ pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
-pub use crate::signed_beacon_block::SignedBeaconBlock;
+pub use crate::signed_beacon_block::{SignedBeaconBlock, SignedBeaconBlockHash};
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_root::{SignedRoot, SigningRoot};

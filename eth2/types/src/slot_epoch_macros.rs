@@ -195,6 +195,16 @@ macro_rules! impl_display {
     };
 }
 
+macro_rules! impl_debug {
+    ($type: ident) => {
+        impl fmt::Debug for $type {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{}({:?})", stringify!($type), self.0)
+            }
+        }
+    };
+}
+
 macro_rules! impl_ssz {
     ($type: ident) => {
         impl Encode for $type {
@@ -275,6 +285,7 @@ macro_rules! impl_common {
         impl_math_between!($type, u64);
         impl_math!($type);
         impl_display!($type);
+        impl_debug!($type);
         impl_ssz!($type);
         impl_hash!($type);
     };
