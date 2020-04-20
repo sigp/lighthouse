@@ -25,6 +25,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
 use std::sync::Arc;
@@ -1112,6 +1113,76 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Check that the shuffling at `block_root` is equal to one of the shufflings of `state`.
+    ///
+    /// The `target_epoch` argument determines which shuffling to check compatibility with, it
+    /// should be equal to the current or previous epoch of `state`, or else `false` will be
+    /// returned.
+    ///
+    /// The compatibility check is designed to be fast: we check that the block that
+    /// determined the RANDAO mix for the `target_epoch` matches the ancestor of the block
+    /// identified by `block_root` (at that slot).
+    pub fn shuffling_is_compatible(
+        &self,
+        block_root: &Hash256,
+        target_epoch: Epoch,
+        state: &BeaconState<T::EthSpec>,
+    ) -> bool {
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let shuffling_lookahead = 1 + self.spec.min_seed_lookahead.as_u64();
+
+        // Shuffling can't have changed if we're in the first few epochs
+        if state.current_epoch() < shuffling_lookahead {
+            return true;
+        }
+
+        // Otherwise the shuffling is determined by the block at the end of the target epoch
+        // minus the shuffling lookahead (usually 2). We call this the "pivot".
+        let pivot_slot =
+            if target_epoch == state.previous_epoch() || target_epoch == state.current_epoch() {
+                (target_epoch - shuffling_lookahead).end_slot(slots_per_epoch)
+            } else {
+                return false;
+            };
+
+        let state_pivot_block_root = match state.get_block_root(pivot_slot) {
+            Ok(root) => *root,
+            Err(e) => {
+                warn!(
+                    &self.log,
+                    "Missing pivot block root for attestation";
+                    "slot" => pivot_slot,
+                    "error" => format!("{:?}", e),
+                );
+                return false;
+            }
+        };
+
+        // Use fork choice's view of the block DAG to quickly evaluate whether the attestation's
+        // pivot block is the same as the current state's pivot block. If it is, then the
+        // attestation's shuffling is the same as the current state's.
+        // To account for skipped slots, find the first block at *or before* the pivot slot.
+        let fork_choice_lock = self.fork_choice.core_proto_array();
+        let pivot_block_root = fork_choice_lock
+            .iter_block_roots(block_root)
+            .find(|(_, slot)| *slot <= pivot_slot)
+            .map(|(block_root, _)| block_root);
+        drop(fork_choice_lock);
+
+        match pivot_block_root {
+            Some(root) => root == state_pivot_block_root,
+            None => {
+                debug!(
+                    &self.log,
+                    "Discarding attestation because of missing ancestor";
+                    "pivot_slot" => pivot_slot.as_u64(),
+                    "block_root" => format!("{:?}", block_root),
+                );
+                false
+            }
+        }
+    }
+
     /// Accept some exit and queue it for inclusion in an appropriate block.
     pub fn process_voluntary_exit(
         &self,
@@ -1638,6 +1709,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?
             .into();
 
+        // Map from attestation head block root to shuffling compatibility.
+        // Used to memoize the `attestation_shuffling_is_compatible` function.
+        let mut shuffling_filter_cache = HashMap::new();
+        let attestation_filter = |att: &&Attestation<T::EthSpec>| -> bool {
+            *shuffling_filter_cache
+                .entry((att.data.beacon_block_root, att.data.target.epoch))
+                .or_insert_with(|| {
+                    self.shuffling_is_compatible(
+                        &att.data.beacon_block_root,
+                        att.data.target.epoch,
+                        &state,
+                    )
+                })
+        };
+
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
@@ -1652,7 +1738,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attester_slashings: attester_slashings.into(),
                     attestations: self
                         .op_pool
-                        .get_attestations(&state, &self.spec)
+                        .get_attestations(&state, attestation_filter, &self.spec)
                         .map_err(BlockProductionError::OpPoolError)?
                         .into(),
                     deposits,
