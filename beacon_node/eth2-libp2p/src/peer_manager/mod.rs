@@ -89,6 +89,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A ping request has been received.
     // NOTE: The behaviour responds with a PONG automatically
+    // TODO: Update last seen
     pub fn ping_request(&mut self, peer_id: &PeerId, seq: u64) {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
@@ -114,6 +115,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// A PONG has been returned from a peer.
+    // TODO: Update last seen
     pub fn pong_response(&mut self, peer_id: &PeerId, seq: u64) {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a pong
@@ -137,6 +139,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Received a metadata response from a peer.
+    // TODO: Update last seen
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data {
@@ -304,12 +307,14 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         while let Async::Ready(Some(peer_id)) = self.ping_peers.poll().map_err(|e| {
             error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e));
         })? {
+            debug!(self.log, "Pinging peer"; "peer_id" => format!("{}", peer_id));
             self.events.push(PeerManagerEvent::Ping(peer_id));
         }
 
-        while let Async::Ready(Some(peer_id)) = self.ping_peers.poll().map_err(|e| {
+        while let Async::Ready(Some(peer_id)) = self.status_peers.poll().map_err(|e| {
             error!(self.log, "Failed to check for peers to status"; "error" => format!("{}",e));
         })? {
+            debug!(self.log, "Sending Status to peer"; "peer_id" => format!("{}", peer_id));
             self.events.push(PeerManagerEvent::Status(peer_id));
         }
 
