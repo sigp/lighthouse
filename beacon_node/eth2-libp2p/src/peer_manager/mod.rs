@@ -21,7 +21,7 @@ mod peerdb;
 pub use peer_info::{PeerInfo, PeerSyncStatus};
 /// The minimum reputation before a peer is disconnected.
 // Most likely this needs tweaking
-const MINIMUM_REPUTATION_BEFORE_BAN: Rep = 20;
+const _MINIMUM_REPUTATION_BEFORE_BAN: Rep = 20;
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
 /// The time in seconds between PING events. We do not send a ping if the other peer as PING'd us within
@@ -48,13 +48,13 @@ pub struct PeerManager<TSpec: EthSpec> {
 /// Each variant has an associated reputation change.
 pub enum PeerAction {
     /// The peer timed out on an RPC request/response.
-    TimedOut = -10,
+    _TimedOut = -10,
     /// The peer sent and invalid request/response or encoding.
-    InvalidMessage = -20,
+    _InvalidMessage = -20,
     /// The peer sent  something objectively malicious.
-    Malicious = -50,
+    _Malicious = -50,
     /// Received an expected message.
-    ValidMessage = 20,
+    _ValidMessage = 20,
     /// Peer disconnected.
     Disconnected = -30,
 }
@@ -68,9 +68,9 @@ pub enum PeerManagerEvent {
     /// Request METADATA from a peer.
     MetaData(PeerId),
     /// The peer should be disconnected.
-    DisconnectPeer(PeerId),
+    _DisconnectPeer(PeerId),
     /// The peer should be disconnected and banned.
-    BanPeer(PeerId),
+    _BanPeer(PeerId),
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
@@ -165,16 +165,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Checks the reputation of a peer and if it is too low, bans it and
     /// sends the corresponding event. Informs if it got banned
-    fn gets_banned(&mut self, peer_id: &PeerId) -> bool {
+    fn _gets_banned(&mut self, peer_id: &PeerId) -> bool {
         // if the peer was already banned don't inform again
         let mut peerdb = self.network_globals.peers.write();
 
         if let Some(connection_status) = peerdb.connection_status(peer_id) {
-            if peerdb.reputation(peer_id) < MINIMUM_REPUTATION_BEFORE_BAN
+            if peerdb.reputation(peer_id) < _MINIMUM_REPUTATION_BEFORE_BAN
                 && !connection_status.is_banned()
             {
                 peerdb.ban(peer_id);
-                self.events.push(PeerManagerEvent::BanPeer(peer_id.clone()));
+                self.events
+                    .push(PeerManagerEvent::_BanPeer(peer_id.clone()));
                 return true;
             }
         }
@@ -182,9 +183,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Requests that a peer get disconnected.
-    pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
+    pub fn _disconnect_peer(&mut self, peer_id: &PeerId) {
         self.events
-            .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
+            .push(PeerManagerEvent::_DisconnectPeer(peer_id.clone()));
     }
 
     /// Updates the state of the peer as disconnected.
@@ -219,7 +220,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Provides a given peer's reputation if it exists.
-    pub fn get_peer_rep(&self, peer_id: &PeerId) -> Rep {
+    pub fn _get_peer_rep(&self, peer_id: &PeerId) -> Rep {
         self.network_globals.peers.read().reputation(peer_id)
     }
 
@@ -241,7 +242,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
+    pub fn _report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
         self.update_reputations();
         self.network_globals
             .peers
