@@ -1,6 +1,11 @@
 use bls::get_withdrawal_credentials;
 use deposit_contract::encode_eth1_tx_data;
 use hex;
+use slashing_protection::{
+    signed_attestation::SignedAttestation,
+    signed_block::SignedBlock,
+    validator_history::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
+};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -16,6 +21,8 @@ use types::{
 const VOTING_KEY_PREFIX: &str = "voting";
 const WITHDRAWAL_KEY_PREFIX: &str = "withdrawal";
 const ETH1_DEPOSIT_DATA_FILE: &str = "eth1_deposit_data.rlp";
+pub const ATTESTER_SLASHING_DB: &str = "attester_slashing_protection.sqlite";
+pub const BLOCK_PRODUCER_SLASHING_DB: &str = "block_producer_slashing_protection.sqlite";
 
 /// Returns the filename of a keypair file.
 fn keypair_file(prefix: &str) -> String {
@@ -30,24 +37,42 @@ fn dir_name(voting_pubkey: &PublicKey) -> String {
 /// Represents the files/objects for each dedicated lighthouse validator directory.
 ///
 /// Generally lives in `~/.lighthouse/validators/`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ValidatorDirectory {
     pub directory: PathBuf,
     pub voting_keypair: Option<Keypair>,
     pub withdrawal_keypair: Option<Keypair>,
     pub deposit_data: Option<Vec<u8>>,
+    pub attestation_slashing_protection: Option<PathBuf>,
+    pub block_slashing_protection: Option<PathBuf>,
+    pub slots_per_epoch: Option<u64>,
 }
 
 impl ValidatorDirectory {
     /// Attempts to load a validator from the given directory, requiring only components necessary
     /// for signing messages.
-    pub fn load_for_signing(directory: PathBuf) -> Result<Self, String> {
+    pub fn load_for_signing(directory: PathBuf, slots_per_epoch: u64) -> Result<Self, String> {
         if !directory.exists() {
             return Err(format!(
                 "Validator directory does not exist: {:?}",
                 directory
             ));
         }
+
+        let attestation_slashing_protection = directory.join(ATTESTER_SLASHING_DB);
+        let block_slashing_protection = directory.join(BLOCK_PRODUCER_SLASHING_DB);
+
+        if !(attestation_slashing_protection.exists() && block_slashing_protection.exists()) {
+            return Err(format!(
+                "Unable to find slashing protection in {:?}",
+                directory
+            ));
+        }
+        // Loading the block proposer db to retrieve its slots_per_epoch data
+        let block_history: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::open(&block_slashing_protection, Some(slots_per_epoch))
+                .map_err(|e| e.to_string())?;
+        let slots_per_epoch = block_history.slots_per_epoch().map_err(|e| e.to_string())?;
 
         Ok(Self {
             voting_keypair: Some(
@@ -57,6 +82,9 @@ impl ValidatorDirectory {
             withdrawal_keypair: load_keypair(directory.clone(), WITHDRAWAL_KEY_PREFIX).ok(),
             deposit_data: load_eth1_deposit_data(directory.clone()).ok(),
             directory,
+            attestation_slashing_protection: Some(attestation_slashing_protection),
+            block_slashing_protection: Some(block_slashing_protection),
+            slots_per_epoch: Some(slots_per_epoch),
         })
     }
 }
@@ -138,15 +166,20 @@ pub struct ValidatorDirectoryBuilder {
     withdrawal_keypair: Option<Keypair>,
     amount: Option<u64>,
     deposit_data: Option<Vec<u8>>,
+    attestation_slashing_protection: Option<PathBuf>,
+    block_slashing_protection: Option<PathBuf>,
     spec: Option<ChainSpec>,
+    slots_per_epoch: Option<u64>,
 }
 
 impl ValidatorDirectoryBuilder {
+    /// Set the specification for this validator.
     pub fn spec(mut self, spec: ChainSpec) -> Self {
         self.spec = Some(spec);
         self
     }
 
+    /// Use the `MAX_EFFECTIVE_BALANCE` as this validator's deposit.
     pub fn full_deposit_amount(mut self) -> Result<Self, String> {
         let spec = self
             .spec
@@ -156,17 +189,30 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
+    /// Use a validator deposit of `gwei`.
     pub fn custom_deposit_amount(mut self, gwei: u64) -> Self {
         self.amount = Some(gwei);
         self
     }
 
+    /// Generate keypairs using `Keypair::random()`.
     pub fn thread_random_keypairs(mut self) -> Self {
         self.voting_keypair = Some(Keypair::random());
         self.withdrawal_keypair = Some(Keypair::random());
         self
     }
 
+    /// Sets the slots_per_epoch
+    pub fn slots_per_epoch(mut self, slots_per_epoch: u64) -> Self {
+        self.slots_per_epoch = Some(slots_per_epoch);
+        self
+    }
+
+    /// Generate insecure, deterministic keypairs.
+    ///
+    ///
+    /// ## Warning
+    /// Only for use in testing. Do not store value in these keys.
     pub fn insecure_keypairs(mut self, index: usize) -> Self {
         let keypair = generate_deterministic_keypair(index);
         self.voting_keypair = Some(keypair.clone());
@@ -198,6 +244,7 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
+    /// Write the validators keypairs to disk.
     pub fn write_keypair_files(self) -> Result<Self, String> {
         let voting_keypair = self
             .voting_keypair
@@ -241,6 +288,8 @@ impl ValidatorDirectoryBuilder {
         Ok(())
     }
 
+    /// Write the validators eth1 deposit transaction data to file. This can be used to submit a
+    /// validator deposit.
     pub fn write_eth1_data_file(mut self) -> Result<Self, String> {
         let voting_keypair = self
             .voting_keypair
@@ -258,7 +307,7 @@ impl ValidatorDirectoryBuilder {
             .directory
             .as_ref()
             .map(|directory| directory.join(ETH1_DEPOSIT_DATA_FILE))
-            .ok_or_else(|| "write_eth1_data_filer requires a directory")?;
+            .ok_or_else(|| "write_eth1_data_file requires a directory")?;
 
         let deposit_data = {
             let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
@@ -293,12 +342,43 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
+    /// Creates two sqlite slashing protection databases (blocks and attestations) and stores the
+    /// paths.
+    pub fn create_sqlite_slashing_dbs(mut self) -> Result<Self, String> {
+        let path = self
+            .directory
+            .as_ref()
+            .ok_or_else(|| "create_sqlite_slashing_dbs requires a directory")?;
+
+        let attestation_path = path.join(ATTESTER_SLASHING_DB);
+        let block_path = path.join(BLOCK_PRODUCER_SLASHING_DB);
+        let slots_per_epoch = self.slots_per_epoch;
+
+        let _: ValidatorHistory<SignedAttestation> = ValidatorHistory::new(&attestation_path, None)
+            .map_err(|e| format!("Unable to create {:?}: {:?}", attestation_path, e))?;
+
+        let _: ValidatorHistory<SignedBlock> =
+            ValidatorHistory::new(&path.join(&block_path), slots_per_epoch)
+                .map_err(|e| format!("Unable to create {:?}: {:?}", block_path, e))?;
+
+        self.attestation_slashing_protection = Some(attestation_path);
+        self.block_slashing_protection = Some(block_path);
+
+        Ok(self)
+    }
+
+    /// Consumes self, returning a `ValidatorDirectory` on success.
     pub fn build(self) -> Result<ValidatorDirectory, String> {
+        let directory = self.directory.ok_or_else(|| "build requires a directory")?;
+
         Ok(ValidatorDirectory {
-            directory: self.directory.ok_or_else(|| "build requires a directory")?,
+            directory,
             voting_keypair: self.voting_keypair,
             withdrawal_keypair: self.withdrawal_keypair,
             deposit_data: self.deposit_data,
+            attestation_slashing_protection: self.attestation_slashing_protection,
+            block_slashing_protection: self.block_slashing_protection,
+            slots_per_epoch: self.slots_per_epoch,
         })
     }
 }
@@ -318,6 +398,7 @@ mod tests {
 
         let created_dir = ValidatorDirectoryBuilder::default()
             .spec(spec)
+            .slots_per_epoch(E::slots_per_epoch())
             .full_deposit_amount()
             .expect("should set full deposit amount")
             .thread_random_keypairs()
@@ -327,11 +408,16 @@ mod tests {
             .expect("should write keypair files")
             .write_eth1_data_file()
             .expect("should write eth1 data file")
+            .create_sqlite_slashing_dbs()
+            .expect("should create slashing dbs")
             .build()
             .expect("should build dir");
 
-        let loaded_dir = ValidatorDirectory::load_for_signing(created_dir.directory.clone())
-            .expect("should load directory");
+        let loaded_dir = ValidatorDirectory::load_for_signing(
+            created_dir.directory.clone(),
+            E::slots_per_epoch(),
+        )
+        .expect("should load directory");
 
         assert_eq!(
             created_dir, loaded_dir,
@@ -347,6 +433,7 @@ mod tests {
 
         let created_dir = ValidatorDirectoryBuilder::default()
             .spec(spec)
+            .slots_per_epoch(E::slots_per_epoch())
             .full_deposit_amount()
             .expect("should set full deposit amount")
             .insecure_keypairs(index)
@@ -356,6 +443,8 @@ mod tests {
             .expect("should write keypair files")
             .write_eth1_data_file()
             .expect("should write eth1 data file")
+            .create_sqlite_slashing_dbs()
+            .expect("should create slashing dbs")
             .build()
             .expect("should build dir");
 
@@ -384,6 +473,14 @@ mod tests {
             "withdrawal keypair should be as expected"
         );
         assert!(
+            created_dir.attestation_slashing_protection.is_some(),
+            "attestation slashing db file should exist"
+        );
+        assert!(
+            created_dir.block_slashing_protection.is_some(),
+            "block slashing db file should exist"
+        );
+        assert!(
             !created_dir
                 .deposit_data
                 .clone()
@@ -392,8 +489,11 @@ mod tests {
             "should have some deposit data"
         );
 
-        let loaded_dir = ValidatorDirectory::load_for_signing(created_dir.directory.clone())
-            .expect("should load directory");
+        let loaded_dir = ValidatorDirectory::load_for_signing(
+            created_dir.directory.clone(),
+            E::slots_per_epoch(),
+        )
+        .expect("should load directory");
 
         assert_eq!(
             created_dir, loaded_dir,
