@@ -12,7 +12,10 @@ use tokio::runtime::Handle;
 use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
-pub async fn spawn<T: BeaconChainTypes>(
+/// TODO: We might not need a `Handle` to the runtime since this function should be
+/// called from the context of a runtime and we can simply spawn using task::spawn.
+/// Check for issues without the Handle.
+pub fn spawn<T: BeaconChainTypes>(
     handle: &Handle,
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,

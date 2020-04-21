@@ -92,6 +92,7 @@ pub fn start_server<T: EthSpec>(
 
         // Place a future on the handle that will shutdown the websocket server when the
         // application exits.
+        // TODO: check if we should spawn using a `Handle` or using `task::spawn`
         handle.spawn(exit_future);
 
         exit_channel
@@ -99,7 +100,7 @@ pub fn start_server<T: EthSpec>(
 
     let log_inner = log.clone();
     // TODO: using tokio `spawn_blocking` instead of `thread::spawn`
-    // Check which is more apt
+    // Check which is more apt.
     let _handle = tokio::task::spawn_blocking(move || match server.run() {
         Ok(_) => {
             debug!(

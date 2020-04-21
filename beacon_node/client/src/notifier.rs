@@ -52,6 +52,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     // TODO: `Return type of closure passed to `for_each` is restricted to `Future<Output = ()>`
     // Hence, shifting the .then() error logs into the `for_each` closure.
     // Can be solved with `TryStreamExt::try_for_each` if `Interval` implemented `TryStream`.
+    // Check if this can be refactored better.
     let interval_future = interval_at(start_instant, interval_duration).for_each(|_| {
         let connected_peer_count = network.connected_peers();
 
@@ -168,7 +169,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
     let future = futures::future::select(interval_future, exit.map_err(|_| ()).map(|_| ()));
 
-    // TODO: the runtime handle should spawn this future.
+    // TODO: check if the runtime handle should spawn this future.
     tokio::task::spawn(future);
 
     Ok(exit_signal)
