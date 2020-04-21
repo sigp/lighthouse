@@ -1,3 +1,5 @@
+#![allow(clippy::integer_arithmetic)]
+
 #[macro_use]
 mod macros;
 mod builders;

@@ -1,4 +1,5 @@
 use crate::common::get_attesting_indices;
+use safe_arith::SafeArith;
 use types::*;
 
 /// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`
@@ -198,12 +199,16 @@ impl ValidatorStatuses {
 
             if validator.is_active_at(state.current_epoch()) {
                 status.is_active_in_current_epoch = true;
-                total_balances.current_epoch += effective_balance;
+                total_balances
+                    .current_epoch
+                    .safe_add_assign(effective_balance)?;
             }
 
             if validator.is_active_at(state.previous_epoch()) {
                 status.is_active_in_previous_epoch = true;
-                total_balances.previous_epoch += effective_balance;
+                total_balances
+                    .previous_epoch
+                    .safe_add_assign(effective_balance)?;
             }
 
             statuses.push(status);
@@ -275,19 +280,29 @@ impl ValidatorStatuses {
                 let validator_balance = state.get_effective_balance(index, spec)?;
 
                 if v.is_current_epoch_attester {
-                    self.total_balances.current_epoch_attesters += validator_balance;
+                    self.total_balances
+                        .current_epoch_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_current_epoch_target_attester {
-                    self.total_balances.current_epoch_target_attesters += validator_balance;
+                    self.total_balances
+                        .current_epoch_target_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_previous_epoch_attester {
-                    self.total_balances.previous_epoch_attesters += validator_balance;
+                    self.total_balances
+                        .previous_epoch_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_previous_epoch_target_attester {
-                    self.total_balances.previous_epoch_target_attesters += validator_balance;
+                    self.total_balances
+                        .previous_epoch_target_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_previous_epoch_head_attester {
-                    self.total_balances.previous_epoch_head_attesters += validator_balance;
+                    self.total_balances
+                        .previous_epoch_head_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
             }
         }

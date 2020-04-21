@@ -23,6 +23,7 @@ log = "0.4.8"
 merkle_proof = { path = "../utils/merkle_proof" }
 rayon = "1.2.0"
 rand = "0.7.2"
+safe_arith = { path = "../utils/safe_arith" }
 serde = "1.0.102"
 serde_derive = "1.0.102"
 slog = "2.5.2"

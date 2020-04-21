@@ -7,11 +7,13 @@ use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
+use std::fmt;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -76,6 +78,12 @@ pub enum Error {
         deposit_count: u64,
         deposit_index: u64,
     },
+    /// An arithmetic operation occurred which would have overflowed or divided by 0.
+    ///
+    /// This represents a serious bug in either the spec or Lighthouse!
+    ArithError(ArithError),
+    MissingBeaconBlock(SignedBeaconBlockHash),
+    MissingBeaconState(BeaconStateHash),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -91,6 +99,33 @@ impl AllowNextEpoch {
             AllowNextEpoch::True => current_epoch + 1,
             AllowNextEpoch::False => current_epoch,
         }
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub struct BeaconStateHash(Hash256);
+
+impl fmt::Debug for BeaconStateHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "BeaconStateHash({:?})", self.0)
+    }
+}
+
+impl fmt::Display for BeaconStateHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<Hash256> for BeaconStateHash {
+    fn from(hash: Hash256) -> BeaconStateHash {
+        BeaconStateHash(hash)
+    }
+}
+
+impl From<BeaconStateHash> for Hash256 {
+    fn from(beacon_state_hash: BeaconStateHash) -> Hash256 {
+        beacon_state_hash.0
     }
 }
 
@@ -413,7 +448,7 @@ impl<T: EthSpec> BeaconState<T> {
         let mut i = 0;
         loop {
             let candidate_index = indices[compute_shuffled_index(
-                i % indices.len(),
+                i.safe_rem(indices.len())?,
                 indices.len(),
                 seed,
                 spec.shuffle_round_count,
@@ -421,17 +456,19 @@ impl<T: EthSpec> BeaconState<T> {
             .ok_or(Error::UnableToShuffle)?];
             let random_byte = {
                 let mut preimage = seed.to_vec();
-                preimage.append(&mut int_to_bytes8((i / 32) as u64));
+                preimage.append(&mut int_to_bytes8(i.safe_div(32)? as u64));
                 let hash = hash(&preimage);
-                hash[i % 32]
+                hash[i.safe_rem(32)?]
             };
             let effective_balance = self.validators[candidate_index].effective_balance;
-            if effective_balance * MAX_RANDOM_BYTE
-                >= spec.max_effective_balance * u64::from(random_byte)
+            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
+                >= spec
+                    .max_effective_balance
+                    .safe_mul(u64::from(random_byte))?
             {
                 return Ok(candidate_index);
             }
-            i += 1;
+            i.increment()?;
         }
     }
 
@@ -502,8 +539,8 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.11.1
     fn get_latest_block_roots_index(&self, slot: Slot) -> Result<usize, Error> {
-        if (slot < self.slot) && (self.slot <= slot + self.block_roots.len() as u64) {
-            Ok(slot.as_usize() % self.block_roots.len())
+        if slot < self.slot && self.slot <= slot + self.block_roots.len() as u64 {
+            Ok(slot.as_usize().safe_rem(self.block_roots.len())?)
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
@@ -555,7 +592,7 @@ impl<T: EthSpec> BeaconState<T> {
         let len = T::EpochsPerHistoricalVector::to_u64();
 
         if current_epoch < epoch + len && epoch <= allow_next_epoch.upper_bound_of(current_epoch) {
-            Ok(epoch.as_usize() % len as usize)
+            Ok(epoch.as_usize().safe_rem(len as usize)?)
         } else {
             Err(Error::EpochOutOfBounds)
         }
@@ -569,7 +606,9 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.11.1
     pub fn update_randao_mix(&mut self, epoch: Epoch, signature: &Signature) -> Result<(), Error> {
-        let i = epoch.as_usize() % T::EpochsPerHistoricalVector::to_usize();
+        let i = epoch
+            .as_usize()
+            .safe_rem(T::EpochsPerHistoricalVector::to_usize())?;
 
         let signature_hash = Hash256::from_slice(&hash(&ssz_encode(signature)));
 
@@ -599,8 +638,8 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.11.1
     fn get_latest_state_roots_index(&self, slot: Slot) -> Result<usize, Error> {
-        if (slot < self.slot) && (self.slot <= slot + Slot::from(self.state_roots.len())) {
-            Ok(slot.as_usize() % self.state_roots.len())
+        if slot < self.slot && self.slot <= slot + self.state_roots.len() as u64 {
+            Ok(slot.as_usize().safe_rem(self.state_roots.len())?)
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
@@ -631,6 +670,14 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(&self.block_roots[i])
     }
 
+    pub fn get_block_state_roots(
+        &self,
+        slot: Slot,
+    ) -> Result<(SignedBeaconBlockHash, BeaconStateHash), Error> {
+        let i = self.get_latest_block_roots_index(slot)?;
+        Ok((self.block_roots[i].into(), self.state_roots[i].into()))
+    }
+
     /// Sets the latest state root for slot.
     ///
     /// Spec v0.11.1
@@ -654,7 +701,9 @@ impl<T: EthSpec> BeaconState<T> {
         if current_epoch < epoch + T::EpochsPerSlashingsVector::to_u64()
             && epoch <= allow_next_epoch.upper_bound_of(current_epoch)
         {
-            Ok(epoch.as_usize() % T::EpochsPerSlashingsVector::to_usize())
+            Ok(epoch
+                .as_usize()
+                .safe_rem(T::EpochsPerSlashingsVector::to_usize())?)
         } else {
             Err(Error::EpochOutOfBounds)
         }
@@ -713,20 +762,20 @@ impl<T: EthSpec> BeaconState<T> {
         // == 0`.
         let mix = {
             let i = epoch + T::EpochsPerHistoricalVector::to_u64() - spec.min_seed_lookahead - 1;
-            self.randao_mixes[i.as_usize() % self.randao_mixes.len()]
+            self.randao_mixes[i.as_usize().safe_rem(self.randao_mixes.len())?]
         };
         let domain_bytes = int_to_bytes4(spec.get_domain_constant(domain_type));
         let epoch_bytes = int_to_bytes8(epoch.as_u64());
 
         const NUM_DOMAIN_BYTES: usize = 4;
         const NUM_EPOCH_BYTES: usize = 8;
+        const MIX_OFFSET: usize = NUM_DOMAIN_BYTES + NUM_EPOCH_BYTES;
         const NUM_MIX_BYTES: usize = 32;
 
         let mut preimage = [0; NUM_DOMAIN_BYTES + NUM_EPOCH_BYTES + NUM_MIX_BYTES];
         preimage[0..NUM_DOMAIN_BYTES].copy_from_slice(&domain_bytes);
-        preimage[NUM_DOMAIN_BYTES..NUM_DOMAIN_BYTES + NUM_EPOCH_BYTES]
-            .copy_from_slice(&epoch_bytes);
-        preimage[NUM_DOMAIN_BYTES + NUM_EPOCH_BYTES..].copy_from_slice(mix.as_bytes());
+        preimage[NUM_DOMAIN_BYTES..MIX_OFFSET].copy_from_slice(&epoch_bytes);
+        preimage[MIX_OFFSET..].copy_from_slice(mix.as_bytes());
 
         Ok(Hash256::from_slice(&hash(&preimage)))
     }
@@ -760,9 +809,10 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
-            self.committee_cache(RelativeEpoch::Current)?
-                .active_validator_count() as u64
-                / spec.churn_limit_quotient,
+            (self
+                .committee_cache(RelativeEpoch::Current)?
+                .active_validator_count() as u64)
+                .safe_div(spec.churn_limit_quotient)?,
         ))
     }
 
@@ -792,7 +842,7 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<u64, Error> {
         validator_indices.iter().try_fold(0_u64, |acc, i| {
             self.get_effective_balance(*i, spec)
-                .and_then(|bal| Ok(bal + acc))
+                .and_then(|bal| Ok(acc.safe_add(bal)?))
         })
     }
 
@@ -1096,5 +1146,11 @@ impl From<cached_tree_hash::Error> for Error {
 impl From<tree_hash::Error> for Error {
     fn from(e: tree_hash::Error) -> Error {
         Error::TreeHashError(e)
+    }
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Error {
+        Error::ArithError(e)
     }
 }

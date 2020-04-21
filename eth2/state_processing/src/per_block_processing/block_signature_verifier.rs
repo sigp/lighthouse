@@ -1,3 +1,5 @@
+#![allow(clippy::integer_arithmetic)]
+
 use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetResult, *};
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
