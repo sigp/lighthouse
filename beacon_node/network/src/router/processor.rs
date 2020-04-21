@@ -655,7 +655,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  * The peer has published an invalid consensus message.
                  */
             }
-            AttnError::AttestationAlreadyKnown => {
+            AttnError::AttestationAlreadyKnown { .. } => {
                 /*
                  * The aggregate attestation has already been observed on the network or in
                  * a block.
