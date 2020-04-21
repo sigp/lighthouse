@@ -45,7 +45,7 @@ use types::*;
 // Must be 32-bytes or panic.
 //
 //                          |-------must be this long------|
-pub const GRAFFITI: &str = "sigp/lighthouse-0.1.1-prerelease";
+pub const GRAFFITI: &str = "sigp/lighthouse-0.2.0-prerelease";
 
 /// The time-out before failure during an operation to take a read/write RwLock on the canonical
 /// head.
