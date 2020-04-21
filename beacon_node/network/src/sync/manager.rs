@@ -58,7 +58,7 @@ use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// fully sync'd peer.
 const SLOT_IMPORT_TOLERANCE: usize = 20;
 /// How many attempts we try to find a parent of a block before we give up trying .
-const PARENT_FAIL_TOLERANCE: usize = 3;
+const PARENT_FAIL_TOLERANCE: usize = 5;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
 /// is further back than the most recent head slot.
@@ -640,9 +640,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if parent_request.failed_attempts >= PARENT_FAIL_TOLERANCE
             || parent_request.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE
         {
+            let error = if parent_request.failed_attempts >= PARENT_FAIL_TOLERANCE {
+                "too many failed attempts"
+            } else {
+                "reached maximum lookup-depth"
+            };
+
             debug!(self.log, "Parent import failed";
             "block" => format!("{:?}",parent_request.downloaded_blocks[0].canonical_root()),
-            "ancestors_found" => parent_request.downloaded_blocks.len()
+            "ancestors_found" => parent_request.downloaded_blocks.len(),
+            "reason" => error
             );
             return; // drop the request
         }

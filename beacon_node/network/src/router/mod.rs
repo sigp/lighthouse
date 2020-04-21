@@ -8,7 +8,7 @@ pub mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;
-use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes};
+use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
     rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
     MessageId, NetworkGlobals, PeerId, PubsubMessage, RPCEvent,
@@ -268,7 +268,9 @@ impl<T: BeaconChainTypes> Router<T> {
                         self.propagate_message(id, peer_id.clone());
                         self.processor.on_block_gossip(peer_id, verified_block);
                     }
+                    Err(BlockError::ParentUnknown { .. }) => {} // performing a parent lookup
                     Err(e) => {
+                        // performing a parent lookup
                         warn!(self.log, "Could not verify block for gossip";
                             "error" => format!("{:?}", e));
                     }

@@ -495,9 +495,10 @@ impl<T: BeaconChainTypes> Processor<T> {
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let result = self.chain.verify_block_for_gossip(*block.clone());
 
-        if let Err(BlockError::ParentUnknown(_)) = result {
+        if let Err(BlockError::ParentUnknown(block_hash)) = result {
             // if we don't know the parent, start a parent lookup
             // TODO: Modify the return to avoid the block clone.
+            debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => format!("{}", block_hash));
             self.send_to_sync(SyncMessage::UnknownBlock(peer_id.clone(), block));
         }
         result

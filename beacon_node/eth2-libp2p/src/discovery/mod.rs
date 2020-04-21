@@ -454,11 +454,17 @@ where
                             for peer_id in closer_peers {
                                 // if we need more peers, attempt a connection
 
-                                if self.network_globals.connected_peers() < self.max_peers
-                                    && !self.network_globals.peers.read().is_connected(&peer_id)
+                                if self.network_globals.connected_or_dialing_peers()
+                                    < self.max_peers
+                                    && !self
+                                        .network_globals
+                                        .peers
+                                        .read()
+                                        .is_connected_or_dialing(&peer_id)
                                     && !self.banned_peers.contains(&peer_id)
                                 {
-                                    debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
+                                    debug!(self.log, "Connecting to discovered peer"; "peer_id"=> format!("{:?}", peer_id));
+                                    self.network_globals.peers.write().dialing_peer(&peer_id);
                                     self.events
                                         .push_back(NetworkBehaviourAction::DialPeer { peer_id });
                                 }
