@@ -89,6 +89,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A ping request has been received.
     // NOTE: The behaviour responds with a PONG automatically
+    // TODO: Update last seen
     pub fn ping_request(&mut self, peer_id: &PeerId, seq: u64) {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
@@ -114,6 +115,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// A PONG has been returned from a peer.
+    // TODO: Update last seen
     pub fn pong_response(&mut self, peer_id: &PeerId, seq: u64) {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a pong
@@ -137,6 +139,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Received a metadata response from a peer.
+    // TODO: Update last seen
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data {
@@ -165,12 +168,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn gets_banned(&mut self, peer_id: &PeerId) -> bool {
         // if the peer was already banned don't inform again
         let mut peerdb = self.network_globals.peers.write();
-        if peerdb.reputation(peer_id) < MINIMUM_REPUTATION_BEFORE_BAN
-            && !peerdb.connection_status(peer_id).is_banned()
-        {
-            peerdb.ban(peer_id);
-            self.events.push(PeerManagerEvent::BanPeer(peer_id.clone()));
-            return true;
+
+        if let Some(connection_status) = peerdb.connection_status(peer_id) {
+            if peerdb.reputation(peer_id) < MINIMUM_REPUTATION_BEFORE_BAN
+                && !connection_status.is_banned()
+            {
+                peerdb.ban(peer_id);
+                self.events.push(PeerManagerEvent::BanPeer(peer_id.clone()));
+                return true;
+            }
         }
         false
     }
@@ -269,7 +275,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         {
             let mut peerdb = self.network_globals.peers.write();
-            if peerdb.connection_status(peer_id).is_banned() {
+            if peerdb.connection_status(peer_id).map(|c| c.is_banned()) == Some(true) {
+                // don't connect if the peer is banned
                 return false;
             }
 
@@ -293,6 +300,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         true
     }
+
+    /// Notifies the peer manager that this peer is being dialed.
+    pub fn _dialing_peer(&mut self, peer_id: &PeerId) {
+        self.network_globals.peers.write().dialing_peer(peer_id);
+    }
 }
 
 impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
@@ -304,12 +316,14 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         while let Async::Ready(Some(peer_id)) = self.ping_peers.poll().map_err(|e| {
             error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e));
         })? {
+            debug!(self.log, "Pinging peer"; "peer_id" => format!("{}", peer_id));
             self.events.push(PeerManagerEvent::Ping(peer_id));
         }
 
-        while let Async::Ready(Some(peer_id)) = self.ping_peers.poll().map_err(|e| {
+        while let Async::Ready(Some(peer_id)) = self.status_peers.poll().map_err(|e| {
             error!(self.log, "Failed to check for peers to status"; "error" => format!("{}",e));
         })? {
+            debug!(self.log, "Sending Status to peer"; "peer_id" => format!("{}", peer_id));
             self.events.push(PeerManagerEvent::Status(peer_id));
         }
 

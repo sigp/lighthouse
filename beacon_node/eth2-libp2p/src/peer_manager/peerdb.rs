@@ -3,6 +3,7 @@ use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use slog::{crit, warn};
 use std::collections::HashMap;
+use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
 /// A peer's reputation.
@@ -85,6 +86,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Connected or dialing peers
+    pub fn connected_or_dialing_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(|(_, info)| {
+                info.connection_status.is_connected() || info.connection_status.is_dialing()
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Gives the `peer_id` of all known connected and synced peers.
     pub fn synced_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
@@ -153,25 +164,47 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns the peer's connection status. Returns unknown if the peer is not in the DB.
-    pub fn connection_status(&self, peer_id: &PeerId) -> PeerConnectionStatus {
+    pub fn connection_status(&self, peer_id: &PeerId) -> Option<PeerConnectionStatus> {
         self.peer_info(peer_id)
-            .map_or(PeerConnectionStatus::default(), |info| {
-                info.connection_status.clone()
-            })
+            .map(|info| info.connection_status.clone())
     }
 
     /// Returns if the peer is already connected.
     pub fn is_connected(&self, peer_id: &PeerId) -> bool {
-        if let PeerConnectionStatus::Connected { .. } = self.connection_status(peer_id) {
+        if let Some(PeerConnectionStatus::Connected { .. }) = self.connection_status(peer_id) {
             true
         } else {
             false
         }
     }
 
+    /// If we are connected or currently dialing the peer returns true.
+    pub fn is_connected_or_dialing(&self, peer_id: &PeerId) -> bool {
+        match self.connection_status(peer_id) {
+            Some(PeerConnectionStatus::Connected { .. })
+            | Some(PeerConnectionStatus::Dialing { .. }) => true,
+            _ => false,
+        }
+    }
+
     /* Setters */
 
-    /// Sets a peer as connected with an ingoing connection
+    /// A peer is being dialed.
+    pub fn dialing_peer(&mut self, peer_id: &PeerId) {
+        let info = self
+            .peers
+            .entry(peer_id.clone())
+            .or_insert_with(|| Default::default());
+
+        if info.connection_status.is_disconnected() {
+            self.n_dc -= 1;
+        }
+        info.connection_status = PeerConnectionStatus::Dialing {
+            since: Instant::now(),
+        };
+    }
+
+    /// Sets a peer as connected with an ingoing connection.
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) {
         let info = self
             .peers
@@ -184,7 +217,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.connection_status.connect_ingoing();
     }
 
-    /// Sets a peer as connected with an outgoing connection
+    /// Sets a peer as connected with an outgoing connection.
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) {
         let info = self
             .peers
@@ -197,7 +230,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.connection_status.connect_outgoing();
     }
 
-    /// Sets the peer as disconnected
+    /// Sets the peer as disconnected.
     pub fn disconnect(&mut self, peer_id: &PeerId) {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {

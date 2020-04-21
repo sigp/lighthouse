@@ -83,6 +83,11 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         self.peers.read().connected_peer_ids().count()
     }
 
+    /// Returns the number of libp2p peers that are either connected or being dialed.
+    pub fn connected_or_dialing_peers(&self) -> usize {
+        self.peers.read().connected_or_dialing_peers().count()
+    }
+
     /// Returns in the node is syncing.
     pub fn is_syncing(&self) -> bool {
         self.sync_state.read().is_syncing()

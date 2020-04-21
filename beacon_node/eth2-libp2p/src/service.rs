@@ -138,6 +138,11 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 if let Protocol::Udp(_) = components[1] {
                     continue;
                 }
+                // inform the peer manager that we are currently dialing this peer
+                network_globals
+                    .peers
+                    .write()
+                    .dialing_peer(&bootnode_enr.peer_id());
                 dial_addr(multiaddr);
             }
         }

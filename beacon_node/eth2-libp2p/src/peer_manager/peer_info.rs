@@ -60,11 +60,12 @@ impl<T: EthSpec> PeerInfo<T> {
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// The current health status of the peer.
 pub enum PeerStatus {
-    /// The peer is healthy
+    /// The peer is healthy.
     Healthy,
-    /// The peer is clogged. It has not been responding to requests on time
-    Clogged,
+    /// The peer is clogged. It has not been responding to requests on time.
+    _Clogged,
 }
 
 impl Default for PeerStatus {
@@ -73,25 +74,29 @@ impl Default for PeerStatus {
     }
 }
 
-/// Connection Status of the peer
-#[derive(Clone, Debug)]
+/// Connection Status of the peer.
+#[derive(Debug, Clone)]
 pub enum PeerConnectionStatus {
+    /// The peer is connected.
     Connected {
-        /// number of ingoing connections
+        /// number of ingoing connections.
         n_in: u8,
-        /// number of outgoing connections
+        /// number of outgoing connections.
         n_out: u8,
     },
+    /// The peer has disconnected.
     Disconnected {
-        /// last time the peer was connected or discovered
+        /// last time the peer was connected or discovered.
         since: Instant,
     },
+    /// The peer has been banned and is disconnected.
     Banned {
-        /// moment when the peer was banned
+        /// moment when the peer was banned.
         since: Instant,
     },
-    Unknown {
-        /// time since we last saw this peer
+    /// We are currently dialing this peer.
+    Dialing {
+        /// time since we last communicated with the peer.
         since: Instant,
     },
 }
@@ -116,8 +121,8 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("since", &since.elapsed().as_secs())?;
                 s.end()
             }
-            Unknown { since } => {
-                let mut s = serializer.serialize_struct_variant("", 3, "Unknown", 1)?;
+            Dialing { since } => {
+                let mut s = serializer.serialize_struct_variant("", 3, "Dialing", 1)?;
                 s.serialize_field("since", &since.elapsed().as_secs())?;
                 s.end()
             }
@@ -126,6 +131,7 @@ impl Serialize for PeerConnectionStatus {
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// The current sync status of the peer.
 pub enum PeerSyncStatus {
     /// At the current state as our node or ahead of us.
     Synced {
@@ -143,7 +149,7 @@ pub enum PeerSyncStatus {
 
 impl Default for PeerConnectionStatus {
     fn default() -> Self {
-        PeerConnectionStatus::Unknown {
+        PeerConnectionStatus::Dialing {
             since: Instant::now(),
         }
     }
@@ -154,6 +160,14 @@ impl PeerConnectionStatus {
     pub fn is_connected(&self) -> bool {
         match self {
             PeerConnectionStatus::Connected { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Checks if the status is connected
+    pub fn is_dialing(&self) -> bool {
+        match self {
+            PeerConnectionStatus::Dialing { .. } => true,
             _ => false,
         }
     }
@@ -179,7 +193,7 @@ impl PeerConnectionStatus {
     pub fn connect_ingoing(&mut self) {
         match self {
             Connected { n_in, .. } => *n_in += 1,
-            Disconnected { .. } | Banned { .. } | Unknown { .. } => {
+            Disconnected { .. } | Banned { .. } | Dialing { .. } => {
                 *self = Connected { n_in: 1, n_out: 0 }
             }
         }
@@ -190,7 +204,7 @@ impl PeerConnectionStatus {
     pub fn connect_outgoing(&mut self) {
         match self {
             Connected { n_out, .. } => *n_out += 1,
-            Disconnected { .. } | Banned { .. } | Unknown { .. } => {
+            Disconnected { .. } | Banned { .. } | Dialing { .. } => {
                 *self = Connected { n_in: 0, n_out: 1 }
             }
         }
