@@ -86,6 +86,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Connected or dialing peers
+    pub fn connected_or_dialing_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(|(_, info)| {
+                info.connection_status.is_connected() || info.connection_status.is_dialing()
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Gives the `peer_id` of all known connected and synced peers.
     pub fn synced_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers

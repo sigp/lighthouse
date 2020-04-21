@@ -164,6 +164,14 @@ impl PeerConnectionStatus {
         }
     }
 
+    /// Checks if the status is connected
+    pub fn is_dialing(&self) -> bool {
+        match self {
+            PeerConnectionStatus::Dialing { .. } => true,
+            _ => false,
+        }
+    }
+
     /// Checks if the status is banned
     pub fn is_banned(&self) -> bool {
         match self {
