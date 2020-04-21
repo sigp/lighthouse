@@ -203,7 +203,6 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/advanced/operation_pool") => {
                 into_boxfut(advanced::get_operation_pool::<T>(req, beacon_chain))
             }
-
             (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(
                 req,
                 beacon_chain,
@@ -215,7 +214,12 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/lighthouse/syncing") => {
                 into_boxfut(lighthouse::syncing::<T::EthSpec>(req, network_globals))
             }
-
+            (&Method::GET, "/lighthouse/peers") => {
+                into_boxfut(lighthouse::peers::<T::EthSpec>(req, network_globals))
+            }
+            (&Method::GET, "/lighthouse/connected_peers") => into_boxfut(
+                lighthouse::connected_peers::<T::EthSpec>(req, network_globals),
+            ),
             _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
             ))),
