@@ -3,9 +3,10 @@
 //! Currently using identify to fingerprint.
 
 use libp2p::identify::IdentifyInfo;
+use serde::Serialize;
 
-#[derive(Debug)]
 /// Various client and protocol information related to a node.
+#[derive(Clone, Debug, Serialize)]
 pub struct Client {
     /// The client's name (Ex: lighthouse, prism, nimbus, etc)
     pub kind: ClientKind,
@@ -19,7 +20,7 @@ pub struct Client {
     pub agent_string: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub enum ClientKind {
     /// A lighthouse node (the best kind).
     Lighthouse,
@@ -124,6 +125,11 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
                 }
             }
             (kind, version, os_version)
+        }
+        Some("github.com") => {
+            let kind = ClientKind::Prysm;
+            let unknown = String::from("unknown");
+            (kind, unknown.clone(), unknown)
         }
         _ => {
             let unknown = String::from("unknown");

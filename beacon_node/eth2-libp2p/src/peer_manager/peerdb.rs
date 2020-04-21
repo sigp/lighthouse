@@ -41,8 +41,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map_or(DEFAULT_REPUTATION, |info| info.reputation)
     }
 
+    /// Returns an iterator over all peers in the db.
+    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
+        self.peers.iter()
+    }
+
     /// Gives the ids of all known peers.
-    pub fn peers(&self) -> impl Iterator<Item = &PeerId> {
+    pub fn peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers.keys()
     }
 
@@ -66,7 +71,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives the ids of all known connected peers.
-    pub fn connected_peers(&self) -> impl Iterator<Item = &PeerId> {
+    pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
+        self.peers
+            .iter()
+            .filter(|(_, info)| info.connection_status.is_connected())
+    }
+
+    /// Gives the ids of all known connected peers.
+    pub fn connected_peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
             .filter(|(_, info)| info.connection_status.is_connected())
@@ -373,7 +385,7 @@ mod tests {
         }
         assert_eq!(pdb.n_dc, 0);
 
-        for p in pdb.connected_peers().cloned().collect::<Vec<_>>() {
+        for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
             pdb.disconnect(&p);
         }
 
