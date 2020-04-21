@@ -353,27 +353,24 @@ pub fn verify_syncing<E: EthSpec>(
 pub fn check_still_syncing<E: EthSpec>(
     network: &LocalNetwork<E>,
 ) -> impl Future<Item = bool, Error = String> {
-    let net = network.clone();
     network
         .remote_nodes()
         .into_future()
-        // get all head epochs
+        // get syncing status of nodes
         .and_then(|remote_nodes| {
             stream::unfold(remote_nodes.into_iter(), |mut iter| {
                 iter.next().map(|remote_node| {
                     remote_node
                         .http
-                        .beacon()
-                        .get_head()
-                        .map(|head| head.finalized_slot.epoch(E::slots_per_epoch()))
-                        .map(|epoch| (epoch, iter))
-                        .map_err(|e| format!("Get head via http failed: {:?}", e))
+                        .node()
+                        .syncing_status()
+                        .map(|status| status.is_syncing)
+                        .map(|status| (status, iter))
+                        .map_err(|e| format!("Get syncing status via http failed: {:?}", e))
                 })
             })
             .collect()
         })
-        // find current epoch
-        .and_then(move |epochs| net.bootnode_epoch().map(|epoch| (epochs, epoch)))
-        .and_then(move |(epochs, epoch)| Ok(epochs.iter().any(|head_epoch| *head_epoch != epoch)))
+        .and_then(move |status| Ok(status.iter().any(|is_syncing| *is_syncing)))
         .map_err(|e| format!("Failed syncing check: {:?}", e))
 }
