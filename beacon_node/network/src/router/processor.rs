@@ -1,5 +1,5 @@
 use crate::service::NetworkMessage;
-use crate::sync::SyncMessage;
+use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
     AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
     BlockProcessingOutcome, GossipVerifiedBlock,
@@ -22,34 +22,6 @@ use types::{
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
-
-/// Keeps track of syncing information for known connected peers.
-#[derive(Clone, Copy, Debug)]
-pub struct PeerSyncInfo {
-    fork_digest: [u8; 4],
-    pub finalized_root: Hash256,
-    pub finalized_epoch: Epoch,
-    pub head_root: Hash256,
-    pub head_slot: Slot,
-}
-
-impl From<StatusMessage> for PeerSyncInfo {
-    fn from(status: StatusMessage) -> PeerSyncInfo {
-        PeerSyncInfo {
-            fork_digest: status.fork_digest,
-            finalized_root: status.finalized_root,
-            finalized_epoch: status.finalized_epoch,
-            head_root: status.head_root,
-            head_slot: status.head_slot,
-        }
-    }
-}
-
-impl PeerSyncInfo {
-    pub fn from_chain<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>) -> Option<PeerSyncInfo> {
-        Some(Self::from(status_message(chain)?))
-    }
-}
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.

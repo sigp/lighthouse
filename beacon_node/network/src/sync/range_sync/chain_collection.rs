@@ -4,9 +4,9 @@
 //! with this struct to to simplify the logic of the other layers of sync.
 
 use super::chain::{ChainSyncingState, SyncingChain};
-use crate::router::processor::PeerSyncInfo;
 use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId};
 use slog::{debug, error, info};
@@ -110,10 +110,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     }
 
     /// Updates the global sync state and logs any changes.
-    fn update_sync_state(&mut self, state: RangeSyncState) {
+    pub fn update_sync_state(&mut self) {
         // if there is no range sync occurring, the state is either synced or not based on
         // connected peers.
-        self.state = state;
 
         if self.state == RangeSyncState::Idle {
             // there is no range sync, let the state of peers determine the global node sync state
@@ -150,7 +149,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         if let RangeSyncState::Head { .. } = self.state {
             if self.head_chains.is_empty() {
                 // Update the global network state to either synced or stalled.
-                self.update_sync_state(RangeSyncState::Idle);
+                self.state = RangeSyncState::Idle;
+                self.update_sync_state();
             }
         }
     }
@@ -165,13 +165,14 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 .head_info()
                 .map(|info| info.slot)
                 .unwrap_or_else(|_| Slot::from(0u64));
+
             // NOTE: This will modify the /node/syncing API to show current slot for all fields
             // while we update peers to look for new potentially HEAD chains.
             let temp_head_state = RangeSyncState::Head {
                 start_slot: current_slot,
                 head_slot: current_slot,
             };
-            self.update_sync_state(temp_head_state);
+            self.state = temp_head_state;
         }
     }
 
@@ -249,7 +250,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     head_slot: chain.target_head_slot,
                     head_root: chain.target_head_root,
                 };
-                self.update_sync_state(state);
+                self.state = state;
 
                 // Stop the current chain from syncing
                 self.finalized_chains[index].stop_syncing();
@@ -269,11 +270,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 head_slot: chain.target_head_slot,
                 head_root: chain.target_head_root,
             };
-            self.update_sync_state(state);
+            self.state = state;
         } else {
             // There are no finalized chains, update the state.
             if self.head_chains.is_empty() {
-                self.update_sync_state(RangeSyncState::Idle);
+                self.state = RangeSyncState::Idle;
             } else {
                 // for the syncing API, we find the minimal start_slot and the maximum
                 // target_slot of all head chains to report back.
@@ -291,7 +292,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     start_slot: min_slot,
                     head_slot: max_slot,
                 };
-                self.update_sync_state(head_state);
+                self.state = head_state;
             }
         }
     }

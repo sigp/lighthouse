@@ -1,4 +1,5 @@
-use super::peer_info::{PeerConnectionStatus, PeerInfo, PeerSyncStatus};
+use super::peer_info::{PeerConnectionStatus, PeerInfo};
+use super::peer_sync_status::PeerSyncStatus;
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use slog::{crit, warn};
@@ -101,7 +102,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(|(_, info)| {
-                if let PeerSyncStatus::Synced { .. } = info.sync_status {
+                if info.sync_status.is_synced() || info.sync_status.is_advanced() {
                     return info.connection_status.is_connected();
                 }
                 false

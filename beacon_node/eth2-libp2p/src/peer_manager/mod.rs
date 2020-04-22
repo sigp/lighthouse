@@ -16,9 +16,11 @@ use types::EthSpec;
 
 mod client;
 mod peer_info;
+mod peer_sync_status;
 mod peerdb;
 
-pub use peer_info::{PeerInfo, PeerSyncStatus};
+pub use peer_info::PeerInfo;
+pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 /// The minimum reputation before a peer is disconnected.
 // Most likely this needs tweaking
 const _MINIMUM_REPUTATION_BEFORE_BAN: Rep = 20;
