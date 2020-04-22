@@ -35,7 +35,7 @@
 
 use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
-use super::range_sync::{BatchId, RangeSync};
+use super::range_sync::{BatchId, ChainId, RangeSync};
 use crate::router::processor::PeerSyncInfo;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
@@ -99,6 +99,7 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
+        chain_id: ChainId,
         batch_id: BatchId,
         downloaded_blocks: Vec<SignedBeaconBlock<T>>,
         result: BatchProcessResult,
@@ -731,12 +732,14 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                         self.inject_error(peer_id, request_id);
                     }
                     SyncMessage::BatchProcessed {
+                        chain_id,
                         batch_id,
                         downloaded_blocks,
                         result,
                     } => {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
+                            chain_id,
                             batch_id,
                             downloaded_blocks,
                             result,
