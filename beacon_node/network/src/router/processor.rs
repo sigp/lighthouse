@@ -806,11 +806,9 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         self.chain
             .add_to_block_inclusion_pool(verified_attestation)
-            .and_then(|verified_attestation| {
-                self.chain
-                    .apply_attestation_to_fork_choice(verified_attestation)
+            .map(|verified_attestation| {
+                self.apply_attestation_to_fork_choice(verified_attestation, beacon_block_root)
             })
-            .map(|_| ())
             .unwrap_or_else(|e| {
                 self.handle_attestation_verification_failure(
                     peer_id,
@@ -852,11 +850,9 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         self.chain
             .add_to_naive_aggregation_pool(verified_attestation)
-            .and_then(|verified_attestation| {
-                self.chain
-                    .apply_attestation_to_fork_choice(verified_attestation)
+            .map(|verified_attestation| {
+                self.apply_attestation_to_fork_choice(verified_attestation, beacon_block_root)
             })
-            .map(|_| ())
             .unwrap_or_else(|e| {
                 self.handle_attestation_verification_failure(
                     peer_id,
@@ -865,6 +861,30 @@ impl<T: BeaconChainTypes> Processor<T> {
                     e,
                 )
             })
+    }
+
+    /// Apply the attestation to fork choice, suppressing errors.
+    ///
+    /// We suppress the errors when adding an attestation to fork choice since the spec
+    /// permits gossiping attestations that are invalid to be applied to fork choice.
+    ///
+    /// An attestation that is invalid for fork choice can still be included in a block.
+    ///
+    /// Reference:
+    /// https://github.com/ethereum/eth2.0-specs/issues/1408#issuecomment-617599260
+    fn apply_attestation_to_fork_choice(
+        &self,
+        attestation: impl IntoForkChoiceVerifiedAttestation<T>,
+        beacon_block_root: Hash256,
+    ) {
+        if let Err(e) = self.chain.apply_attestation_to_fork_choice(attestation) {
+            debug!(
+                self.log,
+                "Attestation invalid for fork choice";
+                "reason" => format!("{:?}", e),
+                "beacon_block_root" => format!("{:?}", beacon_block_root)
+            )
+        }
     }
 }
 
