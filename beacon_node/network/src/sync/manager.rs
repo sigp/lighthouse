@@ -35,31 +35,29 @@
 
 use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
-use super::range_sync::{BatchId, RangeSync};
-use crate::message_processor::PeerSyncInfo;
+use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
+use super::range_sync::{BatchId, ChainId, RangeSync};
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::RequestId;
+use eth2_libp2p::rpc::{methods::*, RequestId};
+use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::boxed::Box;
-use std::collections::HashSet;
 use std::ops::Sub;
-use std::sync::Weak;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
-use types::{EthSpec, Hash256, SignedBeaconBlock};
+use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
 /// fully sync'd peer.
-const SLOT_IMPORT_TOLERANCE: usize = 20;
+pub const SLOT_IMPORT_TOLERANCE: usize = 20;
 /// How many attempts we try to find a parent of a block before we give up trying .
-const PARENT_FAIL_TOLERANCE: usize = 3;
+const PARENT_FAIL_TOLERANCE: usize = 5;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
 /// is further back than the most recent head slot.
@@ -100,6 +98,7 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
+        chain_id: ChainId,
         batch_id: BatchId,
         downloaded_blocks: Vec<SignedBeaconBlock<T>>,
         result: BatchProcessResult,
@@ -126,38 +125,22 @@ struct ParentRequests<T: EthSpec> {
     pending: Option<RequestId>,
 }
 
-#[derive(PartialEq, Debug, Clone)]
-/// The current state of the `ImportManager`.
-enum ManagerState {
-    /// The manager is performing a long-range (batch) sync. In this mode, parent lookups are
-    /// disabled.
-    Syncing,
-
-    /// The manager is up to date with all known peers and is connected to at least one
-    /// fully-syncing peer. In this state, parent lookups are enabled.
-    Regular,
-
-    /// No useful peers are connected. Long-range sync's cannot proceed and we have no useful
-    /// peers to download parents for. More peers need to be connected before we can proceed.
-    Stalled,
-}
-
 /// The primary object for handling and driving all the current syncing logic. It maintains the
 /// current state of the syncing process, the number of useful peers, downloaded blocks and
 /// controls the logic behind both the long-range (batch) sync and the on-going potential parent
 /// look-up of blocks.
 pub struct SyncManager<T: BeaconChainTypes> {
-    /// A weak reference to the underlying beacon chain.
-    chain: Weak<BeaconChain<T>>,
+    /// A reference to the underlying beacon chain.
+    chain: Arc<BeaconChain<T>>,
 
-    /// The current state of the import manager.
-    state: ManagerState,
+    /// A reference to the network globals and peer-db.
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 
     /// A receiving channel sent by the message processor thread.
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
 
     /// A network context to contact the network service.
-    network: SyncNetworkContext,
+    network: SyncNetworkContext<T::EthSpec>,
 
     /// The object handling long-range batch load-balanced syncing.
     range_sync: RangeSync<T>,
@@ -169,10 +152,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// received or not.
     ///
     /// The flag allows us to determine if the peer returned data or sent us nothing.
-    single_block_lookups: FnvHashMap<RequestId, (Hash256, bool)>,
-
-    /// The collection of known, connected, fully-sync'd peers.
-    full_peers: HashSet<PeerId>,
+    single_block_lookups: FnvHashMap<RequestId, SingleBlockRequest>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -181,13 +161,31 @@ pub struct SyncManager<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
 }
 
+/// Object representing a single block lookup request.
+struct SingleBlockRequest {
+    /// The hash of the requested block.
+    pub hash: Hash256,
+    /// Whether a block was received from this request, or the peer returned an empty response.
+    pub block_returned: bool,
+}
+
+impl SingleBlockRequest {
+    pub fn new(hash: Hash256) -> Self {
+        Self {
+            hash,
+            block_returned: false,
+        }
+    }
+}
+
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
 /// chain. This allows the chain to be
 /// dropped during the syncing process which will gracefully end the `SyncManager`.
 pub fn spawn<T: BeaconChainTypes>(
     executor: &tokio::runtime::TaskExecutor,
-    beacon_chain: Weak<BeaconChain<T>>,
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    beacon_chain: Arc<BeaconChain<T>>,
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: slog::Logger,
 ) -> (
     mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
@@ -200,14 +198,18 @@ pub fn spawn<T: BeaconChainTypes>(
 
     // create an instance of the SyncManager
     let sync_manager = SyncManager {
-        chain: beacon_chain.clone(),
-        state: ManagerState::Stalled,
-        input_channel: sync_recv,
+        range_sync: RangeSync::new(
+            beacon_chain.clone(),
+            network_globals.clone(),
+            sync_send.clone(),
+            log.clone(),
+        ),
         network: SyncNetworkContext::new(network_send, log.clone()),
-        range_sync: RangeSync::new(beacon_chain, sync_send.clone(), log.clone()),
+        chain: beacon_chain,
+        network_globals,
+        input_channel: sync_recv,
         parent_queue: SmallVec::new(),
         single_block_lookups: FnvHashMap::default(),
-        full_peers: HashSet::new(),
         log: log.clone(),
         sync_send: sync_send.clone(),
     };
@@ -239,17 +241,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// ours that we consider it fully sync'd with respect to our current chain.
     fn add_peer(&mut self, peer_id: PeerId, remote: PeerSyncInfo) {
         // ensure the beacon chain still exists
-        let chain = match self.chain.upgrade() {
-            Some(chain) => chain,
-            None => {
-                warn!(self.log,
-                      "Beacon chain dropped. Peer not considered for sync";
-                      "peer_id" => format!("{:?}", peer_id));
-                return;
-            }
-        };
-
-        let local = match PeerSyncInfo::from_chain(&chain) {
+        let local_peer_info = match PeerSyncInfo::from_chain(&self.chain) {
             Some(local) => local,
             None => {
                 return error!(
@@ -260,36 +252,34 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         };
 
-        // If a peer is within SLOT_IMPORT_TOLERANCE from our head slot, ignore a batch/range sync,
-        // consider it a fully-sync'd peer.
-        if remote.head_slot.sub(local.head_slot).as_usize() < SLOT_IMPORT_TOLERANCE {
-            trace!(self.log, "Ignoring full sync with peer";
-            "peer" => format!("{:?}", peer_id),
-            "peer_head_slot" => remote.head_slot,
-            "local_head_slot" => local.head_slot,
-            );
-            self.add_full_peer(peer_id);
-            // notify the range sync that a peer has been added
-            self.range_sync.fully_synced_peer_found();
-            return;
-        }
-
-        // Check if the peer is significantly behind us. If within `SLOT_IMPORT_TOLERANCE`
-        // treat them as a fully synced peer. If not, ignore them in the sync process
-        if local.head_slot.sub(remote.head_slot).as_usize() < SLOT_IMPORT_TOLERANCE {
-            self.add_full_peer(peer_id.clone());
-        } else {
-            debug!(
-                self.log,
-                "Out of sync peer connected";
+        match local_peer_info.peer_sync_type(&remote) {
+            PeerSyncType::FullySynced => {
+                trace!(self.log, "Peer synced to our head found";
                 "peer" => format!("{:?}", peer_id),
-            );
-            return;
+                "peer_head_slot" => remote.head_slot,
+                "local_head_slot" => local_peer_info.head_slot,
+                );
+                self.synced_peer(&peer_id, remote);
+                // notify the range sync that a peer has been added
+                self.range_sync.fully_synced_peer_found();
+            }
+            PeerSyncType::Advanced => {
+                trace!(self.log, "Useful peer for sync found";
+                "peer" => format!("{:?}", peer_id),
+                "peer_head_slot" => remote.head_slot,
+                "local_head_slot" => local_peer_info.head_slot,
+                "remote_finalized_epoch" => local_peer_info.finalized_epoch,
+                "local_finalized_epoch" => remote.finalized_epoch,
+                );
+                // Add the peer to our RangeSync
+                self.range_sync
+                    .add_peer(&mut self.network, peer_id.clone(), remote);
+                self.advanced_peer(&peer_id, remote);
+            }
+            PeerSyncType::Behind => {
+                self.behind_peer(&peer_id, remote);
+            }
         }
-
-        // Add the peer to our RangeSync
-        self.range_sync.add_peer(&mut self.network, peer_id, remote);
-        self.update_state();
     }
 
     /// The response to a `BlocksByRoot` request.
@@ -310,12 +300,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // check if this is a single block lookup - i.e we were searching for a specific hash
                 let mut single_block_hash = None;
-                if let Some((block_hash, data_received)) =
-                    self.single_block_lookups.get_mut(&request_id)
-                {
+                if let Some(block_request) = self.single_block_lookups.get_mut(&request_id) {
                     // update the state of the lookup indicating a block was received from the peer
-                    *data_received = true;
-                    single_block_hash = Some(block_hash.clone());
+                    block_request.block_returned = true;
+                    single_block_hash = Some(block_request.hash.clone());
                 }
                 if let Some(block_hash) = single_block_hash {
                     self.single_block_lookup_response(peer_id, block, block_hash);
@@ -346,12 +334,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // this is a stream termination
 
                 // stream termination for a single block lookup, remove the key
-                if let Some((block_hash, data_received)) =
-                    self.single_block_lookups.remove(&request_id)
-                {
+                if let Some(single_block_request) = self.single_block_lookups.remove(&request_id) {
                     // the peer didn't respond with a block that it referenced
-                    if !data_received {
-                        warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => format!("{}", block_hash), "peer_id" =>  format!("{}", peer_id));
+                    if !single_block_request.block_returned {
+                        warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => format!("{}", single_block_request.hash), "peer_id" =>  format!("{}", peer_id));
                         self.network.downvote_peer(peer_id);
                     }
                     return;
@@ -398,43 +384,41 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         // we have the correct block, try and process it
-        if let Some(chain) = self.chain.upgrade() {
-            match chain.process_block(block.clone()) {
-                Ok(outcome) => {
-                    match outcome {
-                        BlockProcessingOutcome::Processed { block_root } => {
-                            info!(self.log, "Processed block"; "block" => format!("{}", block_root));
+        match BlockProcessingOutcome::shim(self.chain.process_block(block.clone())) {
+            Ok(outcome) => {
+                match outcome {
+                    BlockProcessingOutcome::Processed { block_root } => {
+                        info!(self.log, "Processed block"; "block" => format!("{}", block_root));
 
-                            match chain.fork_choice() {
-                                Ok(()) => trace!(
-                                    self.log,
-                                    "Fork choice success";
-                                    "location" => "single block"
-                                ),
-                                Err(e) => error!(
-                                    self.log,
-                                    "Fork choice failed";
-                                    "error" => format!("{:?}", e),
-                                    "location" => "single block"
-                                ),
-                            }
-                        }
-                        BlockProcessingOutcome::ParentUnknown { .. } => {
-                            // We don't know of the blocks parent, begin a parent lookup search
-                            self.add_unknown_block(peer_id, block);
-                        }
-                        BlockProcessingOutcome::BlockIsAlreadyKnown => {
-                            trace!(self.log, "Single block lookup already known");
-                        }
-                        _ => {
-                            warn!(self.log, "Single block lookup failed"; "outcome" => format!("{:?}", outcome));
-                            self.network.downvote_peer(peer_id);
+                        match self.chain.fork_choice() {
+                            Ok(()) => trace!(
+                                self.log,
+                                "Fork choice success";
+                                "location" => "single block"
+                            ),
+                            Err(e) => error!(
+                                self.log,
+                                "Fork choice failed";
+                                "error" => format!("{:?}", e),
+                                "location" => "single block"
+                            ),
                         }
                     }
+                    BlockProcessingOutcome::ParentUnknown { .. } => {
+                        // We don't know of the blocks parent, begin a parent lookup search
+                        self.add_unknown_block(peer_id, block);
+                    }
+                    BlockProcessingOutcome::BlockIsAlreadyKnown => {
+                        trace!(self.log, "Single block lookup already known");
+                    }
+                    _ => {
+                        warn!(self.log, "Single block lookup failed"; "outcome" => format!("{:?}", outcome));
+                        self.network.downvote_peer(peer_id);
+                    }
                 }
-                Err(e) => {
-                    warn!(self.log, "Unexpected block processing error"; "error" => format!("{:?}", e));
-                }
+            }
+            Err(e) => {
+                warn!(self.log, "Unexpected block processing error"; "error" => format!("{:?}", e));
             }
         }
     }
@@ -442,9 +426,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// A block has been sent to us that has an unknown parent. This begins a parent lookup search
     /// to find the parent or chain of parents that match our current chain.
     fn add_unknown_block(&mut self, peer_id: PeerId, block: SignedBeaconBlock<T::EthSpec>) {
-        // If we are not in regular sync mode, ignore this block
-        if self.state != ManagerState::Regular {
-            return;
+        // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
+        if !self.network_globals.sync_state.read().is_synced() {
+            let head_slot = self
+                .chain
+                .head_info()
+                .map(|info| info.slot)
+                .unwrap_or_else(|_| Slot::from(0u64));
+            let unknown_block_slot = block.message.slot;
+
+            // if the block is far in the future, ignore it. If its within the slot tolerance of
+            // our current head, regardless of the syncing state, fetch it.
+            if (head_slot >= unknown_block_slot
+                && head_slot.sub(unknown_block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+                || (head_slot < unknown_block_slot
+                    && unknown_block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+            {
+                return;
+            }
         }
 
         // Make sure this block is not already being searched for
@@ -473,8 +472,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// A request to search for a block hash has been received. This function begins a BlocksByRoot
     /// request to find the requested block.
     fn search_for_block(&mut self, peer_id: PeerId, block_hash: Hash256) {
-        // If we are not in regular sync mode, ignore this block
-        if self.state != ManagerState::Regular {
+        // If we are not synced, ignore this block
+        if !self.network_globals.sync_state.read().is_synced() {
+            return;
+        }
+
+        // Do not re-request a block that is already being requested
+        if self
+            .single_block_lookups
+            .values()
+            .find(|single_block_request| single_block_request.hash == block_hash)
+            .is_some()
+        {
             return;
         }
 
@@ -484,7 +493,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
             self.single_block_lookups
-                .insert(request_id, (block_hash, false));
+                .insert(request_id, SingleBlockRequest::new(block_hash));
         }
     }
 
@@ -516,41 +525,56 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        self.full_peers.remove(peer_id);
-        self.update_state();
+        self.update_sync_state();
     }
 
-    fn add_full_peer(&mut self, peer_id: PeerId) {
-        debug!(
-            self.log, "Fully synced peer added";
-            "peer" => format!("{:?}", peer_id),
-        );
-        self.full_peers.insert(peer_id);
+    /// Updates the syncing state of a peer to be synced.
+    fn synced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
+        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            if peer_info.sync_status.update_synced(sync_info.into()) {
+                debug!(self.log, "Peer transitioned to synced status"; "peer_id" => format!("{}", peer_id));
+            }
+        } else {
+            crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
+        }
+        self.update_sync_state();
     }
 
+    /// Updates the syncing state of a peer to be behind.
+    fn advanced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
+        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            let advanced_slot = sync_info.head_slot;
+            if peer_info.sync_status.update_ahead(sync_info.into()) {
+                debug!(self.log, "Peer transitioned to from synced state to ahead"; "peer_id" => format!("{}", peer_id), "head_slot" => advanced_slot);
+            }
+        } else {
+            crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
+        }
+        self.update_sync_state();
+    }
+
+    /// Updates the syncing state of a peer to be behind.
+    fn behind_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
+        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            let behind_slot = sync_info.head_slot;
+            if peer_info.sync_status.update_behind(sync_info.into()) {
+                debug!(self.log, "Peer transitioned to from synced state to behind"; "peer_id" => format!("{}", peer_id), "head_slot" => behind_slot);
+            }
+        } else {
+            crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
+        }
+        self.update_sync_state();
+    }
+
+    /// Updates the global sync state and logs any changes.
+    fn update_sync_state(&mut self) {
+        if let Some((old_state, new_state)) = self.network_globals.update_sync_state() {
+            info!(self.log, "Sync state updated"; "old_state" => format!("{}", old_state), "new_state" => format!("{}",new_state));
+        }
+    }
     /* Processing State Functions */
     // These functions are called in the main poll function to transition the state of the sync
     // manager
-
-    /// Updates the syncing state of the `SyncManager`.
-    fn update_state(&mut self) {
-        let previous_state = self.state.clone();
-        self.state = {
-            if self.range_sync.is_syncing() {
-                ManagerState::Syncing
-            } else if !self.full_peers.is_empty() {
-                ManagerState::Regular
-            } else {
-                ManagerState::Stalled
-            }
-        };
-        if self.state != previous_state {
-            info!(self.log, "Syncing state updated";
-                "old_state" => format!("{:?}", previous_state),
-                "new_state" => format!("{:?}", self.state),
-            );
-        }
-    }
 
     /// A new block has been received for a parent lookup query, process it.
     fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
@@ -598,55 +622,50 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // If the last block in the queue has an unknown parent, we continue the parent
             // lookup-search.
 
-            if let Some(chain) = self.chain.upgrade() {
-                let newest_block = parent_request
-                    .downloaded_blocks
-                    .pop()
-                    .expect("There is always at least one block in the queue");
-                match chain.process_block(newest_block.clone()) {
-                    Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
-                        // need to keep looking for parents
-                        // add the block back to the queue and continue the search
-                        parent_request.downloaded_blocks.push(newest_block);
-                        self.request_parent(parent_request);
-                        return;
-                    }
-                    Ok(BlockProcessingOutcome::Processed { .. })
-                    | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {
-                        spawn_block_processor(
-                            self.chain.clone(),
-                            ProcessId::ParentLookup(parent_request.last_submitted_peer.clone()),
-                            parent_request.downloaded_blocks,
-                            self.sync_send.clone(),
-                            self.log.clone(),
-                        );
-                    }
-                    Ok(outcome) => {
-                        // all else we consider the chain a failure and downvote the peer that sent
-                        // us the last block
-                        warn!(
-                            self.log, "Invalid parent chain. Downvoting peer";
-                            "outcome" => format!("{:?}", outcome),
-                            "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
-                        );
-                        self.network
-                            .downvote_peer(parent_request.last_submitted_peer.clone());
-                        return;
-                    }
-                    Err(e) => {
-                        warn!(
-                            self.log, "Parent chain processing error. Downvoting peer";
-                            "error" => format!("{:?}", e),
-                            "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
-                        );
-                        self.network
-                            .downvote_peer(parent_request.last_submitted_peer.clone());
-                        return;
-                    }
+            let newest_block = parent_request
+                .downloaded_blocks
+                .pop()
+                .expect("There is always at least one block in the queue");
+            match BlockProcessingOutcome::shim(self.chain.process_block(newest_block.clone())) {
+                Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
+                    // need to keep looking for parents
+                    // add the block back to the queue and continue the search
+                    parent_request.downloaded_blocks.push(newest_block);
+                    self.request_parent(parent_request);
+                    return;
                 }
-            } else {
-                // chain doesn't exist, drop the parent queue and return
-                return;
+                Ok(BlockProcessingOutcome::Processed { .. })
+                | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {
+                    spawn_block_processor(
+                        Arc::downgrade(&self.chain),
+                        ProcessId::ParentLookup(parent_request.last_submitted_peer.clone()),
+                        parent_request.downloaded_blocks,
+                        self.sync_send.clone(),
+                        self.log.clone(),
+                    );
+                }
+                Ok(outcome) => {
+                    // all else we consider the chain a failure and downvote the peer that sent
+                    // us the last block
+                    warn!(
+                        self.log, "Invalid parent chain. Downvoting peer";
+                        "outcome" => format!("{:?}", outcome),
+                        "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
+                    );
+                    self.network
+                        .downvote_peer(parent_request.last_submitted_peer.clone());
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        self.log, "Parent chain processing error. Downvoting peer";
+                        "error" => format!("{:?}", e),
+                        "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
+                    );
+                    self.network
+                        .downvote_peer(parent_request.last_submitted_peer.clone());
+                    return;
+                }
             }
         }
     }
@@ -660,9 +679,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if parent_request.failed_attempts >= PARENT_FAIL_TOLERANCE
             || parent_request.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE
         {
+            let error = if parent_request.failed_attempts >= PARENT_FAIL_TOLERANCE {
+                "too many failed attempts"
+            } else {
+                "reached maximum lookup-depth"
+            };
+
             debug!(self.log, "Parent import failed";
             "block" => format!("{:?}",parent_request.downloaded_blocks[0].canonical_root()),
-            "ancestors_found" => parent_request.downloaded_blocks.len()
+            "ancestors_found" => parent_request.downloaded_blocks.len(),
+            "reason" => error
             );
             return; // drop the request
         }
@@ -677,14 +703,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let request = BlocksByRootRequest {
             block_roots: vec![parent_hash],
         };
-        // select a random fully synced peer to attempt to download the parent block
-        let available_peers = self.full_peers.iter().collect::<Vec<_>>();
-        let peer_id = if let Some(peer_id) = available_peers.choose(&mut rand::thread_rng()) {
-            (**peer_id).clone()
-        } else {
-            // there were no peers to choose from. We drop the lookup request
-            return;
-        };
+
+        // We continue to search for the chain of blocks from the same peer. Other peers are not
+        // guaranteed to have this chain of blocks.
+        let peer_id = parent_request.last_submitted_peer.clone();
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
             // if the request was successful add the queue back into self
@@ -738,12 +760,14 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                         self.inject_error(peer_id, request_id);
                     }
                     SyncMessage::BatchProcessed {
+                        chain_id,
                         batch_id,
                         downloaded_blocks,
                         result,
                     } => {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
+                            chain_id,
                             batch_id,
                             downloaded_blocks,
                             result,
@@ -762,9 +786,6 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                 }
             }
         }
-
-        // update the state of the manager
-        self.update_state();
 
         Ok(Async::NotReady)
     }

@@ -23,7 +23,7 @@ Typical users may install `lighthouse` to `CARGO_HOME` with `cargo install
 `PATH` environment variable"](https://www.rust-lang.org/tools/install) for more
 information.
 
-For develeopers, we recommend building Lighthouse using the `$ cargo build --release
+For developers, we recommend building Lighthouse using the `$ cargo build --release
 --bin lighthouse` command and executing binaries from the
 `<lighthouse-repository>/target/release` directory. This is more ergonomic when
 modifying and rebuilding regularly.
@@ -33,7 +33,6 @@ modifying and rebuilding regularly.
 Each binary supports the `--help` flag, this is the best source of
 documentation.
 
-
 ```bash
 $ lighthouse beacon_node --help
 ```
@@ -42,22 +41,15 @@ $ lighthouse beacon_node --help
 $ lighthouse validator_client --help
 ```
 
-## Beacon Node
+## Creating a new database/testnet
 
-The `$ lighthouse beacon_node` (or `$ lighthouse bn`) command has two primary
-tasks:
+Lighthouse should run out-of-the box and connect to the current testnet
+maintained by Sigma Prime.
 
-- **Resuming** an existing database with `$ lighthouse bn`.
-- **Creating** a new testnet database using `$ lighthouse bn testnet`.
-
-## Creating a new database
-
-Use the `$ lighthouse bn testnet` command (see [testnets](./testnets.md) for
-more information).
+However, for developers, testnets can be created by following the instructions
+outlined in [testnets](./testnets.md). The steps listed here will create a
+local database specified to a new testnet. 
 
 ## Resuming from an existing database
 
-Once a database has been created, it can be resumed by running `$ lighthouse bn`.
-
-Presently, you are not allowed to call `$ lighthouse bn` unless you have first
-created a database using `$ lighthouse bn testnet`.
+Once a database/testnet has been created, it can be resumed by running `$ lighthouse bn`.

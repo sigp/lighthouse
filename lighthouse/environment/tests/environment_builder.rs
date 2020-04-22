@@ -1,8 +1,9 @@
-#![cfg(test)]
 /*
  *
  * TODO: disabled until hardcoded testnet config is updated for v0.11
  *
+ *
+#![cfg(test)]
 
 use clap::ArgMatches;
 use environment::EnvironmentBuilder;

@@ -33,11 +33,11 @@ impl ApiError {
 
 impl Into<Response<Body>> for ApiError {
     fn into(self) -> Response<Body> {
-        let status_code = self.status_code();
+        let (status_code, desc) = self.status_code();
         Response::builder()
-            .status(status_code.0)
+            .status(status_code)
             .header("content-type", "text/plain; charset=utf-8")
-            .body(Body::from(status_code.1))
+            .body(Body::from(desc))
             .expect("Response should always be created.")
     }
 }

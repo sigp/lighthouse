@@ -5,28 +5,16 @@ use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use futures::{Future, Stream};
 use hyper::{Body, Request};
-use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
+use rest_types::{
+    BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
+    ValidatorRequest, ValidatorResponse,
+};
 use std::sync::Arc;
 use store::Store;
 use types::{
-    AttesterSlashing, BeaconState, CommitteeIndex, EthSpec, Hash256, ProposerSlashing,
-    PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, Slot, Validator,
+    AttesterSlashing, BeaconState, EthSpec, Hash256, ProposerSlashing, PublicKeyBytes,
+    RelativeEpoch, Slot,
 };
-
-/// Information about the block and state that are at head of the beacon chain.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct CanonicalHeadResponse {
-    pub slot: Slot,
-    pub block_root: Hash256,
-    pub state_root: Hash256,
-    pub finalized_slot: Slot,
-    pub finalized_block_root: Hash256,
-    pub justified_slot: Slot,
-    pub justified_block_root: Hash256,
-    pub previous_justified_slot: Slot,
-    pub previous_justified_block_root: Hash256,
-}
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
 pub fn get_head<T: BeaconChainTypes>(
@@ -62,15 +50,7 @@ pub fn get_head<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&head)
 }
 
-/// Information about a block that is at the head of a chain. May or may not represent the
-/// canonical head.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct HeadBeaconBlock {
-    pub beacon_block_root: Hash256,
-    pub beacon_block_slot: Slot,
-}
-
-/// HTTP handler to return a list of head block roots.
+/// HTTP handler to return a list of head BeaconBlocks.
 pub fn get_heads<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -87,14 +67,7 @@ pub fn get_heads<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&heads)
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-#[serde(bound = "T: EthSpec")]
-pub struct BlockResponse<T: EthSpec> {
-    pub root: Hash256,
-    pub beacon_block: SignedBeaconBlock<T>,
-}
-
-/// HTTP handler to return a `SignedBeaconBlock` at a given `root` or `slot`.
+/// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
 pub fn get_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -156,14 +129,6 @@ pub fn get_fork<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
     ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.fork)
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct ValidatorResponse {
-    pub pubkey: PublicKeyBytes,
-    pub validator_index: Option<usize>,
-    pub balance: Option<u64>,
-    pub validator: Option<Validator>,
 }
 
 /// HTTP handler to which accepts a query string of a list of validator pubkeys and maps it to a
@@ -244,13 +209,6 @@ pub fn get_active_validators<T: BeaconChainTypes>(
         .collect::<Result<Vec<_>, _>>()?;
 
     ResponseBuilder::new(&req)?.body(&validators)
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct ValidatorRequest {
-    /// If set to `None`, uses the canonical head state.
-    pub state_root: Option<Hash256>,
-    pub pubkeys: Vec<PublicKeyBytes>,
 }
 
 /// HTTP handler to which accepts a `ValidatorRequest` and returns a `ValidatorResponse` for
@@ -365,13 +323,6 @@ fn validator_response_by_pubkey<E: EthSpec>(
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct Committee {
-    pub slot: Slot,
-    pub index: CommitteeIndex,
-    pub committee: Vec<usize>,
-}
-
 /// HTTP handler
 pub fn get_committees<T: BeaconChainTypes>(
     req: Request<Body>,
@@ -403,13 +354,6 @@ pub fn get_committees<T: BeaconChainTypes>(
         .collect::<Vec<_>>();
 
     ResponseBuilder::new(&req)?.body(&committees)
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
-#[serde(bound = "T: EthSpec")]
-pub struct StateResponse<T: EthSpec> {
-    pub root: Hash256,
-    pub beacon_state: BeaconState<T>,
 }
 
 /// HTTP handler to return a `BeaconState` at a given `root` or `slot`.

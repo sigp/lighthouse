@@ -1,11 +1,136 @@
 use crate::checks::{epoch_delay, verify_all_finalized_at};
 use crate::local_network::LocalNetwork;
-use futures::stream;
-use futures::{Future, IntoFuture, Stream};
+use clap::ArgMatches;
+use futures::{future, stream, Future, IntoFuture, Stream};
 use node_test_rig::ClientConfig;
-use std::time::Duration;
+use node_test_rig::{
+    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
+};
+use std::net::{IpAddr, Ipv4Addr};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::timer::Interval;
 use types::{Epoch, EthSpec};
+
+pub fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
+    let initial_delay = value_t!(matches, "initial_delay", u64).unwrap();
+    let sync_timeout = value_t!(matches, "sync_timeout", u64).unwrap();
+    let speed_up_factor = value_t!(matches, "speedup", u64).unwrap();
+    let strategy = value_t!(matches, "strategy", String).unwrap();
+
+    println!("Syncing Simulator:");
+    println!(" initial_delay:{}", initial_delay);
+    println!(" sync timeout: {}", sync_timeout);
+    println!(" speed up factor:{}", speed_up_factor);
+    println!(" strategy:{}", strategy);
+
+    let log_level = "debug";
+    let log_format = None;
+
+    syncing_sim(
+        speed_up_factor,
+        initial_delay,
+        sync_timeout,
+        strategy,
+        log_level,
+        log_format,
+    )
+}
+
+fn syncing_sim(
+    speed_up_factor: u64,
+    initial_delay: u64,
+    sync_timeout: u64,
+    strategy: String,
+    log_level: &str,
+    log_format: Option<&str>,
+) -> Result<(), String> {
+    let mut env = EnvironmentBuilder::minimal()
+        .async_logger(log_level, log_format)?
+        .multi_threaded_tokio_runtime()?
+        .build()?;
+
+    let spec = &mut env.eth2_config.spec;
+    let end_after_checks = true;
+    let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
+
+    spec.milliseconds_per_slot /= speed_up_factor;
+    spec.eth1_follow_distance = 16;
+    spec.min_genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
+    spec.min_genesis_time = 0;
+    spec.min_genesis_active_validator_count = 64;
+    spec.seconds_per_eth1_block = 1;
+
+    let num_validators = 8;
+    let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+    let context = env.core_context();
+    let mut beacon_config = testing_client_config();
+
+    let genesis_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "should get system time")?
+        + Duration::from_secs(5);
+    beacon_config.genesis = ClientGenesis::Interop {
+        validator_count: num_validators,
+        genesis_time: genesis_time.as_secs(),
+    };
+    beacon_config.dummy_eth1_backend = true;
+    beacon_config.sync_eth1_chain = true;
+
+    beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+
+    let future = LocalNetwork::new(context, beacon_config.clone())
+        /*
+         * Add a validator client which handles all validators from the genesis state.
+         */
+        .and_then(move |network| {
+            network
+                .add_validator_client(ValidatorConfig::default(), 0, (0..num_validators).collect())
+                .map(|_| network)
+        })
+        /*
+         * Start the processes that will run checks on the network as it runs.
+         */
+        .and_then(move |network| {
+            // The `final_future` either completes immediately or never completes, depending on the value
+            // of `end_after_checks`.
+            let final_future: Box<dyn Future<Item = (), Error = String> + Send> =
+                if end_after_checks {
+                    Box::new(future::ok(()).map_err(|()| "".to_string()))
+                } else {
+                    Box::new(future::empty().map_err(|()| "".to_string()))
+                };
+
+            future::ok(())
+                // Check all syncing strategies one after other.
+                .join(pick_strategy(
+                    &strategy,
+                    network.clone(),
+                    beacon_config.clone(),
+                    slot_duration,
+                    initial_delay,
+                    sync_timeout,
+                ))
+                .join(final_future)
+                .map(|_| network)
+        })
+        /*
+         * End the simulation by dropping the network. This will kill all running beacon nodes and
+         * validator clients.
+         */
+        .map(|network| {
+            println!(
+                "Simulation complete. Finished with {} beacon nodes and {} validator clients",
+                network.beacon_node_count(),
+                network.validator_client_count()
+            );
+
+            // Be explicit about dropping the network, as this kills all the nodes. This ensures
+            // all the checks have adequate time to pass.
+            drop(network)
+        });
+
+    env.runtime().block_on(future)
+}
 
 pub fn pick_strategy<E: EthSpec>(
     strategy: &str,
@@ -228,27 +353,24 @@ pub fn verify_syncing<E: EthSpec>(
 pub fn check_still_syncing<E: EthSpec>(
     network: &LocalNetwork<E>,
 ) -> impl Future<Item = bool, Error = String> {
-    let net = network.clone();
     network
         .remote_nodes()
         .into_future()
-        // get all head epochs
+        // get syncing status of nodes
         .and_then(|remote_nodes| {
             stream::unfold(remote_nodes.into_iter(), |mut iter| {
                 iter.next().map(|remote_node| {
                     remote_node
                         .http
-                        .beacon()
-                        .get_head()
-                        .map(|head| head.finalized_slot.epoch(E::slots_per_epoch()))
-                        .map(|epoch| (epoch, iter))
-                        .map_err(|e| format!("Get head via http failed: {:?}", e))
+                        .node()
+                        .syncing_status()
+                        .map(|status| status.is_syncing)
+                        .map(|status| (status, iter))
+                        .map_err(|e| format!("Get syncing status via http failed: {:?}", e))
                 })
             })
             .collect()
         })
-        // find current epoch
-        .and_then(move |epochs| net.bootnode_epoch().map(|epoch| (epochs, epoch)))
-        .and_then(move |(epochs, epoch)| Ok(epochs.iter().any(|head_epoch| *head_epoch != epoch)))
+        .and_then(move |status| Ok(status.iter().any(|is_syncing| *is_syncing)))
         .map_err(|e| format!("Failed syncing check: {:?}", e))
 }

@@ -1,6 +1,8 @@
 #![cfg(test)]
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::multiaddr::Protocol;
+use ::types::{EnrForkId, MinimalEthSpec};
+use eth2_libp2p::discovery::build_enr;
 use eth2_libp2p::*;
 use futures::prelude::*;
 use libp2p::core::identity::Keypair;
@@ -10,16 +12,19 @@ use libp2p::{
     secio, PeerId, Swarm, Transport,
 };
 use slog::{crit, debug, info, Level};
+use std::convert::TryInto;
 use std::io::{Error, ErrorKind};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::prelude::*;
 
+type TSpec = MinimalEthSpec;
+
 mod common;
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
+type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>, TSpec>;
 
 /// Build and return a eth2_libp2p Swarm with only secio support.
 fn build_secio_swarm(
@@ -28,8 +33,14 @@ fn build_secio_swarm(
 ) -> error::Result<Swarm<Libp2pStream, Libp2pBehaviour>> {
     let local_keypair = Keypair::generate_secp256k1();
     let local_peer_id = PeerId::from(local_keypair.public());
-
-    let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
+    let enr_key: libp2p::discv5::enr::CombinedKey = local_keypair.clone().try_into().unwrap();
+    let enr = build_enr::<TSpec>(&enr_key, config, EnrForkId::default()).unwrap();
+    let network_globals = Arc::new(NetworkGlobals::new(
+        enr,
+        config.libp2p_port,
+        config.discovery_port,
+        &log,
+    ));
 
     let mut swarm = {
         // Set up the transport - tcp/ws with secio and mplex/yamux
@@ -110,13 +121,13 @@ fn build_secio_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMux
 fn test_secio_noise_fallback() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
-    let enable_logging = true;
+    let enable_logging = false;
 
     let log = common::build_log(log_level, enable_logging);
 
     let port = common::unused_port("tcp").unwrap();
     let noisy_config = common::build_config(port, vec![], None);
-    let mut noisy_node = Service::new(&noisy_config, log.clone())
+    let mut noisy_node = Service::new(&noisy_config, EnrForkId::default(), log.clone())
         .expect("should build a libp2p instance")
         .1;
 

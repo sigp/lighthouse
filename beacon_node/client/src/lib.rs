@@ -8,9 +8,7 @@ pub mod builder;
 pub mod error;
 
 use beacon_chain::BeaconChain;
-use eth2_libp2p::{Enr, Multiaddr};
-use exit_future::Signal;
-use network::Service as NetworkService;
+use eth2_libp2p::{Enr, Multiaddr, NetworkGlobals};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -24,11 +22,11 @@ pub use eth2_config::Eth2Config;
 /// Holds references to running services, cleanly shutting them down when dropped.
 pub struct Client<T: BeaconChainTypes> {
     beacon_chain: Option<Arc<BeaconChain<T>>>,
-    libp2p_network: Option<Arc<NetworkService<T>>>,
+    network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
-    /// Exit signals will "fire" when dropped, causing each service to exit gracefully.
-    _exit_signals: Vec<Signal>,
+    /// Exit channels will complete/error when dropped, causing each service to exit gracefully.
+    _exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl<T: BeaconChainTypes> Client<T> {
@@ -49,16 +47,16 @@ impl<T: BeaconChainTypes> Client<T> {
 
     /// Returns the port of the client's libp2p stack, if it was started.
     pub fn libp2p_listen_port(&self) -> Option<u16> {
-        self.libp2p_network.as_ref().map(|n| n.listen_port())
+        self.network_globals.as_ref().map(|n| n.listen_port_tcp())
     }
 
     /// Returns the list of libp2p addresses the client is listening to.
     pub fn libp2p_listen_addresses(&self) -> Option<Vec<Multiaddr>> {
-        self.libp2p_network.as_ref().map(|n| n.listen_multiaddrs())
+        self.network_globals.as_ref().map(|n| n.listen_multiaddrs())
     }
 
     /// Returns the local libp2p ENR of this node, for network discovery.
     pub fn enr(&self) -> Option<Enr> {
-        self.libp2p_network.as_ref()?.local_enr()
+        self.network_globals.as_ref().map(|n| n.local_enr())
     }
 }

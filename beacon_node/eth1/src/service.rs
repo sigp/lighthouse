@@ -6,7 +6,6 @@ use crate::{
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
-use exit_future::Exit;
 use futures::{
     future::{loop_fn, Loop},
     stream, Future, Stream,
@@ -314,7 +313,10 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn auto_update(&self, exit: Exit) -> impl Future<Item = (), Error = ()> {
+    pub fn auto_update(
+        &self,
+        exit: tokio::sync::oneshot::Receiver<()>,
+    ) -> impl Future<Item = (), Error = ()> {
         let service = self.clone();
         let log = self.log.clone();
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
@@ -360,7 +362,7 @@ impl Service {
                 })
         });
 
-        exit.until(loop_future).map(|_: Option<()>| ())
+        loop_future.select(exit).map(|_| ()).map_err(|_| ())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured

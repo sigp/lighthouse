@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, PublicKey,
-    Signature, SignedBeaconBlock, SignedRoot,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 
 #[derive(Clone)]
@@ -213,5 +213,47 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
                 Some(())
             })
+    }
+
+    /// Signs an `AggregateAndProof` for a given validator.
+    ///
+    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
+    /// modified by actors other than the signing validator.
+    pub fn produce_signed_aggregate_and_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        validator_index: u64,
+        aggregate: Attestation<E>,
+    ) -> Option<SignedAggregateAndProof<E>> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+
+        Some(SignedAggregateAndProof::from_aggregate(
+            validator_index,
+            aggregate,
+            &voting_keypair.sk,
+            &self.fork()?,
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
+    /// `validator_pubkey`.
+    pub fn produce_selection_proof(
+        &self,
+        validator_pubkey: &PublicKey,
+        slot: Slot,
+    ) -> Option<SelectionProof> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+
+        Some(SelectionProof::new::<E>(
+            slot,
+            &voting_keypair.sk,
+            &self.fork()?,
+            self.genesis_validators_root,
+            &self.spec,
+        ))
     }
 }
