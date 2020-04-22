@@ -44,7 +44,6 @@ use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::{PeerId, PeerSyncStatus};
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::boxed::Box;
@@ -153,13 +152,30 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// received or not.
     ///
     /// The flag allows us to determine if the peer returned data or sent us nothing.
-    single_block_lookups: FnvHashMap<RequestId, (Hash256, bool)>,
+    single_block_lookups: FnvHashMap<RequestId, SingleBlockRequest>,
 
     /// The logger for the import manager.
     log: Logger,
 
     /// The sending part of input_channel
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+}
+
+/// Object representing a single block lookup request.
+struct SingleBlockRequest {
+    /// The hash of the requested block.
+    pub hash: Hash256,
+    /// Whether a block was received from this request, or the peer returned an empty response.
+    pub block_returned: bool,
+}
+
+impl SingleBlockRequest {
+    pub fn new(hash: Hash256) -> Self {
+        Self {
+            hash,
+            block_returned: false,
+        }
+    }
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -280,12 +296,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // check if this is a single block lookup - i.e we were searching for a specific hash
                 let mut single_block_hash = None;
-                if let Some((block_hash, data_received)) =
-                    self.single_block_lookups.get_mut(&request_id)
-                {
+                if let Some(block_request) = self.single_block_lookups.get_mut(&request_id) {
                     // update the state of the lookup indicating a block was received from the peer
-                    *data_received = true;
-                    single_block_hash = Some(block_hash.clone());
+                    block_request.block_returned = true;
+                    single_block_hash = Some(block_request.hash.clone());
                 }
                 if let Some(block_hash) = single_block_hash {
                     self.single_block_lookup_response(peer_id, block, block_hash);
@@ -316,12 +330,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // this is a stream termination
 
                 // stream termination for a single block lookup, remove the key
-                if let Some((block_hash, data_received)) =
-                    self.single_block_lookups.remove(&request_id)
-                {
+                if let Some(single_block_request) = self.single_block_lookups.remove(&request_id) {
                     // the peer didn't respond with a block that it referenced
-                    if !data_received {
-                        warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => format!("{}", block_hash), "peer_id" =>  format!("{}", peer_id));
+                    if !single_block_request.block_returned {
+                        warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => format!("{}", single_block_request.hash), "peer_id" =>  format!("{}", peer_id));
                         self.network.downvote_peer(peer_id);
                     }
                     return;
@@ -446,13 +458,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         }
 
+        // Do not re-request a block that is already being requested
+        if self
+            .single_block_lookups
+            .values()
+            .find(|single_block_request| single_block_request.hash == block_hash)
+            .is_some()
+        {
+            return;
+        }
+
         let request = BlocksByRootRequest {
             block_roots: vec![block_hash],
         };
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
             self.single_block_lookups
-                .insert(request_id, (block_hash, false));
+                .insert(request_id, SingleBlockRequest::new(block_hash));
         }
     }
 
@@ -665,20 +687,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let request = BlocksByRootRequest {
             block_roots: vec![parent_hash],
         };
-        // select a random fully synced peer to attempt to download the parent block
-        let available_peers = self
-            .network_globals
-            .peers
-            .read()
-            .synced_peers()
-            .cloned()
-            .collect::<Vec<_>>();
-        let peer_id = if let Some(peer_id) = available_peers.choose(&mut rand::thread_rng()) {
-            (*peer_id).clone()
-        } else {
-            // there were no peers to choose from. We drop the lookup request
-            return;
-        };
+
+        // We continue to search for the chain of blocks from the same peer. Other peers are not
+        // guaranteed to have this chain of blocks.
+        let peer_id = parent_request.last_submitted_peer.clone();
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
             // if the request was successful add the queue back into self
