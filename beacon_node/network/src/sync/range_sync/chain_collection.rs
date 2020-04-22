@@ -305,7 +305,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         peer_id: PeerId,
         sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     ) {
+        let chain_id = rand::random();
         self.finalized_chains.push(SyncingChain::new(
+            chain_id,
             local_finalized_slot,
             target_slot,
             target_head,
@@ -334,7 +336,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         });
         self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
+        let chain_id = rand::random();
         let mut new_head_chain = SyncingChain::new(
+            chain_id,
             remote_finalized_slot,
             target_slot,
             target_head,

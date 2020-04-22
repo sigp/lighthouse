@@ -39,7 +39,7 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
-use super::chain::ProcessingResult;
+use super::chain::{ChainId, ProcessingResult};
 use super::chain_collection::{ChainCollection, RangeSyncState};
 use super::BatchId;
 use crate::router::processor::PeerSyncInfo;
@@ -252,6 +252,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn handle_block_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
+        chain_id: ChainId,
         batch_id: BatchId,
         downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
         result: BatchProcessResult,
@@ -260,7 +261,13 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         let mut downloaded_blocks = Some(downloaded_blocks);
 
         match self.chains.finalized_request(|chain| {
-            chain.on_batch_process_result(network, batch_id, &mut downloaded_blocks, &result)
+            chain.on_batch_process_result(
+                network,
+                chain_id,
+                batch_id,
+                &mut downloaded_blocks,
+                &result,
+            )
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
@@ -291,6 +298,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 match self.chains.head_request(|chain| {
                     chain.on_batch_process_result(
                         network,
+                        chain_id,
                         batch_id,
                         &mut downloaded_blocks,
                         &result,

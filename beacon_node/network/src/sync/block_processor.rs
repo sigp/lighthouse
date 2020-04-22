@@ -1,6 +1,6 @@
 use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
-use crate::sync::range_sync::BatchId;
+use crate::sync::range_sync::{BatchId, ChainId};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
 use slog::{crit, debug, error, trace, warn};
@@ -12,7 +12,7 @@ use types::SignedBeaconBlock;
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(BatchId),
+    RangeBatchId(ChainId, BatchId),
     /// Processing Id of the parent lookup of a block
     ParentLookup(PeerId),
 }
@@ -40,7 +40,7 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
     std::thread::spawn(move || {
         match process_id {
             // this a request from the range sync
-            ProcessId::RangeBatchId(batch_id) => {
+            ProcessId::RangeBatchId(chain_id, batch_id) => {
                 debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
                 let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                     (_, Ok(_)) => {
@@ -59,8 +59,9 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                 };
 
                 let msg = SyncMessage::BatchProcessed {
-                    batch_id: batch_id,
-                    downloaded_blocks: downloaded_blocks,
+                    chain_id,
+                    batch_id,
+                    downloaded_blocks,
                     result,
                 };
                 sync_send.try_send(msg).unwrap_or_else(|_| {
