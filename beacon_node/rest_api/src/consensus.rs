@@ -1,8 +1,7 @@
 use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
+use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use futures::{Future, Stream};
 use hyper::{Body, Request};
 use rest_types::{IndividualVotesRequest, IndividualVotesResponse};
 use serde::{Deserialize, Serialize};
@@ -71,23 +70,23 @@ pub fn get_vote_count<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&report)
 }
 
-pub fn post_individual_votes<T: BeaconChainTypes>(
+pub async fn post_individual_votes<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-) -> BoxFut {
+) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
 
-    let future = req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-        .and_then(|chunks| {
-            serde_json::from_slice::<IndividualVotesRequest>(&chunks).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
-                    e
-                ))
-            })
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice::<IndividualVotesRequest>(&chunks)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
+                e
+            ))
         })
         .and_then(move |body| {
             let epoch = body.epoch;
@@ -136,7 +135,5 @@ pub fn post_individual_votes<T: BeaconChainTypes>(
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
-        .and_then(|votes| response_builder?.body_no_ssz(&votes));
-
-    Box::new(future)
+        .and_then(|votes| response_builder?.body_no_ssz(&votes))
 }

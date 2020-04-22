@@ -1,9 +1,8 @@
 use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
 use crate::validator::get_state_for_epoch;
-use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
+use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
-use futures::{Future, Stream};
 use hyper::{Body, Request};
 use rest_types::{
     BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
@@ -216,23 +215,22 @@ pub fn get_active_validators<T: BeaconChainTypes>(
 ///
 /// This method allows for a basically unbounded list of `pubkeys`, where as the `get_validators`
 /// request is limited by the max number of pubkeys you can fit in a URL.
-pub fn post_validators<T: BeaconChainTypes>(
+pub async fn post_validators<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-) -> BoxFut {
+) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
 
-    let future = req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-        .and_then(|chunks| {
-            serde_json::from_slice::<ValidatorRequest>(&chunks).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to parse JSON into ValidatorRequest: {:?}",
-                    e
-                ))
-            })
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+    serde_json::from_slice::<ValidatorRequest>(&chunks)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to parse JSON into ValidatorRequest: {:?}",
+                e
+            ))
         })
         .and_then(|bulk_request| {
             validator_responses_by_pubkey(
@@ -241,9 +239,7 @@ pub fn post_validators<T: BeaconChainTypes>(
                 bulk_request.pubkeys,
             )
         })
-        .and_then(|validators| response_builder?.body(&validators));
-
-    Box::new(future)
+        .and_then(|validators| response_builder?.body(&validators))
 }
 
 /// Returns either the state given by `state_root_opt`, or the canonical head state if it is
@@ -449,23 +445,23 @@ pub fn get_genesis_validators_root<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&beacon_chain.head_info()?.genesis_validators_root)
 }
 
-pub fn proposer_slashing<T: BeaconChainTypes>(
+pub async fn proposer_slashing<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-) -> BoxFut {
+) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
 
-    let future = req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-        .and_then(|chunks| {
-            serde_json::from_slice::<ProposerSlashing>(&chunks).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to parse JSON into ProposerSlashing: {:?}",
-                    e
-                ))
-            })
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice::<ProposerSlashing>(&chunks)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to parse JSON into ProposerSlashing: {:?}",
+                e
+            ))
         })
         .and_then(move |proposer_slashing| {
             let spec = &beacon_chain.spec;
@@ -481,33 +477,31 @@ pub fn proposer_slashing<T: BeaconChainTypes>(
                         ))
                     })
             } else {
-                Err(ApiError::BadRequest(
+                return Err(ApiError::BadRequest(
                     "Cannot insert proposer slashing on node without Eth1 connection.".to_string(),
-                ))
+                ));
             }
         })
-        .and_then(|_| response_builder?.body(&true));
-
-    Box::new(future)
+        .and_then(|_| response_builder?.body(&true))
 }
 
-pub fn attester_slashing<T: BeaconChainTypes>(
+pub async fn attester_slashing<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-) -> BoxFut {
+) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
 
-    let future = req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-        .and_then(|chunks| {
-            serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&chunks).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to parse JSON into AttesterSlashing: {:?}",
-                    e
-                ))
-            })
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&chunks)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to parse JSON into AttesterSlashing: {:?}",
+                e
+            ))
         })
         .and_then(move |attester_slashing| {
             let spec = &beacon_chain.spec;
@@ -528,7 +522,5 @@ pub fn attester_slashing<T: BeaconChainTypes>(
                 ))
             }
         })
-        .and_then(|_| response_builder?.body(&true));
-
-    Box::new(future)
+        .and_then(|_| response_builder?.body(&true))
 }

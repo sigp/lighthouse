@@ -3,13 +3,12 @@ use crate::helpers::{
     publish_beacon_block_to_network, publish_raw_attestations_to_network,
 };
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
+use crate::{ApiError, ApiResult, NetworkChannel, UrlQuery};
 use beacon_chain::{
     AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
     StateSkipConfig,
 };
 use bls::PublicKeyBytes;
-use futures::{Future, Stream};
 use hyper::{Body, Request};
 use network::NetworkMessage;
 use rayon::prelude::*;
@@ -25,23 +24,23 @@ use types::{
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
 /// method allows for collecting bulk sets of validator duties without risking exceeding the max
 /// URL length with query pairs.
-pub fn post_validator_duties<T: BeaconChainTypes>(
+pub async fn post_validator_duties<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-) -> BoxFut {
+) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
 
-    let future = req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-        .and_then(|chunks| {
-            serde_json::from_slice::<ValidatorDutiesRequest>(&chunks).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
-                    e
-                ))
-            })
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice::<ValidatorDutiesRequest>(&chunks)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
+                e
+            ))
         })
         .and_then(|bulk_request| {
             return_validator_duties(
@@ -50,45 +49,42 @@ pub fn post_validator_duties<T: BeaconChainTypes>(
                 bulk_request.pubkeys.into_iter().map(Into::into).collect(),
             )
         })
-        .and_then(|duties| response_builder?.body_no_ssz(&duties));
-
-    Box::new(future)
+        .and_then(|duties| response_builder?.body_no_ssz(&duties))
 }
 
 /// HTTP Handler to retrieve subscriptions for a set of validators. This allows the node to
 /// organise peer discovery and topic subscription for known validators.
-pub fn post_validator_subscriptions<T: BeaconChainTypes>(
+pub async fn post_validator_subscriptions<T: BeaconChainTypes>(
     req: Request<Body>,
-    mut network_chan: NetworkChannel<T::EthSpec>,
-) -> BoxFut {
+    network_chan: NetworkChannel<T::EthSpec>,
+) -> ApiResult {
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
 
     let body = req.into_body();
-    Box::new(
-        body.concat2()
-            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-            .and_then(|chunks| {
-                serde_json::from_slice(&chunks).map_err(|e| {
-                    ApiError::BadRequest(format!(
-                        "Unable to parse JSON into ValidatorSubscriptions: {:?}",
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice(&chunks)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to parse JSON into ValidatorSubscriptions: {:?}",
+                e
+            ))
+        })
+        .and_then(move |subscriptions: Vec<ValidatorSubscription>| {
+            network_chan
+                .send(NetworkMessage::Subscribe { subscriptions })
+                .map_err(|e| {
+                    ApiError::ServerError(format!(
+                        "Unable to subscriptions to the network: {:?}",
                         e
                     ))
-                })
-            })
-            .and_then(move |subscriptions: Vec<ValidatorSubscription>| {
-                network_chan
-                    .try_send(NetworkMessage::Subscribe { subscriptions })
-                    .map_err(|e| {
-                        ApiError::ServerError(format!(
-                            "Unable to subscriptions to the network: {:?}",
-                            e
-                        ))
-                    })?;
-                Ok(())
-            })
-            .and_then(|_| response_builder?.body_no_ssz(&())),
-    )
+                })?;
+            Ok(())
+        })
+        .and_then(|_| response_builder?.body_no_ssz(&()))
 }
 
 /// HTTP Handler to retrieve all validator duties for the given epoch.
@@ -295,24 +291,23 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish a SignedBeaconBlock, which has been signed by a validator.
-pub fn publish_beacon_block<T: BeaconChainTypes>(
+pub async fn publish_beacon_block<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     network_chan: NetworkChannel<T::EthSpec>,
     log: Logger,
-) -> BoxFut {
+) -> ApiResult {
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
 
     let body = req.into_body();
-    Box::new(
-        body.concat2()
-            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-            .and_then(|chunks| {
-                serde_json::from_slice(&chunks).map_err(|e| {
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice(&chunks).map_err(|e| {
                     ApiError::BadRequest(format!("Unable to parse JSON into SignedBeaconBlock: {:?}", e))
                 })
-            })
             .and_then(move |block: SignedBeaconBlock<T::EthSpec>| {
                 let slot = block.slot();
                 match beacon_chain.process_block(block.clone()) {
@@ -386,7 +381,6 @@ pub fn publish_beacon_block<T: BeaconChainTypes>(
                 }
         })
         .and_then(|_| response_builder?.body_no_ssz(&()))
-    )
 }
 
 /// HTTP Handler to produce a new Attestation from the current state, ready to be signed by a validator.
@@ -428,28 +422,27 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.
-pub fn publish_attestations<T: BeaconChainTypes>(
+pub async fn publish_attestations<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     network_chan: NetworkChannel<T::EthSpec>,
     log: Logger,
-) -> BoxFut {
+) -> ApiResult {
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
 
-    Box::new(
-        req.into_body()
-            .concat2()
-            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-            .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
-            .and_then(|chunks| {
-                serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
                     ApiError::BadRequest(format!(
                         "Unable to deserialize JSON into a list of attestations: {:?}",
                         e
                     ))
                 })
-            })
             .and_then(move |attestations: Vec<Attestation<T::EthSpec>>| {
                 // Note: This is a new attestation from a validator. We want to process this and
                 // inform the validator whether the attestation was valid. In doing so, we store
@@ -512,33 +505,31 @@ pub fn publish_attestations<T: BeaconChainTypes>(
             .and_then(|attestations| {
                    publish_raw_attestations_to_network::<T>(network_chan, attestations)
             })
-            .and_then(|_| response_builder?.body_no_ssz(&())),
-    )
+            .and_then(|_| response_builder?.body_no_ssz(&()))
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
-pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
+pub async fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
     network_chan: NetworkChannel<T::EthSpec>,
     log: Logger,
-) -> BoxFut {
+) -> ApiResult {
     try_future!(check_content_type_for_json(&req));
     let response_builder = ResponseBuilder::new(&req);
 
-    Box::new(
-        req.into_body()
-            .concat2()
-            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-            .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
-            .and_then(|chunks| {
-                serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map(|chunk| chunk.iter().cloned().collect::<Vec<u8>>())
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice(&chunks.as_slice()).map_err(|e| {
                     ApiError::BadRequest(format!(
                         "Unable to deserialize JSON into a list of SignedAggregateAndProof: {:?}",
                         e
                     ))
                 })
-            })
             .and_then(move |signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>| {
                 // Verify the signatures for the aggregate and proof and if valid process the
                 // aggregate
@@ -623,6 +614,5 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
             .and_then(move |signed_proofs| {
                 publish_aggregate_attestations_to_network::<T>(network_chan, signed_proofs)
             })
-            .and_then(|_| response_builder?.body_no_ssz(&())),
-    )
+            .and_then(|_| response_builder?.body_no_ssz(&()))
 }

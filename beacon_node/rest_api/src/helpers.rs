@@ -3,7 +3,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
 use hex;
-use http::header;
+use hyper::header;
 use hyper::{Body, Request};
 use network::NetworkMessage;
 use ssz::Decode;
@@ -230,14 +230,14 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    mut chan: NetworkChannel<T::EthSpec>,
+    chan: NetworkChannel<T::EthSpec>,
     block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // send the block via SSZ encoding
     let messages = vec![PubsubMessage::BeaconBlock(Box::new(block))];
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
+    if let Err(e) = chan.send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
             e
@@ -249,7 +249,7 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
 
 /// Publishes a raw un-aggregated attestation to the network.
 pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
-    mut chan: NetworkChannel<T::EthSpec>,
+    chan: NetworkChannel<T::EthSpec>,
     attestations: Vec<Attestation<T::EthSpec>>,
 ) -> Result<(), ApiError> {
     let messages = attestations
@@ -262,7 +262,7 @@ pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
         .collect::<Vec<_>>();
 
     // Publish the attestations to the p2p network via gossipsub.
-    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
+    if let Err(e) = chan.send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new attestation to network: {:?}",
             e
@@ -274,7 +274,7 @@ pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
 
 /// Publishes an aggregated attestation to the network.
 pub fn publish_aggregate_attestations_to_network<T: BeaconChainTypes + 'static>(
-    mut chan: NetworkChannel<T::EthSpec>,
+    chan: NetworkChannel<T::EthSpec>,
     signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>,
 ) -> Result<(), ApiError> {
     let messages = signed_proofs
@@ -283,7 +283,7 @@ pub fn publish_aggregate_attestations_to_network<T: BeaconChainTypes + 'static>(
         .collect::<Vec<_>>();
 
     // Publish the attestations to the p2p network via gossipsub.
-    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
+    if let Err(e) = chan.send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new attestation to network: {:?}",
             e
