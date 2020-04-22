@@ -804,6 +804,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = verified_attestation.attestation().data.beacon_block_root;
 
+        // TODO: don't downvote peer if we can't add things to pool.
+
         self.chain
             .add_to_block_inclusion_pool(verified_attestation)
             .map(|verified_attestation| {
@@ -847,6 +849,8 @@ impl<T: BeaconChainTypes> Processor<T> {
     ) {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = verified_attestation.attestation().data.beacon_block_root;
+
+        // TODO: don't downvote peer if we can't add things to pool.
 
         self.chain
             .add_to_naive_aggregation_pool(verified_attestation)
