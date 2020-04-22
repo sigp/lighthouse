@@ -38,10 +38,16 @@ pub enum ProcessingResult {
     RemoveChain,
 }
 
+/// A chain identifier
+pub type ChainId = u64;
+
 /// A chain of blocks that need to be downloaded. Peers who claim to contain the target head
 /// root are grouped into the peer pool and queried for batches when downloading the
 /// chain.
 pub struct SyncingChain<T: BeaconChainTypes> {
+    /// A random id used to identify this chain.
+    id: ChainId,
+
     /// The original start slot when this chain was initialised.
     pub start_slot: Slot,
 
@@ -99,6 +105,7 @@ pub enum ChainSyncingState {
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn new(
+        id: u64,
         start_slot: Slot,
         target_head_slot: Slot,
         target_head_root: Hash256,
@@ -111,6 +118,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer_pool.insert(peer_id);
 
         SyncingChain {
+            id,
             start_slot,
             target_head_slot,
             target_head_root,
@@ -242,11 +250,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Sends a batch to the batch processor.
     fn process_batch(&mut self, mut batch: Batch<T::EthSpec>) {
         let downloaded_blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
-        let batch_id = ProcessId::RangeBatchId(batch.id.clone());
+        let process_id = ProcessId::RangeBatchId(self.id.clone(), batch.id.clone());
         self.current_processing_batch = Some(batch);
         spawn_block_processor(
             Arc::downgrade(&self.chain.clone()),
-            batch_id,
+            process_id,
             downloaded_blocks,
             self.sync_send.clone(),
             self.log.clone(),
@@ -258,26 +266,36 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn on_batch_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
+        chain_id: ChainId,
         batch_id: BatchId,
         downloaded_blocks: &mut Option<Vec<SignedBeaconBlock<T::EthSpec>>>,
         result: &BatchProcessResult,
     ) -> Option<ProcessingResult> {
-        if let Some(current_batch) = &self.current_processing_batch {
-            if current_batch.id != batch_id {
-                // batch process does not belong to this chain
+        if chain_id != self.id {
+            // the result does not belong to this chain
+            return None;
+        }
+        match &self.current_processing_batch {
+            Some(current_batch) if current_batch.id != batch_id => {
+                debug!(self.log, "Unexpected batch result";
+                    "chain_id" => self.id, "batch_id" => *batch_id, "expected_batch_id" => *current_batch.id);
                 return None;
             }
-        // Continue. This is our processing request
-        } else {
-            // not waiting on a processing result
-            return None;
+            None => {
+                debug!(self.log, "Chain was not expecting a batch result";
+                    "chain_id" => self.id, "batch_id" => *batch_id);
+                return None;
+            }
+            _ => {
+                // chain_id and batch_id match, continue
+            }
         }
 
         // claim the result by consuming the option
         let downloaded_blocks = downloaded_blocks.take().or_else(|| {
             // if taken by another chain, we are no longer waiting on a result.
             self.current_processing_batch = None;
-            crit!(self.log, "Processed batch taken by another chain");
+            crit!(self.log, "Processed batch taken by another chain"; "chain_id" => self.id);
             None
         })?;
 
@@ -289,6 +307,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // double check batches are processed in order TODO: Remove for prod
         if batch.id != self.to_be_processed_id {
             crit!(self.log, "Batch processed out of order";
+                "chain_id" => self.id,
                 "processed_batch_id" => *batch.id,
                 "expected_id" => *self.to_be_processed_id);
         }
@@ -330,7 +349,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             BatchProcessResult::Partial => {
                 warn!(self.log, "Batch processing failed but at least one block was imported";
-                    "id" => *batch.id, "peer" => format!("{}", batch.current_peer)
+                    "chain_id" => self.id, "id" => *batch.id, "peer" => format!("{}", batch.current_peer)
                 );
                 // At least one block was successfully verified and imported, so we can be sure all
                 // previous batches are valid and we only need to download the current failed
@@ -343,7 +362,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // that it is likely all peers in this chain are are sending invalid batches
                     // repeatedly and are either malicious or faulty. We drop the chain and
                     // downvote all peers.
-                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers"; "id"=> *batch.id);
+                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers";
+                        "chain_id" => self.id, "id"=> *batch.id);
                     for peer_id in self.peer_pool.drain() {
                         network.downvote_peer(peer_id);
                     }
@@ -355,7 +375,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
             BatchProcessResult::Failed => {
-                warn!(self.log, "Batch processing failed"; "id" => *batch.id, "peer" => format!("{}", batch.current_peer));
+                warn!(self.log, "Batch processing failed";
+                    "chain_id" => self.id,"id" => *batch.id, "peer" => format!("{}", batch.current_peer));
                 // The batch processing failed
                 // This could be because this batch is invalid, or a previous invalidated batch
                 // is invalid. We need to find out which and downvote the peer that has sent us
@@ -367,7 +388,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // that it is likely all peers in this chain are are sending invalid batches
                     // repeatedly and are either malicious or faulty. We drop the chain and
                     // downvote all peers.
-                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers"; "id"=> *batch.id);
+                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers";
+                        "chain_id" => self.id, "id"=> *batch.id);
                     for peer_id in self.peer_pool.drain() {
                         network.downvote_peer(peer_id);
                     }
@@ -399,8 +421,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let processed_batch = self.processed_batches.remove(0);
             if *processed_batch.id >= *last_batch.id {
                 crit!(self.log, "A processed batch had a greater id than the current process id";
-                                "processed_id" => *processed_batch.id,
-                                "current_id" => *last_batch.id);
+                    "chain_id" => self.id,
+                    "processed_id" => *processed_batch.id,
+                    "current_id" => *last_batch.id);
             }
 
             if let Some(prev_hash) = processed_batch.original_hash {
@@ -415,9 +438,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // now.
                         debug!(
                             self.log, "Re-processed batch validated. Downvoting original peer";
-                            "batch_id" => *processed_batch.id,
-                            "original_peer" => format!("{}",processed_batch.original_peer),
-                            "new_peer" => format!("{}", processed_batch.current_peer)
+                                "chain_id" => self.id,
+                                "batch_id" => *processed_batch.id,
+                                "original_peer" => format!("{}",processed_batch.original_peer),
+                                "new_peer" => format!("{}", processed_batch.current_peer)
                         );
                         network.downvote_peer(processed_batch.original_peer);
                     }
@@ -494,6 +518,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch.current_peer = new_peer.clone();
 
         debug!(self.log, "Re-requesting batch";
+            "chain_id" => self.id,
             "start_slot" => batch.start_slot,
             "end_slot" => batch.end_slot,
             "id" => *batch.id,
@@ -527,6 +552,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         if local_finalized_slot > self.current_processed_slot() {
             debug!(self.log, "Updating chain's progress";
+                "chain_id" => self.id,
                 "prev_completed_slot" => self.current_processed_slot(),
                 "new_completed_slot" => local_finalized_slot.as_u64());
             // Re-index batches
@@ -554,7 +580,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.peer_pool.insert(peer_id.clone());
         // do not request blocks if the chain is not syncing
         if let ChainSyncingState::Stopped = self.state {
-            debug!(self.log, "Peer added to a non-syncing chain"; "peer_id" => format!("{}", peer_id));
+            debug!(self.log, "Peer added to a non-syncing chain";
+                "chain_id" => self.id, "peer_id" => format!("{}", peer_id));
             return;
         }
 
@@ -583,6 +610,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> Option<ProcessingResult> {
         if let Some(batch) = self.pending_batches.remove(request_id) {
             warn!(self.log, "Batch failed. RPC Error";
+                "chain_id" => self.id,
                 "id" => *batch.id,
                 "retries" => batch.retries,
                 "peer" => format!("{:?}", peer_id));
@@ -623,6 +651,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
             batch.current_peer = new_peer.clone();
             debug!(self.log, "Re-Requesting batch";
+                "chain_id" => self.id,
                 "start_slot" => batch.start_slot,
                 "end_slot" => batch.end_slot,
                 "id" => *batch.id,
@@ -647,6 +676,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(peer_id) = self.get_next_peer() {
             if let Some(batch) = self.get_next_batch(peer_id) {
                 debug!(self.log, "Requesting batch";
+                    "chain_id" => self.id,
                     "start_slot" => batch.start_slot,
                     "end_slot" => batch.end_slot,
                     "id" => *batch.id,
