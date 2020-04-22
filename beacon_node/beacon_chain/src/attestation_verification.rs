@@ -409,6 +409,12 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 }
 
 impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
+    /// Returns `Ok(Self)` if the `attestation` is valid to be applied to the beacon chain fork
+    /// choice.
+    ///
+    /// The supplied `indexed_attestation` MUST have a valid signature, this function WILL NOT
+    /// CHECK THE SIGNATURE. Use the `VerifiedAggregatedAttestation` or
+    /// `VerifiedUnaggregatedAttestation` structs to do signature verification.
     fn from_signature_verified_components(
         indexed_attestation: IndexedAttestation<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -557,6 +563,7 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
     Ok(())
 }
 
+/// Verifies that the signature of the `indexed_attestation` is valid.
 pub fn verify_attestation_signature<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     indexed_attestation: &IndexedAttestation<T::EthSpec>,
