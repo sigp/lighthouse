@@ -4,9 +4,9 @@
 //! with this struct to to simplify the logic of the other layers of sync.
 
 use super::chain::{ChainSyncingState, SyncingChain};
-use crate::router::processor::PeerSyncInfo;
 use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId};
 use slog::{debug, error, info};

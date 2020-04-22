@@ -1,5 +1,6 @@
 use super::client::Client;
 use super::peerdb::{Rep, DEFAULT_REPUTATION};
+use super::PeerSyncStatus;
 use crate::rpc::MetaData;
 use crate::Multiaddr;
 use serde::{
@@ -7,7 +8,7 @@ use serde::{
     Serialize,
 };
 use std::time::Instant;
-use types::{EthSpec, Slot, SubnetId};
+use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
@@ -128,23 +129,6 @@ impl Serialize for PeerConnectionStatus {
             }
         }
     }
-}
-
-#[derive(Clone, Debug, Serialize)]
-/// The current sync status of the peer.
-pub enum PeerSyncStatus {
-    /// At the current state as our node or ahead of us.
-    Synced {
-        /// The last known head slot from the peer's handshake.
-        status_head_slot: Slot,
-    },
-    /// Is behind our current head and not useful for block downloads.
-    Behind {
-        /// The last known head slot from the peer's handshake.
-        status_head_slot: Slot,
-    },
-    /// Not currently known as a STATUS handshake has not occurred.
-    Unknown,
 }
 
 impl Default for PeerConnectionStatus {

@@ -42,10 +42,10 @@
 use super::chain::{ChainId, ProcessingResult};
 use super::chain_collection::{ChainCollection, RangeSyncState};
 use super::BatchId;
-use crate::router::processor::PeerSyncInfo;
 use crate::sync::block_processor::BatchProcessResult;
 use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::{NetworkGlobals, PeerId};
