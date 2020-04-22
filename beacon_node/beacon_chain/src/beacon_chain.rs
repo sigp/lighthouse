@@ -1063,11 +1063,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
-            |validator_index| {
-                pubkey_cache
-                    .get(validator_index)
-                    .map(Cow::Borrowed)
-            },
+            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &attestation.signature,
             &indexed_attestation,
             &fork,
