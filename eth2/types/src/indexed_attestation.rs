@@ -1,4 +1,5 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -9,7 +10,7 @@ use tree_hash_derive::TreeHash;
 /// To be included in an `AttesterSlashing`.
 ///
 /// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.

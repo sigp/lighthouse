@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::*;
+use arbitrary::Arbitrary;
 use bls::PublicKeyBytes;
-
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 /// The data supplied by the user to the deposit contract.
 ///
 /// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary)]
 pub struct DepositMessage {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,

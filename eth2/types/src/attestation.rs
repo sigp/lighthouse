@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{test_utils::TestRandom, Hash256};
 
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -18,7 +19,7 @@ pub enum Error {
 /// Details an attestation that can be slashable.
 ///
 /// Spec v0.11.1
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 pub struct Attestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,

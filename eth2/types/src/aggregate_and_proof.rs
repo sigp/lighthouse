@@ -3,6 +3,7 @@ use super::{
     Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -11,7 +12,7 @@ use tree_hash_derive::TreeHash;
 /// A Validators aggregate attestation and selection proof.
 ///
 /// Spec v0.10.1
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash, Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 pub struct AggregateAndProof<T: EthSpec> {
     /// The index of the validator that created the attestation.

@@ -1,5 +1,6 @@
 use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
+use arbitrary::{Arbitrary, Unstructured};
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
@@ -253,6 +254,20 @@ where
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len)).map(|vec| vec.into())
         }
+    }
+}
+
+
+impl <T: Arbitrary, N: 'static + Unsigned> Arbitrary for VariableList<T, N> {
+    fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+        let max_size = N::to_usize();
+        let rand = usize::arbitrary(u)?;
+        let size = if rand < max_size { rand } else { max_size };
+        let mut vec: Vec<T> = Vec::with_capacity(size);
+        for _ in 0..size {
+            vec.push(<T>::arbitrary(u)?);
+        }
+        Ok(Self::new(vec).map_err(|_| arbitrary::Error::IncorrectFormat)?)
     }
 }
 

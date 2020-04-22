@@ -2,6 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::utils::{fork_from_hex_str, fork_to_hex_str};
 use crate::{Hash256, SignedRoot};
 
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -11,7 +12,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.11.1
 #[derive(
-    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary,
 )]
 pub struct ForkData {
     #[serde(

@@ -1,6 +1,7 @@
 use super::Hash256;
 use crate::test_utils::TestRandom;
 
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -22,6 +23,7 @@ use tree_hash_derive::TreeHash;
     Decode,
     TreeHash,
     TestRandom,
+    Arbitrary,
 )]
 pub struct Eth1Data {
     pub deposit_root: Hash256,

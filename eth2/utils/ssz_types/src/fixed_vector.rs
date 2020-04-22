@@ -1,5 +1,6 @@
 use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
+use arbitrary::{Arbitrary, Unstructured};
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, IndexMut};
@@ -263,6 +264,17 @@ where
             ssz::decode_list_of_variable_length_items(bytes, Some(fixed_len))
                 .and_then(|vec| Ok(vec.into()))
         }
+    }
+}
+
+impl <T: Arbitrary, N: 'static + Unsigned> Arbitrary for FixedVector<T, N> {
+    fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+        let size = N::to_usize();
+        let mut vec: Vec<T> = Vec::with_capacity(size);
+        for _ in 0..size {
+            vec.push(<T>::arbitrary(u)?);
+        }
+        Ok(Self::new(vec).map_err(|_| arbitrary::Error::IncorrectFormat)?)
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::*;
+use arbitrary::Arbitrary;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
@@ -26,7 +27,7 @@ pub enum Domain {
 /// Holds all the "constants" for a BeaconChain.
 ///
 /// Spec v0.11.1
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Arbitrary)]
 #[serde(default)]
 pub struct ChainSpec {
     /*

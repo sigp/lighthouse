@@ -1,7 +1,8 @@
 use crate::*;
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Copy, Default, Serialize, Deserialize, Arbitrary)]
 pub struct AttestationDuty {
     /// The slot during which the attester must attest.
     pub slot: Slot,

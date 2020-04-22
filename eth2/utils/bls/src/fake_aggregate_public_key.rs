@@ -1,4 +1,5 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
+use arbitrary;
 use hex::encode as hex_encode;
 use milagro_bls::G1Point;
 use serde::de::{Deserialize, Deserializer};
@@ -106,5 +107,13 @@ impl<'de> Deserialize<'de> for FakeAggregatePublicKey {
         let pubkey = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(pubkey)
+    }
+}
+
+impl arbitrary::Arbitrary for FakeAggregatePublicKey {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];
+        u.fill_buffer(&mut bytes)?;
+        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }

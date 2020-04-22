@@ -2,6 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
 
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -11,7 +12,7 @@ use tree_hash_derive::TreeHash;
 /// A block of the `BeaconChain`.
 ///
 /// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlock<T: EthSpec> {
     pub slot: Slot,

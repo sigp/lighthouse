@@ -1,8 +1,9 @@
 //! Identifies each shard by an integer identifier.
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Arbitrary)]
 pub struct SubnetId(u64);
 
 impl SubnetId {

@@ -1,6 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -10,7 +11,7 @@ use tree_hash_derive::TreeHash;
 /// A header of a `BeaconBlock`.
 ///
 /// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary)]
 pub struct BeaconBlockHeader {
     pub slot: Slot,
     pub proposer_index: u64,

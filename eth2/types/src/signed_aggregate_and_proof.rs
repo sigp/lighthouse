@@ -2,6 +2,7 @@ use super::{
     AggregateAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
     SecretKey, Signature, SignedRoot,
 };
+use arbitrary::Arbitrary;
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -12,7 +13,7 @@ use tree_hash_derive::TreeHash;
 /// gossipsub topic.
 ///
 /// Spec v0.10.1
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash, Arbitrary)]
 #[serde(bound = "T: EthSpec")]
 pub struct SignedAggregateAndProof<T: EthSpec> {
     /// The `AggregateAndProof` that was signed.

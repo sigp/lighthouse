@@ -70,3 +70,9 @@ impl ExitCache {
         Ok(self.exits_per_epoch.get(&epoch).cloned().unwrap_or(0))
     }
 }
+
+impl arbitrary::Arbitrary for ExitCache {
+    fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self::default())
+    }
+}

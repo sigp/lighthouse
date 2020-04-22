@@ -3,12 +3,13 @@ use bls::Signature;
 
 use std::fmt;
 
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Arbitrary)]
 pub struct SignedBeaconBlockHash(Hash256);
 
 impl fmt::Debug for SignedBeaconBlockHash {
@@ -38,7 +39,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 /// A `BeaconBlock` and a signature from its proposer.
 ///
 /// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom, Arbitrary)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBeaconBlock<E: EthSpec> {
     pub message: BeaconBlock<E>,
