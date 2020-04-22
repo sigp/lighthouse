@@ -117,7 +117,7 @@ where
         state.genesis_validators_root,
     );
 
-    let message = state.current_epoch().signing_root(domain);
+    let message = block.slot.epoch(T::slots_per_epoch()).signing_root(domain);
 
     Ok(SignatureSet::single(
         &block.body.randao_reveal,

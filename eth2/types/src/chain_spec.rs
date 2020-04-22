@@ -114,11 +114,43 @@ pub struct ChainSpec {
     pub eth1_follow_distance: u64,
     pub seconds_per_eth1_block: u64,
 
+    /*
+     * Networking
+     */
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
+    pub attestation_propagation_slot_range: u64,
+    pub maximum_gossip_clock_disparity_millis: u64,
+    pub target_aggregators_per_committee: u64,
+    pub attestation_subnet_count: u64,
+    pub random_subnets_per_validator: u64,
+    pub epochs_per_random_subnet_subscription: u64,
 }
 
 impl ChainSpec {
+    /// Returns an `EnrForkId` for the given `slot`.
+    ///
+    /// Presently, we don't have any forks so we just ignore the slot. In the future this function
+    /// may return something different based upon the slot.
+    pub fn enr_fork_id(&self, _slot: Slot, genesis_validators_root: Hash256) -> EnrForkId {
+        EnrForkId {
+            fork_digest: Self::compute_fork_digest(
+                self.genesis_fork_version,
+                genesis_validators_root,
+            ),
+            next_fork_version: self.genesis_fork_version,
+            next_fork_epoch: self.far_future_epoch,
+        }
+    }
+
+    /// Returns the epoch of the next scheduled change in the `fork.current_version`.
+    ///
+    /// There are no future forks scheduled so this function always returns `None`. This may not
+    /// always be the case in the future, though.
+    pub fn next_fork_epoch(&self) -> Option<Epoch> {
+        None
+    }
+
     /// Get the domain number, unmodified by the fork.
     ///
     /// Spec v0.11.1
@@ -297,6 +329,12 @@ impl ChainSpec {
              */
             boot_nodes: vec![],
             network_id: 1, // mainnet network id
+            attestation_propagation_slot_range: 32,
+            attestation_subnet_count: 64,
+            random_subnets_per_validator: 1,
+            maximum_gossip_clock_disparity_millis: 500,
+            target_aggregators_per_committee: 16,
+            epochs_per_random_subnet_subscription: 256,
         }
     }
 

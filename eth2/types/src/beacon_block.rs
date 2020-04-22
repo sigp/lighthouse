@@ -50,6 +50,100 @@ impl<T: EthSpec> BeaconBlock<T> {
         }
     }
 
+    /// Return a block where the block has the max possible operations.
+    pub fn full(spec: &ChainSpec) -> BeaconBlock<T> {
+        let header = BeaconBlockHeader {
+            slot: Slot::new(1),
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body_root: Hash256::zero(),
+        };
+
+        let signed_header = SignedBeaconBlockHeader {
+            message: header,
+            signature: Signature::empty_signature(),
+        };
+        let indexed_attestation: IndexedAttestation<T> = IndexedAttestation {
+            attesting_indices: VariableList::new(vec![
+                0 as u64;
+                T::MaxValidatorsPerCommittee::to_usize()
+            ])
+            .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::new(),
+        };
+
+        let deposit_data = DepositData {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::zero(),
+            amount: 0,
+            signature: SignatureBytes::empty(),
+        };
+        let proposer_slashing = ProposerSlashing {
+            signed_header_1: signed_header.clone(),
+            signed_header_2: signed_header.clone(),
+        };
+
+        let attester_slashing = AttesterSlashing {
+            attestation_1: indexed_attestation.clone(),
+            attestation_2: indexed_attestation.clone(),
+        };
+
+        let attestation: Attestation<T> = Attestation {
+            aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())
+                .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::new(),
+        };
+
+        let deposit = Deposit {
+            proof: FixedVector::from_elem(Hash256::zero()),
+            data: deposit_data,
+        };
+
+        let voluntary_exit = VoluntaryExit {
+            epoch: Epoch::new(1),
+            validator_index: 1,
+        };
+
+        let signed_voluntary_exit = SignedVoluntaryExit {
+            message: voluntary_exit,
+            signature: Signature::empty_signature(),
+        };
+
+        let mut block: BeaconBlock<T> = BeaconBlock::empty(spec);
+        for _ in 0..T::MaxProposerSlashings::to_usize() {
+            block
+                .body
+                .proposer_slashings
+                .push(proposer_slashing.clone())
+                .unwrap();
+        }
+        for _ in 0..T::MaxDeposits::to_usize() {
+            block.body.deposits.push(deposit.clone()).unwrap();
+        }
+        for _ in 0..T::MaxVoluntaryExits::to_usize() {
+            block
+                .body
+                .voluntary_exits
+                .push(signed_voluntary_exit.clone())
+                .unwrap();
+        }
+        for _ in 0..T::MaxAttesterSlashings::to_usize() {
+            block
+                .body
+                .attester_slashings
+                .push(attester_slashing.clone())
+                .unwrap();
+        }
+
+        for _ in 0..T::MaxAttestations::to_usize() {
+            block.body.attestations.push(attestation.clone()).unwrap();
+        }
+        block
+    }
+
     /// Returns the epoch corresponding to `self.slot`.
     pub fn epoch(&self) -> Epoch {
         self.slot.epoch(T::slots_per_epoch())

@@ -1,6 +1,6 @@
 [package]
 name = "remote_beacon_node"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
@@ -12,7 +12,7 @@ url = "1.2"
 serde = "1.0"
 futures = "0.1.25"
 types = { path = "../../../eth2/types" }
-rest_api = { path = "../../../beacon_node/rest_api" }
+rest_types = { path = "../rest_types" }
 hex = "0.3"
 eth2_ssz = { path = "../../../eth2/utils/ssz" }
 serde_json = "^1.0"

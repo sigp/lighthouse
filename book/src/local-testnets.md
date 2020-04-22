@@ -18,9 +18,10 @@ TL;DR isn't adequate.
 ##  TL;DR
 
 ```bash
+make install-lcli
 lcli new-testnet
 lcli interop-genesis 128
-lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http
+lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http --enr-match
 lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insecure 0 128
 ```
 
@@ -40,7 +41,7 @@ used for starting testnets and debugging.
 Install `lcli` from the root directory of this repository with:
 
 ```bash
-cargo install --path lcli --force
+make install-lcli
 ```
 
 ### 1.2 Create a testnet directory
@@ -55,7 +56,7 @@ Once you have `lcli` installed, create a new testnet directory with:
 lcli new-testnet
 ```
 
-> - This will create a "mainnet" spec testnet. To create a minimal spec use `lcli --spec minim new-testnet`.
+> - This will create a "mainnet" spec testnet. To create a minimal spec use `lcli --spec minimal new-testnet`.
 > - The `lcli new-testnet` command has many options, use `lcli new-testnet --help` to see them.
 
 ### 1.3 Create a genesis state
@@ -83,12 +84,13 @@ start a beacon node and validator client.
 Start a beacon node:
 
 ```bash
-lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http
+lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http --enr-match
 ```
 
 > - `--testnet-dir` instructs the beacon node to use the spec we generated earlier.
 > - `--dummy-eth1` uses deterministic "junk data" for linking to the eth1 chain, avoiding the requirement for an eth1 node. The downside is that new validators cannot be on-boarded after genesis.
 > - `--http` starts the REST API so the validator client can produce blocks.
+> - `--enr-match` sets the local ENR to use the local IP address and port which allows other nodes to connect. This node can then behave as a bootnode for other nodes.
 
 ### 2.2 Start a validator client
 
@@ -104,3 +106,48 @@ lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insec
 > - `testnet insecure 0 128` instructs the validator client to use insecure
 >    testnet private keys and that it should control validators from `0` to
 >    `127` (inclusive).
+
+## 3. Connect other nodes
+
+Other nodes can now join this local testnet.
+
+The initial node will output the ENR on boot. The ENR can also be obtained via
+the http:
+```bash
+curl localhost:5052/network/enr
+```
+or from it's default directory:
+```
+~/.lighthouse/beacon/network/enr.dat
+```
+
+Once the ENR of the first node is obtained, another nodes may connect and
+participate in the local network. Simply run:
+
+```bash
+lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http --http-port 5053 --port 9002 --boot-nodes <ENR>
+```
+
+> - `--testnet-dir` instructs the beacon node to use the spec we generated earlier.
+> - `--dummy-eth1` uses deterministic "junk data" for linking to the eth1 chain, avoiding the requirement for an eth1 node. The downside is that new validators cannot be on-boarded after genesis.
+> - `--http` starts the REST API so the validator client can produce blocks.
+> - `--http-port` sets the REST API port to a non-standard port to avoid conflicts with the first local node.
+> - `--port` sets the ports of the lighthouse client to a non-standard value to avoid conflicts with the original node.
+> - `--boot-nodes` provides the ENR of the original node to connect to. Note all nodes can use this ENR and should discover each other automatically via the discv5 discovery.
+
+Note: The `--enr-match` is only required for the boot node. The local ENR of
+all subsequent nodes will update automatically.
+
+
+This node should now connect to the original node, sync and follow it's head.
+
+## 4. Updating genesis time
+
+To re-use a testnet directory one may simply update the genesis time and repeat
+the process. 
+
+To update the genesis time of a `genesis.ssz` file, use the following command:
+
+```bash
+$ lcli change-genesis-time ~/.lighthouse/testnet/genesis.ssz $(date +%s)
+```

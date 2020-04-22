@@ -13,13 +13,15 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{
-    ErrorMessage, RPCErrorResponse, RPCResponse, RequestId, ResponseTermination, StatusMessage,
+    ErrorMessage, MetaData, RPCErrorResponse, RPCResponse, RequestId, ResponseTermination,
+    StatusMessage,
 };
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
-use slog::o;
+use slog::{debug, o};
 use std::marker::PhantomData;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
+use types::EthSpec;
 
 pub(crate) mod codec;
 mod handler;
@@ -28,19 +30,19 @@ mod protocol;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.
 #[derive(Debug)]
-pub enum RPCEvent {
+pub enum RPCEvent<T: EthSpec> {
     /// An inbound/outbound request for RPC protocol. The first parameter is a sequential
     /// id which tracks an awaiting substream for the response.
-    Request(RequestId, RPCRequest),
+    Request(RequestId, RPCRequest<T>),
     /// A response that is being sent or has been received from the RPC protocol. The first parameter returns
     /// that which was sent with the corresponding request, the second is a single chunk of a
     /// response.
-    Response(RequestId, RPCErrorResponse),
+    Response(RequestId, RPCErrorResponse<T>),
     /// An Error occurred.
     Error(RequestId, RPCError),
 }
 
-impl RPCEvent {
+impl<T: EthSpec> RPCEvent<T> {
     pub fn id(&self) -> usize {
         match *self {
             RPCEvent::Request(id, _) => id,
@@ -50,7 +52,7 @@ impl RPCEvent {
     }
 }
 
-impl std::fmt::Display for RPCEvent {
+impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {}, {})", id, req),
@@ -62,16 +64,16 @@ impl std::fmt::Display for RPCEvent {
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-pub struct RPC<TSubstream> {
+pub struct RPC<TSubstream, TSpec: EthSpec> {
     /// Queue of events to processed.
-    events: Vec<NetworkBehaviourAction<RPCEvent, RPCMessage>>,
+    events: Vec<NetworkBehaviourAction<RPCEvent<TSpec>, RPCMessage<TSpec>>>,
     /// Pins the generic substream.
     marker: PhantomData<TSubstream>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
-impl<TSubstream> RPC<TSubstream> {
+impl<TSubstream, TSpec: EthSpec> RPC<TSubstream, TSpec> {
     pub fn new(log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         RPC {
@@ -84,7 +86,7 @@ impl<TSubstream> RPC<TSubstream> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent) {
+    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
         self.events.push(NetworkBehaviourAction::SendEvent {
             peer_id,
             event: rpc_event,
@@ -92,16 +94,19 @@ impl<TSubstream> RPC<TSubstream> {
     }
 }
 
-impl<TSubstream> NetworkBehaviour for RPC<TSubstream>
+impl<TSubstream, TSpec> NetworkBehaviour for RPC<TSubstream, TSpec>
 where
     TSubstream: AsyncRead + AsyncWrite,
+    TSpec: EthSpec,
 {
-    type ProtocolsHandler = RPCHandler<TSubstream>;
-    type OutEvent = RPCMessage;
+    type ProtocolsHandler = RPCHandler<TSubstream, TSpec>;
+    type OutEvent = RPCMessage<TSpec>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         RPCHandler::new(
-            SubstreamProtocol::new(RPCProtocol),
+            SubstreamProtocol::new(RPCProtocol {
+                phantom: PhantomData,
+            }),
             Duration::from_secs(30),
             &self.log,
         )
@@ -113,15 +118,33 @@ where
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, connected_point: ConnectedPoint) {
+        // TODO: Remove this on proper peer discovery
+        self.events.push(NetworkBehaviourAction::GenerateEvent(
+            RPCMessage::PeerConnectedHack(peer_id.clone(), connected_point.clone()),
+        ));
         // if initialised the connection, report this upwards to send the HELLO request
         if let ConnectedPoint::Dialer { .. } = connected_point {
             self.events.push(NetworkBehaviourAction::GenerateEvent(
-                RPCMessage::PeerDialed(peer_id),
+                RPCMessage::PeerDialed(peer_id.clone()),
             ));
         }
+
+        // find the peer's meta-data
+        debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
+        let rpc_event =
+            RPCEvent::Request(RequestId::from(0usize), RPCRequest::MetaData(PhantomData));
+        self.events.push(NetworkBehaviourAction::SendEvent {
+            peer_id,
+            event: rpc_event,
+        });
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId, _: ConnectedPoint) {
+    fn inject_disconnected(&mut self, peer_id: &PeerId, connected_point: ConnectedPoint) {
+        // TODO: Remove this on proper peer discovery
+        self.events.push(NetworkBehaviourAction::GenerateEvent(
+            RPCMessage::PeerDisconnectedHack(peer_id.clone(), connected_point.clone()),
+        ));
+
         // inform the rpc handler that the peer has disconnected
         self.events.push(NetworkBehaviourAction::GenerateEvent(
             RPCMessage::PeerDisconnected(peer_id.clone()),
@@ -157,8 +180,12 @@ where
 }
 
 /// Messages sent to the user from the RPC protocol.
-pub enum RPCMessage {
-    RPC(PeerId, RPCEvent),
+pub enum RPCMessage<TSpec: EthSpec> {
+    RPC(PeerId, RPCEvent<TSpec>),
     PeerDialed(PeerId),
     PeerDisconnected(PeerId),
+    // TODO: This is a hack to give access to connections to peer manager. Remove this once
+    // behaviour is re-written
+    PeerConnectedHack(PeerId, ConnectedPoint),
+    PeerDisconnectedHack(PeerId, ConnectedPoint),
 }

@@ -1,6 +1,6 @@
 [package]
 name = "validator_client"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
 edition = "2018"
 
@@ -15,6 +15,7 @@ tree_hash = "0.1.0"
 clap = "2.33.0"
 eth2_interop_keypairs = { path = "../eth2/utils/eth2_interop_keypairs" }
 slot_clock = { path = "../eth2/utils/slot_clock" }
+rest_types = { path = "../eth2/utils/rest_types" }
 types = { path = "../eth2/types" }
 serde = "1.0.102"
 serde_derive = "1.0.102"
@@ -40,3 +41,4 @@ bls = { path = "../eth2/utils/bls" }
 remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }
 tempdir = "0.3"
 rayon = "1.2.0"
+web3 = "0.10.0"

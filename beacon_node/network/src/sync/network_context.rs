@@ -1,56 +1,55 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use crate::message_processor::status_message;
+use crate::router::processor::status_message;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RequestId};
 use eth2_libp2p::PeerId;
 use slog::{debug, trace, warn};
-use std::sync::Weak;
+use std::sync::Arc;
 use tokio::sync::mpsc;
+use types::EthSpec;
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 
-pub struct SyncNetworkContext {
+pub struct SyncNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
 
     request_id: RequestId,
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
 
-impl SyncNetworkContext {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage>, log: slog::Logger) -> Self {
+impl<T: EthSpec> SyncNetworkContext<T> {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<T>>, log: slog::Logger) -> Self {
         Self {
             network_send,
-            request_id: 0,
+            request_id: 1,
             log,
         }
     }
 
-    pub fn status_peer<T: BeaconChainTypes>(
+    pub fn status_peer<U: BeaconChainTypes>(
         &mut self,
-        chain: Weak<BeaconChain<T>>,
+        chain: Arc<BeaconChain<U>>,
         peer_id: PeerId,
     ) {
-        if let Some(chain) = chain.upgrade() {
-            if let Some(status_message) = status_message(&chain) {
-                debug!(
-                    self.log,
-                    "Sending Status Request";
-                    "peer" => format!("{:?}", peer_id),
-                    "fork_version" => format!("{:?}", status_message.fork_version),
-                    "finalized_root" => format!("{:?}", status_message.finalized_root),
-                    "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
-                    "head_root" => format!("{}", status_message.head_root),
-                    "head_slot" => format!("{}", status_message.head_slot),
-                );
+        if let Some(status_message) = status_message(&chain) {
+            debug!(
+                self.log,
+                "Sending Status Request";
+                "peer" => format!("{:?}", peer_id),
+                "fork_digest" => format!("{:?}", status_message.fork_digest),
+                "finalized_root" => format!("{:?}", status_message.finalized_root),
+                "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
+                "head_root" => format!("{}", status_message.head_root),
+                "head_slot" => format!("{}", status_message.head_slot),
+            );
 
-                let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
-            }
+            let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
         }
     }
 
@@ -117,7 +116,7 @@ impl SyncNetworkContext {
     pub fn send_rpc_request(
         &mut self,
         peer_id: PeerId,
-        rpc_request: RPCRequest,
+        rpc_request: RPCRequest<T>,
     ) -> Result<RequestId, &'static str> {
         let request_id = self.request_id;
         self.request_id += 1;
@@ -125,7 +124,11 @@ impl SyncNetworkContext {
         Ok(request_id)
     }
 
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent) -> Result<(), &'static str> {
+    fn send_rpc_event(
+        &mut self,
+        peer_id: PeerId,
+        rpc_event: RPCEvent<T>,
+    ) -> Result<(), &'static str> {
         self.network_send
             .try_send(NetworkMessage::RPC(peer_id, rpc_event))
             .map_err(|_| {

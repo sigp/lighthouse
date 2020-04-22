@@ -91,7 +91,7 @@ pub fn testing_client_config() -> ClientConfig {
     client_config
 }
 
-/// Provids a validator client that is running in the current process on a given tokio executor (it
+/// Provides a validator client that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.

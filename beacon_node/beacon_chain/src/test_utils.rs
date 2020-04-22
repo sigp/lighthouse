@@ -7,8 +7,7 @@ use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    StateSkipConfig,
+    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
@@ -263,20 +262,15 @@ where
 
             let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
-            let outcome = self
+            let block_root = self
                 .chain
                 .process_block(block)
                 .expect("should not error during block processing");
 
             self.chain.fork_choice().expect("should find head");
 
-            if let BlockProcessingOutcome::Processed { block_root } = outcome {
-                head_block_root = Some(block_root);
-
-                self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
-            } else {
-                panic!("block should be successfully processed: {:?}", outcome);
-            }
+            head_block_root = Some(block_root);
+            self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
 
             state = new_state;
             slot += 1;
@@ -310,20 +304,16 @@ where
 
         let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
-        let outcome = self
+        let block_root = self
             .chain
             .process_block(block)
             .expect("should not error during block processing");
 
         self.chain.fork_choice().expect("should find head");
 
-        if let BlockProcessingOutcome::Processed { block_root } = outcome {
-            let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
-            self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
-            (block_root.into(), new_state)
-        } else {
-            panic!("block should be successfully processed: {:?}", outcome);
-        }
+        let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
+        self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
+        (block_root.into(), new_state)
     }
 
     /// `add_block()` repeated `num_blocks` times.
@@ -478,7 +468,7 @@ where
         .for_each(|attestation| {
             match self
                 .chain
-                .process_attestation(attestation)
+                .process_attestation(attestation, AttestationType::Aggregated)
                 .expect("should not error during attestation processing")
             {
                 // PastEpoch can occur if we fork over several epochs

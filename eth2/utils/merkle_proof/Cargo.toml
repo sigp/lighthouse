@@ -1,6 +1,6 @@
 [package]
 name = "merkle_proof"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 

@@ -35,6 +35,9 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns the duration between slots
     fn slot_duration(&self) -> Duration;
 
+    /// Returns the duration from now until `slot`.
+    fn duration_to_slot(&self, slot: Slot) -> Option<Duration>;
+
     /// Returns the duration until the next slot.
     fn duration_to_next_slot(&self) -> Option<Duration>;
 
