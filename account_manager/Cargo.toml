@@ -27,3 +27,4 @@ eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
 web3 = "0.10.0"
 futures = "0.1.25"
 clap_utils = { path = "../eth2/utils/clap_utils" }
+tokio = "0.1.22"

@@ -21,6 +21,7 @@ dependencies = [
  "slog-async 2.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "slog-term 2.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "types 0.2.0",
  "validator_client 0.2.0",
  "web3 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
