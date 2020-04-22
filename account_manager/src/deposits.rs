@@ -134,31 +134,30 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
     env.runtime()
         .block_on(poll_until_synced(web3.clone(), log.clone()))?;
 
-    for _ in 0..n {
-        let validator = env
-            .runtime()
+    for i in 0..n {
+        let tx_hash_log = log.clone();
+
+        env.runtime()
             .block_on(
                 ValidatorDirectoryBuilder::default()
                     .spec(spec.clone())
                     .custom_deposit_amount(deposit_gwei)
                     .thread_random_keypairs()
-                    .submit_eth1_deposit(web3.clone(), from_address, deposit_contract),
+                    .submit_eth1_deposit(web3.clone(), from_address, deposit_contract)
+                    .map(move |(builder, tx_hash)| {
+                        info!(
+                            tx_hash_log,
+                            "Validator deposited";
+                            "eth1_tx_hash" => format!("{:?}", tx_hash),
+                            "index" => format!("{}/{}", i + 1, n),
+                        );
+                        builder
+                    }),
             )?
             .create_directory(validator_dir.clone())?
             .write_keypair_files()?
             .write_eth1_data_file()?
             .build()?;
-
-        if let Some(voting_keypair) = validator.voting_keypair {
-            info!(
-                log,
-                "Validator successfully created and deposited";
-                "voting_pubkey" => format!("{:?}", voting_keypair.pk),
-            );
-
-            // Push the keypair to stdout for CLI scripting.
-            println!("{:?}", voting_keypair.pk);
-        }
     }
 
     let ending_validator_count = existing_validator_count(&validator_dir)?;
