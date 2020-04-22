@@ -485,7 +485,7 @@ impl<T: EthSpec> BeaconState<T> {
         let committee = self.get_beacon_committee(slot, index)?;
         let modulo = std::cmp::max(
             1,
-            committee.committee.len() as u64 / spec.target_aggregators_per_committee,
+            (committee.committee.len() as u64).safe_div(spec.target_aggregators_per_committee)?,
         );
         let signature_hash = hash(&slot_signature.as_bytes());
         let signature_hash_int = u64::from_le_bytes(
@@ -493,7 +493,8 @@ impl<T: EthSpec> BeaconState<T> {
                 .try_into()
                 .expect("first 8 bytes of signature should always convert to fixed array"),
         );
-        Ok(signature_hash_int % modulo == 0)
+
+        Ok(signature_hash_int.safe_rem(modulo)? == 0)
     }
 
     /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
