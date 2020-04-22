@@ -238,10 +238,10 @@ impl ChainSpec {
             /*
              *  Gwei values
              */
-            min_deposit_amount: u64::pow(2, 0) * u64::pow(10, 9),
-            max_effective_balance: u64::pow(2, 5) * u64::pow(10, 9),
-            ejection_balance: u64::pow(2, 4) * u64::pow(10, 9),
-            effective_balance_increment: u64::pow(2, 0) * u64::pow(10, 9),
+            min_deposit_amount: u64::pow(2, 0).saturating_mul(u64::pow(10, 9)),
+            max_effective_balance: u64::pow(2, 5).saturating_mul(u64::pow(10, 9)),
+            ejection_balance: u64::pow(2, 4).saturating_mul(u64::pow(10, 9)),
+            effective_balance_increment: u64::pow(2, 0).saturating_mul(u64::pow(10, 9)),
 
             /*
              * Initial Values
@@ -522,6 +522,7 @@ impl Default for YamlConfig {
 
 /// Spec v0.11.1
 impl YamlConfig {
+    #[allow(clippy::integer_arithmetic)]
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             // ChainSpec
@@ -557,7 +558,7 @@ impl YamlConfig {
             proposer_reward_quotient: spec.proposer_reward_quotient,
             inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
-            genesis_fork_version: spec.genesis_fork_version.clone(),
+            genesis_fork_version: spec.genesis_fork_version,
             safe_slots_to_update_justified: spec.safe_slots_to_update_justified,
             domain_beacon_proposer: spec.domain_beacon_proposer,
             domain_beacon_attester: spec.domain_beacon_attester,
@@ -642,7 +643,7 @@ impl YamlConfig {
             effective_balance_increment: self.effective_balance_increment,
             genesis_slot: Slot::from(self.genesis_slot),
             bls_withdrawal_prefix_byte: self.bls_withdrawal_prefix,
-            milliseconds_per_slot: self.seconds_per_slot * 1000,
+            milliseconds_per_slot: self.seconds_per_slot.saturating_mul(1000),
             min_attestation_inclusion_delay: self.min_attestation_inclusion_delay,
             min_seed_lookahead: Epoch::from(self.min_seed_lookahead),
             max_seed_lookahead: Epoch::from(self.max_seed_lookahead),
@@ -662,7 +663,7 @@ impl YamlConfig {
             domain_deposit: self.domain_deposit,
             domain_voluntary_exit: self.domain_voluntary_exit,
             boot_nodes: chain_spec.boot_nodes.clone(),
-            genesis_fork_version: self.genesis_fork_version.clone(),
+            genesis_fork_version: self.genesis_fork_version,
             eth1_follow_distance: self.eth1_follow_distance,
             ..*chain_spec
         })

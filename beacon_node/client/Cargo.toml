@@ -36,7 +36,6 @@ url = "2.1.0"
 eth1 = { path = "../eth1" }
 genesis = { path = "../genesis" }
 environment = { path = "../../lighthouse/environment" }
-lighthouse_bootstrap = { path = "../../eth2/utils/lighthouse_bootstrap" }
 eth2_ssz = { path = "../../eth2/utils/ssz" }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }

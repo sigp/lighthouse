@@ -11,6 +11,7 @@ pub mod events;
 mod fork_choice;
 mod head_tracker;
 mod metrics;
+pub mod migrate;
 mod persisted_beacon_chain;
 mod shuffling_cache;
 mod snapshot_cache;

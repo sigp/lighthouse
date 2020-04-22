@@ -4,11 +4,9 @@ use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
+    migrate::{BackgroundMigrator, Migrate, NullMigrator},
     slot_clock::{SlotClock, SystemTimeSlotClock},
-    store::{
-        migrate::{BackgroundMigrator, Migrate, NullMigrator},
-        DiskStore, MemoryStore, SimpleDiskStore, Store, StoreConfig,
-    },
+    store::{DiskStore, MemoryStore, SimpleDiskStore, Store, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
 use environment::RuntimeContext;
@@ -16,10 +14,7 @@ use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
 use exit_future::Signal;
 use futures::{future, Future, IntoFuture};
-use genesis::{
-    generate_deterministic_keypairs, interop_genesis_state, state_from_ssz_file, Eth1GenesisService,
-};
-use lighthouse_bootstrap::Bootstrapper;
+use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, Service as NetworkService};
 use slog::info;
 use ssz::Decode;
@@ -28,7 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// Interval between polling the eth1 node for genesis information.
@@ -71,7 +66,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -161,12 +156,13 @@ where
                 //
                 // Alternatively, if there's a beacon chain in the database then always resume
                 // using it.
-                let client_genesis = if client_genesis == ClientGenesis::Resume && !chain_exists {
+                let client_genesis = if client_genesis == ClientGenesis::FromStore && !chain_exists
+                {
                     info!(context.log, "Defaulting to deposit contract genesis");
 
                     ClientGenesis::DepositContract
                 } else if chain_exists {
-                    ClientGenesis::Resume
+                    ClientGenesis::FromStore
                 } else {
                     client_genesis
                 };
@@ -179,16 +175,6 @@ where
                         } => {
                             let keypairs = generate_deterministic_keypairs(validator_count);
                             let result = interop_genesis_state(&keypairs, genesis_time, &spec);
-
-                            let future = result
-                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
-                                .into_future()
-                                .map(|v| (v, None));
-
-                            Box::new(future)
-                        }
-                        ClientGenesis::SszFile { path } => {
-                            let result = state_from_ssz_file(path);
 
                             let future = result
                                 .and_then(move |genesis_state| builder.genesis_state(genesis_state))
@@ -235,25 +221,7 @@ where
 
                             Box::new(future)
                         }
-                        ClientGenesis::RemoteNode { server, .. } => {
-                            let future = Bootstrapper::connect(server, &context.log)
-                                .map_err(|e| {
-                                    format!("Failed to initialize bootstrap client: {}", e)
-                                })
-                                .into_future()
-                                .and_then(|bootstrapper| {
-                                    let (genesis_state, _genesis_block) =
-                                        bootstrapper.genesis().map_err(|e| {
-                                            format!("Failed to bootstrap genesis state: {}", e)
-                                        })?;
-
-                                    builder.genesis_state(genesis_state)
-                                })
-                                .map(|v| (v, None));
-
-                            Box::new(future)
-                        }
-                        ClientGenesis::Resume => {
+                        ClientGenesis::FromStore => {
                             let future = builder.resume_from_db().into_future().map(|v| (v, None));
 
                             Box::new(future)
@@ -395,7 +363,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -441,7 +409,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -489,7 +457,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -531,7 +499,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, SimpleDiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -591,10 +559,15 @@ where
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     pub fn background_migrator(mut self) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "disk_store requires a log".to_string())?
+            .service_context("freezer_db".into());
         let store = self.store.clone().ok_or_else(|| {
             "background_migrator requires the store to be initialized".to_string()
         })?;
-        self.store_migrator = Some(BackgroundMigrator::new(store));
+        self.store_migrator = Some(BackgroundMigrator::new(store, context.log.clone()));
         Ok(self)
     }
 }
@@ -612,7 +585,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -718,7 +691,7 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,

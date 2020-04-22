@@ -55,7 +55,7 @@ where
             let pk: Option<PublicKey> = (&v.pubkey).try_into().ok();
             pk
         })
-        .map(|pk| Cow::Owned(pk))
+        .map(Cow::Owned)
 }
 
 /// A signature set that is valid if a block was signed by the expected block producer.
@@ -309,7 +309,7 @@ pub fn deposit_signature_set<'a>(
     let (pubkey, signature, message) = pubkey_signature_message;
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
-    // with the fork zeroed.
+    // with the fok zeroed.
     SignatureSet::single(&signature, Cow::Borrowed(pubkey), message.clone())
 }
 

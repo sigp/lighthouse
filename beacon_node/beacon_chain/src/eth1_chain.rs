@@ -45,6 +45,14 @@ pub enum Error {
     ///
     /// The eth1 caches are stale, or a junk value was voted into the chain.
     UnknownPreviousEth1BlockHash,
+    /// An arithmetic error occurred.
+    ArithError(safe_arith::ArithError),
+}
+
+impl From<safe_arith::ArithError> for Error {
+    fn from(e: safe_arith::ArithError) -> Self {
+        Self::ArithError(e)
+    }
 }
 
 #[derive(Encode, Decode, Clone)]
@@ -369,7 +377,7 @@ impl<T: EthSpec, S: Store<T>> Eth1ChainBackend<T, S> for CachingEth1Backend<T, S
         _spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
         let deposit_index = state.eth1_deposit_index;
-        let deposit_count = if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data_vote) {
+        let deposit_count = if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data_vote)? {
             new_eth1_data.deposit_count
         } else {
             state.eth1_data.deposit_count

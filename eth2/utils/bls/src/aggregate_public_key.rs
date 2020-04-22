@@ -19,9 +19,7 @@ impl AggregatePublicKey {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let pubkey = RawAggregatePublicKey::from_bytes(&bytes).map_err(|_| {
-            DecodeError::BytesInvalid(
-                format!("Invalid AggregatePublicKey bytes: {:?}", bytes).to_string(),
-            )
+            DecodeError::BytesInvalid(format!("Invalid AggregatePublicKey bytes: {:?}", bytes))
         })?;
 
         Ok(AggregatePublicKey(pubkey))

@@ -86,6 +86,7 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let field_types_f = field_types_a.clone();
 
     let output = quote! {
+        #[allow(clippy::integer_arithmetic)]
         impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
@@ -221,6 +222,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     }
 
     let output = quote! {
+        #[allow(clippy::integer_arithmetic)]
         impl #impl_generics ssz::Decode for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(

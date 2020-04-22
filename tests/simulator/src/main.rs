@@ -93,13 +93,13 @@ fn run_beacon_chain_sim(matches: &ArgMatches) -> Result<(), String> {
 
 fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
     let initial_delay = value_t!(matches, "initial_delay", u64).unwrap_or(50);
-    let sync_delay = value_t!(matches, "sync_delay", u64).unwrap_or(10);
+    let sync_timeout = value_t!(matches, "sync_timeout", u64).unwrap_or(10);
     let speed_up_factor = value_t!(matches, "speedup", u64).unwrap_or(15);
     let strategy = value_t!(matches, "strategy", String).unwrap_or("all".into());
 
     println!("Syncing Simulator:");
-    println!(" initial_delay:{}", initial_delay);
-    println!(" sync delay:{}", sync_delay);
+    println!(" initial delay:{}", initial_delay);
+    println!(" sync timeout:{}", sync_timeout);
     println!(" speed up factor:{}", speed_up_factor);
     println!(" strategy:{}", strategy);
 
@@ -109,7 +109,7 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
     syncing_sim(
         speed_up_factor,
         initial_delay,
-        sync_delay,
+        sync_timeout,
         strategy,
         log_level,
         log_format,
@@ -119,7 +119,7 @@ fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
 fn syncing_sim(
     speed_up_factor: u64,
     initial_delay: u64,
-    sync_delay: u64,
+    sync_timeout: u64,
     strategy: String,
     log_level: &str,
     log_format: Option<&str>,
@@ -171,7 +171,7 @@ fn syncing_sim(
                     beacon_config.clone(),
                     slot_duration,
                     initial_delay,
-                    sync_delay,
+                    sync_timeout,
                 ))
                 .join(final_future)
                 .map(|_| network)

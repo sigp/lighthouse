@@ -1,4 +1,5 @@
 use crate::*;
+use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
     Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U64,
@@ -63,16 +64,21 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /// the `active_validator_count` during the slot's epoch.
     ///
     /// Spec v0.11.1
-    fn get_committee_count_per_slot(active_validator_count: usize, spec: &ChainSpec) -> usize {
+    fn get_committee_count_per_slot(
+        active_validator_count: usize,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
         let slots_per_epoch = Self::SlotsPerEpoch::to_usize();
 
-        std::cmp::max(
+        Ok(std::cmp::max(
             1,
             std::cmp::min(
                 spec.max_committees_per_slot,
-                active_validator_count / slots_per_epoch / spec.target_committee_size,
+                active_validator_count
+                    .safe_div(slots_per_epoch)?
+                    .safe_div(spec.target_committee_size)?,
             ),
-        )
+        ))
     }
 
     /// Returns the minimum number of validators required for this spec.

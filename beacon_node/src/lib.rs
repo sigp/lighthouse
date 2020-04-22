@@ -10,6 +10,7 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
 pub use eth2_config::Eth2Config;
 
+use beacon_chain::migrate::{BackgroundMigrator, DiskStore};
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, events::WebSocketSender,
     slot_clock::SystemTimeSlotClock,
@@ -20,7 +21,6 @@ use environment::RuntimeContext;
 use futures::{Future, IntoFuture};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
-use store::{migrate::BackgroundMigrator, DiskStore};
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
@@ -55,9 +55,13 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
     ) -> impl Future<Item = Self, Error = String> + 'a {
-        get_config::<E>(&matches, context.eth2_config.clone(), context.log.clone())
-            .into_future()
-            .and_then(move |client_config| Self::new(context, client_config))
+        get_config::<E>(
+            &matches,
+            &context.eth2_config.spec_constants,
+            context.log.clone(),
+        )
+        .into_future()
+        .and_then(move |client_config| Self::new(context, client_config))
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.
