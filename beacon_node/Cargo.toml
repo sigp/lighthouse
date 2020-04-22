@@ -13,7 +13,6 @@ node_test_rig = { path = "../tests/node_test_rig" }
 
 [dependencies]
 eth2_config = { path = "../eth2/utils/eth2_config" }
-lighthouse_bootstrap = { path = "../eth2/utils/lighthouse_bootstrap" }
 beacon_chain = { path = "beacon_chain" }
 types = { path = "../eth2/types" }
 store = { path = "./store" }
@@ -37,3 +36,5 @@ genesis = { path = "genesis" }
 eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
 eth2-libp2p = { path = "./eth2-libp2p" }
 eth2_ssz = { path = "../eth2/utils/ssz" }
+toml = "0.5.4"
+serde = "1.0.102"

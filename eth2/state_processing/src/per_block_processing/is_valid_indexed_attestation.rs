@@ -1,5 +1,5 @@
 use super::errors::{BlockOperationError, IndexedAttestationInvalid as Invalid};
-use super::signature_sets::indexed_attestation_signature_set;
+use super::signature_sets::{get_pubkey_from_state, indexed_attestation_signature_set};
 use crate::VerifySignatures;
 use types::*;
 
@@ -11,7 +11,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 
 /// Verify an `IndexedAttestation`.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn is_valid_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation<T>,
@@ -43,6 +43,7 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
         verify!(
             indexed_attestation_signature_set(
                 state,
+                |i| get_pubkey_from_state(state, i),
                 &indexed_attestation.signature,
                 &indexed_attestation,
                 spec

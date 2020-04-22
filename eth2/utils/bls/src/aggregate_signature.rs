@@ -32,9 +32,12 @@ impl AggregateSignature {
 
     /// Add (aggregate) a signature to the `AggregateSignature`.
     pub fn add(&mut self, signature: &Signature) {
-        if !self.is_empty {
-            self.aggregate_signature.add(signature.as_raw())
+        if self.is_empty {
+            self.aggregate_signature = RawAggregateSignature::new();
+            self.is_empty = false;
         }
+
+        self.aggregate_signature.add(signature.as_raw())
     }
 
     /// Add (aggregate) another `AggregateSignature`.

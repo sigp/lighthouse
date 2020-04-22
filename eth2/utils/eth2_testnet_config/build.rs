@@ -8,23 +8,29 @@ use std::path::PathBuf;
 const TESTNET_ID: &str = "testnet5";
 
 fn main() {
-    match get_all_files() {
-        Ok(()) => (),
-        Err(e) => panic!(e),
+    if !base_dir().exists() {
+        std::fs::create_dir_all(base_dir()).expect(&format!("Unable to create {:?}", base_dir()));
+
+        match get_all_files() {
+            Ok(()) => (),
+            Err(e) => {
+                std::fs::remove_dir_all(base_dir()).expect(&format!(
+                    "{}. Failed to remove {:?}, please remove the directory manually because it may contains incomplete testnet data.",
+                    e,
+                    base_dir(),
+                ));
+                panic!(e);
+            }
+        }
     }
 }
 
 pub fn get_all_files() -> Result<(), String> {
-    if !base_dir().exists() {
-        std::fs::create_dir_all(base_dir())
-            .map_err(|e| format!("Unable to create {:?}: {}", base_dir(), e))?;
-
-        get_file("boot_enr.yaml")?;
-        get_file("config.yaml")?;
-        get_file("deploy_block.txt")?;
-        get_file("deposit_contract.txt")?;
-        get_file("genesis.ssz")?;
-    }
+    get_file("boot_enr.yaml")?;
+    get_file("config.yaml")?;
+    get_file("deploy_block.txt")?;
+    get_file("deposit_contract.txt")?;
+    get_file("genesis.ssz")?;
 
     Ok(())
 }

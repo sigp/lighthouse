@@ -2,6 +2,8 @@
 
 // Required for big type-level numbers
 #![recursion_limit = "128"]
+// Clippy lint set up
+#![deny(clippy::integer_arithmetic)]
 
 #[macro_use]
 pub mod test_utils;
@@ -23,6 +25,7 @@ pub mod deposit_message;
 pub mod eth1_data;
 pub mod eth_spec;
 pub mod fork;
+pub mod fork_data;
 pub mod free_attestation;
 pub mod historical_batch;
 pub mod indexed_attestation;
@@ -59,13 +62,14 @@ pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::fork::Fork;
+pub use crate::fork_data::ForkData;
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
-pub use crate::signed_beacon_block::SignedBeaconBlock;
+pub use crate::signed_beacon_block::{SignedBeaconBlock, SignedBeaconBlockHash};
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_root::{SignedRoot, SigningRoot};

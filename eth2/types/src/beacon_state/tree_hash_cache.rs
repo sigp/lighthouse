@@ -1,3 +1,5 @@
+#![allow(clippy::integer_arithmetic)]
+
 use super::Error;
 use crate::{BeaconState, EthSpec, Hash256, Slot, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
@@ -161,6 +163,7 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
         let mut hasher = MerkleHasher::with_leaves(NUM_BEACON_STATE_HASHING_FIELDS);
 
         hasher.write(state.genesis_time.tree_hash_root().as_bytes())?;
+        hasher.write(state.genesis_validators_root.tree_hash_root().as_bytes())?;
         hasher.write(state.slot.tree_hash_root().as_bytes())?;
         hasher.write(state.fork.tree_hash_root().as_bytes())?;
         hasher.write(state.latest_block_header.tree_hash_root().as_bytes())?;
@@ -240,6 +243,14 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
 
         Ok(root)
     }
+
+    /// Updates the cache and provides the root of the given `validators`.
+    pub fn recalculate_validators_tree_hash_root(
+        &mut self,
+        validators: &[Validator],
+    ) -> Result<Hash256, Error> {
+        self.validators.recalculate_tree_hash_root(validators)
+    }
 }
 
 /// A specialized cache for computing the tree hash root of `state.validators`.
@@ -273,7 +284,7 @@ impl ValidatorsListTreeHashCache {
     /// This function makes assumptions that the `validators` list will only change in accordance
     /// with valid per-block/per-slot state transitions.
     fn recalculate_tree_hash_root(&mut self, validators: &[Validator]) -> Result<Hash256, Error> {
-        let mut list_arena = std::mem::replace(&mut self.list_arena, CacheArena::default());
+        let mut list_arena = std::mem::take(&mut self.list_arena);
 
         let leaves = self
             .values

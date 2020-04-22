@@ -8,6 +8,7 @@ edition = "2018"
 ethereum-types = "0.8.0"
 eth2_hashing = "0.1.0"
 lazy_static = "1.4.0"
+safe_arith = { path = "../safe_arith" }
 
 [dev-dependencies]
 quickcheck = "0.9.0"

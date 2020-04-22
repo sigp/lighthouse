@@ -62,7 +62,14 @@ impl<T: EthSpec> BlockBuilder<T> {
 
         let proposer_keypair = &keypairs[proposer_index];
 
-        builder.set_randao_reveal(&proposer_keypair.sk, &state.fork, spec);
+        builder.set_proposer_index(proposer_index as u64);
+
+        builder.set_randao_reveal(
+            &proposer_keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         let parent_root = state.latest_block_header.canonical_root();
         builder.set_parent_root(parent_root);
@@ -79,6 +86,7 @@ impl<T: EthSpec> BlockBuilder<T> {
                 validator_index,
                 &keypairs[validator_index as usize].sk,
                 &state.fork,
+                state.genesis_validators_root,
                 spec,
             );
         }
@@ -106,6 +114,7 @@ impl<T: EthSpec> BlockBuilder<T> {
                 &attesters,
                 &secret_keys,
                 &state.fork,
+                state.genesis_validators_root,
                 spec,
             );
         }
@@ -161,9 +170,12 @@ impl<T: EthSpec> BlockBuilder<T> {
         // Set the eth1 data to be different from the state.
         self.block_builder.block.body.eth1_data.block_hash = Hash256::from_slice(&[42; 32]);
 
-        let block = self
-            .block_builder
-            .build(&proposer_keypair.sk, &state.fork, spec);
+        let block = self.block_builder.build(
+            &proposer_keypair.sk,
+            &state.fork,
+            state.genesis_validators_root,
+            spec,
+        );
 
         (block, state)
     }

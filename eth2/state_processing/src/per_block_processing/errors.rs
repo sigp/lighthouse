@@ -1,9 +1,10 @@
 use super::signature_sets::Error as SignatureSetError;
 use merkle_proof::MerkleTreeError;
+use safe_arith::ArithError;
 use types::*;
 
 /// The error returned from the `per_block_processing` function. Indicates that a block is either
-/// invalid, or we were unable to determine it's validity (we encountered an unexpected error).
+/// invalid, or we were unable to determine its validity (we encountered an unexpected error).
 ///
 /// Any of the `...Error` variants indicate that at some point during block (and block operation)
 /// verification, there was an error. There is no indication as to _where_ that error happened
@@ -48,6 +49,7 @@ pub enum BlockProcessingError {
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
     MerkleTreeError(MerkleTreeError),
+    ArithError(ArithError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -68,6 +70,12 @@ impl From<ssz_types::Error> for BlockProcessingError {
     }
 }
 
+impl From<ArithError> for BlockProcessingError {
+    fn from(e: ArithError) -> Self {
+        BlockProcessingError::ArithError(e)
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -75,6 +83,7 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+            BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
     }
 }
@@ -101,6 +110,7 @@ macro_rules! impl_into_block_processing_error_with_index {
                         BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
                         BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
                         BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                        BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
                     }
                 }
             }
@@ -130,6 +140,7 @@ pub enum BlockOperationError<T> {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    ArithError(ArithError),
 }
 
 impl<T> BlockOperationError<T> {
@@ -155,11 +166,24 @@ impl<T> From<ssz_types::Error> for BlockOperationError<T> {
     }
 }
 
+impl<T> From<ArithError> for BlockOperationError<T> {
+    fn from(e: ArithError) -> Self {
+        BlockOperationError::ArithError(e)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
     StateSlotMismatch,
-    ParentBlockRootMismatch { state: Hash256, block: Hash256 },
+    ProposerIndexMismatch {
+        block_proposer_index: usize,
+        state_proposer_index: usize,
+    },
+    ParentBlockRootMismatch {
+        state: Hash256,
+        block: Hash256,
+    },
     ProposerSlashed(usize),
 }
 
@@ -171,6 +195,10 @@ pub enum ProposerSlashingInvalid {
     ///
     /// (proposal_1_slot, proposal_2_slot)
     ProposalSlotMismatch(Slot, Slot),
+    /// The two proposals have different proposer indices.
+    ///
+    /// (proposer_index_1, proposer_index_2)
+    ProposerIndexMismatch(u64, u64),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
     /// The specified proposer cannot be slashed because they are already slashed, or not active.
@@ -254,6 +282,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
             BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
         }
     }
 }

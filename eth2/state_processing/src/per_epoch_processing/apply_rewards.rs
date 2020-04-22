@@ -1,6 +1,7 @@
 use super::super::common::get_base_reward;
 use super::validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 use super::Error;
+use safe_arith::SafeArith;
 
 use types::*;
 
@@ -13,27 +14,27 @@ pub struct Delta {
 
 impl Delta {
     /// Reward the validator with the `reward`.
-    pub fn reward(&mut self, reward: u64) {
-        self.rewards += reward;
+    pub fn reward(&mut self, reward: u64) -> Result<(), Error> {
+        self.rewards = self.rewards.safe_add(reward)?;
+        Ok(())
     }
 
     /// Penalize the validator with the `penalty`.
-    pub fn penalize(&mut self, penalty: u64) {
-        self.penalties += penalty;
+    pub fn penalize(&mut self, penalty: u64) -> Result<(), Error> {
+        self.penalties = self.penalties.safe_add(penalty)?;
+        Ok(())
     }
-}
 
-impl std::ops::AddAssign for Delta {
-    /// Use wrapping addition as that is how it's defined in the spec.
-    fn add_assign(&mut self, other: Delta) {
-        self.rewards += other.rewards;
-        self.penalties += other.penalties;
+    /// Combine two deltas.
+    fn combine(&mut self, other: Delta) -> Result<(), Error> {
+        self.reward(other.rewards)?;
+        self.penalize(other.penalties)
     }
 }
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -56,9 +57,10 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
     get_proposer_deltas(&mut deltas, state, validator_statuses, spec)?;
 
-    // Apply the deltas, over-flowing but not under-flowing (saturating at 0 instead).
+    // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
+    // instead).
     for (i, delta) in deltas.iter().enumerate() {
-        state.balances[i] += delta.rewards;
+        state.balances[i] = state.balances[i].safe_add(delta.rewards)?;
         state.balances[i] = state.balances[i].saturating_sub(delta.penalties);
     }
 
@@ -67,7 +69,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
 /// For each attesting validator, reward the proposer who was first to include their attestation.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn get_proposer_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -83,7 +85,7 @@ fn get_proposer_deltas<T: EthSpec>(
             let base_reward = get_base_reward(
                 state,
                 index,
-                validator_statuses.total_balances.current_epoch,
+                validator_statuses.total_balances.current_epoch(),
                 spec,
             )?;
 
@@ -91,7 +93,8 @@ fn get_proposer_deltas<T: EthSpec>(
                 return Err(Error::ValidatorStatusesInconsistent);
             }
 
-            deltas[inclusion.proposer_index].reward(base_reward / spec.proposer_reward_quotient);
+            deltas[inclusion.proposer_index]
+                .reward(base_reward.safe_div(spec.proposer_reward_quotient)?)?;
         }
     }
 
@@ -100,7 +103,7 @@ fn get_proposer_deltas<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn get_attestation_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
@@ -113,7 +116,7 @@ fn get_attestation_deltas<T: EthSpec>(
         let base_reward = get_base_reward(
             state,
             index,
-            validator_statuses.total_balances.current_epoch,
+            validator_statuses.total_balances.current_epoch(),
             spec,
         )?;
 
@@ -123,9 +126,9 @@ fn get_attestation_deltas<T: EthSpec>(
             base_reward,
             finality_delay,
             spec,
-        );
+        )?;
 
-        deltas[index] += delta;
+        deltas[index].combine(delta)?;
     }
 
     Ok(())
@@ -133,14 +136,14 @@ fn get_attestation_deltas<T: EthSpec>(
 
 /// Determine the delta for a single validator, sans proposer rewards.
 ///
-/// Spec v0.10.1
+/// Spec v0.11.1
 fn get_attestation_delta<T: EthSpec>(
     validator: &ValidatorStatus,
     total_balances: &TotalBalances,
     base_reward: u64,
     finality_delay: u64,
     spec: &ChainSpec,
-) -> Delta {
+) -> Result<Delta, Error> {
     let mut delta = Delta::default();
 
     // Is this validator eligible to be rewarded or penalized?
@@ -149,59 +152,86 @@ fn get_attestation_delta<T: EthSpec>(
         || (validator.is_slashed && !validator.is_withdrawable_in_current_epoch);
 
     if !is_eligible {
-        return delta;
+        return Ok(delta);
     }
 
-    let total_balance = total_balances.current_epoch;
-    let total_attesting_balance = total_balances.previous_epoch_attesters;
-    let matching_target_balance = total_balances.previous_epoch_target_attesters;
-    let matching_head_balance = total_balances.previous_epoch_head_attesters;
+    // Handle integer overflow by dividing these quantities by EFFECTIVE_BALANCE_INCREMENT
+    // Spec:
+    // - increment = EFFECTIVE_BALANCE_INCREMENT
+    // - reward_numerator = get_base_reward(state, index) * (attesting_balance // increment)
+    // - rewards[index] = reward_numerator // (total_balance // increment)
+    let total_balance_ebi = total_balances
+        .current_epoch()
+        .safe_div(spec.effective_balance_increment)?;
+    let total_attesting_balance_ebi = total_balances
+        .previous_epoch_attesters()
+        .safe_div(spec.effective_balance_increment)?;
+    let matching_target_balance_ebi = total_balances
+        .previous_epoch_target_attesters()
+        .safe_div(spec.effective_balance_increment)?;
+    let matching_head_balance_ebi = total_balances
+        .previous_epoch_head_attesters()
+        .safe_div(spec.effective_balance_increment)?;
 
     // Expected FFG source.
     // Spec:
     // - validator index in `get_unslashed_attesting_indices(state, matching_source_attestations)`
     if validator.is_previous_epoch_attester && !validator.is_slashed {
-        delta.reward(base_reward * total_attesting_balance / total_balance);
+        delta.reward(
+            base_reward
+                .safe_mul(total_attesting_balance_ebi)?
+                .safe_div(total_balance_ebi)?,
+        )?;
         // Inclusion speed bonus
-        let proposer_reward = base_reward / spec.proposer_reward_quotient;
-        let max_attester_reward = base_reward - proposer_reward;
+        let proposer_reward = base_reward.safe_div(spec.proposer_reward_quotient)?;
+        let max_attester_reward = base_reward.safe_sub(proposer_reward)?;
         let inclusion = validator
             .inclusion_info
             .expect("It is a logic error for an attester not to have an inclusion delay.");
-        delta.reward(max_attester_reward / inclusion.delay);
+        delta.reward(max_attester_reward.safe_div(inclusion.delay)?)?;
     } else {
-        delta.penalize(base_reward);
+        delta.penalize(base_reward)?;
     }
 
     // Expected FFG target.
     // Spec:
     // - validator index in `get_unslashed_attesting_indices(state, matching_target_attestations)`
     if validator.is_previous_epoch_target_attester && !validator.is_slashed {
-        delta.reward(base_reward * matching_target_balance / total_balance);
+        delta.reward(
+            base_reward
+                .safe_mul(matching_target_balance_ebi)?
+                .safe_div(total_balance_ebi)?,
+        )?;
     } else {
-        delta.penalize(base_reward);
+        delta.penalize(base_reward)?;
     }
 
     // Expected head.
     // Spec:
     // - validator index in `get_unslashed_attesting_indices(state, matching_head_attestations)`
     if validator.is_previous_epoch_head_attester && !validator.is_slashed {
-        delta.reward(base_reward * matching_head_balance / total_balance);
+        delta.reward(
+            base_reward
+                .safe_mul(matching_head_balance_ebi)?
+                .safe_div(total_balance_ebi)?,
+        )?;
     } else {
-        delta.penalize(base_reward);
+        delta.penalize(base_reward)?;
     }
 
     // Inactivity penalty
     if finality_delay > spec.min_epochs_to_inactivity_penalty {
         // All eligible validators are penalized
-        delta.penalize(spec.base_rewards_per_epoch * base_reward);
+        delta.penalize(spec.base_rewards_per_epoch.safe_mul(base_reward)?)?;
 
         // Additionally, all validators whose FFG target didn't match are penalized extra
         if !validator.is_previous_epoch_target_attester {
             delta.penalize(
-                validator.current_epoch_effective_balance * finality_delay
-                    / spec.inactivity_penalty_quotient,
-            );
+                validator
+                    .current_epoch_effective_balance
+                    .safe_mul(finality_delay)?
+                    .safe_div(spec.inactivity_penalty_quotient)?,
+            )?;
         }
     }
 
@@ -210,5 +240,5 @@ fn get_attestation_delta<T: EthSpec>(
     // This function only computes the delta for a single validator, so it cannot also return a
     // delta for a validator.
 
-    delta
+    Ok(delta)
 }

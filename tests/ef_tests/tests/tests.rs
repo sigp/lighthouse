@@ -176,7 +176,6 @@ mod ssz_static {
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 }
 
-/* NOTE: SSZ generic tests disabled, missing from v0.10.0
 #[test]
 fn ssz_generic() {
     SszGenericHandler::<BasicVector>::run();
@@ -186,7 +185,6 @@ fn ssz_generic() {
     SszGenericHandler::<Uints>::run();
     SszGenericHandler::<Containers>::run();
 }
-*/
 
 #[test]
 fn epoch_processing_justification_and_finalization() {

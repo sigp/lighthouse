@@ -1,6 +1,7 @@
 use eth2_hashing::{hash, hash32_concat, ZERO_HASHES};
 use ethereum_types::H256;
 use lazy_static::lazy_static;
+use safe_arith::ArithError;
 
 const MAX_TREE_DEPTH: usize = 32;
 const EMPTY_SLICE: &[H256] = &[];
@@ -38,6 +39,8 @@ pub enum MerkleTreeError {
     Invalid,
     // Incorrect Depth provided
     DepthTooSmall,
+    // Overflow occurred
+    ArithError,
 }
 
 impl MerkleTree {
@@ -230,6 +233,12 @@ fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usi
     }
 
     H256::from_slice(&merkle_root)
+}
+
+impl From<ArithError> for MerkleTreeError {
+    fn from(_: ArithError) -> Self {
+        MerkleTreeError::ArithError
+    }
 }
 
 #[cfg(test)]

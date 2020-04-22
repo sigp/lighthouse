@@ -38,7 +38,7 @@ impl<E: EthSpec> StateBatch<E> {
     /// May fail to write the full batch if any of the items error (i.e. not atomic!)
     pub fn commit<S: Store<E>>(self, store: &S) -> Result<(), Error> {
         self.items.into_iter().try_for_each(|item| match item {
-            BatchItem::Full(state_root, state) => store.put_state(&state_root, state),
+            BatchItem::Full(state_root, state) => store.put_state(&state_root, &state),
             BatchItem::Summary(state_root, summary) => {
                 store.put_state_summary(&state_root, summary)
             }
