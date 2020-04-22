@@ -311,7 +311,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
          */
         if chain
             .observed_attesters
-            .observe_validator(&attestation, validator_index as usize)
+            .validator_has_been_observed(&attestation, validator_index as usize)
             .map_err(|e| BeaconChainError::from(e))?
         {
             return Err(Error::PriorAttestationKnown {
@@ -322,6 +322,23 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
         // The signature of attestation is valid.
         verify_attestation_signature(chain, &indexed_attestation)?;
+
+        // Now that the attestation has been full verified, note that we have received a valid
+        // attestation from this validator.
+        //
+        // It's important to double check that the attestation still hasn't been observed, since
+        // there can be a race-condition if we receive two attestations at the same time and
+        // process them in different threads.
+        if chain
+            .observed_attesters
+            .observe_validator(&attestation, validator_index as usize)
+            .map_err(|e| BeaconChainError::from(e))?
+        {
+            return Err(Error::PriorAttestationKnown {
+                validator_index,
+                epoch: attestation.data.target.epoch,
+            });
+        }
 
         Ok(Self {
             attestation,
