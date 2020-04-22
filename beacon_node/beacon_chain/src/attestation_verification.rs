@@ -1,3 +1,31 @@
+//! Provides verification for the following attestations:
+//!
+//! - "Unaggregated" `Attestation` received from either gossip or the HTTP API.
+//! - "Aggregated" `SignedAggregateAndProof` received from gossip or the HTTP API.
+//!
+//! For clarity, we define:
+//!
+//! - Unaggregated: an `Attestation` object that has exactly one aggregation bit set.
+//! - Aggregated: a `SignedAggregateAndProof` which has zero or more signatures.
+//!   - Note: "zero or more" may soon change to "one or more".
+//!
+//! Similar to the `crate::block_verification` module, we try to avoid doing duplicate verification
+//! work as an attestation passes through different stages of verification. We represent these
+//! different stages of verification with wrapper types. These wrapper-types flow in a particular
+//! pattern:
+//!
+//! ```ignore
+//!      types::Attestation              types::SignedAggregateAndProof
+//!              |                                    |
+//!              ▼                                    ▼
+//!  VerifiedUnaggregatedAttestation     VerifiedAggregatedAttestation
+//!              |                                    |
+//!              -------------------------------------
+//!                                |
+//!                                ▼
+//!                  ForkChoiceVerifiedAttestation
+//! ```
+
 use crate::{
     beacon_chain::{
         ATTESTATION_CACHE_LOCK_TIMEOUT, HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
@@ -27,6 +55,13 @@ use types::{
     RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot,
 };
 
+/// Returned when an attestation was not declared to be valid. It may not be found to be valid for
+/// two reasons:
+///
+/// - The attestation is malformed or inappropriate for the context (indicated by all variants
+///   other than `BeaconChainError`.
+/// - The application encountered an internal error whilst attempting to determine validity
+///   (the `BeaconChainError` variant)
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
@@ -35,45 +70,62 @@ pub enum Error {
         attestation_slot: Slot,
         latest_permissible_slot: Slot,
     },
-    EmptyAggregationBitfield,
     /// The attestation is from a slot that is prior to the earliest permissible slolt (with
     /// respect to the gossip clock disparity).
     PastSlot {
         attestation_slot: Slot,
         earliest_permissible_slot: Slot,
     },
+    /// The attestations aggregation bits were empty when they shouldn't be.
+    EmptyAggregationBitfield,
+    /// The `selection_proof` on the aggregate attestation does not elect it as an aggregator.
     InvalidSelectionProof {
         aggregator_index: u64,
     },
+    /// The `selection_proof` on the aggregate attestation selects it as a validator, however the
+    /// aggregator index is not in the committee for that attestation.
     AggregatorNotInCommittee {
         aggregator_index: u64,
     },
+    /// The aggregator index refers to a validator index that we have not seen.
     AggregatorPubkeyUnknown,
     /// The attestation has been seen before; either in a block, on the gossip network or from a
     /// local validator.
     AttestationAlreadyKnown(Hash256),
+    /// There has already been an aggregation observed for this validator, we refuse to process a
+    /// second.
     AggregatorAlreadyKnown(u64),
+    /// The aggregator index is higher than the maximum possible validator count.
     ValidatorIndexTooHigh(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
     UnknownHeadBlock {
         beacon_block_root: Hash256,
     },
+    /// The target epoch for the attestation is not in the same epoch as the slot it was produced
+    /// for.
     BadTargetEpoch,
+    /// The target root of the attestation points to a block that we have not verified.
     UnknownTargetRoot(Hash256),
+    /// A signature on the attestation is invalid.
     InvalidSignature,
+    /// There is no committee for the slot and committee index of this attestation and the
+    /// attestation should not have been produced.
     NoCommitteeForSlotAndIndex {
         slot: Slot,
         index: CommitteeIndex,
     },
+    /// The unaggregated attestation doesn't have only one aggregation bit set.
     NotExactlyOneAggregationBitSet(usize),
     PriorAttestationKnown {
         validator_index: u64,
         epoch: Epoch,
     },
+    /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
     FutureEpoch {
         attestation_epoch: Epoch,
         current_epoch: Epoch,
     },
+    /// The attestation is for an epoch in the past (with respect to the gossip clock disparity).
     PastEpoch {
         attestation_epoch: Epoch,
         current_epoch: Epoch,
@@ -84,6 +136,7 @@ pub enum Error {
         block: Slot,
         attestation: Slot,
     },
+    /// The attestation failed the `state_processing` verification stage.
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     BeaconChainError(BeaconChainError),
@@ -95,6 +148,8 @@ impl From<BeaconChainError> for Error {
     }
 }
 
+/// A helper trait implemented on wrapper types that can be progressed to a state where they can be
+/// verified for application to fork choice.
 pub trait IntoForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
     fn into_fork_choice_verified_attestation(
         self,
@@ -102,6 +157,7 @@ pub trait IntoForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error>;
 }
 
+/// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
 pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
     signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
@@ -110,6 +166,8 @@ pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
     for VerifiedAggregatedAttestation<T>
 {
+    /// Progresses the `VerifiedAggregatedAttestation` to a stage where it is valid for application
+    /// to the fork-choice rule (or not).
     fn into_fork_choice_verified_attestation(
         self,
         chain: &BeaconChain<T>,
@@ -122,6 +180,7 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
     }
 }
 
+/// Wraps an `Attestation` that has been verified for propagation on the gossip network.
 pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
@@ -130,6 +189,8 @@ pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
     for VerifiedUnaggregatedAttestation<T>
 {
+    /// Progresses the `Attestation` to a stage where it is valid for application to the
+    /// fork-choice rule (or not).
     fn into_fork_choice_verified_attestation(
         self,
         chain: &BeaconChain<T>,
@@ -142,6 +203,9 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
     }
 }
 
+/// Wraps an `indexed_attestation` that is valid for application to fork choice. The
+/// `indexed_attestation` will have been generated via the `VerifiedAggregatedAttestation` or
+/// `VerifiedUnaggregatedAttestation` wrappers.
 pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
@@ -150,6 +214,7 @@ pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
     for ForkChoiceVerifiedAttestation<T>
 {
+    /// Simply returns itself.
     fn into_fork_choice_verified_attestation(
         self,
         _: &BeaconChain<T>,
@@ -159,6 +224,8 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
 }
 
 impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
+    /// Returns `Ok(Self)` if the `signed_aggregate` is valid to be (re)published on the gossip
+    /// network.
     pub fn verify(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -248,10 +315,12 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         })
     }
 
+    /// A helper function to add this aggregate to `beacon_chain.op_pool`.
     pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
         chain.add_to_block_inclusion_pool(self)
     }
 
+    /// A helper function to add this aggregate to `beacon_chain.fork_choice`.
     pub fn add_to_fork_choice(
         self,
         chain: &BeaconChain<T>,
@@ -259,12 +328,15 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         chain.apply_attestation_to_fork_choice(self)
     }
 
+    /// Returns the underlying `attestation` for the `signed_aggregate`.
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
     }
 }
 
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
+    /// Returns `Ok(Self)` if the `attestation` is valid to be (re)published on the gossip
+    /// network.
     pub fn verify(
         attestation: Attestation<T::EthSpec>,
         chain: &BeaconChain<T>,
@@ -346,10 +418,12 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         })
     }
 
+    /// A helper function to add this attestation to `beacon_chain.op_pool`.
     pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
         chain.add_to_naive_aggregation_pool(self)
     }
 
+    /// Returns the wrapped `attestation`.
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.attestation
     }
