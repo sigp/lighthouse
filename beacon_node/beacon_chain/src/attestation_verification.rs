@@ -271,36 +271,30 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let (block_slot, _state_root) = chain
-            .fork_choice
-            .block_slot_and_state_root(&attestation.data.beacon_block_root)
-            .ok_or_else(|| Error::UnknownHeadBlock {
-                beacon_block_root: attestation.data.beacon_block_root,
-            })?;
+        verify_head_block_is_known(chain, &attestation)?;
 
-        let indexed_attestation =
-            map_attestation_committee(chain, attestation, block_slot, |committee| {
-                // Note: this clones the signature which is known to be a relatively slow operation.
-                //
-                // Future optimizations should remove this clone.
-                let selection_proof =
-                    SelectionProof::from(signed_aggregate.message.selection_proof.clone());
+        let indexed_attestation = map_attestation_committee(chain, attestation, |committee| {
+            // Note: this clones the signature which is known to be a relatively slow operation.
+            //
+            // Future optimizations should remove this clone.
+            let selection_proof =
+                SelectionProof::from(signed_aggregate.message.selection_proof.clone());
 
-                if !selection_proof.is_aggregator(committee.committee.len(), &chain.spec) {
-                    return Err(Error::InvalidSelectionProof { aggregator_index });
-                }
+            if !selection_proof.is_aggregator(committee.committee.len(), &chain.spec) {
+                return Err(Error::InvalidSelectionProof { aggregator_index });
+            }
 
-                if !committee
-                    .committee
-                    .iter()
-                    .any(|validator_index| *validator_index as u64 == aggregator_index)
-                {
-                    return Err(Error::AggregatorNotInCommittee { aggregator_index });
-                }
+            if !committee
+                .committee
+                .iter()
+                .any(|validator_index| *validator_index as u64 == aggregator_index)
+            {
+                return Err(Error::AggregatorNotInCommittee { aggregator_index });
+            }
 
-                get_indexed_attestation(committee.committee, &attestation)
-                    .map_err(|e| BeaconChainError::from(e).into())
-            })?;
+            get_indexed_attestation(committee.committee, &attestation)
+                .map_err(|e| BeaconChainError::from(e).into())
+        })?;
 
         if !verify_signed_aggregate_signatures(chain, &signed_aggregate, &indexed_attestation)? {
             return Err(Error::InvalidSignature);
@@ -351,23 +345,11 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             return Err(Error::NotExactlyOneAggregationBitSet(num_aggreagtion_bits));
         }
 
-        // The block being voted for (attestation.data.beacon_block_root) passes validation.
-        //
-        // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
-        // choice. Any known, non-finalized, processed block should be in fork choice, so this
-        // check immediately filters out attestations that attest to a block that has not been
-        // processed.
-        //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let (block_slot, _state_root) = chain
-            .fork_choice
-            .block_slot_and_state_root(&attestation.data.beacon_block_root)
-            .ok_or_else(|| Error::UnknownHeadBlock {
-                beacon_block_root: attestation.data.beacon_block_root,
-            })?;
+        verify_head_block_is_known(chain, &attestation)?;
 
-        let indexed_attestation = obtain_indexed_attestation(chain, &attestation, block_slot)?;
+        let indexed_attestation = obtain_indexed_attestation(chain, &attestation)?;
 
         let validator_index = *indexed_attestation
             .attesting_indices
@@ -474,16 +456,12 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let block_slot = if let Some((slot, _state_root)) = chain
+        let (block_slot, _state_root) = chain
             .fork_choice
             .block_slot_and_state_root(&indexed_attestation.data.beacon_block_root)
-        {
-            slot
-        } else {
-            return Err(Error::UnknownHeadBlock {
+            .ok_or_else(|| Error::UnknownHeadBlock {
                 beacon_block_root: indexed_attestation.data.beacon_block_root,
-            });
-        };
+            })?;
 
         // TODO: currently we do not check the FFG source/target. This is what the spec dictates
         // but it seems wrong.
@@ -508,11 +486,44 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
         })
     }
 
+    /// Returns the wrapped `IndexedAttestation`.
     pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
     }
 }
 
+/// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
+///
+/// The block root may not be known for two reasons:
+///
+/// 1. The block has never been verified by our application.
+/// 2. The block is prior to the latest finalized block.
+///
+/// Case (1) is the exact thing we're trying to detect. However case (2) is a little different, but
+/// it's still fine to reject here because there's no need for us to handle attestations that are
+/// already finalized.
+///
+/// TODO: will we trigger a parent lookup if someone sends us a finalized block??
+fn verify_head_block_is_known<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    attestation: &Attestation<T::EthSpec>,
+) -> Result<(), Error> {
+    if chain
+        .fork_choice
+        .contains_block(&attestation.data.beacon_block_root)
+    {
+        Ok(())
+    } else {
+        Err(Error::UnknownHeadBlock {
+            beacon_block_root: attestation.data.beacon_block_root,
+        })
+    }
+}
+
+/// Verify that the `attestation` is within the acceptable gossip propagation range, with reference
+/// to the current slot of the `chain`.
+///
+/// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`>
 pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
@@ -665,21 +676,27 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     Ok(verify_signature_sets(signature_sets.into_iter()))
 }
 
+/// Returns the `indexed_attestation` for the `attestation` using the public keys cached in the
+/// `chain`.
 pub fn obtain_indexed_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
-    block_slot: Slot,
 ) -> Result<IndexedAttestation<T::EthSpec>, Error> {
-    map_attestation_committee(chain, attestation, block_slot, |committee| {
+    map_attestation_committee(chain, attestation, |committee| {
         get_indexed_attestation(committee.committee, &attestation)
             .map_err(|e| BeaconChainError::from(e).into())
     })
 }
 
+/// Runs the `map_fn` with the committee for the given `attestation`.
+///
+/// This function exists in this odd "map" pattern because efficiently obtaining the committee for
+/// an attestation can be complex. It might involve reading straight from the
+/// `beacon_chain.shuffling_cache` or it might involve reading it from a state from the DB. Due to
+/// the complexities of `RwLock`s on the shuffling cache, a simple `Cow` isn't suitable here.
 pub fn map_attestation_committee<'a, T, F, R>(
     chain: &'a BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
-    block_slot: Slot,
     map_fn: F,
 ) -> Result<R, Error>
 where
@@ -733,7 +750,7 @@ where
             chain.log,
             "Attestation processing cache miss";
             "attn_epoch" => attestation_epoch.as_u64(),
-            "head_block_epoch" => block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
+            "target_block_epoch" => target_block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
         );
 
         let state_read_timer =

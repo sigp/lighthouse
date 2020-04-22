@@ -2,7 +2,8 @@ use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{
     attestation_verification::{
-        Error as AttnError, VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
+        Error as AttnError, IntoForkChoiceVerifiedAttestation, VerifiedAggregatedAttestation,
+        VerifiedUnaggregatedAttestation,
     },
     BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
 };
@@ -687,6 +688,11 @@ impl<T: BeaconChainTypes> Processor<T> {
                  */
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
+                // Note: its a little bit unclear as to whether or not this block is unknown or
+                // just old. See:
+                //
+                // https://github.com/sigp/lighthouse/issues/1039
+
                 // TODO: Maintain this attestation and re-process once sync completes
                 debug!(
                     self.log,
