@@ -173,7 +173,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
         chain: &BeaconChain<T>,
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
         ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            self.signed_aggregate.message.aggregate,
             self.indexed_attestation,
             chain,
         )
@@ -196,7 +195,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
         chain: &BeaconChain<T>,
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
         ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            self.attestation,
             self.indexed_attestation,
             chain,
         )
@@ -207,7 +205,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
 /// `indexed_attestation` will have been generated via the `VerifiedAggregatedAttestation` or
 /// `VerifiedUnaggregatedAttestation` wrappers.
 pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
-    attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
@@ -431,19 +428,21 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
 impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
     fn from_signature_verified_components(
-        attestation: Attestation<T::EthSpec>,
         indexed_attestation: IndexedAttestation<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // There is no point in processing an attestation with an empty bitfield. Reject
         // it immediately.
-        if attestation.aggregation_bits.num_set_bits() == 0 {
+        if indexed_attestation.attesting_indices.len() == 0 {
             return Err(Error::EmptyAggregationBitfield);
         }
 
-        let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
+        let attestation_epoch = indexed_attestation
+            .data
+            .slot
+            .epoch(T::EthSpec::slots_per_epoch());
         let epoch_now = chain.epoch()?;
-        let target = attestation.data.target.clone();
+        let target = indexed_attestation.data.target.clone();
 
         // Attestation must be from the current or previous epoch.
         if attestation_epoch > epoch_now {
@@ -458,7 +457,12 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
             });
         }
 
-        if target.epoch != attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()) {
+        if target.epoch
+            != indexed_attestation
+                .data
+                .slot
+                .epoch(T::EthSpec::slots_per_epoch())
+        {
             return Err(Error::BadTargetEpoch);
         }
 
@@ -472,12 +476,12 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
         // attestation and do not delay consideration for later.
         let block_slot = if let Some((slot, _state_root)) = chain
             .fork_choice
-            .block_slot_and_state_root(&attestation.data.beacon_block_root)
+            .block_slot_and_state_root(&indexed_attestation.data.beacon_block_root)
         {
             slot
         } else {
             return Err(Error::UnknownHeadBlock {
-                beacon_block_root: attestation.data.beacon_block_root,
+                beacon_block_root: indexed_attestation.data.beacon_block_root,
             });
         };
 
@@ -492,15 +496,14 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
-        if block_slot > attestation.data.slot {
+        if block_slot > indexed_attestation.data.slot {
             return Err(Error::AttestsToFutureBlock {
                 block: block_slot,
-                attestation: attestation.data.slot,
+                attestation: indexed_attestation.data.slot,
             });
         }
 
         Ok(Self {
-            attestation,
             indexed_attestation,
         })
     }
