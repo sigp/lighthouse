@@ -84,9 +84,11 @@ impl PeerSyncInfo {
         if remote.finalized_epoch == self.finalized_epoch
             && remote.finalized_root == self.finalized_root
         {
-            // that we within SLOT_IMPORT_TOLERANCE of our two heads
-            if remote.head_slot.sub(self.head_slot).as_usize() <= SLOT_IMPORT_TOLERANCE
-                || self.head_slot.sub(remote.head_slot).as_usize() <= SLOT_IMPORT_TOLERANCE
+            // that we are within SLOT_IMPORT_TOLERANCE of our two heads
+            if (self.head_slot >= remote.head_slot
+                && self.head_slot.sub(remote.head_slot).as_usize() <= SLOT_IMPORT_TOLERANCE)
+                || (self.head_slot < remote.head_slot)
+                    && remote.head_slot.sub(self.head_slot).as_usize() <= SLOT_IMPORT_TOLERANCE
             {
                 return true;
             }

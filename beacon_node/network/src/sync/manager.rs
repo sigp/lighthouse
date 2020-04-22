@@ -47,9 +47,10 @@ use futures::prelude::*;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::boxed::Box;
+use std::ops::Sub;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
-use types::{EthSpec, Hash256, SignedBeaconBlock};
+use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -425,9 +426,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// A block has been sent to us that has an unknown parent. This begins a parent lookup search
     /// to find the parent or chain of parents that match our current chain.
     fn add_unknown_block(&mut self, peer_id: PeerId, block: SignedBeaconBlock<T::EthSpec>) {
-        // If we are not synced ignore the block
+        // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
         if !self.network_globals.sync_state.read().is_synced() {
-            return;
+            let head_slot = self
+                .chain
+                .head_info()
+                .map(|info| info.slot)
+                .unwrap_or_else(|_| Slot::from(0u64));
+            let unknown_block_slot = block.message.slot;
+
+            // if the block is far in the future, ignore it. If its within the slot tolerance of
+            // our current head, regardless of the syncing state, fetch it.
+            if (head_slot >= unknown_block_slot
+                && head_slot.sub(unknown_block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+                || (head_slot < unknown_block_slot
+                    && unknown_block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+            {
+                return;
+            }
         }
 
         // Make sure this block is not already being searched for
