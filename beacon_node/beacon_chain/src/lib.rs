@@ -13,6 +13,7 @@ pub mod events;
 mod fork_choice;
 mod head_tracker;
 mod metrics;
+pub mod migrate;
 mod naive_aggregation_pool;
 mod observed_attestations;
 mod observed_attesters;

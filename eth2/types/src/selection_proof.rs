@@ -1,6 +1,7 @@
 use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
 };
+use safe_arith::{ArithError, SafeArith};
 use std::convert::TryInto;
 use tree_hash::TreeHash;
 
@@ -26,7 +27,11 @@ impl SelectionProof {
         Self(Signature::new(message.as_bytes(), secret_key))
     }
 
-    pub fn is_aggregator(&self, committee_len: usize, spec: &ChainSpec) -> bool {
+    pub fn is_aggregator(
+        &self,
+        committee_len: usize,
+        spec: &ChainSpec,
+    ) -> Result<bool, ArithError> {
         let modulo = std::cmp::max(
             1,
             committee_len as u64 / spec.target_aggregators_per_committee,
@@ -35,7 +40,7 @@ impl SelectionProof {
         self.is_aggregator_from_modulo(modulo)
     }
 
-    pub fn is_aggregator_from_modulo(&self, modulo: u64) -> bool {
+    pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {
         let signature_hash = self.0.tree_hash_root();
         let signature_hash_int = u64::from_le_bytes(
             signature_hash[0..8]
@@ -44,7 +49,7 @@ impl SelectionProof {
                 .expect("first 8 bytes of signature should always convert to fixed array"),
         );
 
-        signature_hash_int % modulo == 0
+        signature_hash_int.safe_rem(modulo).map(|rem| rem == 0)
     }
 
     pub fn verify<T: EthSpec>(

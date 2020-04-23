@@ -36,7 +36,7 @@ impl TestingDepositBuilder {
         let mut secret_key = keypair.sk.clone();
 
         match test_task {
-            DepositTestTask::BadPubKey => pubkeybytes = PublicKeyBytes::from(new_key.pk.clone()),
+            DepositTestTask::BadPubKey => pubkeybytes = PublicKeyBytes::from(new_key.pk),
             DepositTestTask::InvalidPubKey => {
                 // Creating invalid public key bytes
                 let mut public_key_bytes: Vec<u8> = vec![0; 48];

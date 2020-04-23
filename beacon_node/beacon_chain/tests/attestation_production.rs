@@ -40,9 +40,9 @@ fn produces_attestations() {
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
     assert_eq!(state.slot, num_blocks_produced, "head should have updated");
-    assert!(
-        state.finalized_checkpoint.epoch > 0,
-        "chain should have finalized"
+    assert_ne!(
+        state.finalized_checkpoint.epoch, 0,
+        "head should have updated"
     );
 
     let current_slot = chain.slot().expect("should get slot");

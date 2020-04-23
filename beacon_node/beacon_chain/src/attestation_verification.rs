@@ -280,7 +280,10 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
             let selection_proof =
                 SelectionProof::from(signed_aggregate.message.selection_proof.clone());
 
-            if !selection_proof.is_aggregator(committee.committee.len(), &chain.spec) {
+            if !selection_proof
+                .is_aggregator(committee.committee.len(), &chain.spec)
+                .map_err(|e| Error::BeaconChainError(e.into()))?
+            {
                 return Err(Error::InvalidSelectionProof { aggregator_index });
             }
 

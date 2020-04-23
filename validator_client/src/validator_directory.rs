@@ -308,7 +308,7 @@ impl ValidatorDirectoryBuilder {
         web3: Web3<T>,
         from: Address,
         deposit_contract: Address,
-    ) -> impl Future<Item = Self, Error = String> {
+    ) -> impl Future<Item = (Self, Hash256), Error = String> {
         self.get_deposit_data()
             .into_future()
             .and_then(move |(deposit_data, deposit_amount)| {
@@ -325,7 +325,7 @@ impl ValidatorDirectoryBuilder {
                     })
                     .map_err(|e| format!("Failed to send transaction: {:?}", e))
             })
-            .map(|_tx| self)
+            .map(|tx| (self, tx))
     }
 
     pub fn build(self) -> Result<ValidatorDirectory, String> {

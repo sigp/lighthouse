@@ -44,6 +44,7 @@ lru = "0.4.3"
 tempfile = "3.1.0"
 bitvec = "0.17.4"
 bls = { path = "../../eth2/utils/bls" }
+safe_arith = { path = "../../eth2/utils/safe_arith" }
 
 [dev-dependencies]
 lazy_static = "1.4.0"

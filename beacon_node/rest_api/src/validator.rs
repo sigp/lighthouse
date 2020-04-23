@@ -500,7 +500,9 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
     // Publish the attestation to the network
     if let Err(e) = network_chan.try_send(NetworkMessage::Publish {
         messages: vec![PubsubMessage::Attestation(Box::new((
-            attestation.subnet_id(),
+            attestation
+                .subnet_id(&beacon_chain.spec)
+                .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?,
             attestation,
         )))],
     }) {

@@ -3,6 +3,7 @@ use super::{
     Signature, SignedRoot, SubnetId,
 };
 use crate::{test_utils::TestRandom, Hash256};
+use safe_arith::{ArithError, SafeArith};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -13,6 +14,7 @@ use tree_hash_derive::TreeHash;
 pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
+    SubnetCountIsZero(ArithError),
 }
 
 /// Details an attestation that can be slashable.
@@ -86,8 +88,12 @@ impl<T: EthSpec> Attestation<T> {
     ///
     /// Note, this will return the subnet id for an aggregated attestation. This is done
     /// to avoid checking aggregate bits every time we wish to get an id.
-    pub fn subnet_id(&self) -> SubnetId {
-        SubnetId::new(self.data.index % T::default_spec().attestation_subnet_count)
+    pub fn subnet_id(&self, spec: &ChainSpec) -> Result<SubnetId, Error> {
+        self.data
+            .index
+            .safe_rem(spec.attestation_subnet_count)
+            .map(SubnetId::new)
+            .map_err(Error::SubnetCountIsZero)
     }
 }
 
