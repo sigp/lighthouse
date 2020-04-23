@@ -268,8 +268,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 "peer" => format!("{:?}", peer_id),
                 "peer_head_slot" => remote.head_slot,
                 "local_head_slot" => local_peer_info.head_slot,
-                "remote_finalized_epoch" => local_peer_info.finalized_epoch,
-                "local_finalized_epoch" => remote.finalized_epoch,
+                "peer_finalized_epoch" => remote.finalized_epoch,
+                "local_finalized_epoch" => local_peer_info.finalized_epoch,
                 );
                 // Add the peer to our RangeSync
                 self.range_sync
@@ -528,11 +528,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.update_sync_state();
     }
 
+    // TODO: Group these functions into one.
     /// Updates the syncing state of a peer to be synced.
     fn synced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            let head_slot = sync_info.head_slot;
+            let finalized_epoch = sync_info.finalized_epoch;
             if peer_info.sync_status.update_synced(sync_info.into()) {
-                debug!(self.log, "Peer transitioned to synced status"; "peer_id" => format!("{}", peer_id));
+                debug!(self.log, "Peer transitioned sync state"; "new_state" => "synced", "peer_id" => format!("{}", peer_id), "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
             }
         } else {
             crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
@@ -543,9 +546,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// Updates the syncing state of a peer to be behind.
     fn advanced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let advanced_slot = sync_info.head_slot;
-            if peer_info.sync_status.update_ahead(sync_info.into()) {
-                debug!(self.log, "Peer transitioned to from synced state to ahead"; "peer_id" => format!("{}", peer_id), "head_slot" => advanced_slot);
+            let head_slot = sync_info.head_slot;
+            let finalized_epoch = sync_info.finalized_epoch;
+            if peer_info.sync_status.update_advanced(sync_info.into()) {
+                debug!(self.log, "Peer transitioned sync state"; "new_state" => "advanced", "peer_id" => format!("{}", peer_id), "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
             }
         } else {
             crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));
@@ -556,9 +560,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// Updates the syncing state of a peer to be behind.
     fn behind_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let behind_slot = sync_info.head_slot;
+            let head_slot = sync_info.head_slot;
+            let finalized_epoch = sync_info.finalized_epoch;
             if peer_info.sync_status.update_behind(sync_info.into()) {
-                debug!(self.log, "Peer transitioned to from synced state to behind"; "peer_id" => format!("{}", peer_id), "head_slot" => behind_slot);
+                debug!(self.log, "Peer transitioned sync state"; "new_state" => "behind", "peer_id" => format!("{}", peer_id), "head_slot" => head_slot, "finalized_epoch" => finalized_epoch);
             }
         } else {
             crit!(self.log, "Status'd peer is unknown"; "peer_id" => format!("{}", peer_id));

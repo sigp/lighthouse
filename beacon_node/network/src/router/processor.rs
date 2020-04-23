@@ -145,7 +145,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Process a `Status` response from a peer.
     pub fn on_status_response(&mut self, peer_id: PeerId, status: StatusMessage) {
-        trace!(
+        debug!(
             self.log,
             "Received Status Response";
             "peer" => format!("{:?}", peer_id),
