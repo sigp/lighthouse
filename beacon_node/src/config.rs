@@ -195,14 +195,11 @@ pub fn get_config<E: EthSpec>(
                 } else {
                     return Err("Failed to parse enr-address".into());
                 };
-                dbg!(&resolved_addr);
                 client_config.network.discv5_config.enr_update = false;
                 resolved_addr
             }
         };
-        dbg!(&resolved_addr);
         client_config.network.enr_address = Some(resolved_addr);
-        panic!("wooo");
     }
 
     if cli_args.is_present("disable_enr_auto_update") {
