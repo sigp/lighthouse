@@ -276,9 +276,7 @@ where
             self.chain.fork_choice().expect("should find head");
             head_block_root = Some(block_root);
 
-            if slot + E::slots_per_epoch() >= self.chain.slot().expect("should get slot") {
-                self.add_attestations_for_slot(&attestation_strategy, &new_state, block_root, slot);
-            }
+            self.add_attestations_for_slot(&attestation_strategy, &new_state, block_root, slot);
 
             state = new_state;
             slot += 1;
@@ -464,6 +462,11 @@ where
         head_block_root: Hash256,
         head_block_slot: Slot,
     ) {
+        // These attestations will not be accepted by the chain so no need to generate them.
+        if state.slot + E::slots_per_epoch() < self.chain.slot().expect("should get slot") {
+            return;
+        }
+
         let spec = &self.spec;
         let fork = &state.fork;
 
