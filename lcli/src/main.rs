@@ -255,6 +255,13 @@ fn main() {
                     supplied the values will remain the default for the --spec flag",
                 )
                 .arg(
+                    Arg::with_name("force")
+                        .long("force")
+                        .short("f")
+                        .takes_value(false)
+                        .help("Overwrites any previous testnet configurations"),
+                )
+                .arg(
                     Arg::with_name("min-genesis-time")
                         .long("min-genesis-time")
                         .value_name("UNIX_SECONDS")
