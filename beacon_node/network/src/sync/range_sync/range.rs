@@ -139,8 +139,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        // remove peer from any chains
-        self.remove_peer(network, &peer_id);
+        // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains.
 
         // remove any out-of-date chains
         self.chains.purge_outdated_chains(network);
@@ -200,6 +199,9 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     self.awaiting_head_peers.insert(peer_id);
                     return;
                 }
+
+                // if the peer existed in any other head chain, remove it.
+                self.remove_peer(network, &peer_id);
 
                 // The new peer has the same finalized (earlier filters should prevent a peer with an
                 // earlier finalized chain from reaching here).
