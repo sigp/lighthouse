@@ -148,6 +148,25 @@ impl From<BeaconChainError> for Error {
     }
 }
 
+/// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
+pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
+    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+/// Wraps an `Attestation` that has been verified for propagation on the gossip network.
+pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
+    attestation: Attestation<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+/// Wraps an `indexed_attestation` that is valid for application to fork choice. The
+/// `indexed_attestation` will have been generated via the `VerifiedAggregatedAttestation` or
+/// `VerifiedUnaggregatedAttestation` wrappers.
+pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
 pub trait IntoForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
@@ -155,12 +174,6 @@ pub trait IntoForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
         self,
         chain: &BeaconChain<T>,
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error>;
-}
-
-/// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
-pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
-    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
-    indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
 impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
@@ -179,12 +192,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
     }
 }
 
-/// Wraps an `Attestation` that has been verified for propagation on the gossip network.
-pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
-    attestation: Attestation<T::EthSpec>,
-    indexed_attestation: IndexedAttestation<T::EthSpec>,
-}
-
 impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
     for VerifiedUnaggregatedAttestation<T>
 {
@@ -199,13 +206,6 @@ impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
             chain,
         )
     }
-}
-
-/// Wraps an `indexed_attestation` that is valid for application to fork choice. The
-/// `indexed_attestation` will have been generated via the `VerifiedAggregatedAttestation` or
-/// `VerifiedUnaggregatedAttestation` wrappers.
-pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
-    indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
 impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>

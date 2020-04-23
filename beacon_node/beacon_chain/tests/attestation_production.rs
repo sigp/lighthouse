@@ -90,7 +90,7 @@ fn produces_attestations() {
                 .len();
 
             let attestation = chain
-                .produce_attestation(slot, index)
+                .produce_unaggregated_attestation(slot, index)
                 .expect("should produce attestation");
 
             let data = &attestation.data;

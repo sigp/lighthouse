@@ -398,7 +398,7 @@ pub fn get_new_attestation<T: BeaconChainTypes>(
     let index = query.committee_index()?;
 
     let attestation = beacon_chain
-        .produce_attestation(slot, index)
+        .produce_unaggregated_attestation(slot, index)
         .map_err(|e| ApiError::BadRequest(format!("Unable to produce attestation: {:?}", e)))?;
 
     ResponseBuilder::new(&req)?.body(&attestation)

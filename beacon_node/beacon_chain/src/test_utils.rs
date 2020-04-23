@@ -487,7 +487,7 @@ where
                         }
                         let mut attestation = self
                             .chain
-                            .produce_attestation_for_block(
+                            .produce_unaggregated_attestation_for_block(
                                 head_block_slot,
                                 bc.index,
                                 head_block_root,
@@ -583,6 +583,7 @@ where
                 }
             });
     }
+
     /// Creates two forks:
     ///
     ///  - The "honest" fork: created by the `honest_validators` who have built `honest_fork_blocks`

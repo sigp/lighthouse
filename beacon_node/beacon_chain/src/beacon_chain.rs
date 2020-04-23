@@ -735,10 +735,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.naive_aggregation_pool.get(data).map_err(Into::into)
     }
 
-    /// Produce a raw unsigned `Attestation` that is valid for the given `slot` and `index`.
+    /// Produce an unaggregated `Attestation` that is valid for the given `slot` and `index`.
+    ///
+    /// The produced `Attestation` will not be valid until it has been signed by exactly one
+    /// validator that is in the committee for `slot` and `index` in the canonical chain.
     ///
     /// Always attests to the canonical chain.
-    pub fn produce_attestation(
+    pub fn produce_unaggregated_attestation(
         &self,
         slot: Slot,
         index: CommitteeIndex,
@@ -751,7 +754,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or_else(|| Error::CanonicalHeadLockTimeout)?;
 
         if slot >= head.beacon_block.slot() {
-            self.produce_attestation_for_block(
+            self.produce_unaggregated_attestation_for_block(
                 slot,
                 index,
                 head.beacon_block_root,
@@ -783,7 +786,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
-            self.produce_attestation_for_block(slot, index, beacon_block_root, Cow::Owned(state))
+            self.produce_unaggregated_attestation_for_block(
+                slot,
+                index,
+                beacon_block_root,
+                Cow::Owned(state),
+            )
         }
     }
 
@@ -791,7 +799,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Permits attesting to any arbitrary chain. Generally, the `produce_attestation_data`
     /// function should be used as it attests to the canonical chain.
-    pub fn produce_attestation_for_block(
+    pub fn produce_unaggregated_attestation_for_block(
         &self,
         slot: Slot,
         index: CommitteeIndex,
