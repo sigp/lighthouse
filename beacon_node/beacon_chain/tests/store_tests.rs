@@ -1071,8 +1071,19 @@ fn prunes_fork_running_past_finalized_checkpoint() {
     let (canonical_blocks_second_epoch, _, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
-        slots_per_epoch * 4,
+        slots_per_epoch * 6,
         &honest_validators,
+    );
+    assert_ne!(
+        harness
+            .chain
+            .head()
+            .unwrap()
+            .beacon_state
+            .finalized_checkpoint
+            .epoch,
+        0,
+        "chain should have finalized"
     );
 
     // Postconditions
@@ -1089,8 +1100,8 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         finalized_blocks,
         vec![
             Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64)],
-            canonical_blocks[&Slot::new((slots_per_epoch * 2) as u64)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 3)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 4)],
         ]
         .into_iter()
         .collect()
@@ -1205,8 +1216,19 @@ fn prunes_skipped_slots_states() {
     let (canonical_blocks_post_finalization, _, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
-        slots_per_epoch * 5,
+        slots_per_epoch * 6,
         &honest_validators,
+    );
+    assert_eq!(
+        harness
+            .chain
+            .head()
+            .unwrap()
+            .beacon_state
+            .finalized_checkpoint
+            .epoch,
+        2,
+        "chain should have finalized"
     );
 
     // Postconditions
@@ -1220,7 +1242,7 @@ fn prunes_skipped_slots_states() {
         finalized_blocks,
         vec![
             Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 2)],
         ]
         .into_iter()
         .collect()
@@ -1245,7 +1267,8 @@ fn prunes_skipped_slots_states() {
                 .get_state(&state_hash, Some(slot))
                 .unwrap()
                 .is_none(),
-            "skipped slot states should have been pruned"
+            "skipped slot {:?} state should have been pruned",
+            slot
         );
     }
 }
