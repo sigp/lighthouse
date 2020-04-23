@@ -7,7 +7,6 @@ use std::ops::Sub;
 use std::sync::Arc;
 use types::{Epoch, Hash256, Slot};
 
-///
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
