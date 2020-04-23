@@ -139,14 +139,6 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
-    if let Some(enr_address_str) = cli_args.value_of("enr-address") {
-        client_config.network.enr_address = Some(
-            enr_address_str
-                .parse()
-                .map_err(|_| format!("Invalid discovery address: {:?}", enr_address_str))?,
-        )
-    }
-
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
         client_config.network.enr_udp_port = Some(
             enr_udp_port_str
@@ -176,31 +168,41 @@ pub fn get_config<E: EthSpec>(
         client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
     }
 
-    if let Some(discovery_dns_addr) = cli_args.value_of("discovery-dns-address") {
-        let mut addr = discovery_dns_addr.to_string();
-        // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
-        // Since enr-update is disabled with a discovery-dns-address, not setting the enr-udp-port
-        // will make the node undiscoverable.
-        if let Some(enr_udp_port) = client_config.network.enr_udp_port {
-            addr.push_str(&format!(":{}", enr_udp_port.to_string()));
-        } else {
-            return Err(
-                "enr-udp-port must be set for node to be discoverable with dns address".into(),
-            );
-        }
-        // `to_socket_addr()` does the dns resolution
-        // Note: `to_socket_addrs()` is a blocking call
-        let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
-            // Pick the first ip from the list of resolved addresses
-            resolved_addrs
-                .next()
-                .map(|a| a.ip())
-                .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
-        } else {
-            return Err("Failed to resolve dns address".into());
+    if let Some(enr_address) = cli_args.value_of("enr-address") {
+        let resolved_addr = match enr_address.parse::<IpAddr>() {
+            Ok(addr) => addr, // // Input is an IpAddr
+            Err(_) => {
+                let mut addr = enr_address.to_string();
+                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
+                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
+                // will make the node undiscoverable.
+                if let Some(enr_udp_port) = client_config.network.enr_udp_port {
+                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                } else {
+                    return Err(
+                        "enr-udp-port must be set for node to be discoverable with dns address"
+                            .into(),
+                    );
+                }
+                // `to_socket_addr()` does the dns resolution
+                // Note: `to_socket_addrs()` is a blocking call
+                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
+                    // Pick the first ip from the list of resolved addresses
+                    resolved_addrs
+                        .next()
+                        .map(|a| a.ip())
+                        .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
+                } else {
+                    return Err("Failed to parse enr-address".into());
+                };
+                dbg!(&resolved_addr);
+                client_config.network.discv5_config.enr_update = false;
+                resolved_addr
+            }
         };
+        dbg!(&resolved_addr);
         client_config.network.enr_address = Some(resolved_addr);
-        client_config.network.discv5_config.enr_update = false;
+        panic!("wooo");
     }
 
     if cli_args.is_present("disable_enr_auto_update") {
