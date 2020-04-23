@@ -41,6 +41,7 @@
 
 use super::chain::{ChainId, ProcessingResult};
 use super::chain_collection::{ChainCollection, RangeSyncState};
+use super::sync_type::RangeSyncType;
 use super::BatchId;
 use crate::sync::block_processor::BatchProcessResult;
 use crate::sync::manager::SyncMessage;
@@ -112,7 +113,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
         peer_id: PeerId,
-        remote: PeerSyncInfo,
+        remote_info: PeerSyncInfo,
     ) {
         // evaluate which chain to sync from
 
@@ -131,93 +132,106 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         };
 
         // convenience variables
-        let remote_finalized_slot = remote
+        let remote_finalized_slot = remote_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
         let local_finalized_slot = local_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        // remove peer from any chains
-        self.remove_peer(network, &peer_id);
+        // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains.
 
         // remove any out-of-date chains
         self.chains.purge_outdated_chains(network);
 
-        if remote_finalized_slot > local_info.head_slot
-            && !self
-                .beacon_chain
-                .fork_choice
-                .contains_block(&remote.finalized_root)
-        {
-            debug!(self.log, "Finalization sync peer joined"; "peer_id" => format!("{:?}", peer_id));
-            // Finalized chain search
+        // determine which kind of sync to perform and set up the chains
+        match RangeSyncType::new(&self.beacon_chain, &local_info, &remote_info) {
+            RangeSyncType::Finalized => {
+                // Finalized chain search
+                debug!(self.log, "Finalization sync peer joined"; "peer_id" => format!("{:?}", peer_id));
 
-            // Note: We keep current head chains. These can continue syncing whilst we complete
-            // this new finalized chain.
+                // remove the peer from the awaiting_head_peers list if it exists
+                self.awaiting_head_peers.remove(&peer_id);
 
-            // If a finalized chain already exists that matches, add this peer to the chain's peer
-            // pool.
-            if let Some(chain) = self
-                .chains
-                .get_finalized_mut(remote.finalized_root, remote_finalized_slot)
-            {
-                debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_slot"=> chain.start_slot);
+                // Note: We keep current head chains. These can continue syncing whilst we complete
+                // this new finalized chain.
 
-                // add the peer to the chain's peer pool
-                chain.add_peer(network, peer_id);
+                // If a finalized chain already exists that matches, add this peer to the chain's peer
+                // pool.
+                if let Some(chain) = self
+                    .chains
+                    .get_finalized_mut(remote_info.finalized_root, remote_finalized_slot)
+                {
+                    debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_slot"=> chain.start_slot);
 
-                // check if the new peer's addition will favour a new syncing chain.
+                    // add the peer to the chain's peer pool
+                    chain.add_peer(network, peer_id);
+
+                    // check if the new peer's addition will favour a new syncing chain.
+                    self.chains.update_finalized(network);
+                    // update the global sync state if necessary
+                    self.chains.update_sync_state();
+                } else {
+                    // there is no finalized chain that matches this peer's last finalized target
+                    // create a new finalized chain
+                    debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_slot" => local_finalized_slot.as_u64(), "end_slot" => remote_finalized_slot.as_u64(), "finalized_root" => format!("{}", remote_info.finalized_root));
+
+                    self.chains.new_finalized_chain(
+                        local_finalized_slot,
+                        remote_info.finalized_root,
+                        remote_finalized_slot,
+                        peer_id,
+                        self.sync_send.clone(),
+                    );
+                    self.chains.update_finalized(network);
+                    // update the global sync state
+                    self.chains.update_sync_state();
+                }
+            }
+            RangeSyncType::Head => {
+                // This peer requires a head chain sync
+
+                if self.chains.is_finalizing_sync() {
+                    // If there are finalized chains to sync, finish these first, before syncing head
+                    // chains. This allows us to re-sync all known peers
+                    trace!(self.log, "Waiting for finalized sync to complete"; "peer_id" => format!("{:?}", peer_id));
+                    // store the peer to re-status after all finalized chains complete
+                    self.awaiting_head_peers.insert(peer_id);
+                    return;
+                }
+
+                // if the peer existed in any other head chain, remove it.
+                self.remove_peer(network, &peer_id);
+
+                // The new peer has the same finalized (earlier filters should prevent a peer with an
+                // earlier finalized chain from reaching here).
+                debug!(self.log, "New peer added for recent head sync"; "peer_id" => format!("{:?}", peer_id));
+
+                // search if there is a matching head chain, then add the peer to the chain
+                if let Some(chain) = self
+                    .chains
+                    .get_head_mut(remote_info.head_root, remote_info.head_slot)
+                {
+                    debug!(self.log, "Adding peer to the existing head chain peer pool"; "head_root" => format!("{}",remote_info.head_root), "head_slot" => remote_info.head_slot, "peer_id" => format!("{:?}", peer_id));
+
+                    // add the peer to the head's pool
+                    chain.add_peer(network, peer_id);
+                } else {
+                    // There are no other head chains that match this peer's status, create a new one, and
+                    let start_slot = std::cmp::min(local_info.head_slot, remote_finalized_slot);
+                    debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote_info.head_root), "start_slot" => start_slot, "head_slot" => remote_info.head_slot, "peer_id" => format!("{:?}", peer_id));
+                    self.chains.new_head_chain(
+                        network,
+                        start_slot,
+                        remote_info.head_root,
+                        remote_info.head_slot,
+                        peer_id,
+                        self.sync_send.clone(),
+                    );
+                }
                 self.chains.update_finalized(network);
                 self.chains.update_sync_state();
-            } else {
-                // there is no finalized chain that matches this peer's last finalized target
-                // create a new finalized chain
-                debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_slot" => local_finalized_slot.as_u64(), "end_slot" => remote_finalized_slot.as_u64(), "finalized_root" => format!("{}", remote.finalized_root));
-
-                self.chains.new_finalized_chain(
-                    local_finalized_slot,
-                    remote.finalized_root,
-                    remote_finalized_slot,
-                    peer_id,
-                    self.sync_send.clone(),
-                );
-                self.chains.update_finalized(network);
-                self.chains.update_sync_state();
             }
-        } else {
-            if self.chains.is_finalizing_sync() {
-                // If there are finalized chains to sync, finish these first, before syncing head
-                // chains. This allows us to re-sync all known peers
-                trace!(self.log, "Waiting for finalized sync to complete"; "peer_id" => format!("{:?}", peer_id));
-                return;
-            }
-
-            // The new peer has the same finalized (earlier filters should prevent a peer with an
-            // earlier finalized chain from reaching here).
-            debug!(self.log, "New peer added for recent head sync"; "peer_id" => format!("{:?}", peer_id));
-
-            // search if there is a matching head chain, then add the peer to the chain
-            if let Some(chain) = self.chains.get_head_mut(remote.head_root, remote.head_slot) {
-                debug!(self.log, "Adding peer to the existing head chain peer pool"; "head_root" => format!("{}",remote.head_root), "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
-
-                // add the peer to the head's pool
-                chain.add_peer(network, peer_id);
-            } else {
-                // There are no other head chains that match this peer's status, create a new one, and
-                let start_slot = std::cmp::min(local_info.head_slot, remote_finalized_slot);
-                debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote.head_root), "start_slot" => start_slot, "head_slot" => remote.head_slot, "peer_id" => format!("{:?}", peer_id));
-                self.chains.new_head_chain(
-                    network,
-                    start_slot,
-                    remote.head_root,
-                    remote.head_slot,
-                    peer_id,
-                    self.sync_send.clone(),
-                );
-            }
-            self.chains.update_finalized(network);
-            self.chains.update_sync_state();
         }
     }
 
