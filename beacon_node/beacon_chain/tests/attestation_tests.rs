@@ -168,6 +168,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
         .expect("should find non-aggregator for committee")
 }
 
+/// Tests verification of `SignedAggregateAndProof` from the gossip network.
 #[test]
 fn aggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -184,7 +185,6 @@ fn aggregated_gossip_verification() {
     harness.advance_slot();
 
     let current_slot = chain.slot().expect("should get slot");
-    let current_epoch = chain.epoch().expect("should get epoch");
 
     assert_eq!(
         current_slot % E::slots_per_epoch(),
@@ -192,7 +192,7 @@ fn aggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, attester_index, attester_committee_index, validator_sk) =
+    let (valid_attestation, _attester_index, _attester_committee_index, validator_sk) =
         get_valid_unaggregated_attestation(&harness.chain);
     let (valid_aggregate, aggregator_index, aggregator_sk) =
         get_valid_aggregated_attestation(&harness.chain, valid_attestation);
@@ -214,6 +214,17 @@ fn aggregated_gossip_verification() {
             );
         };
     }
+
+    /*
+     * The following two tests ensure:
+     *
+     * Spec v0.11.1
+     *
+     * aggregate.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (with a
+     * MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) -- i.e. aggregate.data.slot +
+     * ATTESTATION_PROPAGATION_SLOT_RANGE >= current_slot >= aggregate.data.slot (a client MAY
+     * queue future aggregates for processing at the appropriate slot).
+     */
 
     let future_slot = current_slot + 1;
     assert_invalid!(
@@ -249,6 +260,14 @@ fn aggregated_gossip_verification() {
         }
     );
 
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.11.1
+     *
+     * The block being voted for (aggregate.data.beacon_block_root) passes validation.
+     */
+
     let unknown_root = Hash256::from_low_u64_le(424242);
     assert_invalid!(
         "aggregate with unknown head block",
@@ -262,6 +281,14 @@ fn aggregated_gossip_verification() {
         }
     );
 
+    /*
+     * This test ensures:
+     *
+     * Spec v0.11.1
+     *
+     * The aggregator signature, signed_aggregate_and_proof.signature, is valid.
+     */
+
     assert_invalid!(
         "aggregate with bad signature",
         {
@@ -273,6 +300,15 @@ fn aggregated_gossip_verification() {
         },
         AttnError::InvalidSignature
     );
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.11.1
+     *
+     * The aggregate_and_proof.selection_proof is a valid signature of the aggregate.data.slot by
+     * the validator with index aggregate_and_proof.aggregator_index.
+     */
 
     let committee_len = harness
         .chain
@@ -291,7 +327,8 @@ fn aggregated_gossip_verification() {
         {
             let mut a = valid_aggregate.clone();
 
-            // Generate some random signature until happens to be a valid selection proof.
+            // Generate some random signature until happens to be a valid selection proof. We need
+            // this in order to reach the signature verification code.
             //
             // Could run for ever, but that seems _really_ improbable.
             let mut i: u64 = 0;
@@ -310,6 +347,14 @@ fn aggregated_gossip_verification() {
         },
         AttnError::InvalidSignature
     );
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.11.1
+     *
+     * The signature of aggregate is valid.
+     */
 
     assert_invalid!(
         "aggregate with bad aggregate signature",
@@ -336,6 +381,16 @@ fn aggregated_gossip_verification() {
         AttnError::ValidatorIndexTooHigh(too_high_index as usize)
     );
 
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.11.1
+     *
+     * The aggregator's validator index is within the aggregate's committee -- i.e.
+     * aggregate_and_proof.aggregator_index in get_attesting_indices(state, aggregate.data,
+     * aggregate.aggregation_bits).
+     */
+
     let unknown_validator = VALIDATOR_COUNT as u64;
     assert_invalid!(
         "aggregate with unknown aggregator index",
@@ -353,6 +408,16 @@ fn aggregated_gossip_verification() {
             aggregator_index: unknown_validator
         }
     );
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.11.1
+     *
+     * aggregate_and_proof.selection_proof selects the validator as an aggregator for the slot --
+     * i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
+     * aggregate_and_proof.selection_proof) returns True.
+     */
 
     let (non_aggregator_index, non_aggregator_sk) =
         get_non_aggregator(&harness.chain, &valid_aggregate.message.aggregate);
@@ -381,11 +446,33 @@ fn aggregated_gossip_verification() {
         "valid aggregate should be verified"
     );
 
+    /*
+     * The following tests ensures:
+     *
+     * NOTE: this is technically not part of the spec, see:
+     * https://github.com/ethereum/eth2.0-specs/pull/1749
+     *
+     * Spec v0.11.1
+     *
+     * The aggregate attestation defined by hash_tree_root(aggregate) has not already been seen
+     * (via aggregate gossip, within a block, or through the creation of an equivalent aggregate
+     * locally).
+     */
+
     assert_invalid!(
         "aggregate with that has already been seen",
         valid_aggregate.clone(),
         AttnError::AttestationAlreadyKnown(valid_aggregate.message.aggregate.tree_hash_root())
     );
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.11.1
+     *
+     * The aggregate is the first valid aggregate received for the aggregator with index
+     * aggregate_and_proof.aggregator_index for the slot aggregate.data.slot.
+     */
 
     assert_invalid!(
         "aggregate from aggregator that has already been seen",
@@ -444,6 +531,17 @@ fn unaggregated_gossip_verification() {
         };
     }
 
+    /*
+     * The following two tests ensure:
+     *
+     * Spec v0.11.1
+     *
+     * attestation.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
+     * MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) -- i.e. attestation.data.slot +
+     * ATTESTATION_PROPAGATION_SLOT_RANGE >= current_slot >= attestation.data.slot (a client MAY
+     * queue future attestations for processing at the appropriate slot).
+     */
+
     let future_slot = current_slot + 1;
     assert_invalid!(
         "attestation from future slot",
@@ -478,6 +576,15 @@ fn unaggregated_gossip_verification() {
         }
     );
 
+    /*
+     * The following two tests ensure:
+     *
+     * Spec v0.11.1
+     *
+     * The attestation is unaggregated -- that is, it has exactly one participating validator
+     * (len([bit for bit in attestation.aggregation_bits if bit == 0b1]) == 1).
+     */
+
     assert_invalid!(
         "attestation without any aggregation bits set",
         {
@@ -507,6 +614,14 @@ fn unaggregated_gossip_verification() {
         AttnError::NotExactlyOneAggregationBitSet(2)
     );
 
+    /*
+     * The following test ensures that:
+     *
+     * Spec v0.11.1
+     *
+     * The block being voted for (attestation.data.beacon_block_root) passes validation.
+     */
+
     let unknown_root = Hash256::from_low_u64_le(424242); // No one wants one of these
     assert_invalid!(
         "attestation with unknown head block",
@@ -519,6 +634,14 @@ fn unaggregated_gossip_verification() {
             beacon_block_root: unknown_root
         }
     );
+
+    /*
+     * The following test ensures that:
+     *
+     * Spec v0.11.1
+     *
+     * The signature of attestation is valid.
+     */
 
     assert_invalid!(
         "attestation with bad signature",
@@ -541,6 +664,15 @@ fn unaggregated_gossip_verification() {
             .is_ok(),
         "valid attestation should be verified"
     );
+
+    /*
+     * The following test ensures that:
+     *
+     * Spec v0.11.1
+     *
+     * The attestation is the first valid attestation received for the participating validator for
+     * the slot, attestation.data.slot.
+     */
 
     assert_invalid!(
         "attestation that has already been seen",
