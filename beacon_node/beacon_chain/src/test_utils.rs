@@ -85,14 +85,24 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
-        let data_dir = tempdir().expect("should create temporary data_dir");
-        let mut spec = E::default_spec();
-
         // Setting the target aggregators to really high means that _all_ validators in the
         // committee are required to produce an aggregate. This is overkill, however with small
         // validator counts it's the only way to be certain there is _at least one_ aggregator per
         // committee.
-        spec.target_aggregators_per_committee = 1 << 32;
+        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32)
+    }
+
+    /// Instantiate a new harness with `validator_count` initial validators and a custom
+    /// `target_aggregators_per_committee` spec value
+    pub fn new_with_target_aggregators(
+        eth_spec_instance: E,
+        keypairs: Vec<Keypair>,
+        target_aggregators_per_committee: u64,
+    ) -> Self {
+        let data_dir = tempdir().expect("should create temporary data_dir");
+        let mut spec = E::default_spec();
+
+        spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
         let log = NullLoggerBuilder.build().expect("logger should build");
 

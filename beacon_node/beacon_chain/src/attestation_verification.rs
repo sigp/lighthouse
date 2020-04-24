@@ -88,7 +88,7 @@ pub enum Error {
         aggregator_index: u64,
     },
     /// The aggregator index refers to a validator index that we have not seen.
-    AggregatorPubkeyUnknown,
+    AggregatorPubkeyUnknown(u64),
     /// The attestation has been seen before; either in a block, on the gossip network or from a
     /// local validator.
     AttestationAlreadyKnown(Hash256),
@@ -236,10 +236,15 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         verify_propagation_slot_range(chain, attestation)?;
 
         // Ensure the aggregated attestation has not already been seen locally.
+        //
+        // TODO: this part of the code is not technically to spec, however I have raised a PR to
+        // change it:
+        //
+        // https://github.com/ethereum/eth2.0-specs/pull/1749
         let attestation_root = attestation.tree_hash_root();
-        if let ObserveOutcome::AlreadyKnown = chain
+        if chain
             .observed_attestations
-            .observe_attestation(attestation, Some(attestation_root))
+            .is_known(attestation, attestation_root)
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
             return Err(Error::AttestationAlreadyKnown(attestation_root));
@@ -301,6 +306,33 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
 
         if !verify_signed_aggregate_signatures(chain, &signed_aggregate, &indexed_attestation)? {
             return Err(Error::InvalidSignature);
+        }
+
+        // Observe the valid attestation so we do not re-process it.
+        //
+        // It's important to double check that the attestation is not already known, otherwise two
+        // attestations processed at the same time could be published.
+        if let ObserveOutcome::AlreadyKnown = chain
+            .observed_attestations
+            .observe_attestation(attestation, Some(attestation_root))
+            .map_err(|e| Error::BeaconChainError(e.into()))?
+        {
+            return Err(Error::AttestationAlreadyKnown(attestation_root));
+        }
+
+        // Observe the aggregator so we don't process another aggregate from them.
+        //
+        // It's important to double check that the attestation is not already known, otherwise two
+        // attestations processed at the same time could be published.
+        if chain
+            .observed_aggregators
+            .observe_validator(&attestation, aggregator_index as usize)
+            .map_err(|e| BeaconChainError::from(e))?
+        {
+            return Err(Error::PriorAttestationKnown {
+                validator_index: aggregator_index,
+                epoch: attestation.data.target.epoch,
+            });
         }
 
         Ok(VerifiedAggregatedAttestation {
@@ -633,8 +665,9 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
         .ok_or_else(|| BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
-    if signed_aggregate.message.aggregator_index >= pubkey_cache.len() as u64 {
-        return Err(Error::AggregatorPubkeyUnknown);
+    let aggregator_index = signed_aggregate.message.aggregator_index;
+    if aggregator_index >= pubkey_cache.len() as u64 {
+        return Err(Error::AggregatorPubkeyUnknown(aggregator_index));
     }
 
     let fork = chain

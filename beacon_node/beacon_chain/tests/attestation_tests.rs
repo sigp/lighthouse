@@ -7,59 +7,52 @@ use beacon_chain::AttestationProcessingOutcome;
 use beacon_chain::{
     attestation_verification::{Error as AttnError, VerifiedUnaggregatedAttestation},
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    BeaconChain,
+    BeaconChain, BeaconChainTypes,
 };
 use state_processing::per_slot_processing;
+use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BitList, EthSpec,
-    Hash256, Keypair, MainnetEthSpec, Signature, Slot,
+    Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, Signature,
+    SignedAggregateAndProof, Slot, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
 
-pub const VALIDATOR_COUNT: usize = 128;
+/// The validator count needs to be relatively high compared to other tests to ensure that we can
+/// have committees where _some_ validators are aggregators but not _all_.
+pub const VALIDATOR_COUNT: usize = 256;
 
 lazy_static! {
     /// A cached set of keys.
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
+/// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
-    let harness = BeaconChainHarness::new(MainnetEthSpec, KEYPAIRS[0..validator_count].to_vec());
+    let harness = BeaconChainHarness::new_with_target_aggregators(
+        MainnetEthSpec,
+        KEYPAIRS[0..validator_count].to_vec(),
+        // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
+        // not all.
+        4,
+    );
 
     harness.advance_slot();
 
     harness
 }
 
-/*
-#[test]
-fn aggregated_gossip_verification() {
-    let harness = get_harness(VALIDATOR_COUNT);
-    let chain = &harness.chain;
-
-    // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
-
-    // Advance into a slot where there have not been blocks or attestations produced.
-    harness.advance_slot();
-
+/// Returns an attestation that is valid for some slot in the given `chain`.
+///
+/// Also returns some info about who created it.
+fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+) -> (Attestation<T::EthSpec>, usize, usize, SecretKey) {
     let head = chain.head().expect("should get head");
     let current_slot = chain.slot().expect("should get slot");
-    let current_epoch = chain.epoch().expect("should get epoch");
 
-    assert_eq!(
-        current_slot % E::slots_per_epoch(),
-        0,
-        "the test requires a new epoch to avoid already-seen errors"
-    );
-
-    let mut valid_attestation = harness
-        .chain
+    let mut valid_attestation = chain
         .produce_unaggregated_attestation(current_slot, 0)
         .expect("should not error while producing attestation");
 
@@ -79,10 +72,130 @@ fn aggregated_gossip_verification() {
             &validator_sk,
             validator_committee_index,
             &head.beacon_state.fork,
-            harness.chain.genesis_validators_root,
-            &harness.chain.spec,
+            chain.genesis_validators_root,
+            &chain.spec,
         )
         .expect("should sign attestation");
+
+    (
+        valid_attestation,
+        validator_index,
+        validator_committee_index,
+        validator_sk,
+    )
+}
+
+fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    aggregate: Attestation<T::EthSpec>,
+) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
+    let state = &chain.head().expect("should get head").beacon_state;
+    let current_slot = chain.slot().expect("should get slot");
+
+    let committee = state
+        .get_beacon_committee(current_slot, aggregate.data.index)
+        .expect("should get committees");
+    let committee_len = committee.committee.len();
+
+    let (aggregator_index, aggregator_sk) = committee
+        .committee
+        .iter()
+        .find_map(|&val_index| {
+            let aggregator_sk = generate_deterministic_keypair(val_index).sk;
+
+            let proof = SelectionProof::new::<T::EthSpec>(
+                aggregate.data.slot,
+                &aggregator_sk,
+                &state.fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            );
+
+            if proof.is_aggregator(committee_len, &chain.spec).unwrap() {
+                Some((val_index, aggregator_sk))
+            } else {
+                None
+            }
+        })
+        .expect("should find aggregator for committee");
+
+    let signed_aggregate = SignedAggregateAndProof::from_aggregate(
+        aggregator_index as u64,
+        aggregate,
+        &aggregator_sk,
+        &state.fork,
+        chain.genesis_validators_root,
+        &chain.spec,
+    );
+
+    (signed_aggregate, aggregator_index, aggregator_sk)
+}
+
+/// Returns a proof and index for a validator that is **not** an aggregator for the given
+/// attestation.
+fn get_non_aggregator<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    aggregate: &Attestation<T::EthSpec>,
+) -> (usize, SecretKey) {
+    let state = &chain.head().expect("should get head").beacon_state;
+    let current_slot = chain.slot().expect("should get slot");
+
+    let committee = state
+        .get_beacon_committee(current_slot, aggregate.data.index)
+        .expect("should get committees");
+    let committee_len = committee.committee.len();
+
+    committee
+        .committee
+        .iter()
+        .find_map(|&val_index| {
+            let aggregator_sk = generate_deterministic_keypair(val_index).sk;
+
+            let proof = SelectionProof::new::<T::EthSpec>(
+                aggregate.data.slot,
+                &aggregator_sk,
+                &state.fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            );
+
+            if proof.is_aggregator(committee_len, &chain.spec).unwrap() {
+                None
+            } else {
+                Some((val_index, aggregator_sk))
+            }
+        })
+        .expect("should find non-aggregator for committee")
+}
+
+#[test]
+fn aggregated_gossip_verification() {
+    let harness = get_harness(VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.extend_chain(
+        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Advance into a slot where there have not been blocks or attestations produced.
+    harness.advance_slot();
+
+    let current_slot = chain.slot().expect("should get slot");
+    let current_epoch = chain.epoch().expect("should get epoch");
+
+    assert_eq!(
+        current_slot % E::slots_per_epoch(),
+        0,
+        "the test requires a new epoch to avoid already-seen errors"
+    );
+
+    let (valid_attestation, attester_index, attester_committee_index, validator_sk) =
+        get_valid_unaggregated_attestation(&harness.chain);
+    let (valid_aggregate, aggregator_index, aggregator_sk) =
+        get_valid_aggregated_attestation(&harness.chain, valid_attestation);
 
     macro_rules! assert_invalid {
         ($desc: tt, $attn_getter: expr, $error: expr) => {
@@ -104,10 +217,10 @@ fn aggregated_gossip_verification() {
 
     let future_slot = current_slot + 1;
     assert_invalid!(
-        "attestation from future slot",
+        "aggregate from future slot",
         {
-            let mut a = valid_attestation.clone();
-            a.data.slot = future_slot;
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.slot = future_slot;
             a
         },
         AttnError::FutureSlot {
@@ -122,10 +235,10 @@ fn aggregated_gossip_verification() {
         .expect("chain is not sufficiently deep for test")
         .into();
     assert_invalid!(
-        "attestation from past slot",
+        "aggregate from past slot",
         {
-            let mut a = valid_attestation.clone();
-            a.data.slot = early_slot;
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.slot = early_slot;
             a
         },
         AttnError::PastSlot {
@@ -136,94 +249,156 @@ fn aggregated_gossip_verification() {
         }
     );
 
+    let unknown_root = Hash256::from_low_u64_le(424242);
     assert_invalid!(
-        "attestation without any aggregation bits set",
+        "aggregate with unknown head block",
         {
-            let mut a = valid_attestation.clone();
-            a.aggregation_bits
-                .set(validator_committee_index, false)
-                .expect("should unset aggregation bit");
-            assert_eq!(
-                a.aggregation_bits.num_set_bits(),
-                0,
-                "test requires no set bits"
-            );
-            a
-        },
-        AttnError::NotExactlyOneAggregationBitSet(0)
-    );
-
-    assert_invalid!(
-        "attestation with two aggregation bits set",
-        {
-            let mut a = valid_attestation.clone();
-            a.aggregation_bits
-                .set(validator_committee_index + 1, true)
-                .expect("should set second aggregation bit");
-            a
-        },
-        AttnError::NotExactlyOneAggregationBitSet(2)
-    );
-
-    let awkward_root = Hash256::from_low_u64_le(424242); // No one wants one of these
-    assert_invalid!(
-        "attestation with unknown head block",
-        {
-            let mut a = valid_attestation.clone();
-            a.data.beacon_block_root = awkward_root;
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.beacon_block_root = unknown_root;
             a
         },
         AttnError::UnknownHeadBlock {
-            beacon_block_root: awkward_root
-        }
-    );
-
-    let awkward_root = Hash256::from_low_u64_le(424242); // No one wants one of these
-    assert_invalid!(
-        "attestation with unknown head block",
-        {
-            let mut a = valid_attestation.clone();
-            a.data.beacon_block_root = awkward_root;
-            a
-        },
-        AttnError::UnknownHeadBlock {
-            beacon_block_root: awkward_root
+            beacon_block_root: unknown_root
         }
     );
 
     assert_invalid!(
-        "attestation with bad signature",
+        "aggregate with bad signature",
         {
-            let mut a = valid_attestation.clone();
+            let mut a = valid_aggregate.clone();
 
-            let mut agg_sig = AggregateSignature::new();
-            agg_sig.add(&Signature::new(&[42, 42], &validator_sk));
-            a.signature = agg_sig;
+            a.signature = Signature::new(&[42, 42], &validator_sk);
 
             a
         },
         AttnError::InvalidSignature
     );
 
-    assert!(
-        harness
-            .chain
-            .verify_unaggregated_attestation_for_gossip(valid_attestation.clone())
-            .is_ok(),
-        "valid attestation should be verified"
+    let committee_len = harness
+        .chain
+        .head()
+        .unwrap()
+        .beacon_state
+        .get_beacon_committee(
+            harness.chain.slot().unwrap(),
+            valid_aggregate.message.aggregate.data.index,
+        )
+        .expect("should get committees")
+        .committee
+        .len();
+    assert_invalid!(
+        "aggregate with bad selection proof signature",
+        {
+            let mut a = valid_aggregate.clone();
+
+            // Generate some random signature until happens to be a valid selection proof.
+            //
+            // Could run for ever, but that seems _really_ improbable.
+            let mut i: u64 = 0;
+            a.message.selection_proof = loop {
+                i += 1;
+                let proof: SelectionProof = Signature::new(&i.to_le_bytes(), &validator_sk).into();
+                if proof
+                    .is_aggregator(committee_len, &harness.chain.spec)
+                    .unwrap()
+                {
+                    break proof.into();
+                }
+            };
+
+            a
+        },
+        AttnError::InvalidSignature
     );
 
     assert_invalid!(
-        "attestation that has already been seen",
-        valid_attestation.clone(),
-        AttnError::PriorAttestationKnown {
-            validator_index: validator_index as u64,
-            epoch: current_epoch
+        "aggregate with bad aggregate signature",
+        {
+            let mut a = valid_aggregate.clone();
+
+            let mut agg_sig = AggregateSignature::new();
+            agg_sig.add(&Signature::new(&[42, 42], &aggregator_sk));
+            a.message.aggregate.signature = agg_sig;
+
+            a
+        },
+        AttnError::InvalidSignature
+    );
+
+    let too_high_index = <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1;
+    assert_invalid!(
+        "aggregate with too-high aggregator index",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregator_index = too_high_index;
+            a
+        },
+        AttnError::ValidatorIndexTooHigh(too_high_index as usize)
+    );
+
+    let unknown_validator = VALIDATOR_COUNT as u64;
+    assert_invalid!(
+        "aggregate with unknown aggregator index",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregator_index = unknown_validator;
+            a
+        },
+        // Naively we should think this condition would trigger this error:
+        //
+        // AttnError::AggregatorPubkeyUnknown(unknown_validator)
+        //
+        // However the following error is triggered first:
+        AttnError::AggregatorNotInCommittee {
+            aggregator_index: unknown_validator
         }
     );
-}
-*/
 
+    let (non_aggregator_index, non_aggregator_sk) =
+        get_non_aggregator(&harness.chain, &valid_aggregate.message.aggregate);
+    assert_invalid!(
+        "aggregate with from non-aggregator",
+        {
+            SignedAggregateAndProof::from_aggregate(
+                non_aggregator_index as u64,
+                valid_aggregate.message.aggregate.clone(),
+                &non_aggregator_sk,
+                &harness.chain.head_info().unwrap().fork,
+                harness.chain.genesis_validators_root,
+                &harness.chain.spec,
+            )
+        },
+        AttnError::InvalidSelectionProof {
+            aggregator_index: non_aggregator_index as u64
+        }
+    );
+
+    assert!(
+        harness
+            .chain
+            .verify_aggregated_attestation_for_gossip(valid_aggregate.clone())
+            .is_ok(),
+        "valid aggregate should be verified"
+    );
+
+    assert_invalid!(
+        "aggregate with that has already been seen",
+        valid_aggregate.clone(),
+        AttnError::AttestationAlreadyKnown(valid_aggregate.message.aggregate.tree_hash_root())
+    );
+
+    assert_invalid!(
+        "aggregate from aggregator that has already been seen",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.beacon_block_root = Hash256::from_low_u64_le(42);
+            a
+        },
+        AttnError::AggregatorAlreadyKnown(aggregator_index as u64)
+    );
+}
+
+/// Tests the verification conditions for an unaggregated attestation on the gossip network.
 #[test]
 fn unaggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -239,7 +414,6 @@ fn unaggregated_gossip_verification() {
     // Advance into a slot where there have not been blocks or attestations produced.
     harness.advance_slot();
 
-    let head = chain.head().expect("should get head");
     let current_slot = chain.slot().expect("should get slot");
     let current_epoch = chain.epoch().expect("should get epoch");
 
@@ -249,31 +423,8 @@ fn unaggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let mut valid_attestation = harness
-        .chain
-        .produce_unaggregated_attestation(current_slot, 0)
-        .expect("should not error while producing attestation");
-
-    let validator_committee_index = 0;
-    let validator_index = *head
-        .beacon_state
-        .get_beacon_committee(current_slot, valid_attestation.data.index)
-        .expect("should get committees")
-        .committee
-        .get(validator_committee_index)
-        .expect("there should be an attesting validator");
-
-    let validator_sk = generate_deterministic_keypair(validator_index).sk;
-
-    valid_attestation
-        .sign(
-            &validator_sk,
-            validator_committee_index,
-            &head.beacon_state.fork,
-            harness.chain.genesis_validators_root,
-            &harness.chain.spec,
-        )
-        .expect("should sign attestation");
+    let (valid_attestation, validator_index, validator_committee_index, validator_sk) =
+        get_valid_unaggregated_attestation(&harness.chain);
 
     macro_rules! assert_invalid {
         ($desc: tt, $attn_getter: expr, $error: expr) => {
@@ -356,29 +507,16 @@ fn unaggregated_gossip_verification() {
         AttnError::NotExactlyOneAggregationBitSet(2)
     );
 
-    let awkward_root = Hash256::from_low_u64_le(424242); // No one wants one of these
+    let unknown_root = Hash256::from_low_u64_le(424242); // No one wants one of these
     assert_invalid!(
         "attestation with unknown head block",
         {
             let mut a = valid_attestation.clone();
-            a.data.beacon_block_root = awkward_root;
+            a.data.beacon_block_root = unknown_root;
             a
         },
         AttnError::UnknownHeadBlock {
-            beacon_block_root: awkward_root
-        }
-    );
-
-    let awkward_root = Hash256::from_low_u64_le(424242); // No one wants one of these
-    assert_invalid!(
-        "attestation with unknown head block",
-        {
-            let mut a = valid_attestation.clone();
-            a.data.beacon_block_root = awkward_root;
-            a
-        },
-        AttnError::UnknownHeadBlock {
-            beacon_block_root: awkward_root
+            beacon_block_root: unknown_root
         }
     );
 
