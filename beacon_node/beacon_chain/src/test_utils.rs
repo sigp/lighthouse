@@ -464,44 +464,39 @@ where
         (signed_block, state)
     }
 
-    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
-    pub fn add_attestations_for_slot(
+    /// A list of attestations for each committee for the given slot.
+    ///
+    /// The first layer of the Vec is organised per committee. For example, if the return value is
+    /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
+    /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
+    pub fn get_unaggregated_attestations(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
-        head_block_slot: Slot,
-    ) {
-        // These attestations will not be accepted by the chain so no need to generate them.
-        if state.slot + E::slots_per_epoch() < self.chain.slot().expect("should get slot") {
-            return;
-        }
-
+        attestation_slot: Slot,
+    ) -> Vec<Vec<Attestation<E>>> {
         let spec = &self.spec;
         let fork = &state.fork;
 
-        let attesting_validators: Vec<usize> = match attestation_strategy {
-            AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
-            AttestationStrategy::SomeValidators(vec) => vec.clone(),
-        };
+        let attesting_validators = self.get_attesting_validators(attestation_strategy);
 
         state
             .get_beacon_committees_at_slot(state.slot)
             .expect("should get committees")
             .iter()
-            .for_each(|bc| {
-                let attestations: Vec<Attestation<E>> = bc
-                    .committee
+            .map(|bc| {
+                bc.committee
                     .par_iter()
                     .enumerate()
                     .filter_map(|(i, validator_index)| {
                         if !attesting_validators.contains(validator_index) {
-                            return None
+                            return None;
                         }
                         let mut attestation = self
                             .chain
                             .produce_unaggregated_attestation_for_block(
-                                head_block_slot,
+                                attestation_slot,
                                 bc.index,
                                 head_block_root,
                                 Cow::Borrowed(state),
@@ -533,17 +528,64 @@ where
                             agg_sig
                         };
 
-                        self.chain
-                            .verify_unaggregated_attestation_for_gossip(attestation.clone())
-                            .expect("should not error during attestation processing")
-                            .add_to_pool(&self.chain)
-                            .expect("should add attestation to naive pool");
-
                         Some(attestation)
                     })
-                    .collect();
+                    .collect()
+            })
+            .collect()
+    }
 
-                if let Some(attestation) = attestations.first() {
+    fn get_attesting_validators(&self, attestation_strategy: &AttestationStrategy) -> Vec<usize> {
+        match attestation_strategy {
+            AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
+            AttestationStrategy::SomeValidators(vec) => vec.clone(),
+        }
+    }
+
+    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
+    pub fn add_attestations_for_slot(
+        &self,
+        attestation_strategy: &AttestationStrategy,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        head_block_slot: Slot,
+    ) {
+        // These attestations will not be accepted by the chain so no need to generate them.
+        if state.slot + E::slots_per_epoch() < self.chain.slot().expect("should get slot") {
+            return;
+        }
+
+        let spec = &self.spec;
+        let fork = &state.fork;
+
+        let attesting_validators = self.get_attesting_validators(attestation_strategy);
+
+        let unaggregated_attestations = self.get_unaggregated_attestations(
+            attestation_strategy,
+            state,
+            head_block_root,
+            head_block_slot,
+        );
+
+        // Loop through all unaggregated attestations, submit them to the chain and also submit a
+        // single aggregate.
+        unaggregated_attestations
+            .into_iter()
+            .for_each(|committee_attestations| {
+                // Submit each unaggregated attestation to the chain.
+                for attestation in &committee_attestations {
+                    self.chain
+                        .verify_unaggregated_attestation_for_gossip(attestation.clone())
+                        .expect("should not error during attestation processing")
+                        .add_to_pool(&self.chain)
+                        .expect("should add attestation to naive pool");
+                }
+
+                // If there are any attestations in this committee, create an aggregate.
+                if let Some(attestation) = committee_attestations.first() {
+                    let bc = state.get_beacon_committee(attestation.data.slot, attestation.data.index)
+                        .expect("should get committee");
+
                     let aggregator_index = bc.committee
                         .iter()
                         .find(|&validator_index| {
@@ -574,7 +616,7 @@ where
                         .get_aggregated_attestation(&attestation.data)
                         .expect("should not error whilst finding aggregate")
                         .unwrap_or_else(|| {
-                            attestations.iter().skip(1).fold(attestation.clone(), |mut agg, att| {
+                            committee_attestations.iter().skip(1).fold(attestation.clone(), |mut agg, att| {
                                 agg.aggregate(att);
                                 agg
                             })
@@ -596,8 +638,7 @@ where
                         .expect("should add attestation to naive aggregation pool")
                         .add_to_fork_choice(&self.chain)
                         .expect("should add attestation to fork choice");
-
-                }
+                    }
             });
     }
 
