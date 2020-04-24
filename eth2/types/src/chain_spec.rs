@@ -355,6 +355,7 @@ impl ChainSpec {
             persistent_committee_period: 128,
             min_genesis_delay: 300,
             milliseconds_per_slot: 6_000,
+            safe_slots_to_update_justified: 2,
             network_id: 2, // lighthouse testnet network id
             boot_nodes,
             ..ChainSpec::mainnet()
@@ -625,9 +626,9 @@ impl YamlConfig {
 
             // Validator
             eth1_follow_distance: spec.eth1_follow_distance,
-            target_aggregators_per_committee: 0,
-            random_subnets_per_validator: 0,
-            epochs_per_random_subnet_subscription: 0,
+            target_aggregators_per_committee: spec.target_aggregators_per_committee,
+            random_subnets_per_validator: spec.random_subnets_per_validator,
+            epochs_per_random_subnet_subscription: spec.epochs_per_random_subnet_subscription,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
         }
     }
