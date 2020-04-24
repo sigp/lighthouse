@@ -1264,11 +1264,12 @@ fn prunes_skipped_slots_states() {
         assert!(
             harness
                 .chain
-                .get_state(&state_hash, Some(slot))
+                .get_state(&state_hash, None)
                 .unwrap()
                 .is_none(),
-            "skipped slot {:?} state should have been pruned",
-            slot
+            "skipped slot {} state {} should have been pruned",
+            slot,
+            state_hash
         );
     }
 }
