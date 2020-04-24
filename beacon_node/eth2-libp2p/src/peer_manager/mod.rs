@@ -320,6 +320,8 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e));
         })? {
             debug!(self.log, "Pinging peer"; "peer_id" => format!("{}", peer_id));
+            // add the ping timer back
+            self.ping_peers.insert(peer_id.clone());
             self.events.push(PeerManagerEvent::Ping(peer_id));
         }
 
@@ -327,6 +329,8 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             error!(self.log, "Failed to check for peers to status"; "error" => format!("{}",e));
         })? {
             debug!(self.log, "Sending Status to peer"; "peer_id" => format!("{}", peer_id));
+            // add the status timer back
+            self.status_peers.insert(peer_id.clone());
             self.events.push(PeerManagerEvent::Status(peer_id));
         }
 
