@@ -44,6 +44,9 @@ pub mod slot_epoch_macros;
 pub mod slot_epoch;
 mod tree_hash_impls;
 
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+
 use ethereum_types::{H160, H256};
 
 pub use crate::attestation::{Attestation, Error as AttestationError};

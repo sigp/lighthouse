@@ -196,6 +196,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         .runtime_context(context.service_context("fork".into()))
                         .build()?;
 
+                    println!("Loading the validator store!");
                     let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
                         match &config.key_source {
                             // Load pre-existing validators from the data dir.

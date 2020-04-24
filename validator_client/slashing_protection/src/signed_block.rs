@@ -1,9 +1,7 @@
-use crate::utils::{i64_to_u64, u64_to_i64};
 use crate::validator_history::ValidatorHistory;
 use crate::{NotSafe, Safe, ValidityReason};
 use rusqlite::params;
-use std::convert::From;
-use types::{BeaconBlockHeader, Epoch, Hash256};
+use types::{BeaconBlockHeader, Hash256, Slot};
 
 #[derive(PartialEq, Debug)]
 pub enum InvalidBlock {
@@ -12,21 +10,19 @@ pub enum InvalidBlock {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignedBlock {
-    pub epoch: Epoch,
+    pub slot: Slot,
     signing_root: Hash256,
 }
 
 impl SignedBlock {
-    pub fn new(epoch: u64, signing_root: Hash256) -> Self {
-        Self {
-            epoch: Epoch::from(epoch),
-            signing_root,
-        }
+    pub fn new(slot: Slot, signing_root: Hash256) -> Self {
+        Self { slot, signing_root }
     }
 
-    pub fn from(header: &BeaconBlockHeader, slots_per_epoch: u64) -> Self {
+    pub fn from(header: &BeaconBlockHeader) -> Self {
+        // FIXME(slashing): use real signing_root
         Self {
-            epoch: header.slot.epoch(slots_per_epoch),
+            slot: header.slot,
             signing_root: header.canonical_root(),
         }
     }
@@ -40,66 +36,61 @@ impl ValidatorHistory<SignedBlock> {
         let conn = self.conn_pool.get()?;
 
         // Checking if history is empty
-        let mut empty_select = conn.prepare("select 1 from signed_blocks limit 1")?;
+        let mut empty_select = conn.prepare("SELECT 1 FROM signed_blocks LIMIT 1")?;
         if !empty_select.exists(params![])? {
             return Ok(Safe {
                 reason: ValidityReason::EmptyHistory,
             });
         }
 
-        let slots_per_epoch = self.slots_per_epoch()?;
-
-        // Short-circuit: checking if the incoming block has a higher epoch than the maximum epoch in the db.
+        // Short-circuit: checking if the incoming block has a higher slot than the maximum slot
+        // in the DB.
         let mut latest_block_select =
-            conn.prepare("select max(epoch), signing_root from signed_blocks")?;
+            conn.prepare("SELECT MAX(slot), signing_root FROM signed_blocks")?;
         let latest_block = latest_block_select.query_row(params![], |row| {
-            let i64_epoch: i64 = row.get(0)?;
-            let u64_epoch = i64_to_u64(i64_epoch);
+            let slot = row.get(0)?;
             let signing_bytes: Vec<u8> = row.get(1)?;
-            let signing_root = Hash256::from_slice(signing_bytes.as_ref());
-            Ok(SignedBlock::new(u64_epoch, signing_root))
+            let signing_root = Hash256::from_slice(&signing_bytes);
+            Ok(SignedBlock::new(slot, signing_root))
         })?;
 
-        let header_epoch = block_header.slot.epoch(slots_per_epoch);
-        if header_epoch > latest_block.epoch {
+        if block_header.slot > latest_block.slot {
             return Ok(Safe {
                 reason: ValidityReason::Valid,
             });
         }
 
-        // Checking for Pruning Error i.e the incoming block epoch is smaller than the minimum epoch signed in the db.
-        let mut min_select = conn.prepare("select min(epoch) from signed_blocks")?;
-        let oldest_epoch = min_select.query_row(params![], |row| {
-            let i64_epoch: i64 = row.get(0)?;
-            let u64_epoch = i64_to_u64(i64_epoch);
-            Ok(u64_epoch)
-        })?;
-        if header_epoch < oldest_epoch {
+        // Checking for Pruning Error i.e the incoming block slot is smaller than the minimum slot
+        // signed in the DB.
+        let mut min_select = conn.prepare("SELECT MIN(slot) FROM signed_blocks")?;
+        let oldest_slot: Slot = min_select.query_row(params![], |row| row.get(0))?;
+        if block_header.slot < oldest_slot {
+            // FIXME(slashing): consider renaming
             return Err(NotSafe::PruningError);
         }
 
-        // Checking if there's an existing entry in the db that has an epoch equal to the block_header's epoch.
-        let mut same_epoch_select =
-            conn.prepare("select epoch, signing_root from signed_blocks where epoch = ?")?;
-        let block_header_epoch = u64_to_i64(header_epoch.into());
-        let same_epoch_query = same_epoch_select.query_row(params![block_header_epoch], |row| {
-            let i64_epoch: i64 = row.get(0)?;
-            let u64_epoch = i64_to_u64(i64_epoch);
+        // Checking if there's an existing entry in the db that has a slot equal to the
+        // block_header's slot.
+        let mut same_slot_select =
+            conn.prepare("SELECT slot, signing_root FROM signed_blocks WHERE slot = ?")?;
+        let same_slot_query = same_slot_select.query_row(params![block_header.slot], |row| {
+            let slot = row.get(0)?;
             let signing_bytes: Vec<u8> = row.get(1)?;
-            let signing_root = Hash256::from_slice(&signing_bytes[..]);
-            Ok(SignedBlock::new(u64_epoch, signing_root))
+            let signing_root = Hash256::from_slice(&signing_bytes);
+            Ok(SignedBlock::new(slot, signing_root))
         });
 
-        if let Ok(same_epoch_attest) = same_epoch_query {
-            if same_epoch_attest.signing_root == block_header.canonical_root() {
-                // Same epoch and same hash -> we're re-broadcasting a previously signed block
+        // FIXME(slashing): differentiate DB error and empty result
+        if let Ok(same_slot_attest) = same_slot_query {
+            if same_slot_attest.signing_root == block_header.canonical_root() {
+                // Same slot and same hash -> we're re-broadcasting a previously signed block
                 Ok(Safe {
                     reason: ValidityReason::SameData,
                 })
             } else {
                 // Same epoch but not the same hash -> it's a DoubleBlockProposal
                 Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
-                    same_epoch_attest,
+                    same_slot_attest,
                 )))
             }
         } else {

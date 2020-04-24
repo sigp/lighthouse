@@ -7,7 +7,7 @@ use slashing_protection::{
     signed_block::SignedBlock,
     validator_history::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
 };
-use slog::{error, Logger};
+use slog::{error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -35,10 +35,26 @@ impl TryFrom<ValidatorDirectory> for VotingValidator {
         let slots_per_epoch = dir.slots_per_epoch;
         let attestation_slashing_protection = dir
             .attestation_slashing_protection
-            .and_then(|path| ValidatorHistory::open(&path, None).ok());
+            .map(|path| {
+                ValidatorHistory::open(&path, None).map_err(|e| {
+                    format!(
+                        "Error loading attester slashing protection from {:?}: {:?}",
+                        path, e
+                    )
+                })
+            })
+            .transpose()?;
         let block_slashing_protection = dir
             .block_slashing_protection
-            .and_then(|path| ValidatorHistory::open(&path, slots_per_epoch).ok());
+            .map(|path| {
+                ValidatorHistory::open(&path, slots_per_epoch).map_err(|e| {
+                    format!(
+                        "Error loading proposer slashing protection from {:?}: {:?}",
+                        path, e
+                    )
+                })
+            })
+            .transpose()?;
 
         if attestation_slashing_protection.is_none() || block_slashing_protection.is_none() {
             return Err(
@@ -77,6 +93,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
+        println!("Loading validator store from disk, WTF");
         let validator_key_values = read_dir(&base_dir)
             .map_err(|e| format!("Failed to read base directory {:?}: {:?}", base_dir, e))?
             .collect::<Vec<_>>()
@@ -136,6 +153,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
+        println!("Loading vals from insecure keys");
         let temp_dir = TempDir::new("insecure_validator")
             .map_err(|e| format!("Unable to create temp dir: {:?}", e))?;
         let data_dir = PathBuf::from(temp_dir.path());
@@ -161,7 +179,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     Ok(voting_validator) => Some(voting_validator),
                     Err(e) => {
                         error!(
-
                             log,
                             "Unable to load insecure validator from disk";
                             "error" => e,
@@ -248,29 +265,41 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         // Making sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot > current_slot {
+            warn!(
+                self.log,
+                "Not signing block at slot {} > {}",
+                block.slot.as_u64(),
+                current_slot.as_u64()
+            );
             return None;
         }
 
         // Checking for slashing conditions
-        let is_slashing_free = validator
+        let slashing_status = validator
             .block_slashing_protection
             .as_ref()?
             .try_lock()?
-            .update_if_valid(&block.block_header())
-            .is_ok();
+            .update_if_valid(&block.block_header());
 
-        if is_slashing_free {
-            // We can safely sign this block
-            let voting_keypair = &validator.voting_keypair;
-            // FIXME(slashing): genesis validators root
-            Some(block.sign(
-                &voting_keypair.sk,
-                &self.fork()?,
-                Hash256::zero(),
-                &self.spec,
-            ))
-        } else {
-            None
+        match slashing_status {
+            Ok(_) => {
+                // We can safely sign this block
+                let voting_keypair = &validator.voting_keypair;
+                Some(block.sign(
+                    &voting_keypair.sk,
+                    &self.fork()?,
+                    self.genesis_validators_root,
+                    &self.spec,
+                ))
+            }
+            Err(e) => {
+                warn!(
+                    self.log,
+                    "Not signing slashable block";
+                    "error" => format!("{:?}", e)
+                );
+                None
+            }
         }
     }
 
@@ -302,37 +331,44 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions
-        let is_slashing_free = validator
+        let slashing_status = validator
             .attestation_slashing_protection
             .as_ref()?
             .try_lock()?
-            .update_if_valid(&attestation.data)
-            .is_ok();
+            .update_if_valid(&attestation.data);
 
-        if is_slashing_free {
-            // We can safely sign this attestation
-            let voting_keypair = &validator.voting_keypair;
+        match slashing_status {
+            Ok(_) => {
+                // We can safely sign this attestation
+                let voting_keypair = &validator.voting_keypair;
 
-            attestation
-                .sign(
-                    &voting_keypair.sk,
-                    validator_committee_position,
-                    &self.fork()?,
-                    self.genesis_validators_root,
-                    &self.spec,
-                )
-                .map_err(|e| {
-                    error!(
-                        self.log,
-                        "Error whilst signing attestation";
-                        "error" => format!("{:?}", e)
+                attestation
+                    .sign(
+                        &voting_keypair.sk,
+                        validator_committee_position,
+                        &self.fork()?,
+                        self.genesis_validators_root,
+                        &self.spec,
                     )
-                })
-                .ok()?;
+                    .map_err(|e| {
+                        error!(
+                            self.log,
+                            "Error whilst signing attestation";
+                            "error" => format!("{:?}", e)
+                        )
+                    })
+                    .ok()?;
 
-            Some(())
-        } else {
-            None
+                Some(())
+            }
+            Err(e) => {
+                warn!(
+                    self.log,
+                    "Not signing slashable attestation";
+                    "error" => format!("{:?}", e)
+                );
+                None
+            }
         }
     }
 }
@@ -423,10 +459,10 @@ mod tests {
     fn block_builder<T: EthSpec>(slot: u64) -> BeaconBlock<T> {
         BeaconBlock {
             slot: Slot::from(slot),
+            proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
             body: beacon_block_body_builder(),
-            signature: Signature::empty_signature(),
         }
     }
 
@@ -503,6 +539,7 @@ mod tests {
         let indices = [0];
         let spec = ChainSpec::minimal();
         let genesis_time = 12;
+        let genesis_validators_root = Hash256::from_low_u64_le(44);
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
@@ -528,8 +565,14 @@ mod tests {
             .expect("should start service");
         let log_builder = NullLoggerBuilder;
         let log = log_builder.build().expect("failed to start null logger");
-        ValidatorStore::insecure_ephemeral_validators(&indices, spec, fork_service, log)
-            .expect("should have built a validator store")
+        ValidatorStore::insecure_ephemeral_validators(
+            &indices,
+            genesis_validators_root,
+            spec,
+            fork_service,
+            log,
+        )
+        .expect("should have built a validator store")
     }
 
     #[test]
@@ -705,19 +748,6 @@ mod tests {
         );
         assert_eq!(res, None);
 
-        // Invalid attestation: target < source: expected to fail.
-        let source = 20;
-        let target = 19;
-        let mut attestation =
-            attestation_builder::<MinimalEthSpec>(slot, index, committee_size, source, target);
-        let res = validator_store.sign_attestation(
-            &pubkeys[0],
-            validator_committee_position,
-            &mut attestation,
-            current_epoch,
-        );
-        assert_eq!(res, None);
-
         // Invalid attestation: target == source: expected to fail.
         let source = source + 1;
         let target = source;
@@ -763,7 +793,6 @@ mod tests {
         let validator_store = testing_validator_store();
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
         let pubkeys = validator_store.voting_pubkeys();
-        let validators = validator_store.validators.read();
 
         let spec = ChainSpec::minimal();
         let genesis_time = 12;
@@ -773,95 +802,76 @@ mod tests {
             Duration::from_millis(spec.milliseconds_per_slot),
         );
 
-        // Retrieving the corresponding ValidatorDir
-        let validator = validators.get(&pubkeys[0]).expect("Should find pubkey");
-        let voting_keypair = &validator.voting_keypair;
-
         // Perfectly valid block: expected to succeed.
         let slot = slots_per_epoch;
-        let mut block = block_builder(slot);
+        let block = block_builder(slot);
 
-        let res = validator_store.sign_block(
-            &pubkeys[0],
-            block.clone(),
-            slot_clock
-                .now()
-                .expect("should have returned the current slot"),
-        );
-        block.sign(
-            &voting_keypair.sk,
-            &validator_store.fork().expect("Should have a fork"),
-            &validator_store.spec,
-        );
-        assert_eq!(res, Some(block));
+        let res = validator_store
+            .sign_block(
+                &pubkeys[0],
+                block.clone(),
+                slot_clock
+                    .now()
+                    .expect("should have returned the current slot"),
+            )
+            .expect("signs successfully");
+        assert_eq!(res.message, block);
 
         // Valid block: expected to succeed.
         let slot = 2 * slots_per_epoch;
-        let mut block = block_builder(slot);
-        let res = validator_store.sign_block(
-            &pubkeys[0],
-            block.clone(),
-            slot_clock
-                .now()
-                .expect("should have returned the current slot"),
-        );
-        block.sign(
-            &voting_keypair.sk,
-            &validator_store.fork().expect("Should have a fork"),
-            &validator_store.spec,
-        );
-        assert_eq!(res, Some(block));
+        let block = block_builder(slot);
+        let res = validator_store
+            .sign_block(
+                &pubkeys[0],
+                block.clone(),
+                slot_clock
+                    .now()
+                    .expect("should have returned the current slot"),
+            )
+            .expect("signed successfully");
+        assert_eq!(res.message, block);
 
         // Re-publishing block: expected to succeed.
         let slot = 2 * slots_per_epoch;
-        let mut block = block_builder(slot);
-        let res = validator_store.sign_block(
-            &pubkeys[0],
-            block.clone(),
-            slot_clock
-                .now()
-                .expect("should have returned the current slot"),
-        );
-        block.sign(
-            &voting_keypair.sk,
-            &validator_store.fork().expect("Should have a fork"),
-            &validator_store.spec,
-        );
-        assert_eq!(res, Some(block));
+        let block = block_builder(slot);
+        let res = validator_store
+            .sign_block(
+                &pubkeys[0],
+                block.clone(),
+                slot_clock
+                    .now()
+                    .expect("should have returned the current slot"),
+            )
+            .expect("signed successfully");
+        assert_eq!(res.message, block);
 
         // Valid block: expected to succeed.
         let slot = 5 * slots_per_epoch;
-        let mut block = block_builder(slot);
-        let res = validator_store.sign_block(
-            &pubkeys[0],
-            block.clone(),
-            slot_clock
-                .now()
-                .expect("should have returned the current slot"),
-        );
-        block.sign(
-            &voting_keypair.sk,
-            &validator_store.fork().expect("Should have a fork"),
-            &validator_store.spec,
-        );
-        assert_eq!(res, Some(block));
+        let block = block_builder(slot);
+        let res = validator_store
+            .sign_block(
+                &pubkeys[0],
+                block.clone(),
+                slot_clock
+                    .now()
+                    .expect("should have returned the current slot"),
+            )
+            .expect("signed successfully");
+        assert_eq!(res.message, block);
 
         // Valid block: expected to succeed.
         let slot = 3 * slots_per_epoch;
-        let mut block = block_builder(slot);
-        let res = validator_store.sign_block(
-            &pubkeys[0],
-            block.clone(),
-            slot_clock
-                .now()
-                .expect("should have returned the current slot"),
-        );
-        block.sign(
-            &voting_keypair.sk,
-            &validator_store.fork().expect("Should have a fork"),
-            &validator_store.spec,
-        );
-        assert_eq!(res, Some(block));
+        let block = block_builder(slot);
+        let res = validator_store
+            .sign_block(
+                &pubkeys[0],
+                block.clone(),
+                slot_clock
+                    .now()
+                    .expect("should have returned the current slot"),
+            )
+            .expect("signed successfully");
+        assert_eq!(res.message, block);
 
         // Block slot earlier than first entry: expected to fail.
         let slot = 0;
@@ -905,23 +915,18 @@ mod tests {
         let slot = slot_clock
             .now()
             .expect("should have returned the current slot");
-        let slot_u64: u64 = slot.into();
-        let mut block = block_builder(slot_u64);
+        let mut block = block_builder(slot.as_u64());
         block.state_root = Hash256::random();
-        let res = validator_store.sign_block(&pubkeys[0], block.clone(), slot);
-        block.sign(
-            &voting_keypair.sk,
-            &validator_store.fork().expect("Should have a fork"),
-            &validator_store.spec,
-        );
-        assert_eq!(res, Some(block));
+        let res = validator_store
+            .sign_block(&pubkeys[0], block.clone(), slot)
+            .expect("signed successfully");
+        assert_eq!(res.message, block);
 
         // Block slot is in the future: expected to fail.
         let slot = slot_clock
             .now()
             .expect("should have returned the current slot");
-        let slot_u64: u64 = slot.into();
-        let mut block = block_builder(slot_u64 + 1);
+        let mut block = block_builder(slot.as_u64() + 1);
         block.state_root = Hash256::random();
         let res = validator_store.sign_block(&pubkeys[0], block, slot);
         assert_eq!(res, None);

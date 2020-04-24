@@ -1,6 +1,5 @@
 use crate::signed_attestation::SignedAttestation;
 use crate::signed_block::SignedBlock;
-use crate::utils::{i64_to_u64, u64_to_i64};
 use crate::{NotSafe, Safe, ValidityReason};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OpenFlags};
@@ -9,7 +8,7 @@ use std::marker::PhantomData;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tree_hash::TreeHash;
-use types::{AttestationData, BeaconBlockHeader, Hash256};
+use types::{AttestationData, BeaconBlockHeader, Hash256, Slot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 
@@ -49,14 +48,14 @@ impl CheckAndInsert<SignedAttestation> for ValidatorHistory<SignedAttestation> {
     }
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let target: u64 = incoming_data.target.epoch.into();
-        let source: u64 = incoming_data.source.epoch.into();
-        let target = u64_to_i64(target);
-        let source = u64_to_i64(source);
         self.conn_pool.get()?.execute(
             "INSERT INTO signed_attestations (target_epoch, source_epoch, signing_root)
-        VALUES (?1, ?2, ?3)",
-            params![target, source, incoming_data.tree_hash_root().as_bytes()],
+             VALUES (?1, ?2, ?3)",
+            params![
+                incoming_data.target.epoch,
+                incoming_data.source.epoch,
+                incoming_data.tree_hash_root().as_bytes()
+            ],
         )?;
         Ok(())
     }
@@ -70,13 +69,12 @@ impl CheckAndInsert<SignedBlock> for ValidatorHistory<SignedBlock> {
     }
 
     fn insert(&mut self, incoming_data: &Self::U) -> Result<(), NotSafe> {
-        let slots_per_epoch = self.slots_per_epoch()?;
-        let epoch: u64 = incoming_data.slot.epoch(slots_per_epoch).into();
-        let epoch = u64_to_i64(epoch);
         self.conn_pool.get()?.execute(
-            "INSERT INTO signed_blocks (epoch, signing_root)
-                VALUES (?1, ?2)",
-            params![epoch, incoming_data.canonical_root().as_bytes()],
+            "INSERT INTO signed_blocks (slot, signing_root) VALUES (?1, ?2)",
+            params![
+                incoming_data.slot,
+                incoming_data.canonical_root().as_bytes()
+            ],
         )?;
         Ok(())
     }
@@ -91,21 +89,18 @@ impl LoadData<SignedAttestation> for Vec<SignedAttestation> {
     fn load_data(conn_pool: &Pool) -> Result<Vec<SignedAttestation>, NotSafe> {
         let conn = conn_pool.get()?;
 
-        let mut attestation_history_select = conn
-                .prepare("select target_epoch, source_epoch, signing_root from signed_attestations order by target_epoch asc")?;
+        let mut attestation_history_select = conn.prepare(
+            "SELECT target_epoch, source_epoch, signing_root
+             FROM signed_attestations
+             ORDER BY target_epoch ASC",
+        )?;
         let history = attestation_history_select.query_map(params![], |row| {
-            let target: i64 = row.get(0)?;
-            let source: i64 = row.get(1)?;
-            let target_epoch = i64_to_u64(target);
-            let source_epoch = i64_to_u64(source);
+            let target = row.get(0)?;
+            let source = row.get(1)?;
             let hash_blob: Vec<u8> = row.get(2)?;
             let signing_root = Hash256::from_slice(hash_blob.as_ref());
 
-            Ok(SignedAttestation::new(
-                source_epoch,
-                target_epoch,
-                signing_root,
-            ))
+            Ok(SignedAttestation::new(source, target, signing_root))
         })?;
 
         let mut attestation_history = vec![];
@@ -124,12 +119,11 @@ impl LoadData<SignedBlock> for Vec<SignedBlock> {
         let mut block_history_select =
             conn.prepare("select epoch, signing_root from signed_blocks order by epoch asc")?;
         let history = block_history_select.query_map(params![], |row| {
-            let epoch: i64 = row.get(0)?;
-            let epoch = i64_to_u64(epoch);
+            let slot = row.get(0)?;
             let hash_blob: Vec<u8> = row.get(1)?;
             let signing_root = Hash256::from_slice(hash_blob.as_ref());
 
-            Ok(SignedBlock::new(epoch, signing_root))
+            Ok(SignedBlock::new(slot, signing_root))
         })?;
 
         let mut block_history = vec![];
@@ -165,6 +159,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
     type U = BeaconBlockHeader;
 
     fn new(path: &Path, slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+        println!("Creating {:?}", path);
         let slots_per_epoch = slots_per_epoch.ok_or_else(|| NotSafe::NoSlotsPerEpochProvided)?;
         let file = OpenOptions::new()
             .write(true)
@@ -178,21 +173,21 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
 
         let manager = SqliteConnectionManager::file(path);
         let conn_pool = Pool::new(manager)
-            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
+            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {:?}", e)))?;
 
         let conn = conn_pool.get()?;
 
         conn.execute(
             "CREATE TABLE signed_blocks (
-                epoch INTEGER,
+                slot INTEGER,
                 signing_root BLOB
             )",
             params![],
         )?;
 
         conn.execute(
-            "CREATE UNIQUE INDEX epoch_index
-                ON signed_blocks(epoch)",
+            "CREATE UNIQUE INDEX slot_index
+             ON signed_blocks(slot)",
             params![],
         )?;
 
@@ -204,9 +199,8 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
         )?;
 
         conn.execute(
-            "INSERT INTO slots_per_epoch (slots_per_epoch)
-        VALUES (?1)",
-            params![u64_to_i64(slots_per_epoch)],
+            "INSERT INTO slots_per_epoch (slots_per_epoch) VALUES (?1)",
+            params![Slot::new(slots_per_epoch)],
         )?;
 
         Ok(Self {
@@ -217,6 +211,7 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
     }
 
     fn open(path: &Path, curr_slots_per_epoch: Option<u64>) -> Result<Self, NotSafe> {
+        println!("Opening: {:?}", path);
         let manager =
             SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn_pool = Pool::new(manager)
@@ -239,24 +234,22 @@ impl SlashingProtection<SignedBlock> for ValidatorHistory<SignedBlock> {
 
         // select the slots_per_epoch value
         let mut slot_select = conn.prepare("select slots_per_epoch from slots_per_epoch")?;
-        let slots_per_epoch = slot_select.query_row(params![], |row| {
-            let i64_slot: i64 = row.get(0)?;
-            let u64_slot = i64_to_u64(i64_slot);
-            Ok(u64_slot)
-        })?;
+        let slots_per_epoch: Slot = slot_select.query_row(params![], |row| row.get(0))?;
 
-        let curr_slots_per_epoch = curr_slots_per_epoch.unwrap_or(slots_per_epoch);
+        let curr_slots_per_epoch = curr_slots_per_epoch.unwrap_or(slots_per_epoch.as_u64());
         // check that the slots_per_epoch provided is the same one as the one stored in db
-        if curr_slots_per_epoch != slots_per_epoch {
+        if curr_slots_per_epoch != slots_per_epoch.as_u64() {
             return Err(NotSafe::SQLError(format!(
                 "slots_per_epoch mismatch: provided: {}, stored: {}",
                 curr_slots_per_epoch, slots_per_epoch
             )));
         }
 
+        println!("Opened successfully: {:?}", path);
+
         Ok(Self {
             conn_pool,
-            slots_per_epoch: Some(slots_per_epoch),
+            slots_per_epoch: Some(slots_per_epoch.as_u64()),
             phantom: PhantomData,
         })
     }
@@ -297,9 +290,17 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
 
         let manager = SqliteConnectionManager::file(path);
         let conn_pool = Pool::new(manager)
-            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
+            .map_err(|e| NotSafe::SQLError(format!("Unable to create database: {}", e)))?;
 
+        println!("Connection pool size: {}", conn_pool.max_size());
         let conn = conn_pool.get()?;
+
+        // Does this deadlock?
+        /*
+        println!("pre open");
+        let x = Self::open(path, slots_per_epoch)?;
+        println!("post open");
+        */
 
         conn.execute(
             "CREATE TABLE signed_attestations (
@@ -338,6 +339,7 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
             SqliteConnectionManager::file(path).with_flags(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn_pool = Pool::new(manager)
             .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {}", e)))?;
+        println!("Connection pool size: {}", conn_pool.max_size());
 
         Ok(Self {
             conn_pool,

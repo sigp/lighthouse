@@ -345,6 +345,7 @@ impl ValidatorDirectoryBuilder {
     /// Creates two sqlite slashing protection databases (blocks and attestations) and stores the
     /// paths.
     pub fn create_sqlite_slashing_dbs(mut self) -> Result<Self, String> {
+        println!("CREATING SQLITE DBs");
         let path = self
             .directory
             .as_ref()
@@ -363,6 +364,7 @@ impl ValidatorDirectoryBuilder {
 
         self.attestation_slashing_protection = Some(attestation_path);
         self.block_slashing_protection = Some(block_path);
+        println!("Success");
 
         Ok(self)
     }

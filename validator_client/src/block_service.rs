@@ -167,6 +167,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             })
             .into_future()
             .and_then(move |slot| {
+                println!("Doing block production at slot {}", slot.as_u64());
                 let iter = service.duties_service.block_producers(slot).into_iter();
 
                 if iter.len() == 0 {

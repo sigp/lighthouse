@@ -1,6 +1,5 @@
 pub mod signed_attestation;
 pub mod signed_block;
-mod utils;
 pub mod validator_history;
 
 use crate::signed_attestation::InvalidAttestation;
