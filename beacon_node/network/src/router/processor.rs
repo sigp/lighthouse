@@ -599,7 +599,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  * https://github.com/ethereum/eth2.0-specs/pull/1732
                  */
             }
-            AttnError::AggregatorPubkeyUnknown => {
+            AttnError::AggregatorPubkeyUnknown(_) => {
                 /*
                  * The aggregator index was higher than any known validator index. This is
                  * possible in two cases:
