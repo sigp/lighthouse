@@ -547,6 +547,10 @@ where
                     let aggregator_index = bc.committee
                         .iter()
                         .find(|&validator_index| {
+                            if !attesting_validators.contains(validator_index) {
+                                return false
+                            }
+
                             let selection_proof = SelectionProof::new::<E>(
                                 state.slot,
                                 self.get_sk(*validator_index),
