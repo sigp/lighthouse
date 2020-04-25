@@ -685,6 +685,63 @@ fn unaggregated_gossip_verification() {
 }
 
 /*
+ * TODO: finish this
+ *
+#[test]
+fn attestation_that_skips_epochs() {
+    let harness = get_harness(VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.extend_chain(
+        MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let current_slot = chain.slot().expect("should get slot");
+    let current_epoch = chain.epoch().expect("should get epoch");
+
+    let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
+    let earlier_block = chain
+        .block_at_slot(earlier_slot)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+
+    let mut state = chain
+        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .expect("should not error getting state")
+        .expect("should find state");
+
+    while state.slot < current_slot {
+        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+    }
+
+    let (valid_attestation, _attester_index, _attester_committee_index, validator_sk) =
+        get_valid_unaggregated_attestation(&harness.chain);
+
+    let attestation = harness
+        .get_unaggregated_attestations(
+            &AttestationStrategy::AllValidators,
+            &state,
+            earlier_block.canonical_root(),
+            current_slot,
+        )
+        .first()
+        .expect("should have at least one committee")
+        .first()
+        .cloned()
+        .expect("should have at least one attestation in committee");
+
+    assert_eq!(
+        harness.chain.process_attestation(attestation),
+        Ok(AttestationProcessingOutcome::Processed),
+        "should process attestation that skips slots"
+    );
+}
+*/
+
+/*
 assert_invalid(
     &harness,
     || invalidate_as_future_slot(valid_attestation.clone(), current_slot),
