@@ -564,8 +564,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
             debug!(self.log, "Updating chain's progress";
                 "chain_id" => self.id,
-                "prev_completed_slot" => current_processed_slot.as_u64(),
-                "new_completed_slot" => self.current_processed_slot().as_u64());
+                "prev_completed_slot" => current_processed_slot,
+                "new_completed_slot" => self.current_processed_slot());
             // Re-index batches
             *self.to_be_downloaded_id = 1;
             *self.to_be_processed_id = 1;

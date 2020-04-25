@@ -174,7 +174,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 } else {
                     // there is no finalized chain that matches this peer's last finalized target
                     // create a new finalized chain
-                    debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_epoch" => local_finalized_slot.as_u64(), "end_slot" => remote_finalized_slot.as_u64(), "finalized_root" => format!("{}", remote_info.finalized_root));
+                    debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_epoch" => local_finalized_slot, "end_slot" => remote_finalized_slot, "finalized_root" => format!("{}", remote_info.finalized_root));
 
                     self.chains.new_finalized_chain(
                         local_info.finalized_epoch,
@@ -290,7 +290,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
-                debug!(self.log, "Finalized chain removed"; "start_epoch" => chain.start_epoch.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+                debug!(self.log, "Finalized chain removed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
                 // update the state of the collection
                 self.chains.update_finalized(network);
 
@@ -327,7 +327,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 }) {
                     Some((index, ProcessingResult::RemoveChain)) => {
                         let chain = self.chains.remove_head_chain(index);
-                        debug!(self.log, "Head chain completed"; "start_epoch" => chain.start_epoch.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+                        debug!(self.log, "Head chain completed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
                         // the chain is complete, re-status it's peers and remove it
                         chain.status_peers(network);
 

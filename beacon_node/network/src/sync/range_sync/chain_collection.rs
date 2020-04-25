@@ -481,7 +481,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             chain
         };
 
-        debug!(self.log, "Chain was removed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot.as_u64());
+        debug!(self.log, "Chain was removed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
 
         // update the state
         self.update_finalized(network);
