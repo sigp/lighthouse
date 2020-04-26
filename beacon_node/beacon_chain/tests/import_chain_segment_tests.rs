@@ -513,7 +513,7 @@ fn unwrap_err<T, E>(result: Result<T, E>) -> E {
 }
 
 #[test]
-fn gossip_verification() {
+fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
@@ -537,19 +537,13 @@ fn gossip_verification() {
     }
 
     /*
-     * Block with invalid signature
-     */
-
-    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
-    block.signature = junk_signature();
-    assert_eq!(
-        unwrap_err(harness.chain.verify_block_for_gossip(block)),
-        BlockError::ProposalSignatureInvalid,
-        "should not import a block with an invalid proposal signature"
-    );
-
-    /*
-     * Block from a future slot.
+     * This test ensures that:
+     *
+     * Spec v0.11.2
+     *
+     * The block is not from a future slot (with a MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) --
+     * i.e. validate that signed_beacon_block.message.slot <= current_slot (a client MAY queue
+     * future blocks for processing at the appropriate slot).
      */
 
     let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
@@ -565,7 +559,15 @@ fn gossip_verification() {
     );
 
     /*
-     * Block from a finalized slot.
+     * This test ensure that:
+     *
+     * Spec v0.11.2
+     *
+     * The block is from a slot greater than the latest finalized slot -- i.e. validate that
+     * signed_beacon_block.message.slot >
+     * compute_start_slot_at_epoch(state.finalized_checkpoint.epoch) (a client MAY choose to
+     * validate and store such blocks for additional purposes -- e.g. slashing detection, archive
+     * nodes, etc).
      */
 
     let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
@@ -584,5 +586,70 @@ fn gossip_verification() {
             finalized_slot
         },
         "should not import a block with a finalized slot"
+    );
+
+    /*
+     * TODO
+     *
+     * The block is the first block with valid signature received for the proposer for the slot,
+     * signed_beacon_block.message.slot.
+     */
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.11.2
+     *
+     * The proposer signature, signed_beacon_block.signature, is valid with respect to the
+     * proposer_index pubkey.
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    block.signature = junk_signature();
+    assert_eq!(
+        unwrap_err(harness.chain.verify_block_for_gossip(block)),
+        BlockError::ProposalSignatureInvalid,
+        "should not import a block with an invalid proposal signature"
+    );
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.11.2
+     *
+     * The block is proposed by the expected proposer_index for the block's slot in the context of
+     * the current shuffling (defined by parent_root/slot). If the proposer_index cannot
+     * immediately be verified against the expected shuffling, the block MAY be queued for later
+     * processing while proposers for the block's branch are calculated.
+     */
+
+    let block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let expected_proposer = block.message.proposer_index;
+    let other_proposer = (0..VALIDATOR_COUNT as u64)
+        .into_iter()
+        .find(|i| *i != block.message.proposer_index)
+        .expect("there must be more than one validator in this test");
+    let mut block = block.message.clone().sign(
+        &generate_deterministic_keypair(other_proposer as usize).sk,
+        &harness.chain.head_info().unwrap().fork,
+        harness.chain.genesis_validators_root,
+        &harness.chain.spec,
+    );
+    block.message.proposer_index = other_proposer;
+    assert_eq!(
+        unwrap_err(harness.chain.verify_block_for_gossip(block)),
+        BlockError::IncorrectBlockProposer {
+            block: other_proposer,
+            local_shuffling: expected_proposer
+        },
+        "should not import a block with the wrong proposer index"
+    );
+
+    assert!(
+        harness
+            .chain
+            .verify_block_for_gossip(CHAIN_SEGMENT[block_index].beacon_block.clone())
+            .is_ok(),
+        "the valid block should be processed"
     );
 }

@@ -42,6 +42,13 @@ pub enum BlockProcessingOutcome {
         block_slot: Slot,
         state_slot: Slot,
     },
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     /// At least one block in the chain segement did not have it's parent root set to the root of
     /// the prior block.
     NonLinearParentRoots,
@@ -91,6 +98,13 @@ impl BlockProcessingOutcome {
             }) => Ok(BlockProcessingOutcome::BlockIsNotLaterThanParent {
                 block_slot,
                 state_slot,
+            }),
+            Err(BlockError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            }) => Ok(BlockProcessingOutcome::IncorrectBlockProposer {
+                block,
+                local_shuffling,
             }),
             Err(BlockError::NonLinearParentRoots) => {
                 Ok(BlockProcessingOutcome::NonLinearParentRoots)

@@ -108,6 +108,10 @@ pub enum BlockError {
     BlockIsAlreadyKnown,
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     BlockSlotLimitReached,
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The proposal signature in invalid.
     ProposalSignatureInvalid,
     /// A signature in the block is invalid (exactly which is unknown).
@@ -128,7 +132,18 @@ pub enum BlockError {
 
 impl From<BlockSignatureVerifierError> for BlockError {
     fn from(e: BlockSignatureVerifierError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e))
+        match e {
+            // Make a special distinction for `IncorrectBlockProposer` since it indicates an
+            // invalid block, not an internal error.
+            BlockSignatureVerifierError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            } => BlockError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            },
+            e => BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e)),
+        }
     }
 }
 

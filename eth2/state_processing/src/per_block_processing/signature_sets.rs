@@ -26,6 +26,10 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The public keys supplied do not match the number of objects requiring keys. Block validity
     /// was not determined.
     MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
@@ -72,6 +76,13 @@ where
 {
     let block = &signed_block.message;
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+
+    if proposer_index as u64 != block.proposer_index {
+        return Err(Error::IncorrectBlockProposer {
+            block: block.proposer_index,
+            local_shuffling: proposer_index as u64,
+        });
+    }
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
