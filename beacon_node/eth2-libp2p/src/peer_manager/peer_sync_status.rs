@@ -57,7 +57,7 @@ impl PeerSyncStatus {
         let new_state = PeerSyncStatus::Synced { info };
 
         match self {
-            PeerSyncStatus::Synced { .. } => {
+            PeerSyncStatus::Synced { .. } | PeerSyncStatus::Unknown => {
                 *self = new_state;
                 false // state was not updated
             }
@@ -70,11 +70,11 @@ impl PeerSyncStatus {
 
     /// Updates the sync state given a peer that is further ahead in the chain than us.
     /// Returns true if the state has changed.
-    pub fn update_ahead(&mut self, info: SyncInfo) -> bool {
+    pub fn update_advanced(&mut self, info: SyncInfo) -> bool {
         let new_state = PeerSyncStatus::Advanced { info };
 
         match self {
-            PeerSyncStatus::Advanced { .. } => {
+            PeerSyncStatus::Advanced { .. } | PeerSyncStatus::Unknown => {
                 *self = new_state;
                 false // state was not updated
             }
@@ -91,7 +91,7 @@ impl PeerSyncStatus {
         let new_state = PeerSyncStatus::Behind { info };
 
         match self {
-            PeerSyncStatus::Behind { .. } => {
+            PeerSyncStatus::Behind { .. } | PeerSyncStatus::Unknown => {
                 *self = new_state;
                 false // state was not updated
             }

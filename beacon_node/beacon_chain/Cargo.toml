@@ -5,7 +5,6 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [features]
-
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 
 [dependencies]

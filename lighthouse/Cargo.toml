@@ -4,6 +4,9 @@ version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
+[features]
+write_ssz_files = ["beacon_node/write_ssz_files"]  # Writes debugging .ssz files to /tmp during block processing.
+
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
 tokio = "0.1.22"
