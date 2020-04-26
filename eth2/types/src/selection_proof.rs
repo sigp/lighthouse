@@ -34,7 +34,7 @@ impl SelectionProof {
     ) -> Result<bool, ArithError> {
         let modulo = std::cmp::max(
             1,
-            committee_len as u64 / spec.target_aggregators_per_committee,
+            (committee_len as u64).safe_div(spec.target_aggregators_per_committee)?,
         );
 
         self.is_aggregator_from_modulo(modulo)
