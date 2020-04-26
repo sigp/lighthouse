@@ -10,11 +10,12 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use state_processing::per_slot_processing;
+use store::Store;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BitList, EthSpec,
     Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, Signature,
-    SignedAggregateAndProof, Slot, Unsigned,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -205,7 +206,7 @@ fn aggregated_gossip_verification() {
                     .verify_aggregated_attestation_for_gossip($attn_getter)
                     .err()
                     .expect(&format!(
-                        "{} should error during VerifiedUnaggregatedAttestation::verify",
+                        "{} should error during verify_aggregated_attestation_for_gossip",
                         $desc
                     )),
                 $error,
@@ -521,7 +522,7 @@ fn unaggregated_gossip_verification() {
                     .verify_unaggregated_attestation_for_gossip($attn_getter)
                     .err()
                     .expect(&format!(
-                        "{} should error during VerifiedUnaggregatedAttestation::verify",
+                        "{} should error during verify_unaggregated_attestation_for_gossip",
                         $desc
                     )),
                 $error,
@@ -684,6 +685,238 @@ fn unaggregated_gossip_verification() {
     );
 }
 
+/// Tests the verification conditions for an unaggregated attestation on the gossip network.
+#[test]
+fn fork_choice_verification() {
+    let harness = get_harness(VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.extend_chain(
+        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Advance into a slot where there have not been blocks or attestations produced.
+    harness.advance_slot();
+
+    // We're going to produce the attestations at the first slot of the epoch.
+    let (valid_attestation, validator_index, validator_committee_index, validator_sk) =
+        get_valid_unaggregated_attestation(&harness.chain);
+
+    // Extend the chain two more blocks, but without any attestations so we don't trigger the
+    // "already seen" caches.
+    //
+    // Because of this, the attestation we're dealing with was made one slot prior to the current
+    // slot. This allows us to test the `AttestsToFutureBlock` condition.
+    harness.extend_chain(
+        2,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::SomeValidators(vec![]),
+    );
+
+    let current_slot = chain.slot().expect("should get slot");
+    let current_epoch = chain.epoch().expect("should get epoch");
+
+    let attestation = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone())
+        .expect("precondition: should gossip verify attestation");
+
+    macro_rules! assert_invalid {
+        ($desc: tt, $attn_getter: expr, $error: expr) => {
+            assert_eq!(
+                harness
+                    .chain
+                    .apply_attestation_to_fork_choice($attn_getter)
+                    .err()
+                    .expect(&format!(
+                        "{} should error during apply_attestation_to_fork_choice",
+                        $desc
+                    )),
+                $error,
+                "case: {}",
+                $desc,
+            );
+        };
+    }
+
+    assert_invalid!(
+        "attestation without any aggregation bits set",
+        {
+            let mut a = attestation.clone();
+            unsafe {
+                a.indexed_attestation_mut().attesting_indices = vec![].into();
+            }
+            a
+        },
+        AttnError::EmptyAggregationBitfield
+    );
+
+    /*
+     * The following two tests ensure that:
+     *
+     * Spec v0.11.2
+     *
+     * assert target.epoch in [current_epoch, previous_epoch]
+     */
+
+    let future_epoch = current_epoch + 1;
+    assert_invalid!(
+        "attestation from future epoch",
+        {
+            let mut a = attestation.clone();
+            unsafe {
+                a.indexed_attestation_mut().data.target.epoch = future_epoch;
+            }
+            a
+        },
+        AttnError::FutureEpoch {
+            attestation_epoch: future_epoch,
+            current_epoch
+        }
+    );
+
+    assert!(
+        current_epoch > 1,
+        "precondition: must be able to have a past epoch"
+    );
+
+    let past_epoch = current_epoch - 2;
+    assert_invalid!(
+        "attestation from past epoch",
+        {
+            let mut a = attestation.clone();
+            unsafe {
+                a.indexed_attestation_mut().data.target.epoch = past_epoch;
+            }
+            a
+        },
+        AttnError::PastEpoch {
+            attestation_epoch: past_epoch,
+            current_epoch
+        }
+    );
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.11.2
+     *
+     * assert target.epoch == compute_epoch_at_slot(attestation.data.slot)
+     */
+
+    assert_invalid!(
+        "attestation with bad target epoch",
+        {
+            let mut a = attestation.clone();
+
+            unsafe {
+                let indexed = a.indexed_attestation_mut();
+                indexed.data.target.epoch = indexed.data.slot.epoch(E::slots_per_epoch()) - 1;
+            }
+            a
+        },
+        AttnError::BadTargetEpoch
+    );
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.11.2
+     *
+     * Attestations target be for a known block. If target block is unknown, delay consideration
+     * until the block is found
+     *
+     * assert target.root in store.blocks
+     */
+
+    let unknown_root = Hash256::from_low_u64_le(42);
+    assert_invalid!(
+        "attestation with unknown target root",
+        {
+            let mut a = attestation.clone();
+
+            unsafe {
+                let indexed = a.indexed_attestation_mut();
+                indexed.data.target.root = unknown_root;
+            }
+            a
+        },
+        AttnError::UnknownTargetRoot(unknown_root)
+    );
+
+    // NOTE: we're not testing an assert from the spec:
+    //
+    // `assert get_current_slot(store) >= compute_start_slot_at_epoch(target.epoch)`
+    //
+    // I think this check is redundant and I've raised an issue here:
+    //
+    // https://github.com/ethereum/eth2.0-specs/pull/1755
+
+    /*
+     * This test asserts that:
+     *
+     * Spec v0.11.2
+     *
+     * # Attestations must be for a known block. If block is unknown, delay consideration until the
+     * block is found
+     *
+     * assert attestation.data.beacon_block_root in store.blocks
+     */
+
+    assert_invalid!(
+        "attestation with unknown beacon block root",
+        {
+            let mut a = attestation.clone();
+
+            unsafe {
+                let indexed = a.indexed_attestation_mut();
+                indexed.data.beacon_block_root = unknown_root;
+            }
+            a
+        },
+        AttnError::UnknownHeadBlock {
+            beacon_block_root: unknown_root
+        }
+    );
+
+    let future_block = harness
+        .chain
+        .block_at_slot(current_slot)
+        .expect("should not error getting block")
+        .expect("should find block at current slot");
+    assert_invalid!(
+        "attestation to future block",
+        {
+            let mut a = attestation.clone();
+
+            unsafe {
+                let indexed = a.indexed_attestation_mut();
+
+                assert!(
+                    future_block.slot() > indexed.data.slot,
+                    "precondition: the attestation must attest to the future"
+                );
+
+                indexed.data.beacon_block_root = future_block.canonical_root();
+            }
+            a
+        },
+        AttnError::AttestsToFutureBlock {
+            block: current_slot,
+            attestation: current_slot - 1
+        }
+    );
+
+    // Note: we're not checking the "attestations can only affect the fork choice of subsequent
+    // slots" part of the spec, we do this upstream.
+}
+
+/// Ensures that an attestation that skips epochs can still be processed.
+///
+/// This also checks that we can do a state lookup if we don't get a hit from the shuffling cache.
 #[test]
 fn attestation_that_skips_epochs() {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -726,6 +959,21 @@ fn attestation_that_skips_epochs() {
         .first()
         .cloned()
         .expect("should have at least one attestation in committee");
+
+    let block_root = attestation.data.beacon_block_root;
+    let block_slot = harness
+        .chain
+        .store
+        .get::<SignedBeaconBlock<E>>(&block_root)
+        .expect("should not error getting block")
+        .expect("should find attestation block")
+        .message
+        .slot;
+
+    assert!(
+        attestation.data.slot - block_slot > E::slots_per_epoch() * 2,
+        "the attestation must skip more than two epochs"
+    );
 
     assert!(
         harness

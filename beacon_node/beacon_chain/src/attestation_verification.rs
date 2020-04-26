@@ -136,6 +136,12 @@ pub enum Error {
         block: Slot,
         attestation: Slot,
     },
+    /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
+    /// future).
+    AttestsToFutureTarget {
+        target_slot: Slot,
+        current_slot: Slot,
+    },
     /// The attestation failed the `state_processing` verification stage.
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
@@ -158,6 +164,17 @@ pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
 pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+/// Custom `Clone` implementation is to avoid the weird trait bounds applied by the usual derive
+/// macro.
+impl<T: BeaconChainTypes> Clone for VerifiedUnaggregatedAttestation<T> {
+    fn clone(&self) -> Self {
+        Self {
+            attestation: self.attestation.clone(),
+            indexed_attestation: self.indexed_attestation.clone(),
+        }
+    }
 }
 
 /// Wraps an `indexed_attestation` that is valid for application to fork choice. The
@@ -441,6 +458,14 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.attestation
     }
+
+    /// Returns a mutable reference to the underlying attestation.
+    ///
+    /// Marked as `unsafe` since modifying the `IndexedAttestation` can cause the attestation to
+    /// no-longer be valid. Only for use in testing.
+    pub unsafe fn indexed_attestation_mut(&mut self) -> &mut IndexedAttestation<T::EthSpec> {
+        &mut self.indexed_attestation
+    }
 }
 
 impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
@@ -456,26 +481,26 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
     ) -> Result<Self, Error> {
         // There is no point in processing an attestation with an empty bitfield. Reject
         // it immediately.
+        //
+        // This is not in the specification, however it should be transparent to other nodes. We
+        // return early here to avoid wasting precious resources verifying the rest of it.
         if indexed_attestation.attesting_indices.len() == 0 {
             return Err(Error::EmptyAggregationBitfield);
         }
 
-        let attestation_epoch = indexed_attestation
-            .data
-            .slot
-            .epoch(T::EthSpec::slots_per_epoch());
-        let epoch_now = chain.epoch()?;
+        let slot_now = chain.slot()?;
+        let epoch_now = slot_now.epoch(T::EthSpec::slots_per_epoch());
         let target = indexed_attestation.data.target.clone();
 
         // Attestation must be from the current or previous epoch.
-        if attestation_epoch > epoch_now {
+        if target.epoch > epoch_now {
             return Err(Error::FutureEpoch {
-                attestation_epoch,
+                attestation_epoch: target.epoch,
                 current_epoch: epoch_now,
             });
-        } else if attestation_epoch + 1 < epoch_now {
+        } else if target.epoch + 1 < epoch_now {
             return Err(Error::PastEpoch {
-                attestation_epoch,
+                attestation_epoch: target.epoch,
                 current_epoch: epoch_now,
             });
         }
@@ -487,6 +512,32 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
                 .epoch(T::EthSpec::slots_per_epoch())
         {
             return Err(Error::BadTargetEpoch);
+        }
+
+        // Attestations target be for a known block.
+        if !chain.fork_choice.contains_block(&target.root) {
+            return Err(Error::UnknownTargetRoot(target.root));
+        }
+
+        // NOTE: we're not testing an assert from the spec:
+        //
+        // `assert get_current_slot(store) >= compute_start_slot_at_epoch(target.epoch)`
+        //
+        // I think this check is redundant and I've raised an issue here:
+        //
+        // https://github.com/ethereum/eth2.0-specs/pull/1755
+
+        // Attestations cannot be from future epochs. If they are, delay consideration until the
+        // epoch arrives
+        //
+        // I'm pretty sure this check is redundant, but it's in the spec so we'll leave it here
+        // anyway.
+        let target_slot = target.epoch.start_slot(T::EthSpec::slots_per_epoch());
+        if slot_now < target.epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+            return Err(Error::AttestsToFutureTarget {
+                target_slot,
+                current_slot: slot_now,
+            });
         }
 
         // Load the slot and state root for `attestation.data.beacon_block_root`.
