@@ -684,9 +684,6 @@ fn unaggregated_gossip_verification() {
     );
 }
 
-/*
- * TODO: finish this
- *
 #[test]
 fn attestation_that_skips_epochs() {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -717,9 +714,6 @@ fn attestation_that_skips_epochs() {
         per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
     }
 
-    let (valid_attestation, _attester_index, _attester_committee_index, validator_sk) =
-        get_valid_unaggregated_attestation(&harness.chain);
-
     let attestation = harness
         .get_unaggregated_attestations(
             &AttestationStrategy::AllValidators,
@@ -733,13 +727,14 @@ fn attestation_that_skips_epochs() {
         .cloned()
         .expect("should have at least one attestation in committee");
 
-    assert_eq!(
-        harness.chain.process_attestation(attestation),
-        Ok(AttestationProcessingOutcome::Processed),
-        "should process attestation that skips slots"
+    assert!(
+        harness
+            .chain
+            .verify_unaggregated_attestation_for_gossip(attestation)
+            .is_ok(),
+        "should gossip verify attestation that skips slots"
     );
 }
-*/
 
 /*
 assert_invalid(
