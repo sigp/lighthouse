@@ -3,9 +3,8 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::AttestationProcessingOutcome;
 use beacon_chain::{
-    attestation_verification::{Error as AttnError, VerifiedUnaggregatedAttestation},
+    attestation_verification::Error as AttnError,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
     BeaconChain, BeaconChainTypes,
 };
@@ -13,9 +12,9 @@ use state_processing::per_slot_processing;
 use store::Store;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BitList, EthSpec,
-    Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot, Unsigned,
+    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, EthSpec, Hash256,
+    Keypair, MainnetEthSpec, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -702,7 +701,7 @@ fn fork_choice_verification() {
     harness.advance_slot();
 
     // We're going to produce the attestations at the first slot of the epoch.
-    let (valid_attestation, validator_index, validator_committee_index, validator_sk) =
+    let (valid_attestation, _validator_index, _validator_committee_index, _validator_sk) =
         get_valid_unaggregated_attestation(&harness.chain);
 
     // Extend the chain two more blocks, but without any attestations so we don't trigger the
@@ -912,6 +911,23 @@ fn fork_choice_verification() {
 
     // Note: we're not checking the "attestations can only affect the fork choice of subsequent
     // slots" part of the spec, we do this upstream.
+
+    assert!(
+        harness
+            .chain
+            .apply_attestation_to_fork_choice(attestation.clone())
+            .is_ok(),
+        "should verify valid attestation"
+    );
+
+    // There's nothing stopping fork choice from accepting the same attestation twice.
+    assert!(
+        harness
+            .chain
+            .apply_attestation_to_fork_choice(attestation)
+            .is_ok(),
+        "should verify valid attestation a second time"
+    );
 }
 
 /// Ensures that an attestation that skips epochs can still be processed.
@@ -983,230 +999,3 @@ fn attestation_that_skips_epochs() {
         "should gossip verify attestation that skips slots"
     );
 }
-
-/*
-assert_invalid(
-    &harness,
-    || invalidate_as_future_slot(valid_attestation.clone(), current_slot),
-    AttnError::FutureSlot {
-        attestation_slot: current_slot + 1,
-        latest_permissible_slot: current_slot,
-    },
-    "future slot",
-);
-
-assert_eq!(
-    try_verify(&harness, || invalidate_as_future_slot(
-        valid_attestation.clone(),
-        current_slot
-    ))
-    .err()
-    .expect("should error"),
-    AttnError::FutureSlot {
-        attestation_slot: current_slot + 1,
-        latest_permissible_slot: current_slot
-    },
-    "should refuse future slot"
-);
-*/
-
-/*
-assert_eq!(
-    chain.process_attestation(valid_attestation.clone()),
-    Ok(AttestationProcessingOutcome::Processed),
-    "should accept valid attestation"
-);
-
-/*
- * Should reject attestations if the slot does not match the target epoch.
- */
-
-let mut epoch_mismatch_attestation = valid_attestation.clone();
-epoch_mismatch_attestation.data.target.epoch = current_epoch + 1;
-
-assert_eq!(
-    harness
-        .chain
-        .process_attestation(epoch_mismatch_attestation),
-    Ok(AttestationProcessingOutcome::BadTargetEpoch),
-    "should not accept attestation where the slot is not in the same epoch as the target"
-);
-
-/*
- * Should reject attestations from future epochs.
- */
-
-let mut early_attestation = valid_attestation.clone();
-early_attestation.data.target.epoch = current_epoch + 1;
-early_attestation.data.slot = (current_epoch + 1).start_slot(MainnetEthSpec::slots_per_epoch());
-
-assert_eq!(
-    harness.chain.process_attestation(early_attestation),
-    Ok(AttestationProcessingOutcome::FutureEpoch {
-        attestation_epoch: current_epoch + 1,
-        current_epoch
-    }),
-    "should not accept early attestation"
-);
-
-/*
- * Should reject attestations from epochs prior to the previous epoch.
- */
-
-let late_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
-let late_block = chain
-    .block_at_slot(late_slot)
-    .expect("should not error getting block at slot")
-    .expect("should find block at slot");
-let late_state = chain
-    .get_state(&late_block.state_root(), Some(late_slot))
-    .expect("should not error getting state")
-    .expect("should find state");
-let late_attestation = harness
-    .get_unaggregated_attestations(
-        &AttestationStrategy::AllValidators,
-        &late_state,
-        late_block.canonical_root(),
-        late_slot,
-    )
-    .first()
-    .cloned()
-    .expect("should get at least one late attestation");
-
-assert_eq!(
-    harness.chain.process_attestation(late_attestation),
-    Ok(AttestationProcessingOutcome::PastEpoch {
-        attestation_epoch: current_epoch - 2,
-        current_epoch
-    }),
-    "should not accept late attestation"
-);
-
-/*
- * Should reject attestations if the target is unknown.
- */
-
-let mut bad_target_attestation = valid_attestation.clone();
-bad_target_attestation.data.target.root = Hash256::from_low_u64_be(42);
-
-assert_eq!(
-    harness.chain.process_attestation(bad_target_attestation),
-    Ok(AttestationProcessingOutcome::UnknownTargetRoot(
-        Hash256::from_low_u64_be(42)
-    )),
-    "should not accept bad_target attestation"
-);
-
-/*
- * Should reject attestations if the target is unknown.
- */
-
-let mut future_block_attestation = valid_attestation.clone();
-future_block_attestation.data.slot -= 1;
-
-assert_eq!(
-    harness.chain.process_attestation(future_block_attestation),
-    Ok(AttestationProcessingOutcome::AttestsToFutureBlock {
-        block: current_slot,
-        attestation: current_slot - 1
-    }),
-    "should not accept future_block attestation"
-);
-
-/*
- * Should reject attestations if the target is unknown.
- */
-
-let mut bad_head_attestation = valid_attestation.clone();
-bad_head_attestation.data.beacon_block_root = Hash256::from_low_u64_be(42);
-
-assert_eq!(
-    harness.chain.process_attestation(bad_head_attestation),
-    Ok(AttestationProcessingOutcome::UnknownHeadBlock {
-        beacon_block_root: Hash256::from_low_u64_be(42)
-    }),
-    "should not accept bad_head attestation"
-);
-
-/*
- * Should reject attestations with a bad signature.
- */
-
-let mut bad_signature_attestation = valid_attestation.clone();
-let kp = generate_deterministic_keypair(0);
-let mut agg_sig = AggregateSignature::new();
-agg_sig.add(&Signature::new(&[42, 42], &kp.sk));
-bad_signature_attestation.signature = agg_sig;
-
-assert_eq!(
-    harness.chain.process_attestation(bad_signature_attestation),
-    Ok(AttestationProcessingOutcome::InvalidSignature),
-    "should not accept bad_signature attestation"
-);
-
-/*
- * Should reject attestations with an empty bitfield.
- */
-
-let mut empty_bitfield_attestation = valid_attestation.clone();
-empty_bitfield_attestation.aggregation_bits =
-    BitList::with_capacity(1).expect("should build bitfield");
-
-assert_eq!(
-    harness
-        .chain
-        .process_attestation(empty_bitfield_attestation),
-    Ok(AttestationProcessingOutcome::EmptyAggregationBitfield),
-    "should not accept empty_bitfield attestation"
-);
-*/
-
-/*
-#[test]
-fn attestation_that_skips_epochs() {
-    let harness = get_harness(VALIDATOR_COUNT);
-    let chain = &harness.chain;
-
-    // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
-
-    let current_slot = chain.slot().expect("should get slot");
-    let current_epoch = chain.epoch().expect("should get epoch");
-
-    let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
-    let earlier_block = chain
-        .block_at_slot(earlier_slot)
-        .expect("should not error getting block at slot")
-        .expect("should find block at slot");
-
-    let mut state = chain
-        .get_state(&earlier_block.state_root(), Some(earlier_slot))
-        .expect("should not error getting state")
-        .expect("should find state");
-
-    while state.slot < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
-    }
-
-    let attestation = harness
-        .get_unaggregated_attestations(
-            &AttestationStrategy::AllValidators,
-            &state,
-            earlier_block.canonical_root(),
-            current_slot,
-        )
-        .first()
-        .cloned()
-        .expect("should get at least one attestation");
-
-    assert_eq!(
-        harness.chain.process_attestation(attestation),
-        Ok(AttestationProcessingOutcome::Processed),
-        "should process attestation that skips slots"
-    );
-}
-*/
