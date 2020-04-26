@@ -136,12 +136,6 @@ pub enum Error {
         block: Slot,
         attestation: Slot,
     },
-    /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
-    /// future).
-    AttestsToFutureTarget {
-        target_slot: Slot,
-        current_slot: Slot,
-    },
     /// The attestation failed the `state_processing` verification stage.
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
@@ -519,26 +513,15 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
             return Err(Error::UnknownTargetRoot(target.root));
         }
 
-        // NOTE: we're not testing an assert from the spec:
+        // TODO: we're not testing an assert from the spec:
         //
         // `assert get_current_slot(store) >= compute_start_slot_at_epoch(target.epoch)`
         //
         // I think this check is redundant and I've raised an issue here:
         //
         // https://github.com/ethereum/eth2.0-specs/pull/1755
-
-        // Attestations cannot be from future epochs. If they are, delay consideration until the
-        // epoch arrives
         //
-        // I'm pretty sure this check is redundant, but it's in the spec so we'll leave it here
-        // anyway.
-        let target_slot = target.epoch.start_slot(T::EthSpec::slots_per_epoch());
-        if slot_now < target.epoch.start_slot(T::EthSpec::slots_per_epoch()) {
-            return Err(Error::AttestsToFutureTarget {
-                target_slot,
-                current_slot: slot_now,
-            });
-        }
+        // To resolve this todo, observe the outcome of the above PR.
 
         // Load the slot and state root for `attestation.data.beacon_block_root`.
         //
@@ -572,6 +555,9 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
                 attestation: indexed_attestation.data.slot,
             });
         }
+
+        // Note: we're not checking the "attestations can only affect the fork choice of subsequent
+        // slots" part of the spec, we do this upstream.
 
         Ok(Self {
             indexed_attestation,
