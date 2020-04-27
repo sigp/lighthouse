@@ -16,6 +16,7 @@ use crate::migrate::Migrate;
 use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
 use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
 use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
+use crate::observed_block_producers::ObservedBlockProducers;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::SnapshotCache;
@@ -183,6 +184,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
     pub observed_aggregators: ObservedAggregators<T::EthSpec>,
+    /// Maintains a record of which validators have proposed blocks for each slot.
+    pub observed_block_producers: ObservedBlockProducers<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
@@ -1829,6 +1832,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
         } else {
             self.fork_choice.prune()?;
+
+            self.observed_block_producers
+                .prune(new_finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()));
 
             self.snapshot_cache
                 .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
