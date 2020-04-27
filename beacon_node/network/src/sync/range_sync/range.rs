@@ -11,10 +11,10 @@
 //!  ## Finalized chain sync
 //!
 //!  This occurs when a peer connects that claims to have a finalized head slot that is greater
-//!  than our own. In this case, we form a chain from our last finalized slot, to their claimed
+//!  than our own. In this case, we form a chain from our last finalized epoch, to their claimed
 //!  finalized slot. Any peer that also claims to have this last finalized slot is added to a pool
-//!  of peers from which batches of blocks may be downloaded. Blocks are downloaded until
-//!  the finalized slot of the chain is reached. Once reached, all peers within the pool are sent a
+//!  of peers from which batches of blocks may be downloaded. Blocks are downloaded until the
+//!  finalized slot of the chain is reached. Once reached, all peers within the pool are sent a
 //!  STATUS message to potentially start a head chain sync, or check if further finalized chains
 //!  need to be downloaded.
 //!
@@ -26,11 +26,11 @@
 //!
 //!  ## Head Chain Sync
 //!
-//!  If a peer joins and there is no active finalized chains being synced, and it's head is
-//!  beyond our `SLOT_IMPORT_TOLERANCE` a chain is formed starting from this peers finalized slot
-//!  (this has been necessarily downloaded by our node, otherwise we would start a finalized chain
-//!  sync) to this peers head slot. Any other peers that match this head slot and head root, are
-//!  added to this chain's peer pool, which will be downloaded in parallel.
+//!  If a peer joins and there is no active finalized chains being synced, and it's head is beyond
+//!  our `SLOT_IMPORT_TOLERANCE` a chain is formed starting from this peers finalized epoch (this
+//!  has been necessarily downloaded by our node, otherwise we would start a finalized chain sync)
+//!  to this peers head slot. Any other peers that match this head slot and head root, are added to
+//!  this chain's peer pool, which will be downloaded in parallel.
 //!
 //!  Unlike finalized chains, head chains can be synced in parallel.
 //!
@@ -65,7 +65,7 @@ pub struct RangeSync<T: BeaconChainTypes> {
     /// A collection of chains that need to be downloaded. This stores any head or finalized chains
     /// that need to be downloaded.
     chains: ChainCollection<T>,
-    /// Peers that join whilst a finalized chain is being download, sit in this set. Once the
+    /// Peers that join whilst a finalized chain is being downloaded, sit in this set. Once the
     /// finalized chain(s) complete, these peer's get STATUS'ed to update their head slot before
     /// the head chains are formed and downloaded.
     awaiting_head_peers: HashSet<PeerId>,
@@ -162,7 +162,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     .chains
                     .get_finalized_mut(remote_info.finalized_root, remote_finalized_slot)
                 {
-                    debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_slot"=> chain.start_slot);
+                    debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_epoch"=> chain.start_epoch);
 
                     // add the peer to the chain's peer pool
                     chain.add_peer(network, peer_id);
@@ -174,10 +174,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 } else {
                     // there is no finalized chain that matches this peer's last finalized target
                     // create a new finalized chain
-                    debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_slot" => local_finalized_slot.as_u64(), "end_slot" => remote_finalized_slot.as_u64(), "finalized_root" => format!("{}", remote_info.finalized_root));
+                    debug!(self.log, "New finalized chain added to sync"; "peer_id" => format!("{:?}", peer_id), "start_epoch" => local_finalized_slot, "end_slot" => remote_finalized_slot, "finalized_root" => format!("{}", remote_info.finalized_root));
 
                     self.chains.new_finalized_chain(
-                        local_finalized_slot,
+                        local_info.finalized_epoch,
                         remote_info.finalized_root,
                         remote_finalized_slot,
                         peer_id,
@@ -218,11 +218,13 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     chain.add_peer(network, peer_id);
                 } else {
                     // There are no other head chains that match this peer's status, create a new one, and
-                    let start_slot = std::cmp::min(local_info.head_slot, remote_finalized_slot);
-                    debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote_info.head_root), "start_slot" => start_slot, "head_slot" => remote_info.head_slot, "peer_id" => format!("{:?}", peer_id));
+                    let start_epoch = std::cmp::min(local_info.head_slot, remote_finalized_slot)
+                        .epoch(T::EthSpec::slots_per_epoch());
+                    debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote_info.head_root), "start_epoch" => start_epoch, "head_slot" => remote_info.head_slot, "peer_id" => format!("{:?}", peer_id));
+
                     self.chains.new_head_chain(
                         network,
-                        start_slot,
+                        start_epoch,
                         remote_info.head_root,
                         remote_info.head_slot,
                         peer_id,
@@ -288,7 +290,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
-                debug!(self.log, "Finalized chain removed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+                debug!(self.log, "Finalized chain removed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
                 // update the state of the collection
                 self.chains.update_finalized(network);
 
@@ -325,7 +327,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 }) {
                     Some((index, ProcessingResult::RemoveChain)) => {
                         let chain = self.chains.remove_head_chain(index);
-                        debug!(self.log, "Head chain completed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+                        debug!(self.log, "Head chain completed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
                         // the chain is complete, re-status it's peers and remove it
                         chain.status_peers(network);
 

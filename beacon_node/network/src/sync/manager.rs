@@ -271,10 +271,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 "peer_finalized_epoch" => remote.finalized_epoch,
                 "local_finalized_epoch" => local_peer_info.finalized_epoch,
                 );
-                // Add the peer to our RangeSync
-                self.range_sync
-                    .add_peer(&mut self.network, peer_id.clone(), remote);
-                self.advanced_peer(&peer_id, remote);
+
+                // if we don't know about the peer's chain add it to the range sync, otherwise
+                // consider it synced (it can be the case that the peer seems ahead of us, but we
+                // reject its chain).
+
+                if self.chain.fork_choice.contains_block(&remote.head_root) {
+                    self.synced_peer(&peer_id, remote);
+                    // notify the range sync that a peer has been added
+                    self.range_sync.fully_synced_peer_found();
+                } else {
+                    // Add the peer to our RangeSync
+                    self.range_sync
+                        .add_peer(&mut self.network, peer_id.clone(), remote);
+                    self.advanced_peer(&peer_id, remote);
+                }
             }
             PeerSyncType::Behind => {
                 self.behind_peer(&peer_id, remote);

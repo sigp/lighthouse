@@ -96,6 +96,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
             // reset the to-ping timer for this peer
+            debug!(self.log, "Received a ping request"; "peer_id" => format!("{}", peer_id), "seq_no" => seq);
             self.ping_peers.insert(peer_id.clone());
 
             // if the sequence number is unknown send update the meta data of the peer.
@@ -147,6 +148,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if let Some(known_meta_data) = &peer_info.meta_data {
                 if known_meta_data.seq_number < meta_data.seq_number {
                     debug!(self.log, "Updating peer's metadata"; "peer_id" => format!("{}", peer_id), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                    peer_info.meta_data = Some(meta_data);
                 } else {
                     warn!(self.log, "Received old metadata"; "peer_id" => format!("{}", peer_id), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
                 }
@@ -320,6 +322,8 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e));
         })? {
             debug!(self.log, "Pinging peer"; "peer_id" => format!("{}", peer_id));
+            // add the ping timer back
+            self.ping_peers.insert(peer_id.clone());
             self.events.push(PeerManagerEvent::Ping(peer_id));
         }
 
@@ -327,6 +331,8 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             error!(self.log, "Failed to check for peers to status"; "error" => format!("{}",e));
         })? {
             debug!(self.log, "Sending Status to peer"; "peer_id" => format!("{}", peer_id));
+            // add the status timer back
+            self.status_peers.insert(peer_id.clone());
             self.events.push(PeerManagerEvent::Status(peer_id));
         }
 
