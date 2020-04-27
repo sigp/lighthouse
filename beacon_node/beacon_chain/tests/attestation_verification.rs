@@ -729,7 +729,7 @@ fn fork_choice_verification() {
             assert_eq!(
                 harness
                     .chain
-                    .apply_attestation_to_fork_choice($attn_getter)
+                    .apply_attestation_to_fork_choice(&$attn_getter)
                     .err()
                     .expect(&format!(
                         "{} should error during apply_attestation_to_fork_choice",
@@ -916,7 +916,7 @@ fn fork_choice_verification() {
     assert!(
         harness
             .chain
-            .apply_attestation_to_fork_choice(attestation.clone())
+            .apply_attestation_to_fork_choice(&attestation.clone())
             .is_ok(),
         "should verify valid attestation"
     );
@@ -925,7 +925,7 @@ fn fork_choice_verification() {
     assert!(
         harness
             .chain
-            .apply_attestation_to_fork_choice(attestation)
+            .apply_attestation_to_fork_choice(&attestation)
             .is_ok(),
         "should verify valid attestation a second time"
     );

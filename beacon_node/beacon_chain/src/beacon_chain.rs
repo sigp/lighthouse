@@ -864,10 +864,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         VerifiedAggregatedAttestation::verify(signed_aggregate, self)
     }
 
-    pub fn apply_attestation_to_fork_choice(
+    pub fn apply_attestation_to_fork_choice<'a>(
         &self,
-        unverified_attestation: impl IntoForkChoiceVerifiedAttestation<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, AttestationError> {
+        unverified_attestation: &'a impl IntoForkChoiceVerifiedAttestation<'a, T>,
+    ) -> Result<ForkChoiceVerifiedAttestation<'a, T>, AttestationError> {
         let verified = unverified_attestation.into_fork_choice_verified_attestation(self)?;
         let indexed_attestation = verified.indexed_attestation();
         self.fork_choice

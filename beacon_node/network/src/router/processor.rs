@@ -777,21 +777,21 @@ impl<T: BeaconChainTypes> Processor<T> {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = verified_attestation.attestation().data.beacon_block_root;
 
-        // TODO: don't downvote peer if we can't add things to pool.
+        self.apply_attestation_to_fork_choice(
+            peer_id.clone(),
+            beacon_block_root,
+            &verified_attestation,
+        );
 
-        self.chain
-            .add_to_block_inclusion_pool(verified_attestation)
-            .map(|verified_attestation| {
-                self.apply_attestation_to_fork_choice(verified_attestation, beacon_block_root)
-            })
-            .unwrap_or_else(|e| {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    beacon_block_root,
-                    "aggregated",
-                    e,
-                )
-            })
+        if let Err(e) = self.chain.add_to_block_inclusion_pool(verified_attestation) {
+            debug!(
+                self.log,
+                "Attestation invalid for op pool";
+                "reason" => format!("{:?}", e),
+                "peer" => format!("{:?}", peer_id),
+                "beacon_block_root" => format!("{:?}", beacon_block_root)
+            )
+        }
     }
 
     pub fn verify_unaggregated_attestation_for_gossip(
@@ -823,21 +823,24 @@ impl<T: BeaconChainTypes> Processor<T> {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = verified_attestation.attestation().data.beacon_block_root;
 
-        // TODO: don't downvote peer if we can't add things to pool.
+        self.apply_attestation_to_fork_choice(
+            peer_id.clone(),
+            beacon_block_root,
+            &verified_attestation,
+        );
 
-        self.chain
+        if let Err(e) = self
+            .chain
             .add_to_naive_aggregation_pool(verified_attestation)
-            .map(|verified_attestation| {
-                self.apply_attestation_to_fork_choice(verified_attestation, beacon_block_root)
-            })
-            .unwrap_or_else(|e| {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    beacon_block_root,
-                    "unaggregated",
-                    e,
-                )
-            })
+        {
+            debug!(
+                self.log,
+                "Attestation invalid for agg pool";
+                "reason" => format!("{:?}", e),
+                "peer" => format!("{:?}", peer_id),
+                "beacon_block_root" => format!("{:?}", beacon_block_root)
+            )
+        }
     }
 
     /// Apply the attestation to fork choice, suppressing errors.
@@ -849,16 +852,18 @@ impl<T: BeaconChainTypes> Processor<T> {
     ///
     /// Reference:
     /// https://github.com/ethereum/eth2.0-specs/issues/1408#issuecomment-617599260
-    fn apply_attestation_to_fork_choice(
+    fn apply_attestation_to_fork_choice<'a>(
         &self,
-        attestation: impl IntoForkChoiceVerifiedAttestation<T>,
+        peer_id: PeerId,
         beacon_block_root: Hash256,
+        attestation: &'a impl IntoForkChoiceVerifiedAttestation<'a, T>,
     ) {
         if let Err(e) = self.chain.apply_attestation_to_fork_choice(attestation) {
             debug!(
                 self.log,
                 "Attestation invalid for fork choice";
                 "reason" => format!("{:?}", e),
+                "peer" => format!("{:?}", peer_id),
                 "beacon_block_root" => format!("{:?}", beacon_block_root)
             )
         }

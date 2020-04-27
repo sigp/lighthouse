@@ -161,60 +161,62 @@ impl<T: BeaconChainTypes> Clone for VerifiedUnaggregatedAttestation<T> {
 /// Wraps an `indexed_attestation` that is valid for application to fork choice. The
 /// `indexed_attestation` will have been generated via the `VerifiedAggregatedAttestation` or
 /// `VerifiedUnaggregatedAttestation` wrappers.
-pub struct ForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
-    indexed_attestation: IndexedAttestation<T::EthSpec>,
+pub struct ForkChoiceVerifiedAttestation<'a, T: BeaconChainTypes> {
+    indexed_attestation: &'a IndexedAttestation<T::EthSpec>,
 }
 
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
-pub trait IntoForkChoiceVerifiedAttestation<T: BeaconChainTypes> {
+pub trait IntoForkChoiceVerifiedAttestation<'a, T: BeaconChainTypes> {
     fn into_fork_choice_verified_attestation(
-        self,
+        &'a self,
         chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error>;
+    ) -> Result<ForkChoiceVerifiedAttestation<'a, T>, Error>;
 }
 
-impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
+impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
     for VerifiedAggregatedAttestation<T>
 {
     /// Progresses the `VerifiedAggregatedAttestation` to a stage where it is valid for application
     /// to the fork-choice rule (or not).
     fn into_fork_choice_verified_attestation(
-        self,
+        &'a self,
         chain: &BeaconChain<T>,
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
         ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            self.indexed_attestation,
+            &self.indexed_attestation,
             chain,
         )
     }
 }
 
-impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
+impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
     for VerifiedUnaggregatedAttestation<T>
 {
     /// Progresses the `Attestation` to a stage where it is valid for application to the
     /// fork-choice rule (or not).
     fn into_fork_choice_verified_attestation(
-        self,
+        &'a self,
         chain: &BeaconChain<T>,
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
         ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            self.indexed_attestation,
+            &self.indexed_attestation,
             chain,
         )
     }
 }
 
-impl<T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<T>
-    for ForkChoiceVerifiedAttestation<T>
+impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
+    for ForkChoiceVerifiedAttestation<'a, T>
 {
     /// Simply returns itself.
     fn into_fork_choice_verified_attestation(
-        self,
+        &'a self,
         _: &BeaconChain<T>,
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        Ok(self)
+        Ok(Self {
+            indexed_attestation: self.indexed_attestation,
+        })
     }
 }
 
@@ -370,7 +372,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
 
     /// A helper function to add this aggregate to `beacon_chain.fork_choice`.
     pub fn add_to_fork_choice(
-        self,
+        &self,
         chain: &BeaconChain<T>,
     ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
         chain.apply_attestation_to_fork_choice(self)
@@ -473,7 +475,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     }
 }
 
-impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
+impl<'a, T: BeaconChainTypes> ForkChoiceVerifiedAttestation<'a, T> {
     /// Returns `Ok(Self)` if the `attestation` is valid to be applied to the beacon chain fork
     /// choice.
     ///
@@ -481,7 +483,7 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
     /// CHECK THE SIGNATURE. Use the `VerifiedAggregatedAttestation` or
     /// `VerifiedUnaggregatedAttestation` structs to do signature verification.
     fn from_signature_verified_components(
-        indexed_attestation: IndexedAttestation<T::EthSpec>,
+        indexed_attestation: &'a IndexedAttestation<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // There is no point in processing an attestation with an empty bitfield. Reject
