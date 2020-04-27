@@ -1,3 +1,6 @@
+//! Provides an `ObservedAttestations` struct which allows us to reject aggregated attestations if
+//! we've already seen the aggregated attestation.
+
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::marker::PhantomData;

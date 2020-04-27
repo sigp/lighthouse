@@ -1,3 +1,11 @@
+//! Provides two structs that help us filter out attestation gossip from validators that have
+//! already published attestations:
+//!
+//! - `ObservedAttesters`: allows filtering unaggregated attestations from the same validator in
+//!   the same epoch.
+//! - `ObservedAggregators`: allows filtering aggregated attestations from the same aggregators in
+//!   the same epoch
+
 use bitvec::vec::BitVec;
 use parking_lot::RwLock;
 use std::collections::HashSet;
@@ -137,7 +145,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
             return Err(Error::ValidatorIndexTooHigh(validator_index));
         }
 
-        let index = self.get_bitfield_index(a.data.target.epoch)?;
+        let index = self.get_items_index(a.data.target.epoch)?;
 
         self.items
             .write()
@@ -155,7 +163,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
             return Err(Error::ValidatorIndexTooHigh(validator_index));
         }
 
-        let index = self.get_bitfield_index(a.data.target.epoch)?;
+        let index = self.get_items_index(a.data.target.epoch)?;
 
         self.items
             .read()
@@ -183,7 +191,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         *self.lowest_permissible_epoch.write() = lowest_permissible_epoch;
     }
 
-    fn get_bitfield_index(&self, epoch: Epoch) -> Result<usize, Error> {
+    fn get_items_index(&self, epoch: Epoch) -> Result<usize, Error> {
         let lowest_permissible_epoch: Epoch = *self.lowest_permissible_epoch.read();
 
         if epoch < lowest_permissible_epoch {
