@@ -20,6 +20,6 @@ pub use config::Config as NetworkConfig;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use libp2p::{PeerId, Swarm};
-pub use peer_manager::{PeerDB, PeerInfo, PeerSyncStatus};
+pub use peer_manager::{PeerDB, PeerInfo, PeerSyncStatus, SyncInfo};
 pub use rpc::RPCEvent;
 pub use service::{Service, NETWORK_KEY_FILENAME};

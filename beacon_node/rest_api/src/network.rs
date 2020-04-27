@@ -65,7 +65,7 @@ pub fn get_peer_list<T: BeaconChainTypes>(
     let connected_peers: Vec<String> = network
         .peers
         .read()
-        .connected_peers()
+        .connected_peer_ids()
         .map(PeerId::to_string)
         .collect();
     ResponseBuilder::new(&req)?.body_no_ssz(&connected_peers)

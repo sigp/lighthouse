@@ -16,22 +16,19 @@ pub fn parse_testnet_dir_with_hardcoded_default<E: EthSpec>(
     matches: &ArgMatches,
     name: &'static str,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    parse_required::<PathBuf>(matches, name)
-        .and_then(|path| {
-            Eth2TestnetConfig::load(path.clone())
-                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
+    if let Some(path) = parse_optional::<PathBuf>(matches, name)? {
+        Eth2TestnetConfig::load(path.clone())
+            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
+    } else {
+        Eth2TestnetConfig::hard_coded().map_err(|e| {
+            format!(
+                "The hard-coded testnet directory was invalid. \
+                 This happens when Lighthouse is migrating between spec versions. \
+                 Error : {}",
+                e
+            )
         })
-        .map(Result::Ok)
-        .unwrap_or_else(|_| {
-            Eth2TestnetConfig::hard_coded().map_err(|e| {
-                format!(
-                    "The hard-coded testnet directory was invalid. \
-                     This happens when Lighthouse is migrating between spec versions. \
-                     Error : {}",
-                    e
-                )
-            })
-        })
+    }
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's

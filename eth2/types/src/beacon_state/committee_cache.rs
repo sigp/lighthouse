@@ -1,3 +1,5 @@
+#![allow(clippy::integer_arithmetic)]
+
 use super::BeaconState;
 use crate::*;
 use core::num::NonZeroUsize;
@@ -43,7 +45,7 @@ impl CommitteeCache {
         }
 
         let committees_per_slot =
-            T::get_committee_count_per_slot(active_validator_indices.len(), spec) as u64;
+            T::get_committee_count_per_slot(active_validator_indices.len(), spec)? as u64;
 
         let seed = state.get_seed(epoch, Domain::BeaconAttester, spec)?;
 
@@ -56,7 +58,7 @@ impl CommitteeCache {
         .ok_or_else(|| Error::UnableToShuffle)?;
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validators.len() > usize::max_value() - 1 {
+        if state.validators.len() == usize::max_value() {
             return Err(Error::TooManyValidators);
         }
 

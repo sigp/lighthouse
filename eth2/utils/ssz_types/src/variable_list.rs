@@ -218,22 +218,41 @@ where
     }
 }
 
-impl<T, N: Unsigned> ssz::Decode for VariableList<T, N>
+impl<T, N> ssz::Decode for VariableList<T, N>
 where
     T: ssz::Decode,
+    N: Unsigned,
 {
     fn is_ssz_fixed_len() -> bool {
-        <Vec<T>>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <Vec<T>>::ssz_fixed_len()
+        false
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        let vec = <Vec<T>>::from_ssz_bytes(bytes)?;
+        let max_len = N::to_usize();
 
-        Self::new(vec).map_err(|e| ssz::DecodeError::BytesInvalid(format!("VariableList {:?}", e)))
+        if bytes.is_empty() {
+            Ok(vec![].into())
+        } else if T::is_ssz_fixed_len() {
+            let num_items = bytes
+                .len()
+                .checked_div(T::ssz_fixed_len())
+                .ok_or_else(|| ssz::DecodeError::ZeroLengthItem)?;
+
+            if num_items > max_len {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "VariableList of {} items exceeds maximum of {}",
+                    num_items, max_len
+                )));
+            }
+
+            bytes
+                .chunks(T::ssz_fixed_len())
+                .map(|chunk| T::from_ssz_bytes(chunk))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Into::into)
+        } else {
+            ssz::decode_list_of_variable_length_items(bytes, Some(max_len)).map(|vec| vec.into())
+        }
     }
 }
 

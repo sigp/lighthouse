@@ -78,11 +78,11 @@ pub fn build_config(
 }
 
 pub fn build_libp2p_instance(
-    port: u16,
     boot_nodes: Vec<Enr>,
     secret_key: Option<String>,
     log: slog::Logger,
 ) -> LibP2PService<E> {
+    let port = unused_port("tcp").unwrap();
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
     LibP2PService::new(&config, EnrForkId::default(), log.clone())
@@ -101,8 +101,7 @@ pub fn get_enr(node: &LibP2PService<E>) -> Enr {
 #[allow(dead_code)]
 pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
     let mut nodes: Vec<LibP2PService<E>> = (0..n)
-        .map(|_| unused_port("tcp").unwrap())
-        .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
+        .map(|_| build_libp2p_instance(vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
@@ -125,15 +124,12 @@ pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
 // Constructs a pair of nodes with seperate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
-pub fn build_node_pair(
-    log: &slog::Logger,
-    start_port: u16,
-) -> (LibP2PService<E>, LibP2PService<E>) {
+pub fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PService<E>) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
-    let mut sender = build_libp2p_instance(start_port, vec![], None, sender_log);
-    let receiver = build_libp2p_instance(start_port + 1, vec![], None, receiver_log);
+    let mut sender = build_libp2p_instance(vec![], None, sender_log);
+    let receiver = build_libp2p_instance(vec![], None, receiver_log);
 
     let receiver_multiaddr = receiver.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
     match libp2p::Swarm::dial_addr(&mut sender.swarm, receiver_multiaddr) {
@@ -147,8 +143,7 @@ pub fn build_node_pair(
 #[allow(dead_code)]
 pub fn build_linear(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
     let mut nodes: Vec<LibP2PService<E>> = (0..n)
-        .map(|_| unused_port("tcp").unwrap())
-        .map(|p| build_libp2p_instance(p, vec![], None, log.clone()))
+        .map(|_| build_libp2p_instance(vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()

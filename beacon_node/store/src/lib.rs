@@ -15,7 +15,7 @@ pub mod chunked_vector;
 pub mod config;
 mod errors;
 mod forwards_iter;
-mod hot_cold_store;
+pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
@@ -24,7 +24,6 @@ mod partial_beacon_state;
 mod state_batch;
 
 pub mod iter;
-pub mod migrate;
 
 use std::sync::Arc;
 
@@ -32,7 +31,6 @@ pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB as DiskStore, HotStateSummary};
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
-pub use self::migrate::Migrate;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
@@ -132,7 +130,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
-    fn freeze_to_state(
+    fn process_finalization(
         _store: Arc<Self>,
         _frozen_head_root: Hash256,
         _frozen_head: &BeaconState<E>,

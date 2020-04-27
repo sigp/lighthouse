@@ -204,7 +204,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 
     /// Advance the split point of the store, moving new finalized states to the freezer.
-    fn freeze_to_state(
+    fn process_finalization(
         store: Arc<Self>,
         frozen_head_root: Hash256,
         frozen_head: &BeaconState<E>,

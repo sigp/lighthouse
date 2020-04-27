@@ -2,7 +2,6 @@ use super::super::{generate_deterministic_keypairs, KeypairsFile};
 use crate::test_utils::{AttestationTestTask, TestingPendingAttestationBuilder};
 use crate::*;
 use bls::get_withdrawal_credentials;
-use dirs;
 use log::debug;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};

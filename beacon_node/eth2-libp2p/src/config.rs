@@ -101,7 +101,7 @@ impl Default for Config {
         // parameter.
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
-            .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
+            .heartbeat_interval(Duration::from_secs(1))
             .manual_propagation() // require validation before propagation
             .no_source_id()
             .message_id_fn(gossip_message_id)
@@ -114,7 +114,8 @@ impl Default for Config {
             .enr_update(true) // update IP based on PONG responses
             .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
             .query_parallelism(5)
-            .query_timeout(Duration::from_secs(2))
+            .query_timeout(Duration::from_secs(60))
+            .query_peer_timeout(Duration::from_secs(2))
             .ip_limit(false) // limits /24 IP's in buckets. Enable for mainnet
             .ping_interval(Duration::from_secs(300))
             .build();

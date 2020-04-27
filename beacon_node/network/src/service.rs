@@ -306,7 +306,6 @@ fn spawn_service<T: BeaconChainTypes>(
                             .map_err(|_| { debug!(log, "Failed to send peer disconnect to router");})?;
                     }
                     BehaviourEvent::StatusPeer(peer_id) => {
-                        debug!(log, "Re-status peer";  "peer_id" => format!("{}", peer_id));
                         service.router_send
                             .try_send(RouterMessage::StatusPeer(peer_id))
                             .map_err(|_| { debug!(log, "Failed to send re-status  peer to router");})?;

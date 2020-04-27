@@ -366,7 +366,7 @@ impl_decodable_for_u8_array!(4);
 impl_decodable_for_u8_array!(32);
 
 macro_rules! impl_for_vec {
-    ($type: ty) => {
+    ($type: ty, $max_len: expr) => {
         impl<T: Decode> Decode for $type {
             fn is_ssz_fixed_len() -> bool {
                 false
@@ -381,22 +381,22 @@ macro_rules! impl_for_vec {
                         .map(|chunk| T::from_ssz_bytes(chunk))
                         .collect()
                 } else {
-                    decode_list_of_variable_length_items(bytes).map(|vec| vec.into())
+                    decode_list_of_variable_length_items(bytes, $max_len).map(|vec| vec.into())
                 }
             }
         }
     };
 }
 
-impl_for_vec!(Vec<T>);
-impl_for_vec!(SmallVec<[T; 1]>);
-impl_for_vec!(SmallVec<[T; 2]>);
-impl_for_vec!(SmallVec<[T; 3]>);
-impl_for_vec!(SmallVec<[T; 4]>);
-impl_for_vec!(SmallVec<[T; 5]>);
-impl_for_vec!(SmallVec<[T; 6]>);
-impl_for_vec!(SmallVec<[T; 7]>);
-impl_for_vec!(SmallVec<[T; 8]>);
+impl_for_vec!(Vec<T>, None);
+impl_for_vec!(SmallVec<[T; 1]>, Some(1));
+impl_for_vec!(SmallVec<[T; 2]>, Some(2));
+impl_for_vec!(SmallVec<[T; 3]>, Some(3));
+impl_for_vec!(SmallVec<[T; 4]>, Some(4));
+impl_for_vec!(SmallVec<[T; 5]>, Some(5));
+impl_for_vec!(SmallVec<[T; 6]>, Some(6));
+impl_for_vec!(SmallVec<[T; 7]>, Some(7));
+impl_for_vec!(SmallVec<[T; 8]>, Some(8));
 
 /// Decodes `bytes` as if it were a list of variable-length items.
 ///
@@ -405,43 +405,52 @@ impl_for_vec!(SmallVec<[T; 8]>);
 /// differing types.
 pub fn decode_list_of_variable_length_items<T: Decode>(
     bytes: &[u8],
+    max_len: Option<usize>,
 ) -> Result<Vec<T>, DecodeError> {
-    let mut next_variable_byte = read_offset(bytes)?;
-
-    // The value of the first offset must not point back into the same bytes that defined
-    // it.
-    if next_variable_byte < BYTES_PER_LENGTH_OFFSET {
-        return Err(DecodeError::OutOfBoundsByte {
-            i: next_variable_byte,
-        });
+    if bytes.is_empty() {
+        return Ok(vec![]);
     }
 
-    let num_items = next_variable_byte / BYTES_PER_LENGTH_OFFSET;
+    let first_offset = read_offset(bytes)?;
+    sanitize_offset(first_offset, None, bytes.len(), Some(first_offset))?;
 
-    // The fixed-length section must be a clean multiple of `BYTES_PER_LENGTH_OFFSET`.
-    if next_variable_byte != num_items * BYTES_PER_LENGTH_OFFSET {
-        return Err(DecodeError::InvalidByteLength {
-            len: next_variable_byte,
-            expected: num_items * BYTES_PER_LENGTH_OFFSET,
-        });
+    if first_offset % BYTES_PER_LENGTH_OFFSET != 0 || first_offset < BYTES_PER_LENGTH_OFFSET {
+        return Err(DecodeError::InvalidListFixedBytesLen(first_offset));
     }
 
-    let mut values = Vec::with_capacity(num_items);
+    let num_items = first_offset / BYTES_PER_LENGTH_OFFSET;
+
+    if max_len.map_or(false, |max| num_items > max) {
+        return Err(DecodeError::BytesInvalid(format!(
+            "Variable length list of {} items exceeds maximum of {:?}",
+            num_items, max_len
+        )));
+    }
+
+    // Only initialize the vec with a capacity if a maximum length is provided.
+    //
+    // We assume that if a max length is provided then the application is able to handle an
+    // allocation of this size.
+    let mut values = if max_len.is_some() {
+        Vec::with_capacity(num_items)
+    } else {
+        vec![]
+    };
+
+    let mut offset = first_offset;
     for i in 1..=num_items {
         let slice_option = if i == num_items {
-            bytes.get(next_variable_byte..)
+            bytes.get(offset..)
         } else {
-            let offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+            let start = offset;
 
-            let start = next_variable_byte;
-            next_variable_byte = offset;
+            let next_offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+            offset = sanitize_offset(next_offset, Some(offset), bytes.len(), Some(first_offset))?;
 
-            bytes.get(start..next_variable_byte)
+            bytes.get(start..offset)
         };
 
-        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte {
-            i: next_variable_byte,
-        })?;
+        let slice = slice_option.ok_or_else(|| DecodeError::OutOfBoundsByte { i: offset })?;
 
         values.push(T::from_ssz_bytes(slice)?);
     }
@@ -520,25 +529,33 @@ mod tests {
     }
 
     #[test]
+    fn empty_list() {
+        let vec: Vec<Vec<u16>> = vec![];
+        let bytes = vec.as_ssz_bytes();
+        assert!(bytes.is_empty());
+        assert_eq!(Vec::from_ssz_bytes(&bytes), Ok(vec),);
+    }
+
+    #[test]
     fn first_length_points_backwards() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[0, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 0 })
+            Err(DecodeError::InvalidListFixedBytesLen(0))
         );
 
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[1, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 1 })
+            Err(DecodeError::InvalidListFixedBytesLen(1))
         );
 
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[2, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 2 })
+            Err(DecodeError::InvalidListFixedBytesLen(2))
         );
 
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[3, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 3 })
+            Err(DecodeError::InvalidListFixedBytesLen(3))
         );
     }
 
@@ -546,7 +563,7 @@ mod tests {
     fn lengths_are_decreasing() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[12, 0, 0, 0, 14, 0, 0, 0, 12, 0, 0, 0, 1, 0, 1, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 12 })
+            Err(DecodeError::OffsetsAreDecreasing(12))
         );
     }
 
@@ -554,10 +571,7 @@ mod tests {
     fn awkward_fixed_length_portion() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[10, 0, 0, 0, 10, 0, 0, 0, 0, 0]),
-            Err(DecodeError::InvalidByteLength {
-                len: 10,
-                expected: 8
-            })
+            Err(DecodeError::InvalidListFixedBytesLen(10))
         );
     }
 
@@ -565,14 +579,15 @@ mod tests {
     fn length_out_of_bounds() {
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[5, 0, 0, 0]),
-            Err(DecodeError::InvalidByteLength {
-                len: 5,
-                expected: 4
-            })
+            Err(DecodeError::OffsetOutOfBounds(5))
         );
         assert_eq!(
             <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 9, 0, 0, 0]),
-            Err(DecodeError::OutOfBoundsByte { i: 9 })
+            Err(DecodeError::OffsetOutOfBounds(9))
+        );
+        assert_eq!(
+            <Vec<Vec<u16>>>::from_ssz_bytes(&[8, 0, 0, 0, 16, 0, 0, 0]),
+            Err(DecodeError::OffsetOutOfBounds(16))
         );
     }
 

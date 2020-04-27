@@ -1,5 +1,5 @@
 use crate::service::NetworkMessage;
-use crate::sync::SyncMessage;
+use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
     AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
     BlockProcessingOutcome, GossipVerifiedBlock,
@@ -22,34 +22,6 @@ use types::{
 /// If a block is more than `FUTURE_SLOT_TOLERANCE` slots ahead of our slot clock, we drop it.
 /// Otherwise we queue it.
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
-
-/// Keeps track of syncing information for known connected peers.
-#[derive(Clone, Copy, Debug)]
-pub struct PeerSyncInfo {
-    fork_digest: [u8; 4],
-    pub finalized_root: Hash256,
-    pub finalized_epoch: Epoch,
-    pub head_root: Hash256,
-    pub head_slot: Slot,
-}
-
-impl From<StatusMessage> for PeerSyncInfo {
-    fn from(status: StatusMessage) -> PeerSyncInfo {
-        PeerSyncInfo {
-            fork_digest: status.fork_digest,
-            finalized_root: status.finalized_root,
-            finalized_epoch: status.finalized_epoch,
-            head_root: status.head_root,
-            head_slot: status.head_slot,
-        }
-    }
-}
-
-impl PeerSyncInfo {
-    pub fn from_chain<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>) -> Option<PeerSyncInfo> {
-        Some(Self::from(status_message(chain)?))
-    }
-}
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -173,7 +145,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Process a `Status` response from a peer.
     pub fn on_status_response(&mut self, peer_id: PeerId, status: StatusMessage) {
-        trace!(
+        debug!(
             self.log,
             "Received Status Response";
             "peer" => format!("{:?}", peer_id),
@@ -490,9 +462,18 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// across the network.
     pub fn should_forward_block(
         &mut self,
+        peer_id: &PeerId,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
-        self.chain.verify_block_for_gossip(*block)
+        let result = self.chain.verify_block_for_gossip(*block.clone());
+
+        if let Err(BlockError::ParentUnknown(block_hash)) = result {
+            // if we don't know the parent, start a parent lookup
+            // TODO: Modify the return to avoid the block clone.
+            debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => format!("{}", block_hash));
+            self.send_to_sync(SyncMessage::UnknownBlock(peer_id.clone(), block));
+        }
+        result
     }
 
     /// Process a gossip message declaring a new block.
@@ -534,7 +515,8 @@ impl<T: BeaconChainTypes> Processor<T> {
                 }
                 BlockProcessingOutcome::ParentUnknown { .. } => {
                     // Inform the sync manager to find parents for this block
-                    debug!(self.log, "Block with unknown parent received";
+                    // This should not occur. It should be checked by `should_forward_block`
+                    error!(self.log, "Block with unknown parent attempted to be processed";
                             "peer_id" => format!("{:?}",peer_id));
                     self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
                 }
