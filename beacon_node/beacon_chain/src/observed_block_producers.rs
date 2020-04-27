@@ -60,7 +60,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
             .items
             .write()
             .entry(block.slot)
-            .or_insert_with(|| HashSet::new())
+            .or_insert_with(|| HashSet::with_capacity(E::SlotsPerEpoch::to_usize()))
             .insert(block.proposer_index);
 
         Ok(!did_not_exist)

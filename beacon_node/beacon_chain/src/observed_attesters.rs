@@ -8,7 +8,7 @@
 
 use bitvec::vec::BitVec;
 use parking_lot::RwLock;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{Attestation, Epoch, EthSpec, Unsigned};
 
@@ -138,7 +138,7 @@ impl Item for EpochHashSet {
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
 pub struct AutoPruningContainer<T, E: EthSpec> {
     lowest_permissible_epoch: RwLock<Epoch>,
-    items: RwLock<Vec<T>>,
+    items: RwLock<HashMap<Epoch, T>>,
     _phantom: PhantomData<E>,
 }
 
@@ -146,14 +146,15 @@ impl<T, E: EthSpec> Default for AutoPruningContainer<T, E> {
     fn default() -> Self {
         Self {
             lowest_permissible_epoch: RwLock::new(Epoch::new(0)),
-            items: RwLock::new(vec![]),
+            items: RwLock::new(HashMap::new()),
             _phantom: PhantomData,
         }
     }
 }
 
 impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
-    /// Observe that `validator_index` has produced attestation `a`.
+    /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
+    /// previously been observed for `validator_index`.
     ///
     /// ## Errors
     ///
@@ -164,17 +165,37 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         a: &Attestation<E>,
         validator_index: usize,
     ) -> Result<bool, Error> {
-        if validator_index > E::ValidatorRegistryLimit::to_usize() {
-            return Err(Error::ValidatorIndexTooHigh(validator_index));
+        self.sanitize_request(a, validator_index)?;
+
+        let epoch = a.data.target.epoch;
+
+        self.prune(epoch);
+
+        let mut items = self.items.write();
+
+        if let Some(item) = items.get_mut(&epoch) {
+            Ok(item.insert(validator_index))
+        } else {
+            // To avoid re-allocations, try and determine a rough initial capacity for the new item
+            // by obtaining the mean size of all items in earlier epoch.
+            let (count, sum) = items
+                .iter()
+                // Only include epochs that are less than the given slot in the average. This should
+                // generally avoid including recent epochs that are still "filling up".
+                .filter(|(item_epoch, _item)| **item_epoch < epoch)
+                .map(|(_epoch, item)| item.len())
+                .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
+
+            // If we can't determine an initial capacity, just choose 128 since it's reasonable for
+            // the aggregator hashset.
+            let initial_capacity = sum.checked_div(count).unwrap_or(128);
+
+            let mut item = T::with_capacity(epoch, initial_capacity);
+            item.insert(validator_index);
+            items.insert(epoch, item);
+
+            Ok(false)
         }
-
-        let index = self.get_items_index(a.data.target.epoch)?;
-
-        self.items
-            .write()
-            .get_mut(index)
-            .ok_or_else(|| Error::InvalidBitfieldIndex(index))
-            .map(|item| item.insert(validator_index))
     }
 
     /// Returns `Ok(true)` if the `validator_index` has produced an attestation conflicting with
@@ -189,17 +210,32 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         a: &Attestation<E>,
         validator_index: usize,
     ) -> Result<bool, Error> {
+        self.sanitize_request(a, validator_index)?;
+
+        let exists = self
+            .items
+            .read()
+            .get(&a.data.target.epoch)
+            .map_or(false, |item| item.contains(validator_index));
+
+        Ok(exists)
+    }
+
+    fn sanitize_request(&self, a: &Attestation<E>, validator_index: usize) -> Result<(), Error> {
         if validator_index > E::ValidatorRegistryLimit::to_usize() {
             return Err(Error::ValidatorIndexTooHigh(validator_index));
         }
 
-        let index = self.get_items_index(a.data.target.epoch)?;
+        let epoch = a.data.target.epoch;
+        let lowest_permissible_epoch: Epoch = *self.lowest_permissible_epoch.read();
+        if epoch < lowest_permissible_epoch {
+            return Err(Error::EpochTooLow {
+                epoch,
+                lowest_permissible_epoch,
+            });
+        }
 
-        self.items
-            .read()
-            .get(index)
-            .ok_or_else(|| Error::InvalidBitfieldIndex(index))
-            .map(|item| item.contains(validator_index))
+        Ok(())
     }
 
     /// The maximum number of epochs stored in `self`.
@@ -220,13 +256,14 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_epoch = current_epoch - (self.max_capacity().saturating_sub(1));
 
+        *self.lowest_permissible_epoch.write() = lowest_permissible_epoch;
+
         self.items
             .write()
-            .retain(|bitfield| bitfield.epoch() >= lowest_permissible_epoch);
-
-        *self.lowest_permissible_epoch.write() = lowest_permissible_epoch;
+            .retain(|epoch, _item| *epoch >= lowest_permissible_epoch);
     }
 
+    /*
     /// Returns the index of `self.items` that corresponds to `epoch`, creating it if it doesn't
     /// exist.
     fn get_items_index(&self, epoch: Epoch) -> Result<usize, Error> {
@@ -281,6 +318,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
 
         Ok(index)
     }
+    */
 }
 
 #[cfg(test)]
@@ -383,7 +421,7 @@ mod tests {
                             .items
                             .read()
                             .iter()
-                            .map(|set| set.epoch)
+                            .map(|(epoch, _set)| *epoch)
                             .collect::<Vec<_>>();
 
                         assert!(
@@ -429,7 +467,7 @@ mod tests {
                             .items
                             .read()
                             .iter()
-                            .map(|b| b.epoch())
+                            .map(|(epoch, _)| *epoch)
                             .collect::<Vec<_>>();
 
                         store_epochs.sort_unstable();
