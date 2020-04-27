@@ -3,7 +3,7 @@ use clap::ArgMatches;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, warn, Logger};
+use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
 use std::fs::File;
@@ -64,6 +64,12 @@ pub fn get_config<E: EthSpec>(
     fs::create_dir_all(&client_config.data_dir)
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
+    // logs the chosen data directory
+    let mut log_dir = client_config.data_dir.clone();
+    // remove /beacon from the end
+    log_dir.pop();
+    info!(log, "Data directory initialised"; "datadir" => format!("{}",log_dir.into_os_string().into_string().expect("Datadir should be a valid os string")));
+
     // Load the client config, if it exists .
     let config_file_path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
     let config_file_existed = config_file_path.exists();
@@ -108,6 +114,13 @@ pub fn get_config<E: EthSpec>(
         client_config.network.discovery_port = port;
     }
 
+    if let Some(port_str) = cli_args.value_of("discovery-port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
+        client_config.network.discovery_port = port;
+    }
+
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
         client_config.network.boot_nodes = boot_enr_str
             .split(',')
@@ -126,22 +139,45 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
-    if let Some(topics_str) = cli_args.value_of("topics") {
-        client_config.network.topics = topics_str.split(',').map(|s| s.into()).collect();
-    }
-
-    if let Some(discovery_address_str) = cli_args.value_of("discovery-address") {
-        client_config.network.discovery_address = Some(
-            discovery_address_str
+    if let Some(enr_address_str) = cli_args.value_of("enr-address") {
+        client_config.network.enr_address = Some(
+            enr_address_str
                 .parse()
-                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?,
+                .map_err(|_| format!("Invalid discovery address: {:?}", enr_address_str))?,
         )
     }
 
-    if let Some(disc_port_str) = cli_args.value_of("disc-port") {
-        client_config.network.discovery_port = disc_port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid discovery port: {}", disc_port_str))?;
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
+        client_config.network.enr_udp_port = Some(
+            enr_udp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+        client_config.network.enr_tcp_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if cli_args.is_present("enr-match") {
+        // set the enr address to localhost if the address is 0.0.0.0
+        if client_config.network.listen_address
+            == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr")
+        {
+            client_config.network.enr_address =
+                Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        } else {
+            client_config.network.enr_address = Some(client_config.network.listen_address);
+        }
+        client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
+    }
+
+    if cli_args.is_present("disable_enr_auto_update") {
+        client_config.network.discv5_config.enr_update = false;
     }
 
     if let Some(p2p_priv_key) = cli_args.value_of("p2p-priv-key") {
@@ -271,8 +307,8 @@ pub fn get_config<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
-            client_config.network.discovery_address = None
+        if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
+            client_config.network.enr_address = None
         }
         client_config.network.libp2p_port =
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
@@ -280,16 +316,6 @@ pub fn get_config<E: EthSpec>(
             unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.rest_api.port = 0;
         client_config.websocket_server.port = 0;
-    }
-
-    // ENR IP needs to be explicit for node to be discoverable
-    if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
-        warn!(
-            log,
-            "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
-        );
-        client_config.network.discovery_address =
-            Some("127.0.0.1".parse().expect("Valid IP address"))
     }
 
     /*

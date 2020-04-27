@@ -1,16 +1,17 @@
 use crate::{
-    advanced, beacon, consensus, error::ApiError, helpers, metrics, network, node, spec, validator,
-    BoxFut, NetworkChannel,
+    advanced, beacon, consensus, error::ApiError, helpers, lighthouse, metrics, network, node,
+    spec, validator, BoxFut, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use client_network::Service as NetworkService;
 use eth2_config::Eth2Config;
+use eth2_libp2p::NetworkGlobals;
 use futures::{Future, IntoFuture};
 use hyper::{Body, Error, Method, Request, Response};
 use slog::debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use types::Slot;
 
 fn into_boxfut<F: IntoFuture + 'static>(item: F) -> BoxFut
 where
@@ -25,8 +26,8 @@ where
 pub fn route<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_service: Arc<NetworkService<T>>,
-    network_channel: NetworkChannel,
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    network_channel: NetworkChannel<T::EthSpec>,
     eth2_config: Arc<Eth2Config>,
     local_log: slog::Logger,
     db_path: PathBuf,
@@ -44,27 +45,37 @@ pub fn route<T: BeaconChainTypes>(
             // Methods for Client
             (&Method::GET, "/node/version") => into_boxfut(node::get_version(req)),
             (&Method::GET, "/node/syncing") => {
-                into_boxfut(helpers::implementation_pending_response(req))
+                // inform the current slot, or set to 0
+                let current_slot = beacon_chain
+                    .head_info()
+                    .map(|info| info.slot)
+                    .unwrap_or_else(|_| Slot::from(0u64));
+
+                into_boxfut(node::syncing::<T::EthSpec>(
+                    req,
+                    network_globals,
+                    current_slot,
+                ))
             }
 
             // Methods for Network
             (&Method::GET, "/network/enr") => {
-                into_boxfut(network::get_enr::<T>(req, network_service))
+                into_boxfut(network::get_enr::<T>(req, network_globals))
             }
             (&Method::GET, "/network/peer_count") => {
-                into_boxfut(network::get_peer_count::<T>(req, network_service))
+                into_boxfut(network::get_peer_count::<T>(req, network_globals))
             }
             (&Method::GET, "/network/peer_id") => {
-                into_boxfut(network::get_peer_id::<T>(req, network_service))
+                into_boxfut(network::get_peer_id::<T>(req, network_globals))
             }
             (&Method::GET, "/network/peers") => {
-                into_boxfut(network::get_peer_list::<T>(req, network_service))
+                into_boxfut(network::get_peer_list::<T>(req, network_globals))
             }
             (&Method::GET, "/network/listen_port") => {
-                into_boxfut(network::get_listen_port::<T>(req, network_service))
+                into_boxfut(network::get_listen_port::<T>(req, network_globals))
             }
             (&Method::GET, "/network/listen_addresses") => {
-                into_boxfut(network::get_listen_addresses::<T>(req, network_service))
+                into_boxfut(network::get_listen_addresses::<T>(req, network_globals))
             }
 
             // Methods for Beacon Node
@@ -124,6 +135,9 @@ pub fn route<T: BeaconChainTypes>(
                 drop(timer);
                 into_boxfut(response)
             }
+            (&Method::POST, "/validator/subscribe") => {
+                validator::post_validator_subscriptions::<T>(req, network_channel)
+            }
             (&Method::GET, "/validator/duties/all") => {
                 into_boxfut(validator::get_all_validator_duties::<T>(req, beacon_chain))
             }
@@ -147,10 +161,22 @@ pub fn route<T: BeaconChainTypes>(
                 drop(timer);
                 into_boxfut(response)
             }
-            (&Method::POST, "/validator/attestation") => {
-                validator::publish_attestation::<T>(req, beacon_chain, network_channel, log)
+            (&Method::GET, "/validator/aggregate_attestation") => {
+                into_boxfut(validator::get_aggregate_attestation::<T>(req, beacon_chain))
+            }
+            (&Method::POST, "/validator/attestations") => {
+                validator::publish_attestations::<T>(req, beacon_chain, network_channel, log)
+            }
+            (&Method::POST, "/validator/aggregate_and_proofs") => {
+                validator::publish_aggregate_and_proofs::<T>(
+                    req,
+                    beacon_chain,
+                    network_channel,
+                    log,
+                )
             }
 
+            // Methods for consensus
             (&Method::GET, "/consensus/global_votes") => {
                 into_boxfut(consensus::get_vote_count::<T>(req, beacon_chain))
             }
@@ -177,7 +203,6 @@ pub fn route<T: BeaconChainTypes>(
             (&Method::GET, "/advanced/operation_pool") => {
                 into_boxfut(advanced::get_operation_pool::<T>(req, beacon_chain))
             }
-
             (&Method::GET, "/metrics") => into_boxfut(metrics::get_prometheus::<T>(
                 req,
                 beacon_chain,
@@ -185,6 +210,16 @@ pub fn route<T: BeaconChainTypes>(
                 freezer_db_path,
             )),
 
+            // Lighthouse specific
+            (&Method::GET, "/lighthouse/syncing") => {
+                into_boxfut(lighthouse::syncing::<T::EthSpec>(req, network_globals))
+            }
+            (&Method::GET, "/lighthouse/peers") => {
+                into_boxfut(lighthouse::peers::<T::EthSpec>(req, network_globals))
+            }
+            (&Method::GET, "/lighthouse/connected_peers") => into_boxfut(
+                lighthouse::connected_peers::<T::EthSpec>(req, network_globals),
+            ),
             _ => Box::new(futures::future::err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
             ))),

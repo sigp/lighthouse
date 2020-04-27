@@ -105,7 +105,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     .duration_since(UNIX_EPOCH)
                     .into_future()
                     .map_err(|e| format!("Unable to read system time: {:?}", e))
-                    .and_then(move |now| {
+                    .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(move |now| {
                         let log = log_3.clone();
                         let genesis = Duration::from_secs(genesis_time);
 
@@ -114,9 +114,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         //
                         // If the validator client starts before genesis, it will get errors from
                         // the slot clock.
-                        let box_future: Box<dyn Future<Item = _, Error = _> + Send> = if now
-                            < genesis
-                        {
+                        if now < genesis {
                             info!(
                                 log,
                                 "Starting node prior to genesis";
@@ -138,9 +136,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                             );
 
                             Box::new(future::ok((beacon_node, remote_eth2_config, genesis_time)))
-                        };
-
-                        box_future
+                        }
                     })
             })
             .and_then(|(beacon_node, eth2_config, genesis_time)| {
