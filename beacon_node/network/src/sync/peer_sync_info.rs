@@ -7,7 +7,6 @@ use std::ops::Sub;
 use std::sync::Arc;
 use types::{Epoch, Hash256, Slot};
 
-///
 /// Keeps track of syncing information for known connected peers.
 #[derive(Clone, Copy, Debug)]
 pub struct PeerSyncInfo {
@@ -66,7 +65,7 @@ impl PeerSyncInfo {
             PeerSyncType::FullySynced
         }
         // if not, check if the peer is ahead of our chain
-        else if self.is_ahead_peer(remote_peer_sync_info) {
+        else if self.is_advanced_peer(remote_peer_sync_info) {
             PeerSyncType::Advanced
         } else {
             // the peer must be behind and not useful
@@ -102,7 +101,7 @@ impl PeerSyncInfo {
     /// 1) The peer could have a head slot that is greater
     /// than SLOT_IMPORT_TOLERANCE of our current head.
     /// 2) The peer has a greater finalized slot/epoch than our own.
-    fn is_ahead_peer(&self, remote: &PeerSyncInfo) -> bool {
+    fn is_advanced_peer(&self, remote: &PeerSyncInfo) -> bool {
         if remote.head_slot.sub(self.head_slot).as_usize() > SLOT_IMPORT_TOLERANCE
             || self.finalized_epoch < remote.finalized_epoch
         {
