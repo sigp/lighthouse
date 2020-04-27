@@ -190,10 +190,24 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     pub fn should_process_attestation(
         &mut self,
         _message_id: &MessageId,
-        _peer_id: &PeerId,
-        _subnet: &SubnetId,
-        _attestation: &Attestation<T::EthSpec>,
+        peer_id: &PeerId,
+        subnet: &SubnetId,
+        attestation: &Attestation<T::EthSpec>,
     ) -> bool {
+        // verify the attestation is on the correct subnet
+        let expected_subnet = match attestation.subnet_id(&self.beacon_chain.spec) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(self.log, "Could not obtain attestation subnet_id"; "error" => format!("{:?}", e));
+                return false;
+            }
+        };
+
+        if expected_subnet != *subnet {
+            warn!(self.log, "Received an attestation on the wrong subnet"; "subnet_received" => format!("{:?}", subnet), "subnet_expected" => format!("{:?}",expected_subnet), "peer_id" => format!("{}", peer_id));
+            return false;
+        }
+
         // TODO: Correctly handle validation aggregator checks
         true
     }
