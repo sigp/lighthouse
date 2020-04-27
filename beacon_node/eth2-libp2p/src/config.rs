@@ -101,7 +101,7 @@ impl Default for Config {
         // parameter.
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
-            .heartbeat_interval(Duration::from_secs(20)) // TODO: Reduce for mainnet
+            .heartbeat_interval(Duration::from_secs(1))
             .manual_propagation() // require validation before propagation
             .no_source_id()
             .message_id_fn(gossip_message_id)
