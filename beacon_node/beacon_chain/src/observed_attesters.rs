@@ -21,8 +21,6 @@ pub enum Error {
         epoch: Epoch,
         lowest_permissible_epoch: Epoch,
     },
-    /// The function to obtain a set index failed, this is an internal error.
-    InvalidBitfieldIndex(usize),
     /// We have reached the maximum number of unique `Attestation` that can be observed in a slot.
     /// This is a DoS protection function.
     ReachedMaxObservationsPerSlot(usize),

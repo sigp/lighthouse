@@ -46,8 +46,6 @@ pub enum Error {
     /// stored. This indicates a fairly serious error somewhere in the code that called this
     /// function.
     InconsistentBitfieldLengths,
-    /// The function to obtain a map index failed, this is an internal error.
-    InvalidMapIndex(usize),
     /// The given `attestation` was for the incorrect slot. This is an internal error.
     IncorrectSlot { expected: Slot, attestation: Slot },
 }
@@ -56,14 +54,12 @@ pub enum Error {
 /// `attestation` are from the same slot.
 struct AggregatedAttestationMap<E: EthSpec> {
     map: HashMap<AttestationData, Attestation<E>>,
-    slot: Slot,
 }
 
 impl<E: EthSpec> AggregatedAttestationMap<E> {
-    /// Create an empty collection that will only contain attestation for the given `slot`.
-    pub fn new(slot: Slot, initial_capacity: usize) -> Self {
+    /// Create an empty collection with the given `initial_capacity`.
+    pub fn new(initial_capacity: usize) -> Self {
         Self {
-            slot,
             map: HashMap::with_capacity(initial_capacity),
         }
     }
@@ -73,13 +69,6 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     /// The given attestation (`a`) must only have one signature and be from the slot that `self`
     /// was initialized with.
     pub fn insert(&mut self, a: &Attestation<E>) -> Result<InsertOutcome, Error> {
-        if a.data.slot != self.slot {
-            return Err(Error::IncorrectSlot {
-                expected: self.slot,
-                attestation: a.data.slot,
-            });
-        }
-
         let set_bits = a
             .aggregation_bits
             .iter()
@@ -124,13 +113,6 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     ///
     /// The given `a.data.slot` must match the slot that `self` was initialized with.
     pub fn get(&self, data: &AttestationData) -> Result<Option<Attestation<E>>, Error> {
-        if data.slot != self.slot {
-            return Err(Error::IncorrectSlot {
-                expected: self.slot,
-                attestation: data.slot,
-            });
-        }
-
         Ok(self.map.get(data).cloned())
     }
 
@@ -162,14 +144,14 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
 /// receives and it can be triggered manually.
 pub struct NaiveAggregationPool<E: EthSpec> {
     lowest_permissible_slot: RwLock<Slot>,
-    maps: RwLock<Vec<AggregatedAttestationMap<E>>>,
+    maps: RwLock<HashMap<Slot, AggregatedAttestationMap<E>>>,
 }
 
 impl<E: EthSpec> Default for NaiveAggregationPool<E> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: RwLock::new(Slot::new(0)),
-            maps: RwLock::new(vec![]),
+            maps: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -183,28 +165,46 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     /// The pool may be pruned if the given `attestation.data` has a slot higher than any
     /// previously seen.
     pub fn insert(&self, attestation: &Attestation<E>) -> Result<InsertOutcome, Error> {
+        let slot = attestation.data.slot;
         let lowest_permissible_slot = *self.lowest_permissible_slot.read();
 
         // Reject any attestations that are too old.
-        if attestation.data.slot < lowest_permissible_slot {
+        if slot < lowest_permissible_slot {
             return Err(Error::SlotTooLow {
-                slot: attestation.data.slot,
+                slot,
                 lowest_permissible_slot,
             });
         }
 
-        // Prune the pool if this attestation indicates that the current slot has advanced.
-        if (lowest_permissible_slot + SLOTS_RETAINED as u64) < attestation.data.slot + 1 {
-            self.prune(attestation.data.slot)
-        }
+        let mut maps = self.maps.write();
 
-        let index = self.get_map_index(attestation.data.slot);
+        let outcome = if let Some(map) = maps.get_mut(&slot) {
+            map.insert(attestation)
+        } else {
+            // To avoid re-allocations, try and determine a rough initial capacity for the new item
+            // by obtaining the mean size of all items in earlier epoch.
+            let (count, sum) = maps
+                .iter()
+                // Only include epochs that are less than the given slot in the average. This should
+                // generally avoid including recent epochs that are still "filling up".
+                .filter(|(map_slot, _item)| **map_slot < slot)
+                .map(|(_slot, map)| map.len())
+                .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
 
-        self.maps
-            .write()
-            .get_mut(index)
-            .ok_or_else(|| Error::InvalidMapIndex(index))?
-            .insert(attestation)
+            // Use the mainnet default committee size if we can't determine an average.
+            let initial_capacity = sum.checked_div(count).unwrap_or(128);
+
+            let mut item = AggregatedAttestationMap::new(initial_capacity);
+            let outcome = item.insert(attestation);
+            maps.insert(slot, item);
+
+            outcome
+        };
+
+        drop(maps);
+        self.prune(slot);
+
+        outcome
     }
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
@@ -212,8 +212,8 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         self.maps
             .read()
             .iter()
-            .find(|map| map.slot == data.slot)
-            .map(|map| map.get(data))
+            .find(|(slot, _map)| **slot == data.slot)
+            .map(|(_slot, map)| map.get(data))
             .unwrap_or_else(|| Ok(None))
     }
 
@@ -222,53 +222,26 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     pub fn prune(&self, current_slot: Slot) {
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_slot = current_slot - Slot::from(SLOTS_RETAINED);
-
-        self.maps
-            .write()
-            .retain(|map| map.slot >= lowest_permissible_slot);
-
         *self.lowest_permissible_slot.write() = lowest_permissible_slot;
-    }
-
-    /// Returns the index of `self.maps` that matches `slot`.
-    ///
-    /// If there is no existing map for this slot one will be created. If `self.maps.len() >=
-    /// SLOTS_RETAINED`, the map with the lowest slot will be replaced.
-    fn get_map_index(&self, slot: Slot) -> usize {
         let mut maps = self.maps.write();
 
-        if let Some(index) = maps.iter().position(|map| map.slot == slot) {
-            return index;
+        // Remove any maps that are definitely expired.
+        maps.retain(|slot, _map| *slot >= lowest_permissible_slot);
+
+        // If we have too many maps, remove the lowest amount to ensure we only have
+        // `SLOTS_RETAINED` left.
+        if maps.len() > SLOTS_RETAINED {
+            let mut slots = maps.iter().map(|(slot, _map)| *slot).collect::<Vec<_>>();
+            // Sort is generally pretty slow, however `SLOTS_RETAINED` is quite low so it should be
+            // negligible.
+            slots.sort_unstable();
+            slots
+                .into_iter()
+                .take(maps.len().saturating_sub(SLOTS_RETAINED))
+                .for_each(|slot| {
+                    maps.remove(&slot);
+                })
         }
-
-        // To avoid re-allocations, try and determine a rough initial capacity for the new bitfield
-        // by obtaining the mean size of all items in earlier epoch.
-        let (count, sum) = maps
-            .iter()
-            // Only include slots that are less than the given slot in the average. This should
-            // generally avoid including recent slots that are still "filling up".
-            .filter(|map| map.slot < slot)
-            .map(|map| map.len())
-            .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
-        // If we are unable to determine an average, just use 8 as a stab in the dark.
-        let initial_capacity = sum.checked_div(count).unwrap_or(8);
-
-        if maps.len() < SLOTS_RETAINED || maps.is_empty() {
-            let index = maps.len();
-            maps.push(AggregatedAttestationMap::new(slot, initial_capacity));
-            return index;
-        }
-
-        let index = maps
-            .iter()
-            .enumerate()
-            .min_by_key(|(_i, map)| map.slot)
-            .map(|(i, _map)| i)
-            .expect("maps cannot be empty due to previous .is_empty() check");
-
-        maps[index] = AggregatedAttestationMap::new(slot, initial_capacity);
-
-        index
     }
 }
 
@@ -448,7 +421,7 @@ mod tests {
                     .maps
                     .read()
                     .iter()
-                    .map(|map| map.slot)
+                    .map(|(slot, _map)| *slot)
                     .collect::<Vec<_>>();
 
                 pool_slots.sort_unstable();
