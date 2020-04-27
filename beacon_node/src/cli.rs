@@ -99,6 +99,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 does not auto-update based on PONG responses in discovery. \
                 Set this only if you are sure other nodes can connect to your local node on this address. \
                 Discovery will automatically find your external address,if possible.")
+                .requires("enr-udp-port")
                 .takes_value(true),
         )
         .arg(
