@@ -30,18 +30,25 @@ pub enum Error {
     ValidatorIndexTooHigh(usize),
 }
 
+/// Implemented on an item in an `AutoPruningContainer`.
 pub trait Item {
+    /// Instantiate `Self` with the given `capacity`.
     fn with_capacity(epoch: Epoch, capacity: usize) -> Self;
 
+    /// Returns the `Epoch` that `Self` was instantiated with.
     fn epoch(&self) -> Epoch;
 
+    /// Returns the number of validator indices stored in `self`.
     fn len(&self) -> usize;
 
+    /// Store `validator_index` in `self`.
     fn insert(&mut self, validator_index: usize) -> bool;
 
+    /// Returns `true` if `validator_index` has been stored in `self`.
     fn contains(&self, validator_index: usize) -> bool;
 }
 
+/// Stores a `BitVec` that represents which validator indices have attested during an `epoch`.
 pub struct EpochBitfield {
     bitfield: BitVec,
     epoch: Epoch,
@@ -89,6 +96,8 @@ impl Item for EpochBitfield {
     }
 }
 
+/// Stores a `HashSet` of which validator indices have created an aggregate attestation during an
+/// `epoch`.
 pub struct EpochHashSet {
     set: HashSet<usize>,
     epoch: Epoch,
@@ -119,6 +128,14 @@ impl Item for EpochHashSet {
     }
 }
 
+/// A container that stores some number of `T` items.
+///
+/// This container is "auto-pruning" since it gets an idea of the current slot by which
+/// attestations are provided to it and prunes old entries based upon that. For example, if
+/// `Self::max_capacity == 32` and an attestation with `a.data.target.epoch` is supplied, then all
+/// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
+///
+/// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
 pub struct AutoPruningContainer<T, E: EthSpec> {
     lowest_permissible_epoch: RwLock<Epoch>,
     items: RwLock<Vec<T>>,
@@ -136,6 +153,12 @@ impl<T, E: EthSpec> Default for AutoPruningContainer<T, E> {
 }
 
 impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
+    /// Observe that `validator_index` has produced attestation `a`.
+    ///
+    /// ## Errors
+    ///
+    /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
+    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
     pub fn observe_validator(
         &self,
         a: &Attestation<E>,
@@ -154,6 +177,13 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
             .map(|item| item.insert(validator_index))
     }
 
+    /// Returns `Ok(true)` if the `validator_index` has produced an attestation conflicting with
+    /// `a`.
+    ///
+    /// ## Errors
+    ///
+    /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
+    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
     pub fn validator_has_been_observed(
         &self,
         a: &Attestation<E>,
@@ -172,6 +202,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
             .map(|item| item.contains(validator_index))
     }
 
+    /// The maximum number of epochs stored in `self`.
     fn max_capacity(&self) -> u64 {
         // The current epoch and the previous epoch. This is sufficient whilst
         // GOSSIP_CLOCK_DISPARITY is 1/2 a slot or less:
@@ -180,6 +211,11 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         2
     }
 
+    /// Updates `self` with the current epoch, removing all attestations that become expired
+    /// relative to `Self::max_capacity`.
+    ///
+    /// Also sets `self.lowest_permissible_epoch` with relation to `current_epoch` and
+    /// `Self::max_capacity`.
     pub fn prune(&self, current_epoch: Epoch) {
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_epoch = current_epoch - (self.max_capacity().saturating_sub(1));
@@ -191,6 +227,8 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         *self.lowest_permissible_epoch.write() = lowest_permissible_epoch;
     }
 
+    /// Returns the index of `self.items` that corresponds to `epoch`, creating it if it doesn't
+    /// exist.
     fn get_items_index(&self, epoch: Epoch) -> Result<usize, Error> {
         let lowest_permissible_epoch: Epoch = *self.lowest_permissible_epoch.read();
 

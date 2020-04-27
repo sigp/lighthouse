@@ -241,18 +241,17 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             return index;
         }
 
-        // To avoid re-allocations, try and determine a rough initial capacity for the new map by
-        // obtaining the mean size of all maps in earlier slots.
-        let initial_capacity = maps
+        // To avoid re-allocations, try and determine a rough initial capacity for the new bitfield
+        // by obtaining the mean size of all items in earlier epoch.
+        let (count, sum) = maps
             .iter()
             // Only include slots that are less than the given slot in the average. This should
             // generally avoid including recent slots that are still "filling up".
             .filter(|map| map.slot < slot)
             .map(|map| map.len())
-            .sum::<usize>()
-            .checked_div(maps.len())
-            // If we are unable to determine an average, just use 8 as a stab in the dark.
-            .unwrap_or_else(|| 8);
+            .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
+        // If we are unable to determine an average, just use 8 as a stab in the dark.
+        let initial_capacity = sum.checked_div(count).unwrap_or(8);
 
         if maps.len() < SLOTS_RETAINED || maps.is_empty() {
             let index = maps.len();

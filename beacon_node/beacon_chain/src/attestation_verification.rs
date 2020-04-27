@@ -55,11 +55,11 @@ use types::{
     RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot,
 };
 
-/// Returned when an attestation was not declared to be valid. It may not be found to be valid for
+/// Returned when an attestation was not successfully verified. It might not have been verified for
 /// two reasons:
 ///
 /// - The attestation is malformed or inappropriate for the context (indicated by all variants
-///   other than `BeaconChainError`.
+///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
 #[derive(Debug, PartialEq)]
@@ -70,7 +70,7 @@ pub enum Error {
         attestation_slot: Slot,
         latest_permissible_slot: Slot,
     },
-    /// The attestation is from a slot that is prior to the earliest permissible slolt (with
+    /// The attestation is from a slot that is prior to the earliest permissible slot (with
     /// respect to the gossip clock disparity).
     PastSlot {
         attestation_slot: Slot,
@@ -79,14 +79,10 @@ pub enum Error {
     /// The attestations aggregation bits were empty when they shouldn't be.
     EmptyAggregationBitfield,
     /// The `selection_proof` on the aggregate attestation does not elect it as an aggregator.
-    InvalidSelectionProof {
-        aggregator_index: u64,
-    },
+    InvalidSelectionProof { aggregator_index: u64 },
     /// The `selection_proof` on the aggregate attestation selects it as a validator, however the
     /// aggregator index is not in the committee for that attestation.
-    AggregatorNotInCommittee {
-        aggregator_index: u64,
-    },
+    AggregatorNotInCommittee { aggregator_index: u64 },
     /// The aggregator index refers to a validator index that we have not seen.
     AggregatorPubkeyUnknown(u64),
     /// The attestation has been seen before; either in a block, on the gossip network or from a
@@ -98,11 +94,9 @@ pub enum Error {
     /// The aggregator index is higher than the maximum possible validator count.
     ValidatorIndexTooHigh(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
-    UnknownHeadBlock {
-        beacon_block_root: Hash256,
-    },
-    /// The target epoch for the attestation is not in the same epoch as the slot it was produced
-    /// for.
+    UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch` and therefore
+    /// the attestation is invalid.
     BadTargetEpoch,
     /// The target root of the attestation points to a block that we have not verified.
     UnknownTargetRoot(Hash256),
@@ -110,16 +104,12 @@ pub enum Error {
     InvalidSignature,
     /// There is no committee for the slot and committee index of this attestation and the
     /// attestation should not have been produced.
-    NoCommitteeForSlotAndIndex {
-        slot: Slot,
-        index: CommitteeIndex,
-    },
+    NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
     /// The unaggregated attestation doesn't have only one aggregation bit set.
     NotExactlyOneAggregationBitSet(usize),
-    PriorAttestationKnown {
-        validator_index: u64,
-        epoch: Epoch,
-    },
+    /// We have already observed an attestation for the `validator_index` and refuse to process
+    /// another.
+    PriorAttestationKnown { validator_index: u64, epoch: Epoch },
     /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
     FutureEpoch {
         attestation_epoch: Epoch,
@@ -132,10 +122,7 @@ pub enum Error {
     },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
-    AttestsToFutureBlock {
-        block: Slot,
-        attestation: Slot,
-    },
+    AttestsToFutureBlock { block: Slot, attestation: Slot },
     /// The attestation failed the `state_processing` verification stage.
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
@@ -160,7 +147,7 @@ pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-/// Custom `Clone` implementation is to avoid the weird trait bounds applied by the usual derive
+/// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
 /// macro.
 impl<T: BeaconChainTypes> Clone for VerifiedUnaggregatedAttestation<T> {
     fn clone(&self) -> Self {
@@ -417,10 +404,10 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             });
         }
 
-        // The signature of attestation is valid.
+        // The aggregate signature of the attestation is valid.
         verify_attestation_signature(chain, &indexed_attestation)?;
 
-        // Now that the attestation has been full verified, note that we have received a valid
+        // Now that the attestation has been fully verified, store that we have received a valid
         // attestation from this validator.
         //
         // It's important to double check that the attestation still hasn't been observed, since
@@ -580,8 +567,6 @@ impl<T: BeaconChainTypes> ForkChoiceVerifiedAttestation<T> {
 /// Case (1) is the exact thing we're trying to detect. However case (2) is a little different, but
 /// it's still fine to reject here because there's no need for us to handle attestations that are
 /// already finalized.
-///
-/// TODO: will we trigger a parent lookup if someone sends us a finalized block??
 fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
@@ -601,7 +586,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// Verify that the `attestation` is within the acceptable gossip propagation range, with reference
 /// to the current slot of the `chain`.
 ///
-/// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`>
+/// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
 pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
@@ -774,6 +759,9 @@ pub fn obtain_indexed_attestation<T: BeaconChainTypes>(
 /// an attestation can be complex. It might involve reading straight from the
 /// `beacon_chain.shuffling_cache` or it might involve reading it from a state from the DB. Due to
 /// the complexities of `RwLock`s on the shuffling cache, a simple `Cow` isn't suitable here.
+///
+/// If the committee for `attestation` isn't found in the `shuffling_cache`, we will read a state
+/// from disk and then update the `shuffling_cache`.
 pub fn map_attestation_committee<'a, T, F, R>(
     chain: &'a BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
@@ -793,8 +781,6 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    //
-    // TODO: make sure this isn't too strict....
     let (target_block_slot, target_block_state_root) = chain
         .fork_choice
         .block_slot_and_state_root(&target.root)

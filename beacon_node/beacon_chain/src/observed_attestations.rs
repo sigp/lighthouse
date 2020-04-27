@@ -14,6 +14,10 @@ use types::{Attestation, EthSpec, Hash256, Slot};
 /// 8 byte hash) then this comes to about 20mb per slot. If we're storing 34 of these slots, then
 /// we're at 680mb. This is a lot of memory usage, but probably not a show-stopper for most
 /// reasonable hardware.
+///
+/// Upstream conditions should strongly restrict the amount of attestations that can show up in
+/// this pool. The maximum size with respect to upstream restrictions is more likely on the order
+/// of the number of validators.
 const MAX_OBSERVATIONS_PER_SLOT: usize = 1 << 19; // 524,288
 
 #[derive(Debug, PartialEq)]
@@ -41,6 +45,7 @@ pub enum Error {
     },
 }
 
+/// A `HashSet` that contains entries related to some `Slot`.
 struct SlotHashSet {
     set: HashSet<Hash256>,
     slot: Slot,
@@ -54,6 +59,7 @@ impl SlotHashSet {
         }
     }
 
+    /// Store the attestation in self so future observations recognise it's existence.
     pub fn observe_attestation<E: EthSpec>(
         &mut self,
         a: &Attestation<E>,
@@ -89,6 +95,7 @@ impl SlotHashSet {
         }
     }
 
+    /// Indicates if `a` has been observed before.
     pub fn is_known<E: EthSpec>(&self, a: &Attestation<E>, root: Hash256) -> Result<bool, Error> {
         if a.data.slot != self.slot {
             return Err(Error::IncorrectSlot {
@@ -100,11 +107,14 @@ impl SlotHashSet {
         Ok(self.set.contains(&root))
     }
 
+    /// The number of observed attestations in `self`.
     pub fn len(&self) -> usize {
         self.set.len()
     }
 }
 
+/// Stores the roots of `Attestation` objects for some number of `Slots`, so we can determine if
+/// these have previously been seen on the network.
 pub struct ObservedAttestations<E: EthSpec> {
     lowest_permissible_slot: RwLock<Slot>,
     sets: RwLock<Vec<SlotHashSet>>,
@@ -122,6 +132,9 @@ impl<E: EthSpec> Default for ObservedAttestations<E> {
 }
 
 impl<E: EthSpec> ObservedAttestations<E> {
+    /// Store the root of `a` in `self`.
+    ///
+    /// `root` must equal `a.tree_hash_root()`.
     pub fn observe_attestation(
         &self,
         a: &Attestation<E>,
@@ -137,6 +150,9 @@ impl<E: EthSpec> ObservedAttestations<E> {
             .and_then(|set| set.observe_attestation(a, root))
     }
 
+    /// Check to see if the `root` of `a` is in self.
+    ///
+    /// `root` must equal `a.tree_hash_root()`.
     pub fn is_known(&self, a: &Attestation<E>, root: Hash256) -> Result<bool, Error> {
         let index = self.get_set_index(a.data.slot)?;
 
@@ -147,6 +163,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
             .and_then(|set| set.is_known(a, root))
     }
 
+    /// The maximum number of slots that attestations are stored for.
     fn max_capacity(&self) -> u64 {
         // We add `2` in order to account for one slot either side of the range due to
         // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
@@ -191,20 +208,19 @@ impl<E: EthSpec> ObservedAttestations<E> {
             return Ok(index);
         }
 
-        // To avoid re-allocations, try and determine a rough initial capacity for the new set by
-        // obtaining the mean size of all sets in earlier slots.
-        let initial_capacity = sets
+        // To avoid re-allocations, try and determine a rough initial capacity for the new set
+        // by obtaining the mean size of all items in earlier epoch.
+        let (count, sum) = sets
             .iter()
             // Only include slots that are less than the given slot in the average. This should
             // generally avoid including recent slots that are still "filling up".
             .filter(|set| set.slot < slot)
             .map(|set| set.len())
-            .sum::<usize>()
-            .checked_div(sets.len())
-            // If we are unable to determine an average, just use 128 as it's the target committee
-            // size for the mainnet spec. This is perhaps a little wasteful for the minimal spec,
-            // but considering it's approx. 128 * 32 bytes we're not wasting much.
-            .unwrap_or_else(|| 128);
+            .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
+        // If we are unable to determine an average, just use 128 as it's the target committee
+        // size for the mainnet spec. This is perhaps a little wasteful for the minimal spec,
+        // but considering it's approx. 128 * 32 bytes we're not wasting much.
+        let initial_capacity = sum.checked_div(count).unwrap_or(128);
 
         if sets.len() < self.max_capacity() as usize || sets.is_empty() {
             let index = sets.len();

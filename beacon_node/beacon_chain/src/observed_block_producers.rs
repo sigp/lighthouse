@@ -47,7 +47,7 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     /// Observe that the `block` was produced by `block.proposer_index` at `block.slot`. This will
     /// update `self` so future calls to it indicate that this block is known.
     ///
-    /// The supplied _block_ **MUST** be signature verified (see struct-level documentation).
+    /// The supplied `block` **MUST** be signature verified (see struct-level documentation).
     ///
     /// ## Errors
     ///
