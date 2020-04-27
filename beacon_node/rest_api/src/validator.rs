@@ -512,13 +512,13 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
         )));
     }
 
-    let verified_attestation = beacon_chain
-        .add_to_naive_aggregation_pool(verified_attestation)
+    beacon_chain
+        .apply_attestation_to_fork_choice(&verified_attestation)
         .map_err(|e| {
             handle_attestation_error(
                 e,
                 &format!(
-                    "unaggregated attestation {} was unable to be added to aggregation pool",
+                    "unaggregated attestation {} was unable to be added to fork choice",
                     i
                 ),
                 data,
@@ -527,12 +527,12 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
         })?;
 
     beacon_chain
-        .apply_attestation_to_fork_choice(verified_attestation)
+        .add_to_naive_aggregation_pool(verified_attestation)
         .map_err(|e| {
             handle_attestation_error(
                 e,
                 &format!(
-                    "unaggregated attestation {} was unable to be added to fork choice",
+                    "unaggregated attestation {} was unable to be added to aggregation pool",
                     i
                 ),
                 data,
@@ -629,13 +629,13 @@ fn process_aggregated_attestation<T: BeaconChainTypes>(
         )));
     }
 
-    let verified_attestation = beacon_chain
-        .add_to_block_inclusion_pool(verified_attestation)
+    beacon_chain
+        .apply_attestation_to_fork_choice(&verified_attestation)
         .map_err(|e| {
             handle_attestation_error(
                 e,
                 &format!(
-                    "aggregated attestation {} was unable to be added to op pool",
+                    "aggregated attestation {} was unable to be added to fork choice",
                     i
                 ),
                 data,
@@ -644,12 +644,12 @@ fn process_aggregated_attestation<T: BeaconChainTypes>(
         })?;
 
     beacon_chain
-        .apply_attestation_to_fork_choice(verified_attestation)
+        .add_to_block_inclusion_pool(verified_attestation)
         .map_err(|e| {
             handle_attestation_error(
                 e,
                 &format!(
-                    "aggregated attestation {} was unable to be added to fork choice",
+                    "aggregated attestation {} was unable to be added to op pool",
                     i
                 ),
                 data,
