@@ -218,7 +218,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following two tests ensure:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * aggregate.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (with a
      * MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) -- i.e. aggregate.data.slot +
@@ -263,7 +263,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The block being voted for (aggregate.data.beacon_block_root) passes validation.
      */
@@ -284,7 +284,7 @@ fn aggregated_gossip_verification() {
     /*
      * This test ensures:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The aggregator signature, signed_aggregate_and_proof.signature, is valid.
      */
@@ -304,7 +304,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The aggregate_and_proof.selection_proof is a valid signature of the aggregate.data.slot by
      * the validator with index aggregate_and_proof.aggregator_index.
@@ -351,7 +351,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The signature of aggregate is valid.
      */
@@ -384,7 +384,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The aggregator's validator index is within the aggregate's committee -- i.e.
      * aggregate_and_proof.aggregator_index in get_attesting_indices(state, aggregate.data,
@@ -412,7 +412,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * aggregate_and_proof.selection_proof selects the validator as an aggregator for the slot --
      * i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
@@ -449,10 +449,10 @@ fn aggregated_gossip_verification() {
     /*
      * The following tests ensures:
      *
-     * NOTE: this is technically not part of the spec, see:
+     * NOTE: this is a slight deviation from the spec, see:
      * https://github.com/ethereum/eth2.0-specs/pull/1749
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The aggregate attestation defined by hash_tree_root(aggregate) has not already been seen
      * (via aggregate gossip, within a block, or through the creation of an equivalent aggregate
@@ -468,10 +468,10 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The aggregate is the first valid aggregate received for the aggregator with index
-     * aggregate_and_proof.aggregator_index for the slot aggregate.data.slot.
+     * aggregate_and_proof.aggregator_index for the epoch aggregate.data.target.epoch.
      */
 
     assert_invalid!(
@@ -534,7 +534,7 @@ fn unaggregated_gossip_verification() {
     /*
      * The following two tests ensure:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * attestation.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
      * MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) -- i.e. attestation.data.slot +
@@ -579,7 +579,7 @@ fn unaggregated_gossip_verification() {
     /*
      * The following two tests ensure:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The attestation is unaggregated -- that is, it has exactly one participating validator
      * (len([bit for bit in attestation.aggregation_bits if bit == 0b1]) == 1).
@@ -617,7 +617,7 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures that:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The block being voted for (attestation.data.beacon_block_root) passes validation.
      */
@@ -638,7 +638,7 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures that:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
      * The signature of attestation is valid.
      */
@@ -668,10 +668,11 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures that:
      *
-     * Spec v0.11.1
+     * Spec v0.11.2
      *
-     * The attestation is the first valid attestation received for the participating validator for
-     * the slot, attestation.data.slot.
+     *
+     * There has been no other valid attestation seen on an attestation subnet that has an
+     * identical attestation.data.target.epoch and participating validator index.
      */
 
     assert_invalid!(
