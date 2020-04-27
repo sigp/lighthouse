@@ -33,10 +33,10 @@ pub enum Error {
 /// Implemented on an item in an `AutoPruningContainer`.
 pub trait Item {
     /// Instantiate `Self` with the given `capacity`.
-    fn with_capacity(epoch: Epoch, capacity: usize) -> Self;
+    fn with_capacity(capacity: usize) -> Self;
 
-    /// Returns the `Epoch` that `Self` was instantiated with.
-    fn epoch(&self) -> Epoch;
+    /// The default capacity for self. Used when we can't guess a reasonable size.
+    fn default_capacity() -> usize;
 
     /// Returns the number of validator indices stored in `self`.
     fn len(&self) -> usize;
@@ -48,22 +48,21 @@ pub trait Item {
     fn contains(&self, validator_index: usize) -> bool;
 }
 
-/// Stores a `BitVec` that represents which validator indices have attested during an `epoch`.
+/// Stores a `BitVec` that represents which validator indices have attested during an epoch.
 pub struct EpochBitfield {
     bitfield: BitVec,
-    epoch: Epoch,
 }
 
 impl Item for EpochBitfield {
-    fn with_capacity(epoch: Epoch, capacity: usize) -> Self {
+    fn with_capacity(capacity: usize) -> Self {
         Self {
-            epoch,
             bitfield: BitVec::with_capacity(capacity),
         }
     }
 
-    fn epoch(&self) -> Epoch {
-        self.epoch
+    /// Uses a default size that equals the number of genesis validators.
+    fn default_capacity() -> usize {
+        16_384
     }
 
     fn len(&self) -> usize {
@@ -97,22 +96,22 @@ impl Item for EpochBitfield {
 }
 
 /// Stores a `HashSet` of which validator indices have created an aggregate attestation during an
-/// `epoch`.
+/// epoch.
 pub struct EpochHashSet {
     set: HashSet<usize>,
-    epoch: Epoch,
 }
 
 impl Item for EpochHashSet {
-    fn with_capacity(epoch: Epoch, capacity: usize) -> Self {
+    fn with_capacity(capacity: usize) -> Self {
         Self {
-            epoch,
             set: HashSet::with_capacity(capacity),
         }
     }
 
-    fn epoch(&self) -> Epoch {
-        self.epoch
+    /// Defaults to the target number of aggregators per committee (16) multiplied by the expected
+    /// max committee count (64).
+    fn default_capacity() -> usize {
+        16 * 64
     }
 
     fn len(&self) -> usize {
@@ -186,11 +185,9 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
                 .map(|(_epoch, item)| item.len())
                 .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
 
-            // If we can't determine an initial capacity, just choose 128 since it's reasonable for
-            // the aggregator hashset.
-            let initial_capacity = sum.checked_div(count).unwrap_or(128);
+            let initial_capacity = sum.checked_div(count).unwrap_or(T::default_capacity());
 
-            let mut item = T::with_capacity(epoch, initial_capacity);
+            let mut item = T::with_capacity(initial_capacity);
             item.insert(validator_index);
             items.insert(epoch, item);
 
@@ -262,63 +259,6 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
             .write()
             .retain(|epoch, _item| *epoch >= lowest_permissible_epoch);
     }
-
-    /*
-    /// Returns the index of `self.items` that corresponds to `epoch`, creating it if it doesn't
-    /// exist.
-    fn get_items_index(&self, epoch: Epoch) -> Result<usize, Error> {
-        let lowest_permissible_epoch: Epoch = *self.lowest_permissible_epoch.read();
-
-        if epoch < lowest_permissible_epoch {
-            return Err(Error::EpochTooLow {
-                epoch,
-                lowest_permissible_epoch,
-            });
-        }
-
-        // Prune the pool if this attestation indicates that the current slot has advanced.
-        if lowest_permissible_epoch + self.max_capacity() < epoch + 1 {
-            self.prune(epoch)
-        }
-
-        let mut items = self.items.write();
-
-        if let Some(index) = items.iter().position(|item| item.epoch() == epoch) {
-            return Ok(index);
-        }
-
-        // To avoid re-allocations, try and determine a rough initial capacity for the new bitfield
-        // by obtaining the mean size of all items in earlier epoch.
-        let (count, sum) = items
-            .iter()
-            // Only include slots that are less than the given slot in the average. This should
-            // generally avoid including recent slots that are still "filling up".
-            .filter(|item| item.epoch() < epoch)
-            .map(|item| item.len())
-            .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
-        // If we are unable to determine an average, just choose 16k as this is the amount of eth2
-        // genesis validators.
-        let initial_capacity = sum.checked_div(count).unwrap_or(128);
-        let new_item = T::with_capacity(epoch, initial_capacity);
-
-        if items.len() < self.max_capacity() as usize || items.is_empty() {
-            let index = items.len();
-            items.push(new_item);
-            return Ok(index);
-        }
-
-        let index = items
-            .iter()
-            .enumerate()
-            .min_by_key(|(_i, b)| b.epoch())
-            .map(|(i, _)| i)
-            .expect("items cannot be empty due to previous .is_empty() check");
-
-        items[index] = new_item;
-
-        Ok(index)
-    }
-    */
 }
 
 #[cfg(test)]
