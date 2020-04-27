@@ -290,6 +290,13 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                 return Err(Error::InvalidSelectionProof { aggregator_index });
             }
 
+            /*
+             * I have raised a PR that will likely get merged in v0.12.0:
+             *
+             * https://github.com/ethereum/eth2.0-specs/pull/1732
+             *
+             * If this PR gets merged, uncomment this code and remove the code below.
+             *
             if !committee
                 .committee
                 .iter()
@@ -297,10 +304,27 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
             {
                 return Err(Error::AggregatorNotInCommittee { aggregator_index });
             }
+            */
 
             get_indexed_attestation(committee.committee, &attestation)
                 .map_err(|e| BeaconChainError::from(e).into())
         })?;
+
+        // Ensure the aggregator is in the attestation.
+        //
+        // I've raised an issue with this here:
+        //
+        // https://github.com/ethereum/eth2.0-specs/pull/1732
+        //
+        // I suspect PR my will get merged in v0.12 and we'll need to delete this code and
+        // uncomment the code above.
+        if !indexed_attestation
+            .attesting_indices
+            .iter()
+            .any(|validator_index| *validator_index as u64 == aggregator_index)
+        {
+            return Err(Error::AggregatorNotInCommittee { aggregator_index });
+        }
 
         if !verify_signed_aggregate_signatures(chain, &signed_aggregate, &indexed_attestation)? {
             return Err(Error::InvalidSignature);
