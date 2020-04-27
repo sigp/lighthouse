@@ -1,8 +1,8 @@
+use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
-use exit_future::Signal;
+use eth2_libp2p::NetworkGlobals;
 use futures::{Future, Stream};
-use network::Service as NetworkService;
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -17,13 +17,10 @@ pub const WARN_PEER_COUNT: usize = 1;
 const SECS_PER_MINUTE: f64 = 60.0;
 const SECS_PER_HOUR: f64 = 3600.0;
 const SECS_PER_DAY: f64 = 86400.0; // non-leap
-const SECS_PER_WEEK: f64 = 604800.0; // non-leap
+const SECS_PER_WEEK: f64 = 604_800.0; // non-leap
 const DAYS_PER_WEEK: f64 = 7.0;
 const HOURS_PER_DAY: f64 = 24.0;
 const MINUTES_PER_HOUR: f64 = 60.0;
-
-/// How long to wait for the lock on `network.libp2p_service()` before we give up.
-const LIBP2P_LOCK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// The number of historical observations that should be used to determine the average sync time.
 const SPEEDO_OBSERVATIONS: usize = 4;
@@ -32,11 +29,12 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 pub fn spawn_notifier<T: BeaconChainTypes>(
     context: RuntimeContext<T::EthSpec>,
     beacon_chain: Arc<BeaconChain<T>>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
-) -> Result<Signal, String> {
+) -> Result<tokio::sync::oneshot::Sender<()>, String> {
     let log_1 = context.log.clone();
     let log_2 = context.log.clone();
+    let log_3 = context.log.clone();
 
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
@@ -59,25 +57,17 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         .for_each(move |_| {
             let log = log_2.clone();
 
-            let connected_peer_count = if let Some(libp2p) = network
-                .libp2p_service()
-                .try_lock_until(Instant::now() + LIBP2P_LOCK_TIMEOUT)
-            {
-                libp2p.swarm.connected_peers()
-            } else {
-                // Use max_value here and we'll print something pretty later.
-                usize::max_value()
-            };
+            let connected_peer_count = network.connected_peers();
+            let sync_state = network.sync_state();
 
-            let head = beacon_chain.head()
+            let head_info = beacon_chain.head_info()
                 .map_err(|e| error!(
                     log,
-                    "Failed to get beacon chain head";
+                    "Failed to get beacon chain head info";
                     "error" => format!("{:?}", e)
                 ))?;
 
-            let head_slot = head.beacon_block.slot;
-            let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
+            let head_slot = head_info.slot;
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
                     log,
@@ -86,12 +76,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 )
             })?;
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-            let finalized_epoch = head.beacon_state.finalized_checkpoint.epoch;
-            let finalized_root = head.beacon_state.finalized_checkpoint.root;
-            let head_root = head.beacon_block_root;
+            let finalized_epoch = head_info.finalized_checkpoint.epoch;
+            let finalized_root = head_info.finalized_checkpoint.root;
+            let head_root = head_info.block_root;
 
             let mut speedo = speedo.lock();
             speedo.observe(head_slot, Instant::now());
+
+            metrics::set_gauge(&metrics::SYNC_SLOTS_PER_SECOND, speedo.slots_per_second().unwrap_or_else(|| 0_f64) as i64);
 
             // The next two lines take advantage of saturating subtraction on `Slot`.
             let head_distance = current_slot - head_slot;
@@ -109,32 +101,40 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 "head_block" => format!("{}", head_root),
                 "head_slot" => head_slot,
                 "current_slot" => current_slot,
+                "sync_state" =>format!("{}", sync_state) 
             );
 
-            if head_epoch + 1 < current_epoch {
+
+            // Log if we are syncing
+            if sync_state.is_syncing() {
                 let distance = format!(
                     "{} slots ({})",
                     head_distance.as_u64(),
                     slot_distance_pretty(head_distance, slot_duration)
                 );
-
                 info!(
                     log,
                     "Syncing";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                    "distance" => distance,
                     "speed" => sync_speed_pretty(speedo.slots_per_second()),
-                    "distance" => distance
+                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                 );
-
-                return Ok(());
-            };
-
-            macro_rules! not_quite_synced_log {
-                ($message: expr) => {
+            } else {
+                if sync_state.is_synced() {
                     info!(
                         log_2,
-                        $message;
+                        "Synced";
+                        "peers" => peer_count_pretty(connected_peer_count),
+                        "finalized_root" => format!("{}", finalized_root),
+                        "finalized_epoch" => finalized_epoch,
+                        "epoch" => current_epoch,
+                        "slot" => current_slot,
+                    );
+                } else {
+                    info!(
+                        log_2,
+                        "Searching for peers";
                         "peers" => peer_count_pretty(connected_peer_count),
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
@@ -143,30 +143,25 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     );
                 }
             }
-
-            if head_epoch + 1 == current_epoch {
-                not_quite_synced_log!("Synced to previous epoch")
-            } else if head_slot != current_slot {
-                not_quite_synced_log!("Synced to current epoch")
-            } else {
-                info!(
-                    log_2,
-                    "Synced";
-                    "peers" => peer_count_pretty(connected_peer_count),
-                    "finalized_root" => format!("{}", finalized_root),
-                    "finalized_epoch" => finalized_epoch,
-                    "epoch" => current_epoch,
-                    "slot" => current_slot,
-                );
-            };
-
             Ok(())
-        });
+        })
+        .then(move |result| {
+            match result {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    error!(
+                    log_3,
+                    "Notifier failed to notify";
+                    "error" => format!("{:?}", e)
+                );
+                Ok(())
+            } } });
 
-    let (exit_signal, exit) = exit_future::signal();
+    let (exit_signal, exit) = tokio::sync::oneshot::channel();
+
     context
         .executor
-        .spawn(exit.until(interval_future).map(|_| ()));
+        .spawn(interval_future.select(exit).map(|_| ()).map_err(|_| ()));
 
     Ok(exit_signal)
 }

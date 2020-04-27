@@ -1,11 +1,13 @@
 use super::per_block_processing::{errors::BlockProcessingError, process_deposit};
+use crate::common::DepositDataTree;
+use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-use types::typenum::U4294967296;
+use types::DEPOSIT_TREE_DEPTH;
 use types::*;
 
 /// Initialize a `BeaconState` from genesis data.
 ///
-/// Spec v0.9.1
+/// Spec v0.11.1
 // TODO: this is quite inefficient and we probably want to rethink how we do this
 pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
@@ -13,8 +15,9 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     deposits: Vec<Deposit>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, BlockProcessingError> {
-    let genesis_time =
-        eth1_timestamp - eth1_timestamp % spec.seconds_per_day + 2 * spec.seconds_per_day;
+    let genesis_time = eth1_timestamp
+        .safe_sub(eth1_timestamp.safe_rem(spec.min_genesis_delay)?)?
+        .safe_add(2.safe_mul(spec.min_genesis_delay)?)?;
     let eth1_data = Eth1Data {
         // Temporary deposit root
         deposit_root: Hash256::zero(),
@@ -26,28 +29,30 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Seed RANDAO with Eth1 entropy
     state.fill_randao_mixes_with(eth1_block_hash);
 
-    // Process deposits
-    let leaves: Vec<_> = deposits
-        .iter()
-        .map(|deposit| deposit.data.clone())
-        .collect();
-    for (index, deposit) in deposits.into_iter().enumerate() {
-        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves[..=index].to_vec());
-        state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+    let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
+
+    for deposit in deposits.iter() {
+        deposit_tree
+            .push_leaf(deposit.data.tree_hash_root())
+            .map_err(BlockProcessingError::MerkleTreeError)?;
+        state.eth1_data.deposit_root = deposit_tree.root();
         process_deposit(&mut state, &deposit, spec, true)?;
     }
 
-    process_activations(&mut state, spec);
+    process_activations(&mut state, spec)?;
 
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
+
+    // Set genesis validators root for domain separation and chain versioning
+    state.genesis_validators_root = state.update_validators_tree_hash_cache()?;
 
     Ok(state)
 }
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
 ///
-/// Spec v0.9.1
+/// Spec v0.11.1
 pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
     state.genesis_time >= spec.min_genesis_time
         && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
@@ -56,12 +61,15 @@ pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSp
 
 /// Activate genesis validators, if their balance is acceptable.
 ///
-/// Spec v0.8.0
-pub fn process_activations<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) {
+/// Spec v0.11.1
+pub fn process_activations<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
     for (index, validator) in state.validators.iter_mut().enumerate() {
         let balance = state.balances[index];
         validator.effective_balance = std::cmp::min(
-            balance - balance % spec.effective_balance_increment,
+            balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
             spec.max_effective_balance,
         );
         if validator.effective_balance == spec.max_effective_balance {
@@ -69,4 +77,5 @@ pub fn process_activations<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainS
             validator.activation_epoch = T::genesis_epoch();
         }
     }
+    Ok(())
 }

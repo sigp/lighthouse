@@ -32,10 +32,8 @@ pub fn int_to_bytes3(int: u32) -> Option<Vec<u8>> {
 }
 
 /// Returns `int` as little-endian bytes with a length of 4.
-pub fn int_to_bytes4(int: u32) -> Vec<u8> {
-    let mut bytes = BytesMut::with_capacity(4);
-    bytes.put_u32_le(int);
-    bytes.to_vec()
+pub fn int_to_bytes4(int: u32) -> [u8; 4] {
+    int.to_le_bytes()
 }
 
 /// Returns `int` as little-endian bytes with a length of 8.
@@ -51,6 +49,14 @@ pub fn int_to_bytes32(int: u64) -> Vec<u8> {
     bytes.put_u64_le(int);
     bytes.resize(32, 0);
     bytes.to_vec()
+}
+
+/// Returns `int` as little-endian bytes with a length of 32.
+pub fn int_to_fixed_bytes32(int: u64) -> [u8; 32] {
+    let mut bytes = [0; 32];
+    let int_bytes = int.to_le_bytes();
+    bytes[0..int_bytes.len()].copy_from_slice(&int_bytes);
+    bytes
 }
 
 /// Returns `int` as little-endian bytes with a length of 48.
@@ -75,6 +81,13 @@ mod tests {
     use hex;
     use std::{fs::File, io::prelude::*, path::PathBuf};
     use yaml_rust::yaml;
+
+    #[test]
+    fn fixed_bytes32() {
+        for x in &[0, 1, 3, 256, 1024, 2943784] {
+            assert_eq!(&int_to_bytes32(*x), &int_to_fixed_bytes32(*x));
+        }
+    }
 
     #[test]
     fn int_to_bytes3_returns_none() {
@@ -113,7 +126,7 @@ mod tests {
                 1 => assert_eq!(int_to_bytes1(int as u8), bytes),
                 2 => assert_eq!(int_to_bytes2(int as u16), bytes),
                 3 => assert_eq!(int_to_bytes3(int as u32), Some(bytes)),
-                4 => assert_eq!(int_to_bytes4(int as u32), bytes),
+                4 => assert_eq!(&int_to_bytes4(int as u32)[..], &bytes[..]),
                 8 => assert_eq!(int_to_bytes8(int), bytes),
                 32 => assert_eq!(int_to_bytes32(int), bytes),
                 48 => assert_eq!(int_to_bytes48(int), bytes),

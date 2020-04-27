@@ -3,28 +3,34 @@
 extern crate lazy_static;
 
 mod beacon_chain;
+mod beacon_snapshot;
+mod block_verification;
 pub mod builder;
-mod checkpoint;
-mod checkpoint_cache;
 mod errors;
 pub mod eth1_chain;
 pub mod events;
 mod fork_choice;
 mod head_tracker;
 mod metrics;
+pub mod migrate;
+mod naive_aggregation_pool;
 mod persisted_beacon_chain;
+mod shuffling_cache;
+mod snapshot_cache;
 pub mod test_utils;
 mod timeout_rw_lock;
+mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
+    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes,
+    ChainSegmentResult, StateSkipConfig,
 };
-pub use self::checkpoint::CheckPoint;
+pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::errors::{BeaconChainError, BlockProductionError};
+pub use block_verification::{BlockError, BlockProcessingOutcome, GossipVerifiedBlock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::EventHandler;
 pub use fork_choice::ForkChoice;
-pub use lmd_ghost;
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;
 pub use slot_clock;

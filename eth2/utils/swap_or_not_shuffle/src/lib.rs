@@ -1,7 +1,7 @@
 //! Provides list-shuffling functions matching the Ethereum 2.0 specification.
 //!
 //! See
-//! [compute_shuffled_index](https://github.com/ethereum/eth2.0-specs/blob/v0.8.3/specs/core/0_beacon-chain.md#compute_shuffled_index)
+//! [compute_shuffled_index](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/specs/phase0/beacon-chain.md#compute_shuffled_index)
 //! for specifications.
 //!
 //! There are two functions exported by this crate:
@@ -19,3 +19,5 @@ mod shuffle_list;
 
 pub use compute_shuffled_index::compute_shuffled_index;
 pub use shuffle_list::shuffle_list;
+
+type Hash256 = ethereum_types::H256;

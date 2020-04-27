@@ -6,7 +6,6 @@ use crate::{
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
-use exit_future::Exit;
 use futures::{
     future::{loop_fn, Loop},
     stream, Future, Stream,
@@ -149,6 +148,20 @@ impl Service {
             }),
             log,
         }
+    }
+
+    /// Return byte representation of deposit and block caches.
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.inner.as_bytes()
+    }
+
+    /// Recover the deposit and block caches from encoded bytes.
+    pub fn from_bytes(bytes: &[u8], config: Config, log: Logger) -> Result<Self, String> {
+        let inner = Inner::from_bytes(bytes, config)?;
+        Ok(Self {
+            inner: Arc::new(inner),
+            log,
+        })
     }
 
     /// Provides access to the block cache.
@@ -300,7 +313,10 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn auto_update(&self, exit: Exit) -> impl Future<Item = (), Error = ()> {
+    pub fn auto_update(
+        &self,
+        exit: tokio::sync::oneshot::Receiver<()>,
+    ) -> impl Future<Item = (), Error = ()> {
         let service = self.clone();
         let log = self.log.clone();
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
@@ -316,13 +332,13 @@ impl Service {
                     match update_result {
                         Err(e) => error!(
                             log_a,
-                            "Failed to update eth1 genesis cache";
+                            "Failed to update eth1 cache";
                             "retry_millis" => update_interval.as_millis(),
                             "error" => e,
                         ),
                         Ok((deposit, block)) => debug!(
                             log_a,
-                            "Updated eth1 genesis cache";
+                            "Updated eth1 cache";
                             "retry_millis" => update_interval.as_millis(),
                             "blocks" => format!("{:?}", block),
                             "deposits" => format!("{:?}", deposit),
@@ -346,7 +362,7 @@ impl Service {
                 })
         });
 
-        exit.until(loop_future).map(|_: Option<()>| ())
+        loop_future.select(exit).map(|_| ()).map_err(|_| ())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
@@ -394,7 +410,7 @@ impl Service {
                         .map(|vec| {
                             let first = vec.first().cloned().unwrap_or_else(|| 0);
                             let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
-                            (first..last)
+                            first..last
                         })
                         .collect::<Vec<Range<u64>>>()
                 })
@@ -599,7 +615,7 @@ impl Service {
 
             Ok(BlockCacheUpdateOutcome::Success {
                 blocks_imported,
-                head_block_number: cache_4.clone().block_cache.read().highest_block_number(),
+                head_block_number: cache_4.block_cache.read().highest_block_number(),
             })
         })
     }

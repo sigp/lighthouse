@@ -1,3 +1,5 @@
+#![allow(clippy::integer_arithmetic)]
+
 #[macro_use]
 mod macros;
 mod builders;
@@ -12,4 +14,4 @@ pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
 pub use keypairs_file::KeypairsFile;
 pub use rand::{RngCore, SeedableRng};
 pub use rand_xorshift::XorShiftRng;
-pub use test_random::TestRandom;
+pub use test_random::{test_random_instance, TestRandom};

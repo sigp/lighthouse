@@ -1,6 +1,5 @@
 use crate::test_utils::{AttestationTestTask, TestingAttestationDataBuilder};
 use crate::*;
-use tree_hash::TreeHash;
 
 /// Builds an attestation to be used for testing purposes.
 ///
@@ -24,9 +23,8 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
 
         let mut aggregation_bits_len = committee.len();
 
-        match test_task {
-            AttestationTestTask::BadAggregationBitfieldLen => aggregation_bits_len += 1,
-            _ => (),
+        if test_task == AttestationTestTask::BadAggregationBitfieldLen {
+            aggregation_bits_len += 1
         }
 
         let mut aggregation_bits = BitList::with_capacity(aggregation_bits_len).unwrap();
@@ -57,6 +55,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         signing_validators: &[usize],
         secret_keys: &[&SecretKey],
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> &mut Self {
         assert_eq!(
@@ -72,31 +71,35 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
                 .position(|v| *v == *validator_index)
                 .expect("Signing validator not in attestation committee");
 
-            match test_task {
-                AttestationTestTask::BadIndexedAttestationBadSignature => (),
-                _ => {
-                    self.attestation
-                        .aggregation_bits
-                        .set(committee_index, true)
-                        .unwrap();
-                }
-            }
-
-            let message = self.attestation.data.tree_hash_root();
-
-            let domain = spec.get_domain(
-                self.attestation.data.target.epoch,
-                Domain::BeaconAttester,
-                fork,
-            );
-
             let index = if test_task == AttestationTestTask::BadSignature {
                 0
             } else {
                 key_index
             };
-            let signature = Signature::new(&message, domain, secret_keys[index]);
-            self.attestation.signature.add(&signature)
+
+            self.attestation
+                .sign(
+                    secret_keys[index],
+                    committee_index,
+                    fork,
+                    genesis_validators_root,
+                    spec,
+                )
+                .expect("can sign attestation");
+
+            self.attestation
+                .aggregation_bits
+                .set(committee_index, true)
+                .unwrap();
+        }
+
+        if test_task == AttestationTestTask::BadIndexedAttestationBadSignature {
+            // Flip an aggregation bit, to make the aggregate invalid
+            // (We also want to avoid making it completely empty)
+            self.attestation
+                .aggregation_bits
+                .set(0, !self.attestation.aggregation_bits.get(0).unwrap())
+                .unwrap();
         }
 
         self

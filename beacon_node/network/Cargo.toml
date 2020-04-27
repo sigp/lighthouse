@@ -1,17 +1,22 @@
 [package]
 name = "network"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dev-dependencies]
 sloggers = "0.3.4"
+genesis = { path = "../genesis" }
+tempdir = "0.3"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
+hashmap_delay = { path = "../../eth2/utils/hashmap_delay" }
+rest_types = { path = "../../eth2/utils/rest_types" }
 types = { path = "../../eth2/types" }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 hex = "0.3"
 eth2_ssz = "0.1.2"
@@ -24,3 +29,4 @@ smallvec = "1.0.0"
 # TODO: Remove rand crate for mainnet
 rand = "0.7.2"
 fnv = "1.0.6"
+rlp = "0.4.3"

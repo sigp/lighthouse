@@ -7,7 +7,9 @@
 //! some initial issues.
 mod ganache;
 
-use deposit_contract::{eth1_tx_data, testnet, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
+use deposit_contract::{
+    encode_eth1_tx_data, testnet, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS,
+};
 use futures::{future, stream, Future, IntoFuture, Stream};
 use ganache::GanacheInstance;
 use std::time::{Duration, Instant};
@@ -201,12 +203,12 @@ impl DepositContract {
                     gas_price: None,
                     value: Some(from_gwei(deposit_data.amount)),
                     // Note: the reason we use this `TransactionRequest` instead of just using the
-                    // function in `self.contract` is so that the `eth1_tx_data` function gets used
+                    // function in `self.contract` is so that the `encode_eth1_tx_data` function gets used
                     // during testing.
                     //
-                    // It's important that `eth1_tx_data` stays correct and does not suffer from
+                    // It's important that `encode_eth1_tx_data` stays correct and does not suffer from
                     // code-rot.
-                    data: eth1_tx_data(&deposit_data).map(Into::into).ok(),
+                    data: encode_eth1_tx_data(&deposit_data).map(Into::into).ok(),
                     nonce: None,
                     condition: None,
                 };

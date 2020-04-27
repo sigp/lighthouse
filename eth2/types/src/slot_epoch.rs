@@ -10,11 +10,10 @@
 //! implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
 //! may lead to programming errors which are not detected by the compiler.
 
-use crate::slot_height::SlotHeight;
 use crate::test_utils::TestRandom;
+use crate::SignedRoot;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use slog;
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::cmp::{Ord, Ordering};
 use std::fmt;
@@ -22,11 +21,11 @@ use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Slot(u64);
 
-#[derive(Eq, Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);
@@ -38,11 +37,7 @@ impl Slot {
     }
 
     pub fn epoch(self, slots_per_epoch: u64) -> Epoch {
-        Epoch::from(self.0 / slots_per_epoch)
-    }
-
-    pub fn height(self, genesis_slot: Slot) -> SlotHeight {
-        SlotHeight::from(self.0.saturating_sub(genesis_slot.as_u64()))
+        Epoch::from(self.0) / Epoch::from(slots_per_epoch)
     }
 
     pub fn max_value() -> Slot {
@@ -81,8 +76,8 @@ impl Epoch {
         let start = self.start_slot(slots_per_epoch);
         let end = self.end_slot(slots_per_epoch);
 
-        if (slot >= start) && (slot <= end) {
-            Some(slot.as_usize() - start.as_usize())
+        if slot >= start && slot <= end {
+            slot.as_usize().checked_sub(start.as_usize())
         } else {
             None
         }
@@ -96,6 +91,9 @@ impl Epoch {
         }
     }
 }
+
+impl SignedRoot for Epoch {}
+impl SignedRoot for Slot {}
 
 pub struct SlotIter<'a> {
     current_iteration: u64,
@@ -112,7 +110,7 @@ impl<'a> Iterator for SlotIter<'a> {
         } else {
             let start_slot = self.epoch.start_slot(self.slots_per_epoch);
             let previous = self.current_iteration;
-            self.current_iteration += 1;
+            self.current_iteration = self.current_iteration.checked_add(1)?;
             Some(start_slot + previous)
         }
     }

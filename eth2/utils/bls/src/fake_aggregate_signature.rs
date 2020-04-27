@@ -48,12 +48,7 @@ impl FakeAggregateSignature {
     }
 
     /// _Always_ returns `true`.
-    pub fn verify(
-        &self,
-        _msg: &[u8],
-        _domain: u64,
-        _aggregate_public_key: &FakeAggregatePublicKey,
-    ) -> bool {
+    pub fn verify(&self, _msg: &[u8], _aggregate_public_key: &FakeAggregatePublicKey) -> bool {
         true
     }
 
@@ -61,7 +56,6 @@ impl FakeAggregateSignature {
     pub fn verify_multiple(
         &self,
         _messages: &[&[u8]],
-        _domain: u64,
         _aggregate_public_keys: &[&FakeAggregatePublicKey],
     ) -> bool {
         true
@@ -127,7 +121,7 @@ mod tests {
         let keypair = Keypair::random();
 
         let mut original = FakeAggregateSignature::new();
-        original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
+        original.add(&Signature::new(&[42, 42], &keypair.sk));
 
         let bytes = ssz_encode(&original);
         let decoded = FakeAggregateSignature::from_ssz_bytes(&bytes).unwrap();

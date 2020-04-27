@@ -1,20 +1,16 @@
-use crate::{ApiError, ApiResult};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use crate::{ApiError, ApiResult, NetworkChannel};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
-use eth2_libp2p::GossipTopic;
 use eth2_libp2p::PubsubMessage;
 use hex;
 use http::header;
 use hyper::{Body, Request};
 use network::NetworkMessage;
-use parking_lot::RwLock;
-use ssz::{Decode, Encode};
-use std::sync::Arc;
+use ssz::Decode;
 use store::{iter::AncestorIter, Store};
-use tokio::sync::mpsc;
 use types::{
-    Attestation, BeaconBlock, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Signature, Slot,
+    Attestation, BeaconState, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
 /// Parse a slot.
@@ -49,7 +45,7 @@ pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
 /// Checks the provided request to ensure that the `content-type` header.
 ///
 /// The content-type header should either be omitted, in which case JSON is assumed, or it should
-/// explicity specify `application/json`. If anything else is provided, an error is returned.
+/// explicitly specify `application/json`. If anything else is provided, an error is returned.
 pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
     match req.headers().get(header::CONTENT_TYPE) {
         Some(h) if h == "application/json" => Ok(()),
@@ -61,24 +57,26 @@ pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> 
     }
 }
 
-/// Parse a signature from a `0x` preixed string.
-pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
+/// Parse an SSZ object from some hex-encoded bytes.
+///
+/// E.g., A signature is `"0x0000000000000000000000000000000000000000000000000000000000000000"`
+pub fn parse_hex_ssz_bytes<T: Decode>(string: &str) -> Result<T, ApiError> {
     const PREFIX: &str = "0x";
 
     if string.starts_with(PREFIX) {
         let trimmed = string.trim_start_matches(PREFIX);
         let bytes = hex::decode(trimmed)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature hex: {:?}", e)))?;
-        Signature::from_ssz_bytes(&bytes)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature bytes: {:?}", e)))
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ hex: {:?}", e)))?;
+        T::from_ssz_bytes(&bytes)
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ bytes: {:?}", e)))
     } else {
         Err(ApiError::BadRequest(
-            "Signature must have a 0x prefix".to_string(),
+            "Hex bytes must have a 0x prefix".to_string(),
         ))
     }
 }
 
-/// Parse a root from a `0x` preixed string.
+/// Parse a root from a `0x` prefixed string.
 ///
 /// E.g., `"0x0000000000000000000000000000000000000000000000000000000000000000"`
 pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
@@ -113,7 +111,7 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     }
 }
 
-/// Returns the root of the `BeaconBlock` in the canonical chain of `beacon_chain` at the given
+/// Returns the root of the `SignedBeaconBlock` in the canonical chain of `beacon_chain` at the given
 /// `slot`, if possible.
 ///
 /// May return a root for a previous slot, in the case of skip slots.
@@ -137,18 +135,12 @@ pub fn state_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
 ) -> Result<(Hash256, BeaconState<T::EthSpec>), ApiError> {
-    let head_state = &beacon_chain.head()?.beacon_state;
+    let head = beacon_chain.head()?;
 
-    if head_state.slot == slot {
-        // The request slot is the same as the best block (head) slot.
-
-        // I'm not sure if this `.clone()` will be optimized out. If not, it seems unnecessary.
-        Ok((
-            beacon_chain.head()?.beacon_state_root,
-            beacon_chain.head()?.beacon_state.clone(),
-        ))
+    if head.beacon_state.slot == slot {
+        Ok((head.beacon_state_root, head.beacon_state))
     } else {
-        let root = state_root_at_slot(beacon_chain, slot)?;
+        let root = state_root_at_slot(beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
 
         let state: BeaconState<T::EthSpec> = beacon_chain
             .store
@@ -167,6 +159,7 @@ pub fn state_at_slot<T: BeaconChainTypes>(
 pub fn state_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     slot: Slot,
+    config: StateSkipConfig,
 ) -> Result<Hash256, ApiError> {
     let head_state = &beacon_chain.head()?.beacon_state;
     let current_slot = beacon_chain
@@ -209,14 +202,19 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // Use `per_slot_processing` to advance the head state to the present slot,
         // assuming that all slots do not contain a block (i.e., they are skipped slots).
-        let mut state = beacon_chain.head()?.beacon_state.clone();
+        let mut state = beacon_chain.head()?.beacon_state;
         let spec = &T::EthSpec::default_spec();
+
+        let skip_state_root = match config {
+            StateSkipConfig::WithStateRoots => None,
+            StateSkipConfig::WithoutStateRoots => Some(Hash256::zero()),
+        };
 
         for _ in state.slot.as_u64()..slot.as_u64() {
             // Ensure the next epoch state caches are built in case of an epoch transition.
             state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-            state_processing::per_slot_processing(&mut state, None, spec)?;
+            state_processing::per_slot_processing(&mut state, skip_state_root, spec)?;
         }
 
         // Note: this is an expensive operation. Once the tree hash cache is implement it may be
@@ -232,18 +230,14 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    block: BeaconBlock<T::EthSpec>,
+    mut chan: NetworkChannel<T::EthSpec>,
+    block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic = GossipTopic::BeaconBlock;
-    let message = PubsubMessage::Block(block.as_ssz_bytes());
+    // send the block via SSZ encoding
+    let messages = vec![PubsubMessage::BeaconBlock(Box::new(block))];
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic.into()],
-        message,
-    }) {
+    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
             e
@@ -253,19 +247,50 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     Ok(())
 }
 
-pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    attestation: Attestation<T::EthSpec>,
+/// Publishes a raw un-aggregated attestation to the network.
+pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
+    mut chan: NetworkChannel<T::EthSpec>,
+    attestations: Vec<Attestation<T::EthSpec>>,
+    spec: &ChainSpec,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic = GossipTopic::BeaconAttestation;
-    let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
+    let messages = attestations
+        .into_iter()
+        .map(|attestation| {
+            // create the gossip message to send to the network
+            let subnet_id = attestation
+                .subnet_id(spec)
+                .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?;
 
-    // Publish the attestation to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic.into()],
-        message,
-    }) {
+            Ok(PubsubMessage::Attestation(Box::new((
+                subnet_id,
+                attestation,
+            ))))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+
+    // Publish the attestations to the p2p network via gossipsub.
+    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send new attestation to network: {:?}",
+            e
+        )));
+    }
+
+    Ok(())
+}
+
+/// Publishes an aggregated attestation to the network.
+pub fn publish_aggregate_attestations_to_network<T: BeaconChainTypes + 'static>(
+    mut chan: NetworkChannel<T::EthSpec>,
+    signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>,
+) -> Result<(), ApiError> {
+    let messages = signed_proofs
+        .into_iter()
+        .map(|signed_proof| PubsubMessage::AggregateAndProofAttestation(Box::new(signed_proof)))
+        .collect::<Vec<_>>();
+
+    // Publish the attestations to the p2p network via gossipsub.
+    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new attestation to network: {:?}",
             e

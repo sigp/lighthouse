@@ -1,4 +1,5 @@
 use crate::common::get_attesting_indices;
+use safe_arith::SafeArith;
 use types::*;
 
 /// Sets the boolean `var` on `self` to be true if it is true on `other`. Otherwise leaves `self`
@@ -12,7 +13,7 @@ macro_rules! set_self_if_other_is_true {
 }
 
 /// The information required to reward a block producer for including an attestation in a block.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct InclusionInfo {
     /// The distance between the attestation slot and the slot that attestation was included in a
     /// block.
@@ -43,7 +44,7 @@ impl InclusionInfo {
 }
 
 /// Information required to reward some validator during the current and previous epoch.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct ValidatorStatus {
     /// True if the validator has been slashed, ever.
     pub is_slashed: bool,
@@ -107,30 +108,64 @@ impl ValidatorStatus {
 
 /// The total effective balances for different sets of validators during the previous and current
 /// epochs.
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct TotalBalances {
+    /// The effective balance increment from the spec.
+    effective_balance_increment: u64,
     /// The total effective balance of all active validators during the _current_ epoch.
-    pub current_epoch: u64,
+    current_epoch: u64,
     /// The total effective balance of all active validators during the _previous_ epoch.
-    pub previous_epoch: u64,
+    previous_epoch: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch.
-    pub current_epoch_attesters: u64,
+    current_epoch_attesters: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
-    pub current_epoch_target_attesters: u64,
+    current_epoch_target_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch.
-    pub previous_epoch_attesters: u64,
+    previous_epoch_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _previous_ epoch.
-    pub previous_epoch_target_attesters: u64,
+    previous_epoch_target_attesters: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch and
     /// agreed with the state about the beacon block at the time of attestation.
-    pub previous_epoch_head_attesters: u64,
+    previous_epoch_head_attesters: u64,
+}
+
+// Generate a safe accessor for a balance in `TotalBalances`, as per spec `get_total_balance`.
+macro_rules! balance_accessor {
+    ($field_name:ident) => {
+        pub fn $field_name(&self) -> u64 {
+            std::cmp::max(self.effective_balance_increment, self.$field_name)
+        }
+    };
+}
+
+impl TotalBalances {
+    pub fn new(spec: &ChainSpec) -> Self {
+        Self {
+            effective_balance_increment: spec.effective_balance_increment,
+            current_epoch: 0,
+            previous_epoch: 0,
+            current_epoch_attesters: 0,
+            current_epoch_target_attesters: 0,
+            previous_epoch_attesters: 0,
+            previous_epoch_target_attesters: 0,
+            previous_epoch_head_attesters: 0,
+        }
+    }
+
+    balance_accessor!(current_epoch);
+    balance_accessor!(previous_epoch);
+    balance_accessor!(current_epoch_attesters);
+    balance_accessor!(current_epoch_target_attesters);
+    balance_accessor!(previous_epoch_attesters);
+    balance_accessor!(previous_epoch_target_attesters);
+    balance_accessor!(previous_epoch_head_attesters);
 }
 
 /// Summarised information about validator participation in the _previous and _current_ epochs of
 /// some `BeaconState`.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ValidatorStatuses {
     /// Information about each individual validator from the state's validator registry.
     pub statuses: Vec<ValidatorStatus>,
@@ -144,13 +179,13 @@ impl ValidatorStatuses {
     /// - Active validators
     /// - Total balances for the current and previous epochs.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.11.1
     pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
         let mut statuses = Vec::with_capacity(state.validators.len());
-        let mut total_balances = TotalBalances::default();
+        let mut total_balances = TotalBalances::new(spec);
 
         for (i, validator) in state.validators.iter().enumerate() {
             let effective_balance = state.get_effective_balance(i, spec)?;
@@ -164,12 +199,16 @@ impl ValidatorStatuses {
 
             if validator.is_active_at(state.current_epoch()) {
                 status.is_active_in_current_epoch = true;
-                total_balances.current_epoch += effective_balance;
+                total_balances
+                    .current_epoch
+                    .safe_add_assign(effective_balance)?;
             }
 
             if validator.is_active_at(state.previous_epoch()) {
                 status.is_active_in_previous_epoch = true;
-                total_balances.previous_epoch += effective_balance;
+                total_balances
+                    .previous_epoch
+                    .safe_add_assign(effective_balance)?;
             }
 
             statuses.push(status);
@@ -184,7 +223,7 @@ impl ValidatorStatuses {
     /// Process some attestations from the given `state` updating the `statuses` and
     /// `total_balances` fields.
     ///
-    /// Spec v0.9.1
+    /// Spec v0.11.1
     pub fn process_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
@@ -195,7 +234,9 @@ impl ValidatorStatuses {
             .iter()
             .chain(state.current_epoch_attestations.iter())
         {
-            let attesting_indices = get_attesting_indices(state, &a.data, &a.aggregation_bits)?;
+            let committee = state.get_beacon_committee(a.data.slot, a.data.index)?;
+            let attesting_indices =
+                get_attesting_indices::<T>(committee.committee, &a.aggregation_bits)?;
 
             let mut status = ValidatorStatus::default();
 
@@ -219,10 +260,10 @@ impl ValidatorStatuses {
 
                 if target_matches_epoch_start_block(a, state, state.previous_epoch())? {
                     status.is_previous_epoch_target_attester = true;
-                }
 
-                if has_common_beacon_block_root(a, state)? {
-                    status.is_previous_epoch_head_attester = true;
+                    if has_common_beacon_block_root(a, state)? {
+                        status.is_previous_epoch_head_attester = true;
+                    }
                 }
             }
 
@@ -239,19 +280,29 @@ impl ValidatorStatuses {
                 let validator_balance = state.get_effective_balance(index, spec)?;
 
                 if v.is_current_epoch_attester {
-                    self.total_balances.current_epoch_attesters += validator_balance;
+                    self.total_balances
+                        .current_epoch_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_current_epoch_target_attester {
-                    self.total_balances.current_epoch_target_attesters += validator_balance;
+                    self.total_balances
+                        .current_epoch_target_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_previous_epoch_attester {
-                    self.total_balances.previous_epoch_attesters += validator_balance;
+                    self.total_balances
+                        .previous_epoch_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_previous_epoch_target_attester {
-                    self.total_balances.previous_epoch_target_attesters += validator_balance;
+                    self.total_balances
+                        .previous_epoch_target_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
                 if v.is_previous_epoch_head_attester {
-                    self.total_balances.previous_epoch_head_attesters += validator_balance;
+                    self.total_balances
+                        .previous_epoch_head_attesters
+                        .safe_add_assign(validator_balance)?;
                 }
             }
         }
@@ -263,7 +314,7 @@ impl ValidatorStatuses {
 /// Returns `true` if the attestation's FFG target is equal to the hash of the `state`'s first
 /// beacon block in the given `epoch`.
 ///
-/// Spec v0.9.1
+/// Spec v0.11.1
 fn target_matches_epoch_start_block<T: EthSpec>(
     a: &PendingAttestation<T>,
     state: &BeaconState<T>,
@@ -278,7 +329,7 @@ fn target_matches_epoch_start_block<T: EthSpec>(
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
 /// the current slot of the `PendingAttestation`.
 ///
-/// Spec v0.9.1
+/// Spec v0.11.1
 fn has_common_beacon_block_root<T: EthSpec>(
     a: &PendingAttestation<T>,
     state: &BeaconState<T>,

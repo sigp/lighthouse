@@ -383,7 +383,8 @@ impl Eth1GenesisService {
                         .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
                 })?;
 
-            process_activations(&mut local_state, spec);
+            process_activations(&mut local_state, spec)
+                .map_err(|e| format!("Error whilst processing activations: {:?}", e))?;
             let is_valid = is_valid_genesis_state(&local_state, spec);
 
             trace!(

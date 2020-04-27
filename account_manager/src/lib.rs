@@ -1,4 +1,5 @@
 mod cli;
+mod deposits;
 
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
@@ -6,7 +7,7 @@ use environment::{Environment, RuntimeContext};
 use eth2_testnet_config::Eth2TestnetConfig;
 use futures::{future, Future, IntoFuture, Stream};
 use rayon::prelude::*;
-use slog::{crit, error, info, Logger};
+use slog::{error, info, Logger};
 use std::fs;
 use std::fs::File;
 use std::io::Read;
@@ -21,20 +22,8 @@ use web3::{
 
 pub use cli::cli_app;
 
-/// Run the account manager, logging an error if the operation did not succeed.
-pub fn run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) {
-    let log = env.core_context().log.clone();
-    match run_account_manager(matches, env) {
-        Ok(()) => (),
-        Err(e) => crit!(log, "Account manager failed"; "error" => e),
-    }
-}
-
 /// Run the account manager, returning an error if the operation did not succeed.
-fn run_account_manager<T: EthSpec>(
-    matches: &ArgMatches,
-    mut env: Environment<T>,
-) -> Result<(), String> {
+pub fn run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Result<(), String> {
     let context = env.core_context();
     let log = context.log.clone();
 
@@ -60,6 +49,7 @@ fn run_account_manager<T: EthSpec>(
 
     match matches.subcommand() {
         ("validator", Some(matches)) => match matches.subcommand() {
+            ("deposited", Some(matches)) => deposits::cli_run(matches, env)?,
             ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, env)?,
             _ => {
                 return Err("Invalid 'validator new' command. See --help.".to_string());
@@ -87,8 +77,52 @@ fn run_new_validator_subcommand<T: EthSpec>(
     datadir: PathBuf,
     mut env: Environment<T>,
 ) -> Result<(), String> {
-    let context = env.core_context();
+    let mut context = env.core_context();
     let log = context.log.clone();
+
+    // Load the testnet configuration from disk, or use the default testnet.
+    let eth2_testnet_config: Eth2TestnetConfig<T> =
+        if let Some(testnet_dir_str) = matches.value_of("testnet-dir") {
+            let testnet_dir = testnet_dir_str
+                .parse::<PathBuf>()
+                .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
+
+            if !testnet_dir.exists() {
+                return Err(format!(
+                    "Testnet directory at {:?} does not exist",
+                    testnet_dir
+                ));
+            }
+
+            info!(
+                log,
+                "Loading deposit contract address";
+                "testnet_dir" => format!("{:?}", &testnet_dir)
+            );
+
+            Eth2TestnetConfig::load(testnet_dir.clone())
+                .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
+        } else {
+            info!(
+                log,
+                "Using Lighthouse testnet deposit contract";
+            );
+
+            Eth2TestnetConfig::hard_coded()
+                .map_err(|e| format!("Failed to load hard_coded testnet dir: {}", e))?
+        };
+
+    context.eth2_config.spec = eth2_testnet_config
+        .yaml_config
+        .as_ref()
+        .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+        .apply_to_chain_spec::<T>(&context.eth2_config.spec)
+        .ok_or_else(|| {
+            format!(
+                "The loaded config is not compatible with the {} spec",
+                &context.eth2_config.spec_constants
+            )
+        })?;
 
     let methods: Vec<KeygenMethod> = match matches.subcommand() {
         ("insecure", Some(matches)) => {
@@ -130,6 +164,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
         &methods,
         deposit_value,
         &context.eth2_config.spec,
+        &log,
     )?;
 
     if matches.is_present("send-deposits") {
@@ -155,7 +190,7 @@ fn run_new_validator_subcommand<T: EthSpec>(
                     })
                     .map(|password| {
                         // Trim the line feed from the end of the password file, if present.
-                        if password.ends_with("\n") {
+                        if password.ends_with('\n') {
                             password[0..password.len() - 1].to_string()
                         } else {
                             password
@@ -171,39 +206,6 @@ fn run_new_validator_subcommand<T: EthSpec>(
             "Submitting validator deposits";
             "eth1_node_http_endpoint" => eth1_endpoint
         );
-
-        // Load the testnet configuration from disk, or use the default testnet.
-        let eth2_testnet_config: Eth2TestnetConfig<T> = if let Some(testnet_dir_str) =
-            matches.value_of("testnet-dir")
-        {
-            let testnet_dir = testnet_dir_str
-                .parse::<PathBuf>()
-                .map_err(|e| format!("Unable to parse testnet-dir: {}", e))?;
-
-            if !testnet_dir.exists() {
-                return Err(format!(
-                    "Testnet directory at {:?} does not exist",
-                    testnet_dir
-                ));
-            }
-
-            info!(
-                log,
-                "Loading deposit contract address";
-                "testnet_dir" => format!("{:?}", &testnet_dir)
-            );
-
-            Eth2TestnetConfig::load(testnet_dir.clone())
-                .map_err(|e| format!("Failed to load testnet dir at {:?}: {}", testnet_dir, e))?
-        } else {
-            info!(
-                log,
-                "Using Lighthouse testnet deposit contract";
-            );
-
-            Eth2TestnetConfig::hard_coded()
-                .map_err(|e| format!("Failed to load hard_coded testnet dir: {}", e))?
-        };
 
         // Convert from `types::Address` to `web3::types::Address`.
         let deposit_contract = Address::from_slice(
@@ -249,6 +251,7 @@ fn make_validators(
     methods: &[KeygenMethod],
     deposit_value: u64,
     spec: &ChainSpec,
+    log: &Logger,
 ) -> Result<Vec<ValidatorDirectory>, String> {
     methods
         .par_iter()
@@ -262,11 +265,25 @@ fn make_validators(
                 KeygenMethod::ThreadRandom => builder.thread_random_keypairs(),
             };
 
-            builder
+            let validator = builder
                 .create_directory(datadir.clone())?
                 .write_keypair_files()?
                 .write_eth1_data_file()?
-                .build()
+                .build()?;
+
+            let pubkey = &validator
+                .voting_keypair
+                .as_ref()
+                .ok_or_else(|| "Generated validator must have voting keypair".to_string())?
+                .pk;
+
+            info!(
+                log,
+                "Saved new validator to disk";
+                "voting_pubkey" => format!("{:?}", pubkey)
+            );
+
+            Ok(validator)
         })
         .collect()
 }
@@ -321,7 +338,7 @@ fn deposit_validators<E: EthSpec>(
                 .map(|_| event_loop)
         })
         // Web3 gives errors if the event loop is dropped whilst performing requests.
-        .map(|event_loop| drop(event_loop))
+        .map(drop)
 }
 
 /// For the given `ValidatorDirectory`, submit a deposit transaction to the `web3` node.
@@ -351,7 +368,7 @@ fn deposit_validator(
         .into_future()
         .and_then(move |(voting_keypair, deposit_data)| {
             let pubkey_1 = voting_keypair.pk.clone();
-            let pubkey_2 = voting_keypair.pk.clone();
+            let pubkey_2 = voting_keypair.pk;
 
             let web3_1 = web3.clone();
             let web3_2 = web3.clone();
@@ -405,7 +422,7 @@ fn deposit_validator(
                         to: Some(deposit_contract),
                         gas: Some(U256::from(DEPOSIT_GAS)),
                         gas_price: None,
-                        value: Some(U256::from(from_gwei(deposit_amount))),
+                        value: Some(from_gwei(deposit_amount)),
                         data: Some(deposit_data.into()),
                         nonce: None,
                         condition: None,

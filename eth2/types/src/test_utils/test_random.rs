@@ -1,5 +1,7 @@
 use crate::*;
 use rand::RngCore;
+use rand::SeedableRng;
+use rand_xorshift::XorShiftRng;
 use ssz_types::typenum::Unsigned;
 
 mod address;
@@ -11,6 +13,11 @@ mod public_key_bytes;
 mod secret_key;
 mod signature;
 mod signature_bytes;
+
+pub fn test_random_instance<T: TestRandom>() -> T {
+    let mut rng = XorShiftRng::from_seed([0x42; 16]);
+    T::random_for_test(&mut rng)
+}
 
 pub trait TestRandom {
     fn random_for_test(rng: &mut impl RngCore) -> Self;

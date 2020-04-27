@@ -10,33 +10,32 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod block_at_slot;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
 mod errors;
 mod forwards_iter;
-mod hot_cold_store;
+pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
 mod metrics;
 mod partial_beacon_state;
+mod state_batch;
 
 pub mod iter;
-pub mod migrate;
 
 use std::sync::Arc;
 
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::HotColdDB as DiskStore;
+pub use self::hot_cold_store::{HotColdDB as DiskStore, HotStateSummary};
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
-pub use self::migrate::Migrate;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
+pub use state_batch::StateBatch;
 pub use types::*;
 
 /// An object capable of storing and retrieving objects implementing `StoreItem`.
@@ -79,8 +78,34 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         I::db_delete(self, key)
     }
 
+    /// Store a block in the store.
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
+        self.put(block_root, &block)
+    }
+
+    /// Fetch a block from the store.
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        self.get(block_root)
+    }
+
+    /// Delete a block from the store.
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
+        self.delete::<SignedBeaconBlock<E>>(block_root)
+    }
+
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
+
+    /// Store a state summary in the store.
+    // NOTE: this is a hack for the HotColdDb, we could consider splitting this
+    // trait and removing the generic `S: Store` types everywhere?
+    fn put_state_summary(
+        &self,
+        state_root: &Hash256,
+        summary: HotStateSummary,
+    ) -> Result<(), Error> {
+        summary.db_put(self, state_root).map_err(Into::into)
+    }
 
     /// Fetch a state from the store.
     fn get_state(
@@ -89,21 +114,23 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error>;
 
-    /// Given the root of an existing block in the store (`start_block_root`), return a parent
-    /// block with the specified `slot`.
-    ///
-    /// Returns `None` if no parent block exists at that slot, or if `slot` is greater than the
-    /// slot of `start_block_root`.
-    fn get_block_at_preceeding_slot(
+    /// Fetch a state from the store, controlling which cache fields are cloned.
+    fn get_state_with(
         &self,
-        start_block_root: Hash256,
-        slot: Slot,
-    ) -> Result<Option<(Hash256, BeaconBlock<E>)>, Error> {
-        block_at_slot::get_block_at_preceeding_slot::<_, E>(self, slot, start_block_root)
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        // Default impl ignores config. Overriden in `HotColdDb`.
+        self.get_state(state_root, slot)
+    }
+
+    /// Delete a state from the store.
+    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error> {
+        self.key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())
     }
 
     /// (Optionally) Move all data before the frozen slot to the freezer database.
-    fn freeze_to_state(
+    fn process_finalization(
         _store: Arc<Self>,
         _frozen_head_root: Hash256,
         _frozen_head: &BeaconState<E>,
@@ -128,6 +155,29 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         end_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Self::ForwardsBlockRootsIterator;
+
+    /// Load the most recent ancestor state of `state_root` which lies on an epoch boundary.
+    ///
+    /// If `state_root` corresponds to an epoch boundary state, then that state itself should be
+    /// returned.
+    fn load_epoch_boundary_state(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        // The default implementation is not very efficient, but isn't used in prod.
+        // See `HotColdDB` for the optimized implementation.
+        if let Some(state) = self.get_state(state_root, None)? {
+            let epoch_boundary_slot = state.slot / E::slots_per_epoch() * E::slots_per_epoch();
+            if state.slot == epoch_boundary_slot {
+                Ok(Some(state))
+            } else {
+                let epoch_boundary_state_root = state.get_state_root(epoch_boundary_slot)?;
+                self.get_state(epoch_boundary_state_root, Some(epoch_boundary_slot))
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// A unique column identifier.
@@ -137,15 +187,20 @@ pub enum DBColumn {
     BeaconMeta,
     BeaconBlock,
     BeaconState,
+    /// For persisting in-memory state to the database.
     BeaconChain,
+    OpPool,
+    Eth1Cache,
+    ForkChoice,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
-    /// For the mapping from state roots to their slots.
-    BeaconStateSlot,
+    /// For the mapping from state roots to their slots or summaries.
+    BeaconStateSummary,
     BeaconBlockRoots,
     BeaconStateRoots,
     BeaconHistoricalRoots,
     BeaconRandaoMixes,
+    DhtEnrs,
 }
 
 impl Into<&'static str> for DBColumn {
@@ -156,12 +211,16 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
             DBColumn::BeaconChain => "bch",
+            DBColumn::OpPool => "opo",
+            DBColumn::Eth1Cache => "etc",
+            DBColumn::ForkChoice => "frk",
             DBColumn::BeaconRestorePoint => "brp",
-            DBColumn::BeaconStateSlot => "bss",
+            DBColumn::BeaconStateSummary => "bss",
             DBColumn::BeaconBlockRoots => "bbr",
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",
             DBColumn::BeaconRandaoMixes => "brm",
+            DBColumn::DhtEnrs => "dht",
         }
     }
 }
@@ -290,13 +349,12 @@ mod tests {
 
         let hot_dir = tempdir().unwrap();
         let cold_dir = tempdir().unwrap();
-        let slots_per_restore_point = MinimalEthSpec::slots_per_historical_root() as u64;
         let spec = MinimalEthSpec::default_spec();
         let log = NullLoggerBuilder.build().unwrap();
         let store = DiskStore::open(
             &hot_dir.path(),
             &cold_dir.path(),
-            slots_per_restore_point,
+            StoreConfig::default(),
             spec,
             log,
         )

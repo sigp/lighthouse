@@ -2,6 +2,7 @@ use ethereum_types::H256;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 
+#[allow(clippy::zero_prefixed_literal)]
 mod round_trip {
     use super::*;
 
@@ -151,7 +152,7 @@ mod round_trip {
 
         assert_eq!(
             VariableLen::from_ssz_bytes(&bytes),
-            Err(DecodeError::OutOfBoundsByte { i: 9 })
+            Err(DecodeError::OffsetIntoFixedPortion(9))
         );
     }
 
@@ -181,7 +182,7 @@ mod round_trip {
 
         assert_eq!(
             VariableLen::from_ssz_bytes(&bytes),
-            Err(DecodeError::OutOfBoundsByte { i: 11 })
+            Err(DecodeError::OffsetSkipsVariableBytes(11))
         );
     }
 
@@ -283,7 +284,7 @@ mod round_trip {
 
         assert_eq!(
             ThreeVariableLen::from_ssz_bytes(&bytes),
-            Err(DecodeError::OutOfBoundsByte { i: 14 })
+            Err(DecodeError::OffsetsAreDecreasing(14))
         );
     }
 

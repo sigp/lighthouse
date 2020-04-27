@@ -1,0 +1,14 @@
+[package]
+name = "timer"
+version = "0.2.0"
+authors = ["Age Manning <Age@AgeManning.com>"]
+edition = "2018"
+
+[dependencies]
+beacon_chain =  { path = "../beacon_chain" }
+types = { path = "../../eth2/types" }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
+tokio = "0.1.22"
+slog = "2.5.2"
+parking_lot = "0.10.0"
+futures = "0.1.29"

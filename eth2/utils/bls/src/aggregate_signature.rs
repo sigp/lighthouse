@@ -32,9 +32,12 @@ impl AggregateSignature {
 
     /// Add (aggregate) a signature to the `AggregateSignature`.
     pub fn add(&mut self, signature: &Signature) {
-        if !self.is_empty {
-            self.aggregate_signature.add(signature.as_raw())
+        if self.is_empty {
+            self.aggregate_signature = RawAggregateSignature::new();
+            self.is_empty = false;
         }
+
+        self.aggregate_signature.add(signature.as_raw())
     }
 
     /// Add (aggregate) another `AggregateSignature`.
@@ -47,17 +50,12 @@ impl AggregateSignature {
     ///
     /// Only returns `true` if the set of keys in the `AggregatePublicKey` match the set of keys
     /// that signed the `AggregateSignature`.
-    pub fn verify(
-        &self,
-        msg: &[u8],
-        domain: u64,
-        aggregate_public_key: &AggregatePublicKey,
-    ) -> bool {
+    pub fn verify(&self, msg: &[u8], aggregate_public_key: &AggregatePublicKey) -> bool {
         if self.is_empty {
             return false;
         }
         self.aggregate_signature
-            .verify(msg, domain, aggregate_public_key.as_raw())
+            .verify(msg, aggregate_public_key.as_raw())
     }
 
     /// Verify this AggregateSignature against multiple AggregatePublickeys with multiple Messages.
@@ -67,7 +65,6 @@ impl AggregateSignature {
     pub fn verify_multiple(
         &self,
         messages: &[&[u8]],
-        domain: u64,
         aggregate_public_keys: &[&AggregatePublicKey],
     ) -> bool {
         if self.is_empty {
@@ -83,7 +80,7 @@ impl AggregateSignature {
         }
 
         self.aggregate_signature
-            .verify_multiple(&msgs, domain, &aggregate_public_keys[..])
+            .verify_multiple(&msgs, &aggregate_public_keys[..])
     }
 
     /// Return AggregateSignature as bytes
@@ -99,9 +96,10 @@ impl AggregateSignature {
         for byte in bytes {
             if *byte != 0 {
                 let sig = RawAggregateSignature::from_bytes(&bytes).map_err(|_| {
-                    DecodeError::BytesInvalid(
-                        format!("Invalid AggregateSignature bytes: {:?}", bytes).to_string(),
-                    )
+                    DecodeError::BytesInvalid(format!(
+                        "Invalid AggregateSignature bytes: {:?}",
+                        bytes
+                    ))
                 })?;
 
                 return Ok(Self {
@@ -192,7 +190,7 @@ mod tests {
         let keypair = Keypair::random();
 
         let mut original = AggregateSignature::new();
-        original.add(&Signature::new(&[42, 42], 0, &keypair.sk));
+        original.add(&Signature::new(&[42, 42], &keypair.sk));
 
         let bytes = original.as_ssz_bytes();
         let decoded = AggregateSignature::from_ssz_bytes(&bytes).unwrap();

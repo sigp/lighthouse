@@ -25,9 +25,20 @@ impl HeadTracker {
     /// the upstream user.
     pub fn register_block<E: EthSpec>(&self, block_root: Hash256, block: &BeaconBlock<E>) {
         let mut map = self.0.write();
-
         map.remove(&block.parent_root);
         map.insert(block_root, block.slot);
+    }
+
+    /// Removes abandoned head.
+    pub fn remove_head(&self, block_root: Hash256) {
+        let mut map = self.0.write();
+        debug_assert!(map.contains_key(&block_root));
+        map.remove(&block_root);
+    }
+
+    /// Returns true iff `block_root` is a recognized head.
+    pub fn contains_head(&self, block_root: Hash256) -> bool {
+        self.0.read().contains_key(&block_root)
     }
 
     /// Returns the list of heads in the chain.
@@ -59,10 +70,10 @@ impl HeadTracker {
         let slots_len = ssz_container.slots.len();
 
         if roots_len != slots_len {
-            return Err(Error::MismatchingLengths {
+            Err(Error::MismatchingLengths {
                 roots_len,
                 slots_len,
-            });
+            })
         } else {
             let map = HashMap::from_iter(
                 ssz_container

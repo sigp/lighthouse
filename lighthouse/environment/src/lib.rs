@@ -8,6 +8,7 @@
 //! logging.
 
 use eth2_config::Eth2Config;
+use eth2_testnet_config::Eth2TestnetConfig;
 use futures::{sync::oneshot, Future};
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -19,12 +20,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime, TaskExecutor};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
 
+pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Runtime>,
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
+    testnet: Option<Eth2TestnetConfig<E>>,
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
@@ -35,6 +39,7 @@ impl EnvironmentBuilder<MinimalEthSpec> {
             log: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
+            testnet: None,
         }
     }
 }
@@ -47,6 +52,7 @@ impl EnvironmentBuilder<MainnetEthSpec> {
             log: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
+            testnet: None,
         }
     }
 }
@@ -59,6 +65,7 @@ impl EnvironmentBuilder<InteropEthSpec> {
             log: None,
             eth_spec_instance: InteropEthSpec,
             eth2_config: Eth2Config::interop(),
+            testnet: None,
         }
     }
 }
@@ -134,6 +141,29 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Setups eth2 config using the CLI arguments.
+    pub fn eth2_testnet_config(
+        mut self,
+        eth2_testnet_config: Eth2TestnetConfig<E>,
+    ) -> Result<Self, String> {
+        // Create a new chain spec from the default configuration.
+        self.eth2_config.spec = eth2_testnet_config
+            .yaml_config
+            .as_ref()
+            .ok_or_else(|| "The testnet directory must contain a spec config".to_string())?
+            .apply_to_chain_spec::<E>(&self.eth2_config.spec)
+            .ok_or_else(|| {
+                format!(
+                    "The loaded config is not compatible with the {} spec",
+                    &self.eth2_config.spec_constants
+                )
+            })?;
+
+        self.testnet = Some(eth2_testnet_config);
+
+        Ok(self)
+    }
+
     /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
         Ok(Environment {
@@ -145,6 +175,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 .ok_or_else(|| "Cannot build environment without log".to_string())?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
+            testnet: self.testnet,
         })
     }
 }
@@ -187,6 +218,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
+    pub testnet: Option<Eth2TestnetConfig<E>>,
 }
 
 impl<E: EthSpec> Environment<E> {

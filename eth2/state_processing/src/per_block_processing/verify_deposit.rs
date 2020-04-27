@@ -3,6 +3,7 @@ use crate::per_block_processing::signature_sets::{
     deposit_pubkey_signature_message, deposit_signature_set,
 };
 use merkle_proof::verify_merkle_proof;
+use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -14,13 +15,13 @@ fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
 
 /// Verify `Deposit.pubkey` signed `Deposit.signature`.
 ///
-/// Spec v0.9.1
+/// Spec v0.11.1
 pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) -> Result<()> {
-    let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data)
+    let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data, spec)
         .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
 
     verify!(
-        deposit_signature_set(&deposit_signature_message, spec).is_valid(),
+        deposit_signature_set(&deposit_signature_message).is_valid(),
         DepositInvalid::BadSignature
     );
 
@@ -46,7 +47,7 @@ pub fn get_existing_validator_index<T: EthSpec>(
 /// The deposit index is provided as a parameter so we can check proofs
 /// before they're due to be processed, and in parallel.
 ///
-/// Spec v0.9.1
+/// Spec v0.11.1
 pub fn verify_deposit_merkle_proof<T: EthSpec>(
     state: &BeaconState<T>,
     deposit: &Deposit,
@@ -57,9 +58,9 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
 
     verify!(
         verify_merkle_proof(
-            Hash256::from_slice(&leaf),
+            leaf,
             &deposit.proof[..],
-            spec.deposit_contract_tree_depth as usize + 1,
+            spec.deposit_contract_tree_depth.safe_add(1)? as usize,
             deposit_index as usize,
             state.eth1_data.deposit_root,
         ),

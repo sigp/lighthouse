@@ -3,14 +3,11 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::AttestationProcessingOutcome;
-use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, PersistedBeaconChain,
-        BEACON_CHAIN_DB_KEY,
-    },
-    BlockProcessingOutcome,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
 };
+use beacon_chain::{AttestationProcessingOutcome, AttestationType};
+use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
@@ -121,7 +118,7 @@ fn iterators() {
 
     assert_eq!(
         *block_roots.first().expect("should have some block roots"),
-        (head.beacon_block_root, head.beacon_block.slot),
+        (head.beacon_block_root, head.beacon_block.slot()),
         "first block root and slot should be for the head block"
     );
 
@@ -344,15 +341,21 @@ fn roundtrip_operation_pool() {
     assert!(harness.chain.op_pool.num_attestations() > 0);
 
     // TODO: could add some other operations
-    harness.chain.persist().unwrap();
+    harness
+        .chain
+        .persist_op_pool()
+        .expect("should persist op pool");
 
-    let key = Hash256::from_slice(&BEACON_CHAIN_DB_KEY.as_bytes());
-    let p: PersistedBeaconChain<HarnessType<MinimalEthSpec>> =
-        harness.chain.store.get(&key).unwrap().unwrap();
+    let head_state = harness.chain.head().expect("should get head").beacon_state;
 
-    let restored_op_pool = p
-        .op_pool
-        .into_operation_pool(&p.canonical_head.beacon_state, &harness.spec);
+    let key = Hash256::from_slice(&OP_POOL_DB_KEY);
+    let restored_op_pool = harness
+        .chain
+        .store
+        .get::<PersistedOperationPool<MinimalEthSpec>>(&key)
+        .expect("should read db")
+        .expect("should find op pool")
+        .into_operation_pool(&head_state, &harness.spec);
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
@@ -391,7 +394,7 @@ fn free_attestations_added_to_fork_choice_some_none() {
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
                 latest_message.unwrap().1,
-                slot,
+                slot.epoch(MinimalEthSpec::slots_per_epoch()),
                 "Latest message slot for {} should be equal to slot {}.",
                 validator,
                 slot
@@ -435,18 +438,32 @@ fn attestations_with_increasing_slots() {
                     .head()
                     .expect("should get head")
                     .beacon_block
-                    .slot,
+                    .slot(),
             ),
         );
 
         harness.advance_slot();
     }
 
+    let current_epoch = harness.chain.epoch().expect("should get epoch");
+
     for attestation in attestations {
-        assert_eq!(
-            harness.chain.process_attestation(attestation),
-            Ok(AttestationProcessingOutcome::Processed)
-        )
+        let attestation_epoch = attestation.data.target.epoch;
+        let res = harness
+            .chain
+            .process_attestation(attestation, AttestationType::Aggregated);
+
+        if attestation_epoch + 1 < current_epoch {
+            assert_eq!(
+                res,
+                Ok(AttestationProcessingOutcome::PastEpoch {
+                    attestation_epoch,
+                    current_epoch,
+                })
+            )
+        } else {
+            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed))
+        }
     }
 }
 
@@ -483,7 +500,7 @@ fn free_attestations_added_to_fork_choice_all_updated() {
 
         assert_eq!(
             latest_message.unwrap().1,
-            slot,
+            slot.epoch(MinimalEthSpec::slots_per_epoch()),
             "Latest message slot should be equal to attester duty."
         );
 
@@ -524,7 +541,7 @@ fn run_skip_slot_test(skip_slots: u64) {
             .head()
             .expect("should get head")
             .beacon_block
-            .slot,
+            .slot(),
         Slot::new(skip_slots + 1)
     );
     assert_eq!(
@@ -533,7 +550,7 @@ fn run_skip_slot_test(skip_slots: u64) {
             .head()
             .expect("should get head")
             .beacon_block
-            .slot,
+            .slot(),
         Slot::new(0)
     );
 
@@ -544,15 +561,13 @@ fn run_skip_slot_test(skip_slots: u64) {
                 .head()
                 .expect("should get head")
                 .beacon_block
-                .clone()
+                .clone(),
         ),
-        Ok(BlockProcessingOutcome::Processed {
-            block_root: harness_a
-                .chain
-                .head()
-                .expect("should get head")
-                .beacon_block_root
-        })
+        Ok(harness_a
+            .chain
+            .head()
+            .expect("should get head")
+            .beacon_block_root)
     );
 
     harness_b
@@ -566,7 +581,7 @@ fn run_skip_slot_test(skip_slots: u64) {
             .head()
             .expect("should get head")
             .beacon_block
-            .slot,
+            .slot(),
         Slot::new(skip_slots + 1)
     );
 }

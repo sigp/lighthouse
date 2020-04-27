@@ -1,14 +1,18 @@
 use crate::attestation_id::AttestationId;
 use crate::OperationPool;
 use parking_lot::RwLock;
+use serde_derive::{Deserialize, Serialize};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use store::{DBColumn, Error as StoreError, SimpleStoreItem};
 use types::*;
 
 /// SSZ-serializable version of `OperationPool`.
 ///
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
-#[derive(Clone, Encode, Decode)]
+#[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
 pub struct PersistedOperationPool<T: EthSpec> {
     /// Mapping from attestation ID to attestation mappings.
     // We could save space by not storing the attestation ID, but it might
@@ -19,7 +23,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     /// Proposer slashings.
     proposer_slashings: Vec<ProposerSlashing>,
     /// Voluntary exits.
-    voluntary_exits: Vec<VoluntaryExit>,
+    voluntary_exits: Vec<SignedVoluntaryExit>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
@@ -78,13 +82,13 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         let proposer_slashings = RwLock::new(
             self.proposer_slashings
                 .into_iter()
-                .map(|slashing| (slashing.proposer_index, slashing))
+                .map(|slashing| (slashing.signed_header_1.message.proposer_index, slashing))
                 .collect(),
         );
         let voluntary_exits = RwLock::new(
             self.voluntary_exits
                 .into_iter()
-                .map(|exit| (exit.validator_index, exit))
+                .map(|exit| (exit.message.validator_index, exit))
                 .collect(),
         );
 
@@ -95,5 +99,19 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             voluntary_exits,
             _phantom: Default::default(),
         }
+    }
+}
+
+impl<T: EthSpec> SimpleStoreItem for PersistedOperationPool<T> {
+    fn db_column() -> DBColumn {
+        DBColumn::OpPool
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }

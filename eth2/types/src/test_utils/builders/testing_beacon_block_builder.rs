@@ -9,7 +9,7 @@ use crate::{
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
-use tree_hash::{SignedRoot, TreeHash};
+use tree_hash::TreeHash;
 
 /// Builds a beacon block to be used for testing purposes.
 ///
@@ -46,8 +46,6 @@ pub enum AttestationTestTask {
     Valid,
     NoCommiteeForShard,
     WrongJustifiedCheckpoint,
-    BadTargetTooLow,
-    BadTargetTooHigh,
     BadShard,
     BadIndexedAttestationBadSignature,
     BadAggregationBitfieldLen,
@@ -55,7 +53,9 @@ pub enum AttestationTestTask {
     ValidatorUnknown,
     IncludedTooEarly,
     IncludedTooLate,
-    BadTargetEpoch,
+    TargetEpochSlotMismatch,
+    // Note: BadTargetEpoch is unreachable in block processing due to valid inclusion window and
+    // slot check
 }
 
 /// Enum used for passing test options to builder
@@ -97,24 +97,25 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         self.block.slot = slot;
     }
 
-    /// Signs the block.
-    ///
-    /// Modifying the block after signing may invalidate the signature.
-    pub fn sign(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
-        let message = self.block.signed_root();
-        let epoch = self.block.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(epoch, Domain::BeaconProposer, fork);
-        self.block.signature = Signature::new(&message, domain, sk);
+    /// Set the proposer index of the block.
+    pub fn set_proposer_index(&mut self, proposer_index: u64) {
+        self.block.proposer_index = proposer_index;
     }
 
     /// Sets the randao to be a signature across the blocks epoch.
     ///
     /// Modifying the block's slot after signing may invalidate the signature.
-    pub fn set_randao_reveal(&mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) {
+    pub fn set_randao_reveal(
+        &mut self,
+        sk: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) {
         let epoch = self.block.slot.epoch(T::slots_per_epoch());
-        let message = epoch.tree_hash_root();
-        let domain = spec.get_domain(epoch, Domain::Randao, fork);
-        self.block.body.randao_reveal = Signature::new(&message, domain, sk);
+        let domain = spec.get_domain(epoch, Domain::Randao, fork, genesis_validators_root);
+        let message = epoch.signing_root(domain);
+        self.block.body.randao_reveal = Signature::new(message.as_bytes(), sk);
     }
 
     /// Has the randao reveal been set?
@@ -129,10 +130,17 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         validator_index: u64,
         secret_key: &SecretKey,
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) {
-        let proposer_slashing =
-            build_proposer_slashing::<T>(test_task, validator_index, secret_key, fork, spec);
+        let proposer_slashing = build_proposer_slashing::<T>(
+            test_task,
+            validator_index,
+            secret_key,
+            fork,
+            genesis_validators_root,
+            spec,
+        );
         self.block
             .body
             .proposer_slashings
@@ -147,6 +155,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         validator_indices: &[u64],
         secret_keys: &[&SecretKey],
         fork: &Fork,
+        genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) {
         let attester_slashing = build_double_vote_attester_slashing(
@@ -154,6 +163,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             validator_indices,
             secret_keys,
             fork,
+            genesis_validators_root,
             spec,
         );
         let _ = self.block.body.attester_slashings.push(attester_slashing);
@@ -256,6 +266,7 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                     signing_validators,
                     &signing_secret_keys,
                     &state.fork,
+                    state.genesis_validators_root,
                     spec,
                 );
 
@@ -294,14 +305,14 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         // Vector containing all leaves
         let leaves = datas
             .iter()
-            .map(|data| Hash256::from_slice(&data.tree_hash_root()))
+            .map(|data| data.tree_hash_root())
             .collect::<Vec<_>>();
 
         // Building a VarList from leaves
         let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
 
         // Setting the deposit_root to be the tree_hash_root of the VarList
-        state.eth1_data.deposit_root = Hash256::from_slice(&deposit_data_list.tree_hash_root());
+        state.eth1_data.deposit_root = deposit_data_list.tree_hash_root();
 
         // Building the merkle tree used for generating proofs
         let tree = MerkleTree::create(&leaves[..], spec.deposit_contract_tree_depth as usize);
@@ -364,65 +375,78 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             _ => (),
         }
 
-        let mut builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
+        let builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
+        let exit = builder.build(sk, &state.fork, state.genesis_validators_root, spec);
 
-        builder.sign(sk, &state.fork, spec);
-
-        self.block
-            .body
-            .voluntary_exits
-            .push(builder.build())
-            .unwrap();
+        self.block.body.voluntary_exits.push(exit).unwrap();
     }
 
     /// Signs and returns the block, consuming the builder.
-    pub fn build(mut self, sk: &SecretKey, fork: &Fork, spec: &ChainSpec) -> BeaconBlock<T> {
-        self.sign(sk, fork, spec);
-        self.block
+    pub fn build(
+        self,
+        sk: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedBeaconBlock<T> {
+        self.block.sign(sk, fork, genesis_validators_root, spec)
     }
 
     /// Returns the block, consuming the builder.
-    pub fn build_without_signing(self) -> BeaconBlock<T> {
-        self.block
+    pub fn build_without_signing(self) -> SignedBeaconBlock<T> {
+        SignedBeaconBlock {
+            message: self.block,
+            signature: Signature::empty_signature(),
+        }
     }
 }
 
 /// Builds an `ProposerSlashing` for some `validator_index`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_proposer_slashing<T: EthSpec>(
+pub fn build_proposer_slashing<T: EthSpec>(
     test_task: ProposerSlashingTestTask,
     validator_index: u64,
     secret_key: &SecretKey,
     fork: &Fork,
+    genesis_validators_root: Hash256,
     spec: &ChainSpec,
 ) -> ProposerSlashing {
-    let signer = |_validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
-        let domain = spec.get_domain(epoch, domain, fork);
-        Signature::new(message, domain, secret_key)
-    };
-
-    TestingProposerSlashingBuilder::double_vote::<T, _>(test_task, validator_index, signer)
+    TestingProposerSlashingBuilder::double_vote::<T>(
+        test_task,
+        validator_index,
+        secret_key,
+        fork,
+        genesis_validators_root,
+        spec,
+    )
 }
 
 /// Builds an `AttesterSlashing` for some `validator_indices`.
 ///
 /// Signs the message using a `BeaconChainHarness`.
-fn build_double_vote_attester_slashing<T: EthSpec>(
+pub fn build_double_vote_attester_slashing<T: EthSpec>(
     test_task: AttesterSlashingTestTask,
     validator_indices: &[u64],
     secret_keys: &[&SecretKey],
     fork: &Fork,
+    genesis_validators_root: Hash256,
     spec: &ChainSpec,
 ) -> AttesterSlashing<T> {
-    let signer = |validator_index: u64, message: &[u8], epoch: Epoch, domain: Domain| {
+    let signer = |validator_index: u64, message: &[u8]| {
         let key_index = validator_indices
             .iter()
             .position(|&i| i == validator_index)
             .expect("Unable to find attester slashing key");
-        let domain = spec.get_domain(epoch, domain, fork);
-        Signature::new(message, domain, secret_keys[key_index])
+        Signature::new(message, secret_keys[key_index])
     };
 
-    TestingAttesterSlashingBuilder::double_vote(test_task, validator_indices, signer)
+    TestingAttesterSlashingBuilder::double_vote(
+        test_task,
+        validator_indices,
+        signer,
+        fork,
+        genesis_validators_root,
+        spec,
+    )
 }

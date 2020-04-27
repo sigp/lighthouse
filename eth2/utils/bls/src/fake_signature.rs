@@ -20,7 +20,7 @@ pub struct FakeSignature {
 
 impl FakeSignature {
     /// Creates a new all-zero's signature
-    pub fn new(_msg: &[u8], _domain: u64, _sk: &SecretKey) -> Self {
+    pub fn new(_msg: &[u8], _sk: &SecretKey) -> Self {
         FakeSignature::zero()
     }
 
@@ -39,7 +39,7 @@ impl FakeSignature {
     }
 
     /// _Always_ returns `true`.
-    pub fn verify(&self, _msg: &[u8], _domain: u64, _pk: &PublicKey) -> bool {
+    pub fn verify(&self, _msg: &[u8], _pk: &PublicKey) -> bool {
         true
     }
 
@@ -124,7 +124,7 @@ mod tests {
     pub fn test_ssz_round_trip() {
         let keypair = Keypair::random();
 
-        let original = FakeSignature::new(&[42, 42], 0, &keypair.sk);
+        let original = FakeSignature::new(&[42, 42], &keypair.sk);
 
         let bytes = ssz_encode(&original);
         let decoded = FakeSignature::from_ssz_bytes(&bytes).unwrap();

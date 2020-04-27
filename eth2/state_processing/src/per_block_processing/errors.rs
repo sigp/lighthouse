@@ -1,13 +1,15 @@
 use super::signature_sets::Error as SignatureSetError;
+use merkle_proof::MerkleTreeError;
+use safe_arith::ArithError;
 use types::*;
 
 /// The error returned from the `per_block_processing` function. Indicates that a block is either
-/// invalid, or we were unable to determine it's validity (we encountered an unexpected error).
+/// invalid, or we were unable to determine its validity (we encountered an unexpected error).
 ///
 /// Any of the `...Error` variants indicate that at some point during block (and block operation)
 /// verification, there was an error. There is no indication as to _where_ that error happened
 /// (e.g., when processing attestations instead of when processing deposits).
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BlockProcessingError {
     RandaoSignatureInvalid,
     BulkSignatureVerificationFailed,
@@ -46,6 +48,8 @@ pub enum BlockProcessingError {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    MerkleTreeError(MerkleTreeError),
+    ArithError(ArithError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -66,6 +70,12 @@ impl From<ssz_types::Error> for BlockProcessingError {
     }
 }
 
+impl From<ArithError> for BlockProcessingError {
+    fn from(e: ArithError) -> Self {
+        BlockProcessingError::ArithError(e)
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -73,6 +83,7 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+            BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
     }
 }
@@ -99,6 +110,7 @@ macro_rules! impl_into_block_processing_error_with_index {
                         BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
                         BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
                         BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                        BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
                     }
                 }
             }
@@ -122,12 +134,13 @@ pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BlockOperationError<T> {
     Invalid(T),
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    ArithError(ArithError),
 }
 
 impl<T> BlockOperationError<T> {
@@ -153,15 +166,28 @@ impl<T> From<ssz_types::Error> for BlockOperationError<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+impl<T> From<ArithError> for BlockOperationError<T> {
+    fn from(e: ArithError) -> Self {
+        BlockOperationError::ArithError(e)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
     StateSlotMismatch,
-    ParentBlockRootMismatch { state: Hash256, block: Hash256 },
+    ProposerIndexMismatch {
+        block_proposer_index: usize,
+        state_proposer_index: usize,
+    },
+    ParentBlockRootMismatch {
+        state: Hash256,
+        block: Hash256,
+    },
     ProposerSlashed(usize),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ProposerSlashingInvalid {
     /// The proposer index is not a known validator.
     ProposerUnknown(u64),
@@ -169,6 +195,10 @@ pub enum ProposerSlashingInvalid {
     ///
     /// (proposal_1_slot, proposal_2_slot)
     ProposalSlotMismatch(Slot, Slot),
+    /// The two proposals have different proposer indices.
+    ///
+    /// (proposer_index_1, proposer_index_2)
+    ProposerIndexMismatch(u64, u64),
     /// The proposals are identical and therefore not slashable.
     ProposalsIdentical,
     /// The specified proposer cannot be slashed because they are already slashed, or not active.
@@ -179,7 +209,7 @@ pub enum ProposerSlashingInvalid {
     BadProposal2Signature,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum AttesterSlashingInvalid {
     /// The attestations were not in conflict.
     NotSlashable,
@@ -196,7 +226,7 @@ pub enum AttesterSlashingInvalid {
 }
 
 /// Describes why an object is invalid.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum AttestationInvalid {
     /// Commmittee index exceeds number of committees in that slot.
     BadCommitteeIndex,
@@ -208,6 +238,11 @@ pub enum AttestationInvalid {
     },
     /// Attestation slot is too far in the past to be included in a block.
     IncludedTooLate { state: Slot, attestation: Slot },
+    /// Attestation target epoch does not match attestation slot.
+    TargetEpochSlotMismatch {
+        target_epoch: Epoch,
+        slot_epoch: Epoch,
+    },
     /// Attestation target epoch does not match the current or previous epoch.
     BadTargetEpoch,
     /// Attestation justified checkpoint doesn't match the state's current or previous justified
@@ -228,6 +263,8 @@ pub enum AttestationInvalid {
         committee_len: usize,
         bitfield_len: usize,
     },
+    /// The attestation was not disjoint compared to already seen attestations.
+    NotDisjoint,
     /// The validator index was unknown.
     UnknownValidator(u64),
     /// The attestation signature verification failed.
@@ -247,11 +284,12 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
             BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum IndexedAttestationInvalid {
     /// The number of indices exceeds the global maximum.
     ///
@@ -270,7 +308,7 @@ pub enum IndexedAttestationInvalid {
     SignatureSetError(SignatureSetError),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DepositInvalid {
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
@@ -281,7 +319,7 @@ pub enum DepositInvalid {
     BadMerkleProof,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ExitInvalid {
     /// The specified validator is not active.
     NotActive(u64),

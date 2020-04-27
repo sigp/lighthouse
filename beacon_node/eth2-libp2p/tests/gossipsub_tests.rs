@@ -1,7 +1,11 @@
 #![cfg(test)]
+use crate::types::GossipEncoding;
+use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
 use eth2_libp2p::*;
 use futures::prelude::*;
 use slog::{debug, Level};
+
+type E = MinimalEthSpec;
 
 mod common;
 
@@ -21,16 +25,27 @@ fn test_gossipsub_forward() {
     let log = common::build_log(Level::Info, false);
 
     let num_nodes = 20;
-    let mut nodes = common::build_linear(log.clone(), num_nodes, Some(19000));
+    let mut nodes = common::build_linear(log.clone(), num_nodes);
     let mut received_count = 0;
-    let pubsub_message = PubsubMessage::Block(vec![0; 4]);
-    let publishing_topic: String = "/eth2/beacon_block/ssz".into();
+    let spec = E::default_spec();
+    let empty_block = BeaconBlock::empty(&spec);
+    let signed_block = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let pubsub_message = PubsubMessage::BeaconBlock(Box::new(signed_block));
+    let publishing_topic: String = pubsub_message
+        .topics(GossipEncoding::default(), [0, 0, 0, 0])
+        .first()
+        .unwrap()
+        .clone()
+        .into();
     let mut subscribed_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
             loop {
                 match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PubsubMessage {
+                    Async::Ready(Some(BehaviourEvent::PubsubMessage {
                         topics,
                         message,
                         source,
@@ -53,18 +68,13 @@ fn test_gossipsub_forward() {
                             return Ok(Async::Ready(()));
                         }
                     }
-                    Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) => {
-                        // Received topics is one of subscribed eth2 topics
-                        assert!(topic.clone().into_string().starts_with("/eth2/"));
+                    Async::Ready(Some(BehaviourEvent::PeerSubscribed(_, topic))) => {
                         // Publish on beacon block topic
-                        if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
+                        if topic == TopicHash::from_raw(publishing_topic.clone()) {
                             subscribed_count += 1;
                             // Every node except the corner nodes are connected to 2 nodes.
                             if subscribed_count == (num_nodes * 2) - 2 {
-                                node.swarm.publish(
-                                    &vec![Topic::new(topic.into_string())],
-                                    pubsub_message.clone(),
-                                );
+                                node.swarm.publish(vec![pubsub_message.clone()]);
                             }
                         }
                     }
@@ -81,60 +91,59 @@ fn test_gossipsub_forward() {
 #[test]
 fn test_gossipsub_full_mesh_publish() {
     // set up the logging. The level and enabled or not
-    let log = common::build_log(Level::Info, false);
+    let log = common::build_log(Level::Debug, false);
 
     // Note: This test does not propagate gossipsub messages.
     // Having `num_nodes` > `mesh_n_high` may give inconsistent results
     // as nodes may get pruned out of the mesh before the gossipsub message
     // is published to them.
     let num_nodes = 12;
-    let mut nodes = common::build_full_mesh(log, num_nodes, Some(11320));
+    let mut nodes = common::build_full_mesh(log, num_nodes);
     let mut publishing_node = nodes.pop().unwrap();
-    let pubsub_message = PubsubMessage::Block(vec![0; 4]);
-    let publishing_topic: String = "/eth2/beacon_block/ssz".into();
+    let spec = E::default_spec();
+    let empty_block = BeaconBlock::empty(&spec);
+    let signed_block = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let pubsub_message = PubsubMessage::BeaconBlock(Box::new(signed_block));
+    let publishing_topic: String = pubsub_message
+        .topics(GossipEncoding::default(), [0, 0, 0, 0])
+        .first()
+        .unwrap()
+        .clone()
+        .into();
     let mut subscribed_count = 0;
     let mut received_count = 0;
     tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
         for node in nodes.iter_mut() {
-            loop {
-                match node.poll().unwrap() {
-                    Async::Ready(Some(Libp2pEvent::PubsubMessage {
-                        topics, message, ..
-                    })) => {
-                        assert_eq!(topics.len(), 1);
-                        // Assert topic is the published topic
-                        assert_eq!(
-                            topics.first().unwrap(),
-                            &TopicHash::from_raw(publishing_topic.clone())
-                        );
-                        // Assert message received is the correct one
-                        assert_eq!(message, pubsub_message.clone());
-                        received_count += 1;
-                        if received_count == num_nodes - 1 {
-                            return Ok(Async::Ready(()));
-                        }
-                    }
-                    _ => break,
+            while let Async::Ready(Some(BehaviourEvent::PubsubMessage {
+                topics, message, ..
+            })) = node.poll().unwrap()
+            {
+                assert_eq!(topics.len(), 1);
+                // Assert topic is the published topic
+                assert_eq!(
+                    topics.first().unwrap(),
+                    &TopicHash::from_raw(publishing_topic.clone())
+                );
+                // Assert message received is the correct one
+                assert_eq!(message, pubsub_message.clone());
+                received_count += 1;
+                if received_count == num_nodes - 1 {
+                    return Ok(Async::Ready(()));
                 }
             }
         }
-        loop {
-            match publishing_node.poll().unwrap() {
-                Async::Ready(Some(Libp2pEvent::PeerSubscribed(_, topic))) => {
-                    // Received topics is one of subscribed eth2 topics
-                    assert!(topic.clone().into_string().starts_with("/eth2/"));
-                    // Publish on beacon block topic
-                    if topic == TopicHash::from_raw("/eth2/beacon_block/ssz") {
-                        subscribed_count += 1;
-                        if subscribed_count == num_nodes - 1 {
-                            publishing_node.swarm.publish(
-                                &vec![Topic::new(topic.into_string())],
-                                pubsub_message.clone(),
-                            );
-                        }
-                    }
+        while let Async::Ready(Some(BehaviourEvent::PeerSubscribed(_, topic))) =
+            publishing_node.poll().unwrap()
+        {
+            // Publish on beacon block topic
+            if topic == TopicHash::from_raw(publishing_topic.clone()) {
+                subscribed_count += 1;
+                if subscribed_count == num_nodes - 1 {
+                    publishing_node.swarm.publish(vec![pubsub_message.clone()]);
                 }
-                _ => break,
             }
         }
         Ok(Async::NotReady)

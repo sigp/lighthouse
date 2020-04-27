@@ -9,8 +9,8 @@
 //! for padding and verification.
 //!
 //! Adheres to the Ethereum 2.0 [SSZ
-//! specification](https://github.com/ethereum/eth2.0-specs/blob/v0.8.1/specs/simple-serialize.md)
-//! at v0.8.1 .
+//! specification](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/ssz/simple-serialize.md)
+//! at v0.11.1.
 //!
 //! ## Example
 //! ```
@@ -53,7 +53,7 @@ pub mod length {
 }
 
 /// Returned when an item encounters an error.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Error {
     OutOfBounds {
         i: usize,

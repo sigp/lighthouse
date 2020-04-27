@@ -1,6 +1,23 @@
+#[macro_use]
+extern crate lazy_static;
+
+use lighthouse_metrics::{
+    inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
+};
 use std::io::{Result, Write};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
+
+lazy_static! {
+    pub static ref INFOS_TOTAL: MetricsResult<IntCounter> =
+        try_create_int_counter("info_total", "Count of infos logged");
+    pub static ref WARNS_TOTAL: MetricsResult<IntCounter> =
+        try_create_int_counter("warn_total", "Count of warns logged");
+    pub static ref ERRORS_TOTAL: MetricsResult<IntCounter> =
+        try_create_int_counter("error_total", "Count of errors logged");
+    pub static ref CRITS_TOTAL: MetricsResult<IntCounter> =
+        try_create_int_counter("crit_total", "Count of crits logged");
+}
 
 pub struct AlignedTermDecorator {
     wrapped: slog_term::TermDecorator,
@@ -19,14 +36,22 @@ impl AlignedTermDecorator {
 impl slog_term::Decorator for AlignedTermDecorator {
     fn with_record<F>(
         &self,
-        _record: &slog::Record,
+        record: &slog::Record,
         _logger_values: &slog::OwnedKVList,
         f: F,
     ) -> Result<()>
     where
         F: FnOnce(&mut dyn slog_term::RecordDecorator) -> std::io::Result<()>,
     {
-        self.wrapped.with_record(_record, _logger_values, |deco| {
+        match record.level() {
+            slog::Level::Info => inc_counter(&INFOS_TOTAL),
+            slog::Level::Warning => inc_counter(&WARNS_TOTAL),
+            slog::Level::Error => inc_counter(&ERRORS_TOTAL),
+            slog::Level::Critical => inc_counter(&CRITS_TOTAL),
+            _ => (),
+        }
+
+        self.wrapped.with_record(record, _logger_values, |deco| {
             f(&mut AlignedRecordDecorator::new(deco, self.message_width))
         })
     }

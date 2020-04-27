@@ -32,6 +32,10 @@ lazy_static! {
         "beacon_block_processing_committee_building_seconds",
         "Time spent building/obtaining committees for block processing."
     );
+    pub static ref BLOCK_PROCESSING_SIGNATURE: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_signature_seconds",
+        "Time spent doing signature verification for a block."
+    );
     pub static ref BLOCK_PROCESSING_CORE: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_core_seconds",
         "Time spent doing the core per_block_processing state processing."
@@ -86,10 +90,42 @@ lazy_static! {
         "beacon_attestation_processing_seconds",
         "Full runtime of attestation processing"
     );
-    pub static ref ATTESTATION_PROCESSING_CORE: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_core_seconds",
-        "Time spent on the core spec processing of attestation processing"
+    pub static ref ATTESTATION_PROCESSING_INITIAL_VALIDATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_initial_validation_seconds",
+        "Time spent on the initial_validation of attestation processing"
     );
+    pub static ref ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_shuffling_cache_wait_seconds",
+        "Time spent on waiting for the shuffling cache lock during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_committee_building_seconds",
+        "Time spent on building committees during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_state_read_seconds",
+        "Time spent on reading the state during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_STATE_SKIP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_state_skip_seconds",
+        "Time spent on reading the state during attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_signature_setup_seconds",
+        "Time spent on setting up for the signature verification of attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_signature_seconds",
+        "Time spent on the signature verification of attestation processing"
+    );
+
+    /*
+     * Shuffling cache
+     */
+    pub static ref SHUFFLING_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
+    pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
 
     /*
      * Attestation Production
@@ -106,7 +142,10 @@ lazy_static! {
         "beacon_attestation_production_seconds",
         "Full runtime of attestation production"
     );
+}
 
+// Second lazy-static block is used to account for macro recursion limit.
+lazy_static! {
     /*
      * Fork Choice
      */
@@ -138,26 +177,28 @@ lazy_static! {
         "beacon_fork_choice_process_attestation_seconds",
         "Time taken to add an attestation to fork choice"
     );
+    pub static ref BALANCES_CACHE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_balances_cache_hits_total", "Count of times balances cache fulfils request");
+    pub static ref BALANCES_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache fulfils request");
 
     /*
-     * Persisting BeaconChain to disk
+     * Persisting BeaconChain components to disk
      */
-    pub static ref PERSIST_CHAIN: Result<Histogram> =
-        try_create_histogram("beacon_persist_chain", "Time taken to update the canonical head");
-
-    /*
-     * Checkpoint cache
-     */
-    pub static ref CHECKPOINT_CACHE_HITS: Result<IntCounter> =
-        try_create_int_counter("beacon_checkpoint_cache_hits_total", "Count of times checkpoint cache fulfils request");
-    pub static ref CHECKPOINT_CACHE_MISSES: Result<IntCounter> =
-        try_create_int_counter("beacon_checkpoint_cache_misses_total", "Count of times checkpoint cache fulfils request");
+    pub static ref PERSIST_HEAD: Result<Histogram> =
+        try_create_histogram("beacon_persist_head", "Time taken to persist the canonical head");
+    pub static ref PERSIST_OP_POOL: Result<Histogram> =
+        try_create_histogram("beacon_persist_op_pool", "Time taken to persist the operations pool");
+    pub static ref PERSIST_ETH1_CACHE: Result<Histogram> =
+        try_create_histogram("beacon_persist_eth1_cache", "Time taken to persist the eth1 caches");
+    pub static ref PERSIST_FORK_CHOICE: Result<Histogram> =
+        try_create_histogram("beacon_persist_fork_choice", "Time taken to persist the fork choice struct");
 
     /*
      * Eth1
      */
-    pub static ref JUNK_ETH1_VOTES: Result<IntCounter> =
-        try_create_int_counter("beacon_eth1_junk_votes", "Count of times we have voted junk for eth1 dat");
+    pub static ref DEFAULT_ETH1_VOTES: Result<IntCounter> =
+        try_create_int_counter("beacon_eth1_default_votes", "Count of times we have voted default value for eth1 data");
 
     /*
      * Chain Head
@@ -194,6 +235,18 @@ lazy_static! {
         try_create_int_gauge("beacon_head_state_withdrawn_validators_total", "Sum of all validator balances at the head of the chain");
     pub static ref HEAD_STATE_ETH1_DEPOSIT_INDEX: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_eth1_deposit_index", "Eth1 deposit index at the head of the chain");
+
+    /*
+     * Operation Pool
+     */
+    pub static ref OP_POOL_NUM_ATTESTATIONS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_attestations_total", "Count of attestations in the op pool");
+    pub static ref OP_POOL_NUM_ATTESTER_SLASHINGS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_attester_slashings_total", "Count of attester slashings in the op pool");
+    pub static ref OP_POOL_NUM_PROPOSER_SLASHINGS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_proposer_slashings_total", "Count of proposer slashings in the op pool");
+    pub static ref OP_POOL_NUM_VOLUNTARY_EXITS: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_voluntary_exits_total", "Count of voluntary exits in the op pool");
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -202,6 +255,23 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     if let Ok(head) = beacon_chain.head() {
         scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root)
     }
+
+    set_gauge_by_usize(
+        &OP_POOL_NUM_ATTESTATIONS,
+        beacon_chain.op_pool.num_attestations(),
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_ATTESTER_SLASHINGS,
+        beacon_chain.op_pool.num_attester_slashings(),
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_PROPOSER_SLASHINGS,
+        beacon_chain.op_pool.num_proposer_slashings(),
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_VOLUNTARY_EXITS,
+        beacon_chain.op_pool.num_voluntary_exits(),
+    );
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

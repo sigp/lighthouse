@@ -16,7 +16,7 @@ mod tests {
     #[test]
     pub fn test_valid_signature() {
         let keypair = Keypair::random();
-        let original = Signature::new(&[42, 42], 0, &keypair.sk);
+        let original = Signature::new(&[42, 42], &keypair.sk);
 
         let bytes = ssz_encode(&original);
         let signature_bytes = SignatureBytes::from_bytes(&bytes).unwrap();

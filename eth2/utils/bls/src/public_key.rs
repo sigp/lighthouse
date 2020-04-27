@@ -1,5 +1,5 @@
 use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use milagro_bls::PublicKey as RawPublicKey;
+use milagro_bls::{G1Point, PublicKey as RawPublicKey};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -24,9 +24,19 @@ impl PublicKey {
         Self(raw)
     }
 
-    /// Returns the underlying signature.
+    /// Returns a reference to the underlying signature.
     pub fn as_raw(&self) -> &RawPublicKey {
         &self.0
+    }
+
+    /// Consumes self and returns the underlying signature.
+    pub fn as_point(&self) -> &G1Point {
+        &self.0.point
+    }
+
+    /// Consumes self and returns the underlying signature.
+    pub fn into_point(self) -> G1Point {
+        self.0.point
     }
 
     /// Returns the underlying point as compressed bytes.
@@ -39,7 +49,7 @@ impl PublicKey {
     /// Converts compressed bytes to PublicKey
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let pubkey = RawPublicKey::from_bytes(&bytes).map_err(|_| {
-            DecodeError::BytesInvalid(format!("Invalid PublicKey bytes: {:?}", bytes).to_string())
+            DecodeError::BytesInvalid(format!("Invalid PublicKey bytes: {:?}", bytes))
         })?;
 
         Ok(PublicKey(pubkey))
@@ -81,7 +91,7 @@ impl fmt::Display for PublicKey {
 
 impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{}", self.as_hex_string())
+        write!(f, "{}", self.as_hex_string())
     }
 }
 

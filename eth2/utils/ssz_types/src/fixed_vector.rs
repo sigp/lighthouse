@@ -4,6 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
+use tree_hash::Hash256;
 use typenum::Unsigned;
 
 pub use typenum;
@@ -162,7 +163,7 @@ where
         unreachable!("Vector should never be packed.")
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
+    fn tree_hash_root(&self) -> Hash256 {
         vec_tree_hash_root::<T, N>(&self.vec)
     }
 }
@@ -223,29 +224,44 @@ where
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let fixed_len = N::to_usize();
+
         if bytes.is_empty() {
             Err(ssz::DecodeError::InvalidByteLength {
                 len: 0,
                 expected: 1,
             })
         } else if T::is_ssz_fixed_len() {
+            let num_items = bytes
+                .len()
+                .checked_div(T::ssz_fixed_len())
+                .ok_or_else(|| ssz::DecodeError::ZeroLengthItem)?;
+
+            if num_items != fixed_len {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "FixedVector of {} items has {} items",
+                    num_items, fixed_len
+                )));
+            }
+
             bytes
                 .chunks(T::ssz_fixed_len())
                 .map(|chunk| T::from_ssz_bytes(chunk))
                 .collect::<Result<Vec<T>, _>>()
                 .and_then(|vec| {
-                    if vec.len() == N::to_usize() {
+                    if vec.len() == fixed_len {
                         Ok(vec.into())
                     } else {
                         Err(ssz::DecodeError::BytesInvalid(format!(
-                            "wrong number of vec elements, got: {}, expected: {}",
+                            "Wrong number of FixedVector elements, got: {}, expected: {}",
                             vec.len(),
                             N::to_usize()
                         )))
                     }
                 })
         } else {
-            ssz::decode_list_of_variable_length_items(bytes).and_then(|vec| Ok(vec.into()))
+            ssz::decode_list_of_variable_length_items(bytes, Some(fixed_len))
+                .and_then(|vec| Ok(vec.into()))
         }
     }
 }
@@ -261,15 +277,15 @@ mod test {
     #[test]
     fn new() {
         let vec = vec![42; 5];
-        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
+        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec);
         assert!(fixed.is_err());
 
         let vec = vec![42; 3];
-        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
+        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec);
         assert!(fixed.is_err());
 
         let vec = vec![42; 4];
-        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec.clone());
+        let fixed: Result<FixedVector<u64, U4>, _> = FixedVector::new(vec);
         assert!(fixed.is_ok());
     }
 
@@ -299,7 +315,7 @@ mod test {
         assert_eq!(&fixed[..], &vec![42, 42, 42, 0][..]);
 
         let vec = vec![];
-        let fixed: FixedVector<u64, U4> = FixedVector::from(vec.clone());
+        let fixed: FixedVector<u64, U4> = FixedVector::from(vec);
         assert_eq!(&fixed[..], &vec![0, 0, 0, 0][..]);
     }
 
@@ -375,24 +391,27 @@ mod test {
         assert_eq!(fixed.tree_hash_root(), merkle_root(&[0; 32], 0));
 
         let fixed: FixedVector<A, U1> = FixedVector::from(vec![a]);
-        assert_eq!(fixed.tree_hash_root(), merkle_root(&a.tree_hash_root(), 0));
+        assert_eq!(
+            fixed.tree_hash_root(),
+            merkle_root(a.tree_hash_root().as_bytes(), 0)
+        );
 
         let fixed: FixedVector<A, U8> = FixedVector::from(vec![a; 8]);
         assert_eq!(
             fixed.tree_hash_root(),
-            merkle_root(&repeat(&a.tree_hash_root(), 8), 0)
+            merkle_root(&repeat(a.tree_hash_root().as_bytes(), 8), 0)
         );
 
         let fixed: FixedVector<A, U13> = FixedVector::from(vec![a; 13]);
         assert_eq!(
             fixed.tree_hash_root(),
-            merkle_root(&repeat(&a.tree_hash_root(), 13), 0)
+            merkle_root(&repeat(a.tree_hash_root().as_bytes(), 13), 0)
         );
 
         let fixed: FixedVector<A, U16> = FixedVector::from(vec![a; 16]);
         assert_eq!(
             fixed.tree_hash_root(),
-            merkle_root(&repeat(&a.tree_hash_root(), 16), 0)
+            merkle_root(&repeat(a.tree_hash_root().as_bytes(), 16), 0)
         );
     }
 }

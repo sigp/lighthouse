@@ -1,4 +1,4 @@
-use int_to_bytes::int_to_bytes32;
+use int_to_bytes::int_to_fixed_bytes32;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use tree_hash::TreeHash;
@@ -12,19 +12,19 @@ pub fn genesis_deposits(
 ) -> Result<Vec<Deposit>, String> {
     let deposit_root_leaves = deposit_data
         .par_iter()
-        .map(|data| Hash256::from_slice(&data.tree_hash_root()))
+        .map(|data| data.tree_hash_root())
         .collect::<Vec<_>>();
 
     let mut proofs = vec![];
     let depth = spec.deposit_contract_tree_depth as usize;
     let mut tree = MerkleTree::create(&[], depth);
     for (i, deposit_leaf) in deposit_root_leaves.iter().enumerate() {
-        if let Err(_) = tree.push_leaf(*deposit_leaf, depth) {
+        if tree.push_leaf(*deposit_leaf, depth).is_err() {
             return Err(String::from("Failed to push leaf"));
         }
 
         let (_, mut proof) = tree.generate_proof(i, depth);
-        proof.push(Hash256::from_slice(&int_to_bytes32((i + 1) as u64)));
+        proof.push(Hash256::from_slice(&int_to_fixed_bytes32((i + 1) as u64)));
 
         assert_eq!(
             proof.len(),

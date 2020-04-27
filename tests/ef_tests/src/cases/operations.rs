@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
-    ProposerSlashing, VoluntaryExit,
+    ProposerSlashing, SignedVoluntaryExit,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -95,7 +95,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
     }
 }
 
-impl<E: EthSpec> Operation<E> for VoluntaryExit {
+impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
     fn handler_name() -> String {
         "voluntary_exit".into()
     }
@@ -123,13 +123,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        Ok(process_block_header(
-            state,
-            self,
-            None,
-            VerifySignatures::True,
-            spec,
-        )?)
+        Ok(process_block_header(state, self, spec)?)
     }
 }
 
@@ -174,8 +168,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
 
-        // Processing requires the epoch cache.
-        state.build_all_caches(spec).unwrap();
+        // Processing requires the committee caches.
+        state
+            .build_all_committee_caches(spec)
+            .expect("committee caches OK");
 
         let mut result = self.operation.apply_to(&mut state, spec).map(|()| state);
 

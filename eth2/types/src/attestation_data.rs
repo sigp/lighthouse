@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Checkpoint, Hash256, Slot};
+use crate::{Checkpoint, Hash256, SignedRoot, Slot};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -8,9 +8,20 @@ use tree_hash_derive::TreeHash;
 
 /// The data upon which an attestation is based.
 ///
-/// Spec v0.9.1
+/// Spec v0.11.1
 #[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Encode, Decode, TreeHash, TestRandom,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Hash,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    Default,
 )]
 pub struct AttestationData {
     pub slot: Slot,
@@ -24,9 +35,11 @@ pub struct AttestationData {
     pub target: Checkpoint,
 }
 
+impl SignedRoot for AttestationData {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    ssz_tests!(AttestationData);
+    ssz_and_tree_hash_tests!(AttestationData);
 }

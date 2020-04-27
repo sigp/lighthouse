@@ -1,7 +1,9 @@
 //! Available RPC methods types and ids.
 
+use crate::types::EnrBitfield;
+use serde::Serialize;
 use ssz_derive::{Decode, Encode};
-use types::{Epoch, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /* Request/Response data structures for RPC methods */
 
@@ -13,7 +15,7 @@ pub type RequestId = usize;
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
-    pub fork_version: [u8; 4],
+    pub fork_digest: [u8; 4],
 
     /// Latest finalized root.
     pub finalized_root: Hash256,
@@ -26,6 +28,23 @@ pub struct StatusMessage {
 
     /// The slot associated with the latest block root.
     pub head_slot: Slot,
+}
+
+/// The PING request/response message.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct Ping {
+    /// The metadata sequence number.
+    pub data: u64,
+}
+
+/// The METADATA response structure.
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Serialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct MetaData<T: EthSpec> {
+    /// A sequential counter indicating when data gets modified.
+    pub seq_number: u64,
+    /// The persistent subnet bitfield.
+    pub attnets: EnrBitfield<T>,
 }
 
 /// The reason given for a `Goodbye` message.
@@ -101,9 +120,6 @@ impl ssz::Decode for GoodbyeReason {
 /// Request a number of beacon block roots from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlocksByRangeRequest {
-    /// The hash tree root of a block on the requested chain.
-    pub head_block_root: Hash256,
-
     /// The starting slot to request blocks.
     pub start_slot: u64,
 
@@ -129,16 +145,22 @@ pub struct BlocksByRootRequest {
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RPCResponse {
+pub enum RPCResponse<T: EthSpec> {
     /// A HELLO message.
     Status(StatusMessage),
 
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
-    BlocksByRange(Vec<u8>),
+    BlocksByRange(Box<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Vec<u8>),
+    BlocksByRoot(Box<SignedBeaconBlock<T>>),
+
+    /// A PONG response to a PING request.
+    Pong(Ping),
+
+    /// A response to a META_DATA request.
+    MetaData(MetaData<T>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -152,9 +174,9 @@ pub enum ResponseTermination {
 }
 
 #[derive(Debug)]
-pub enum RPCErrorResponse {
+pub enum RPCErrorResponse<T: EthSpec> {
     /// The response is a successful.
-    Success(RPCResponse),
+    Success(RPCResponse<T>),
 
     /// The response was invalid.
     InvalidRequest(ErrorMessage),
@@ -169,7 +191,7 @@ pub enum RPCErrorResponse {
     StreamTermination(ResponseTermination),
 }
 
-impl RPCErrorResponse {
+impl<T: EthSpec> RPCErrorResponse<T> {
     /// Used to encode the response in the codec.
     pub fn as_u8(&self) -> Option<u8> {
         match self {
@@ -205,6 +227,8 @@ impl RPCErrorResponse {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
+                RPCResponse::Pong(_) => false,
+                RPCResponse::MetaData(_) => false,
             },
             RPCErrorResponse::InvalidRequest(_) => true,
             RPCErrorResponse::ServerError(_) => true,
@@ -238,21 +262,27 @@ impl ErrorMessage {
 
 impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status Message: Fork Version: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_version, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_digest, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
     }
 }
 
-impl std::fmt::Display for RPCResponse {
+impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCResponse::Status(status) => write!(f, "{}", status),
-            RPCResponse::BlocksByRange(_) => write!(f, "<BlocksByRange>"),
-            RPCResponse::BlocksByRoot(_) => write!(f, "<BlocksByRoot>"),
+            RPCResponse::BlocksByRange(block) => {
+                write!(f, "BlocksByRange: Block slot: {}", block.message.slot)
+            }
+            RPCResponse::BlocksByRoot(block) => {
+                write!(f, "BlocksByRoot: BLock slot: {}", block.message.slot)
+            }
+            RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
+            RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number),
         }
     }
 }
 
-impl std::fmt::Display for RPCErrorResponse {
+impl<T: EthSpec> std::fmt::Display for RPCErrorResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCErrorResponse::Success(res) => write!(f, "{}", res),
@@ -279,8 +309,8 @@ impl std::fmt::Display for BlocksByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Head Block Root: {},  Start Slot: {}, Count: {}, Step: {}",
-            self.head_block_root, self.start_slot, self.count, self.step
+            "Start Slot: {}, Count: {}, Step: {}",
+            self.start_slot, self.count, self.step
         )
     }
 }

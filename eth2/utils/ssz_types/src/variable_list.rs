@@ -4,6 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::SliceIndex;
+use tree_hash::Hash256;
 use typenum::Unsigned;
 
 pub use typenum;
@@ -189,7 +190,7 @@ where
         unreachable!("List should never be packed.")
     }
 
-    fn tree_hash_root(&self) -> Vec<u8> {
+    fn tree_hash_root(&self) -> Hash256 {
         let root = vec_tree_hash_root::<T, N>(&self.vec);
 
         tree_hash::mix_in_length(&root, self.len())
@@ -217,22 +218,41 @@ where
     }
 }
 
-impl<T, N: Unsigned> ssz::Decode for VariableList<T, N>
+impl<T, N> ssz::Decode for VariableList<T, N>
 where
     T: ssz::Decode,
+    N: Unsigned,
 {
     fn is_ssz_fixed_len() -> bool {
-        <Vec<T>>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <Vec<T>>::ssz_fixed_len()
+        false
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        let vec = <Vec<T>>::from_ssz_bytes(bytes)?;
+        let max_len = N::to_usize();
 
-        Self::new(vec).map_err(|e| ssz::DecodeError::BytesInvalid(format!("VariableList {:?}", e)))
+        if bytes.is_empty() {
+            Ok(vec![].into())
+        } else if T::is_ssz_fixed_len() {
+            let num_items = bytes
+                .len()
+                .checked_div(T::ssz_fixed_len())
+                .ok_or_else(|| ssz::DecodeError::ZeroLengthItem)?;
+
+            if num_items > max_len {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "VariableList of {} items exceeds maximum of {}",
+                    num_items, max_len
+                )));
+            }
+
+            bytes
+                .chunks(T::ssz_fixed_len())
+                .map(|chunk| T::from_ssz_bytes(chunk))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Into::into)
+        } else {
+            ssz::decode_list_of_variable_length_items(bytes, Some(max_len)).map(|vec| vec.into())
+        }
     }
 }
 
@@ -247,15 +267,15 @@ mod test {
     #[test]
     fn new() {
         let vec = vec![42; 5];
-        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec.clone());
+        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec);
         assert!(fixed.is_err());
 
         let vec = vec![42; 3];
-        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec.clone());
+        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec);
         assert!(fixed.is_ok());
 
         let vec = vec![42; 4];
-        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec.clone());
+        let fixed: Result<VariableList<u64, U4>, _> = VariableList::new(vec);
         assert!(fixed.is_ok());
     }
 
@@ -285,7 +305,7 @@ mod test {
         assert_eq!(&fixed[..], &vec![42, 42, 42][..]);
 
         let vec = vec![];
-        let fixed: VariableList<u64, U4> = VariableList::from(vec.clone());
+        let fixed: VariableList<u64, U4> = VariableList::from(vec);
         assert_eq!(&fixed[..], &vec![][..]);
     }
 
@@ -318,7 +338,7 @@ mod test {
         round_trip::<VariableList<u16, U8>>(vec![0; 8].into());
     }
 
-    fn root_with_length(bytes: &[u8], len: usize) -> Vec<u8> {
+    fn root_with_length(bytes: &[u8], len: usize) -> Hash256 {
         let root = merkle_root(bytes, 0);
         tree_hash::mix_in_length(&root, len)
     }
@@ -369,7 +389,7 @@ mod test {
         output
     }
 
-    fn padded_root_with_length(bytes: &[u8], len: usize, min_nodes: usize) -> Vec<u8> {
+    fn padded_root_with_length(bytes: &[u8], len: usize, min_nodes: usize) -> Hash256 {
         let root = merkle_root(bytes, min_nodes);
         tree_hash::mix_in_length(&root, len)
     }
@@ -388,7 +408,7 @@ mod test {
             let fixed: VariableList<A, U1> = VariableList::from(vec![a; i]);
             assert_eq!(
                 fixed.tree_hash_root(),
-                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 1),
+                padded_root_with_length(&repeat(a.tree_hash_root().as_bytes(), i), i, 1),
                 "U1 {}",
                 i
             );
@@ -398,7 +418,7 @@ mod test {
             let fixed: VariableList<A, U8> = VariableList::from(vec![a; i]);
             assert_eq!(
                 fixed.tree_hash_root(),
-                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 8),
+                padded_root_with_length(&repeat(a.tree_hash_root().as_bytes(), i), i, 8),
                 "U8 {}",
                 i
             );
@@ -408,7 +428,7 @@ mod test {
             let fixed: VariableList<A, U13> = VariableList::from(vec![a; i]);
             assert_eq!(
                 fixed.tree_hash_root(),
-                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 13),
+                padded_root_with_length(&repeat(a.tree_hash_root().as_bytes(), i), i, 13),
                 "U13 {}",
                 i
             );
@@ -418,7 +438,7 @@ mod test {
             let fixed: VariableList<A, U16> = VariableList::from(vec![a; i]);
             assert_eq!(
                 fixed.tree_hash_root(),
-                padded_root_with_length(&repeat(&a.tree_hash_root(), i), i, 16),
+                padded_root_with_length(&repeat(a.tree_hash_root().as_bytes(), i), i, 16),
                 "U16 {}",
                 i
             );
