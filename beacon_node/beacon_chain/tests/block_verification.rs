@@ -589,13 +589,6 @@ fn block_gossip_verification() {
     );
 
     /*
-     * TODO
-     *
-     * The block is the first block with valid signature received for the proposer for the slot,
-     * signed_beacon_block.message.slot.
-     */
-
-    /*
      * This test ensures that:
      *
      * Spec v0.11.2
@@ -637,19 +630,49 @@ fn block_gossip_verification() {
         &harness.chain.spec,
     );
     assert_eq!(
-        unwrap_err(harness.chain.verify_block_for_gossip(block)),
+        unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
         BlockError::IncorrectBlockProposer {
             block: other_proposer,
             local_shuffling: expected_proposer
         },
         "should not import a block with the wrong proposer index"
     );
+    // Check to ensure that we registered this is a valid block from this proposer.
+    assert_eq!(
+        unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
+        BlockError::RepeatProposal {
+            proposer: other_proposer,
+            slot: block.message.slot
+        },
+        "should register any valid signature against the proposer, even if the block failed later verification"
+    );
 
+    let block = CHAIN_SEGMENT[block_index].beacon_block.clone();
     assert!(
+        harness.chain.verify_block_for_gossip(block).is_ok(),
+        "the valid block should be processed"
+    );
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.11.2
+     *
+     * The block is the first block with valid signature received for the proposer for the slot,
+     * signed_beacon_block.message.slot.
+     */
+
+    let block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    assert_eq!(
         harness
             .chain
-            .verify_block_for_gossip(CHAIN_SEGMENT[block_index].beacon_block.clone())
-            .is_ok(),
-        "the valid block should be processed"
+            .verify_block_for_gossip(block.clone())
+            .err()
+            .expect("should error when processing known block"),
+        BlockError::RepeatProposal {
+            proposer: block.message.proposer_index,
+            slot: block.message.slot,
+        },
+        "the second proposal by this validator should be rejected"
     );
 }
