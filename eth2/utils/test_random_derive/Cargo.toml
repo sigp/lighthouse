@@ -1,6 +1,6 @@
 [package]
 name = "test_random_derive"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["thojest <thojest@gmail.com>"]
 edition = "2018"
 description = "Procedural derive macros for implementation of TestRandom trait"

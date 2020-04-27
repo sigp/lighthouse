@@ -10,7 +10,18 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.11.1
 #[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Encode, Decode, TreeHash, TestRandom,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Hash,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    Default,
 )]
 pub struct AttestationData {
     pub slot: Slot,

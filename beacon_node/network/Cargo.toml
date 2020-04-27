@@ -1,6 +1,6 @@
 [package]
 name = "network"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
@@ -13,7 +13,10 @@ tempdir = "0.3"
 beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
 eth2-libp2p =  { path = "../eth2-libp2p" }
+hashmap_delay = { path = "../../eth2/utils/hashmap_delay" }
+rest_types = { path = "../../eth2/utils/rest_types" }
 types = { path = "../../eth2/types" }
+slot_clock = { path = "../../eth2/utils/slot_clock" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 hex = "0.3"
 eth2_ssz = "0.1.2"

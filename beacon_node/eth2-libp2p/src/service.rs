@@ -1,9 +1,8 @@
-use crate::behaviour::{Behaviour, BehaviourEvent, PubsubMessage};
-use crate::error;
+use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::RPCEvent;
-use crate::NetworkConfig;
-use crate::{NetworkGlobals, Topic, TopicHash};
+use crate::types::{error, GossipKind};
+use crate::{NetworkConfig, NetworkGlobals};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
@@ -15,7 +14,6 @@ use libp2p::core::{
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
     ConnectedPoint,
 };
-use libp2p::gossipsub::MessageId;
 use libp2p::{core, noise, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
 use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
@@ -24,20 +22,21 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::timer::DelayQueue;
+use types::{EnrForkId, EthSpec};
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>>;
+type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
 
-const NETWORK_KEY_FILENAME: &str = "key";
+pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
 /// flushed and protocols to be negotiated.
 const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
 
 /// The configuration and state of the libp2p components for the beacon node.
-pub struct Service {
+pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour>,
+    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour<TSpec>>,
 
     /// This node's PeerId.
     pub local_peer_id: PeerId,
@@ -52,25 +51,36 @@ pub struct Service {
     pub log: slog::Logger,
 }
 
-impl Service {
+impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
         config: &NetworkConfig,
+        enr_fork_id: EnrForkId,
         log: slog::Logger,
-    ) -> error::Result<(Arc<NetworkGlobals>, Self)> {
+    ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         trace!(log, "Libp2p Service starting");
 
+        // initialise the node's ID
         let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {
             keypair_from_hex(hex_bytes)?
         } else {
             load_private_key(config, &log)
         };
 
-        // load the private key from CLI flag, disk or generate a new one
-        let local_peer_id = PeerId::from(local_keypair.public());
-        info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", local_peer_id));
+        // Create an ENR or load from disk if appropriate
+        let enr =
+            enr::build_or_load_enr::<TSpec>(local_keypair.clone(), config, enr_fork_id, &log)?;
 
+        let local_peer_id = enr.peer_id();
         // set up a collection of variables accessible outside of the network crate
-        let network_globals = Arc::new(NetworkGlobals::new(local_peer_id.clone()));
+        let network_globals = Arc::new(NetworkGlobals::new(
+            enr.clone(),
+            config.libp2p_port,
+            config.discovery_port,
+            &log,
+        ));
+
+        info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", enr.peer_id()));
+        debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => config.discovery_port);
 
         let mut swarm = {
             // Set up the transport - tcp/ws with noise/secio and mplex/yamux
@@ -128,19 +138,21 @@ impl Service {
                 if let Protocol::Udp(_) = components[1] {
                     continue;
                 }
+                // inform the peer manager that we are currently dialing this peer
+                network_globals
+                    .peers
+                    .write()
+                    .dialing_peer(&bootnode_enr.peer_id());
                 dial_addr(multiaddr);
             }
         }
 
-        let mut subscribed_topics: Vec<String> = vec![];
-        for topic in config.topics.clone() {
-            let raw_topic: Topic = topic.into();
-            let topic_string = raw_topic.no_hash();
-            if swarm.subscribe(raw_topic.clone()) {
-                trace!(log, "Subscribed to topic"; "topic" => format!("{}", topic_string));
-                subscribed_topics.push(topic_string.as_str().into());
+        let mut subscribed_topics: Vec<GossipKind> = vec![];
+        for topic_kind in &config.topics {
+            if swarm.subscribe_kind(topic_kind.clone()) {
+                subscribed_topics.push(topic_kind.clone());
             } else {
-                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_string));
+                warn!(log, "Could not subscribe to topic"; "topic" => format!("{}",topic_kind));
             }
         }
         info!(log, "Subscribed to topics"; "topics" => format!("{:?}", subscribed_topics));
@@ -167,43 +179,16 @@ impl Service {
     }
 }
 
-impl Stream for Service {
-    type Item = Libp2pEvent;
-    type Error = crate::error::Error;
+impl<TSpec: EthSpec> Stream for Service<TSpec> {
+    type Item = BehaviourEvent<TSpec>;
+    type Error = error::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             match self.swarm.poll() {
-                Ok(Async::Ready(Some(event))) => match event {
-                    BehaviourEvent::GossipMessage {
-                        id,
-                        source,
-                        topics,
-                        message,
-                    } => {
-                        trace!(self.log, "Gossipsub message received"; "service" => "Swarm");
-                        return Ok(Async::Ready(Some(Libp2pEvent::PubsubMessage {
-                            id,
-                            source,
-                            topics,
-                            message,
-                        })));
-                    }
-                    BehaviourEvent::RPC(peer_id, event) => {
-                        return Ok(Async::Ready(Some(Libp2pEvent::RPC(peer_id, event))));
-                    }
-                    BehaviourEvent::PeerDialed(peer_id) => {
-                        return Ok(Async::Ready(Some(Libp2pEvent::PeerDialed(peer_id))));
-                    }
-                    BehaviourEvent::PeerDisconnected(peer_id) => {
-                        return Ok(Async::Ready(Some(Libp2pEvent::PeerDisconnected(peer_id))));
-                    }
-                    BehaviourEvent::PeerSubscribed(peer_id, topic) => {
-                        return Ok(Async::Ready(Some(Libp2pEvent::PeerSubscribed(
-                            peer_id, topic,
-                        ))));
-                    }
-                },
+                Ok(Async::Ready(Some(event))) => {
+                    return Ok(Async::Ready(Some(event)));
+                }
                 Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
                 Ok(Async::NotReady) => break,
                 _ => break,
@@ -309,26 +294,6 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
         .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed();
     transport
-}
-
-#[derive(Debug)]
-/// Events that can be obtained from polling the Libp2p Service.
-pub enum Libp2pEvent {
-    /// An RPC response request has been received on the swarm.
-    RPC(PeerId, RPCEvent),
-    /// Initiated the connection to a new peer.
-    PeerDialed(PeerId),
-    /// A peer has disconnected.
-    PeerDisconnected(PeerId),
-    /// Received pubsub message.
-    PubsubMessage {
-        id: MessageId,
-        source: PeerId,
-        topics: Vec<TopicHash>,
-        message: PubsubMessage,
-    },
-    /// Subscribed to peer for a topic hash.
-    PeerSubscribed(PeerId, TopicHash),
 }
 
 fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {

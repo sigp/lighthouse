@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
-    use crate::{NetworkConfig, Service};
+    use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
     use eth2_libp2p::Enr;
     use futures::{Future, IntoFuture};
@@ -10,7 +10,6 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use store::MemoryStore;
     use tokio::runtime::Runtime;
     use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
 
@@ -44,14 +43,14 @@ mod tests {
             .block_on_all(
                 // Create a new network service which implicitly gets dropped at the
                 // end of the block.
-                Service::new(beacon_chain.clone(), &config, &executor, log.clone())
+                NetworkService::start(beacon_chain.clone(), &config, &executor, log.clone())
                     .into_future()
-                    .and_then(move |(_service, _)| Ok(())),
+                    .and_then(move |(_globals, _service, _exit)| Ok(())),
             )
             .unwrap();
 
         // Load the persisted dht from the store
-        let persisted_enrs = load_dht::<MemoryStore<MinimalEthSpec>, MinimalEthSpec>(store);
+        let persisted_enrs = load_dht(store);
         assert!(
             persisted_enrs.contains(&enrs[0]),
             "should have persisted the first ENR to store"

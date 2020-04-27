@@ -6,7 +6,7 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType,
 };
-use beacon_chain::AttestationProcessingOutcome;
+use beacon_chain::{AttestationProcessingOutcome, AttestationType};
 use state_processing::per_slot_processing;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, BitList, EthSpec, Hash256,
@@ -56,7 +56,7 @@ fn attestation_validity() {
         .expect("should get at least one attestation");
 
     assert_eq!(
-        chain.process_attestation(valid_attestation.clone()),
+        chain.process_attestation(valid_attestation.clone(), AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::Processed),
         "should accept valid attestation"
     );
@@ -71,7 +71,7 @@ fn attestation_validity() {
     assert_eq!(
         harness
             .chain
-            .process_attestation(epoch_mismatch_attestation),
+            .process_attestation(epoch_mismatch_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::BadTargetEpoch),
         "should not accept attestation where the slot is not in the same epoch as the target"
     );
@@ -85,7 +85,9 @@ fn attestation_validity() {
     early_attestation.data.slot = (current_epoch + 1).start_slot(MainnetEthSpec::slots_per_epoch());
 
     assert_eq!(
-        harness.chain.process_attestation(early_attestation),
+        harness
+            .chain
+            .process_attestation(early_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::FutureEpoch {
             attestation_epoch: current_epoch + 1,
             current_epoch
@@ -118,7 +120,9 @@ fn attestation_validity() {
         .expect("should get at least one late attestation");
 
     assert_eq!(
-        harness.chain.process_attestation(late_attestation),
+        harness
+            .chain
+            .process_attestation(late_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::PastEpoch {
             attestation_epoch: current_epoch - 2,
             current_epoch
@@ -134,7 +138,9 @@ fn attestation_validity() {
     bad_target_attestation.data.target.root = Hash256::from_low_u64_be(42);
 
     assert_eq!(
-        harness.chain.process_attestation(bad_target_attestation),
+        harness
+            .chain
+            .process_attestation(bad_target_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::UnknownTargetRoot(
             Hash256::from_low_u64_be(42)
         )),
@@ -149,7 +155,9 @@ fn attestation_validity() {
     future_block_attestation.data.slot -= 1;
 
     assert_eq!(
-        harness.chain.process_attestation(future_block_attestation),
+        harness
+            .chain
+            .process_attestation(future_block_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::AttestsToFutureBlock {
             block: current_slot,
             attestation: current_slot - 1
@@ -165,7 +173,9 @@ fn attestation_validity() {
     bad_head_attestation.data.beacon_block_root = Hash256::from_low_u64_be(42);
 
     assert_eq!(
-        harness.chain.process_attestation(bad_head_attestation),
+        harness
+            .chain
+            .process_attestation(bad_head_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::UnknownHeadBlock {
             beacon_block_root: Hash256::from_low_u64_be(42)
         }),
@@ -183,7 +193,9 @@ fn attestation_validity() {
     bad_signature_attestation.signature = agg_sig;
 
     assert_eq!(
-        harness.chain.process_attestation(bad_signature_attestation),
+        harness
+            .chain
+            .process_attestation(bad_signature_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::InvalidSignature),
         "should not accept bad_signature attestation"
     );
@@ -199,7 +211,7 @@ fn attestation_validity() {
     assert_eq!(
         harness
             .chain
-            .process_attestation(empty_bitfield_attestation),
+            .process_attestation(empty_bitfield_attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::EmptyAggregationBitfield),
         "should not accept empty_bitfield attestation"
     );
@@ -247,7 +259,9 @@ fn attestation_that_skips_epochs() {
         .expect("should get at least one attestation");
 
     assert_eq!(
-        harness.chain.process_attestation(attestation),
+        harness
+            .chain
+            .process_attestation(attestation, AttestationType::Aggregated),
         Ok(AttestationProcessingOutcome::Processed),
         "should process attestation that skips slots"
     );

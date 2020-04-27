@@ -1,16 +1,17 @@
 #![allow(clippy::integer_arithmetic)]
 
 use super::signature_sets::{Error as SignatureSetError, Result as SignatureSetResult, *};
-
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
-use bls::{verify_signature_sets, G1Point, SignatureSet};
+use bls::{verify_signature_sets, SignatureSet};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, IndexedAttestation,
     SignedBeaconBlock,
 };
+
+pub use bls::G1Point;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -54,7 +55,6 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
 {
-    block: &'a SignedBeaconBlock<T>,
     get_pubkey: F,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
@@ -68,15 +68,9 @@ where
 {
     /// Create a new verifier without any included signatures. See the `include...` functions to
     /// add signatures, and the `verify`
-    pub fn new(
-        state: &'a BeaconState<T>,
-        get_pubkey: F,
-        block: &'a SignedBeaconBlock<T>,
-        spec: &'a ChainSpec,
-    ) -> Self {
+    pub fn new(state: &'a BeaconState<T>, get_pubkey: F, spec: &'a ChainSpec) -> Self {
         Self {
-            block,
-            get_pubkey,
+            get_pubkey: get_pubkey,
             state,
             spec,
             sets: vec![],
@@ -97,18 +91,8 @@ where
         block_root: Option<Hash256>,
         spec: &'a ChainSpec,
     ) -> Result<()> {
-        let mut verifier = Self::new(state, get_pubkey, block, spec);
-
-        verifier.include_block_proposal(block_root)?;
-        verifier.include_randao_reveal()?;
-        verifier.include_proposer_slashings()?;
-        verifier.include_attester_slashings()?;
-        verifier.include_attestations()?;
-        /*
-         * Deposits are not included because they can legally have invalid signatures.
-         */
-        verifier.include_exits()?;
-
+        let mut verifier = Self::new(state, get_pubkey, spec);
+        verifier.include_all_signatures(block, block_root)?;
         verifier.verify()
     }
 
@@ -142,12 +126,49 @@ where
         }
     }
 
+    /// Includes all signatures on the block (except the deposit signatures) for verification.
+    pub fn include_all_signatures(
+        &mut self,
+        block: &'a SignedBeaconBlock<T>,
+        block_root: Option<Hash256>,
+    ) -> Result<()> {
+        self.include_block_proposal(block, block_root)?;
+        self.include_randao_reveal(block)?;
+        self.include_proposer_slashings(block)?;
+        self.include_attester_slashings(block)?;
+        self.include_attestations(block)?;
+        // Deposits are not included because they can legally have invalid signatures.
+        self.include_exits(block)?;
+
+        Ok(())
+    }
+
+    /// Includes all signatures on the block (except the deposit signatures and the proposal
+    /// signature) for verification.
+    pub fn include_all_signatures_except_proposal(
+        &mut self,
+        block: &'a SignedBeaconBlock<T>,
+    ) -> Result<()> {
+        self.include_randao_reveal(block)?;
+        self.include_proposer_slashings(block)?;
+        self.include_attester_slashings(block)?;
+        self.include_attestations(block)?;
+        // Deposits are not included because they can legally have invalid signatures.
+        self.include_exits(block)?;
+
+        Ok(())
+    }
+
     /// Includes the block signature for `self.block` for verification.
-    fn include_block_proposal(&mut self, block_root: Option<Hash256>) -> Result<()> {
+    pub fn include_block_proposal(
+        &mut self,
+        block: &'a SignedBeaconBlock<T>,
+        block_root: Option<Hash256>,
+    ) -> Result<()> {
         let set = block_proposal_signature_set(
             self.state,
             self.get_pubkey.clone(),
-            self.block,
+            block,
             block_root,
             self.spec,
         )?;
@@ -156,11 +177,11 @@ where
     }
 
     /// Includes the randao signature for `self.block` for verification.
-    fn include_randao_reveal(&mut self) -> Result<()> {
+    pub fn include_randao_reveal(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
         let set = randao_signature_set(
             self.state,
             self.get_pubkey.clone(),
-            &self.block.message,
+            &block.message,
             self.spec,
         )?;
         self.sets.push(set);
@@ -168,9 +189,8 @@ where
     }
 
     /// Includes all signatures in `self.block.body.proposer_slashings` for verification.
-    fn include_proposer_slashings(&mut self) -> Result<()> {
-        let mut sets: Vec<SignatureSet> = self
-            .block
+    pub fn include_proposer_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
+        let mut sets: Vec<SignatureSet> = block
             .message
             .body
             .proposer_slashings
@@ -194,8 +214,8 @@ where
     }
 
     /// Includes all signatures in `self.block.body.attester_slashings` for verification.
-    fn include_attester_slashings(&mut self) -> Result<()> {
-        self.block
+    pub fn include_attester_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
+        block
             .message
             .body
             .attester_slashings
@@ -216,8 +236,11 @@ where
     }
 
     /// Includes all signatures in `self.block.body.attestations` for verification.
-    fn include_attestations(&mut self) -> Result<Vec<IndexedAttestation<T>>> {
-        self.block
+    pub fn include_attestations(
+        &mut self,
+        block: &'a SignedBeaconBlock<T>,
+    ) -> Result<Vec<IndexedAttestation<T>>> {
+        block
             .message
             .body
             .attestations
@@ -244,9 +267,8 @@ where
     }
 
     /// Includes all signatures in `self.block.body.voluntary_exits` for verification.
-    fn include_exits(&mut self) -> Result<()> {
-        let mut sets = self
-            .block
+    pub fn include_exits(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
+        let mut sets = block
             .message
             .body
             .voluntary_exits
