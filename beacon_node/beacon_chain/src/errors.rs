@@ -3,6 +3,7 @@ use crate::fork_choice::Error as ForkChoiceError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_attestations::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
+use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz::DecodeError;
@@ -71,6 +72,7 @@ pub enum BeaconChainError {
     NaiveAggregationError(NaiveAggregationError),
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
+    ObservedBlockProducersError(ObservedBlockProducersError),
     ArithError(ArithError),
 }
 
@@ -81,6 +83,7 @@ easy_from_to!(OpPoolError, BeaconChainError);
 easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
+easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 

@@ -623,19 +623,19 @@ fn block_gossip_verification() {
      * processing while proposers for the block's branch are calculated.
      */
 
-    let block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
     let expected_proposer = block.message.proposer_index;
     let other_proposer = (0..VALIDATOR_COUNT as u64)
         .into_iter()
         .find(|i| *i != block.message.proposer_index)
         .expect("there must be more than one validator in this test");
-    let mut block = block.message.clone().sign(
+    block.message.proposer_index = other_proposer;
+    let block = block.message.clone().sign(
         &generate_deterministic_keypair(other_proposer as usize).sk,
         &harness.chain.head_info().unwrap().fork,
         harness.chain.genesis_validators_root,
         &harness.chain.spec,
     );
-    block.message.proposer_index = other_proposer;
     assert_eq!(
         unwrap_err(harness.chain.verify_block_for_gossip(block)),
         BlockError::IncorrectBlockProposer {

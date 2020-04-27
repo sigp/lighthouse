@@ -14,6 +14,8 @@ pub enum BlockProcessingOutcome {
     InvalidSignature,
     /// The proposal signature in invalid.
     ProposalSignatureInvalid,
+    /// The `block.proposal_index` is not known.
+    UnknownValidator(u64),
     /// The parent block was unknown.
     ParentUnknown(Hash256),
     /// The block slot is greater than the present slot.
@@ -35,6 +37,11 @@ pub enum BlockProcessingOutcome {
     },
     /// Block is already known, no need to re-import.
     BlockIsAlreadyKnown,
+    /// A block for this proposer and slot has already been observed.
+    RepeatProposal {
+        proposer: u64,
+        slot: Slot,
+    },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     BlockSlotLimitReached,
     /// The provided block is from an earlier slot than its parent.
@@ -85,12 +92,16 @@ impl BlockProcessingOutcome {
                 finalized_slot,
             }),
             Err(BlockError::BlockIsAlreadyKnown) => Ok(BlockProcessingOutcome::BlockIsAlreadyKnown),
+            Err(BlockError::RepeatProposal { proposer, slot }) => {
+                Ok(BlockProcessingOutcome::RepeatProposal { proposer, slot })
+            }
             Err(BlockError::BlockSlotLimitReached) => {
                 Ok(BlockProcessingOutcome::BlockSlotLimitReached)
             }
             Err(BlockError::ProposalSignatureInvalid) => {
                 Ok(BlockProcessingOutcome::ProposalSignatureInvalid)
             }
+            Err(BlockError::UnknownValidator(i)) => Ok(BlockProcessingOutcome::UnknownValidator(i)),
             Err(BlockError::InvalidSignature) => Ok(BlockProcessingOutcome::InvalidSignature),
             Err(BlockError::BlockIsNotLaterThanParent {
                 block_slot,
