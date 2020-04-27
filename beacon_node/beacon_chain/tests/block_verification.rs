@@ -314,16 +314,12 @@ fn invalid_signatures() {
                 item
             );
 
-            let gossip_verified = harness
-                .chain
-                .verify_block_for_gossip(snapshots[block_index].beacon_block.clone())
-                .expect("should obtain gossip verified block");
-            assert_eq!(
-                harness.chain.process_block(gossip_verified),
-                Err(BlockError::InvalidSignature),
-                "should not import gossip verified block with an invalid {} signature",
-                item
-            );
+            // NOTE: we choose not to check gossip verification here. It only checks one signature
+            // (proposal) and that is already tested elsewhere in this file.
+            //
+            // It's not trivial to just check gossip verification since it will start refusing
+            // blocks as soon as it has seen one valid proposal signature for a given (validator,
+            // slot) tuple.
         };
 
         /*
