@@ -53,9 +53,7 @@ use slog::{error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    block_signature_verifier::{
-        BlockSignatureVerifier, Error as BlockSignatureVerifierError, G1Point,
-    },
+    block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
     SlotProcessingError,
 };
@@ -66,7 +64,7 @@ use store::{Error as DBError, StateBatch};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    PublicKey, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 mod block_processing_outcome;
@@ -813,7 +811,7 @@ fn get_signature_verifier<'a, E: EthSpec>(
     state: &'a BeaconState<E>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache,
     spec: &'a ChainSpec,
-) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone> {
+) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone> {
     BlockSignatureVerifier::new(
         state,
         move |validator_index| {
@@ -822,7 +820,7 @@ fn get_signature_verifier<'a, E: EthSpec>(
             if validator_index < state.validators.len() {
                 validator_pubkey_cache
                     .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
+                    .map(|pk| Cow::Borrowed(pk))
             } else {
                 None
             }
