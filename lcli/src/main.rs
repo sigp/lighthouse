@@ -225,6 +225,14 @@ fn main() {
                         .takes_value(true)
                         .help("The value for state.genesis_time. Defaults to now."),
                 )
+                .arg(
+                    Arg::with_name("genesis-fork-version")
+                        .long("genesis-fork-version")
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .help("Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default."),
+                )
         )
         .subcommand(
             SubCommand::with_name("change-genesis-time")
@@ -253,6 +261,13 @@ fn main() {
                 .about(
                     "Produce a new testnet directory. If any of the optional flags are not
                     supplied the values will remain the default for the --spec flag",
+                )
+                .arg(
+                    Arg::with_name("force")
+                        .long("force")
+                        .short("f")
+                        .takes_value(false)
+                        .help("Overwrites any previous testnet configurations"),
                 )
                 .arg(
                     Arg::with_name("min-genesis-time")

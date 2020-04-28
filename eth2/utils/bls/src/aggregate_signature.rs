@@ -1,8 +1,5 @@
 use super::*;
-use milagro_bls::{
-    AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
-    G2Point,
-};
+use milagro_bls::{AggregateSignature as RawAggregateSignature, G2Point};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -32,16 +29,19 @@ impl AggregateSignature {
 
     /// Add (aggregate) a signature to the `AggregateSignature`.
     pub fn add(&mut self, signature: &Signature) {
-        if self.is_empty {
-            self.aggregate_signature = RawAggregateSignature::new();
-            self.is_empty = false;
-        }
+        // Only empty if both are empty
+        self.is_empty = self.is_empty && signature.is_empty();
 
+        // Note: empty signatures will have point at infinity which is equivalent of adding 0.
         self.aggregate_signature.add(signature.as_raw())
     }
 
     /// Add (aggregate) another `AggregateSignature`.
     pub fn add_aggregate(&mut self, agg_signature: &AggregateSignature) {
+        // Only empty if both are empty
+        self.is_empty = self.is_empty && agg_signature.is_empty();
+
+        // Note: empty signatures will have point at infinity which is equivalent of adding 0.
         self.aggregate_signature
             .add_aggregate(&agg_signature.aggregate_signature)
     }
@@ -55,32 +55,32 @@ impl AggregateSignature {
             return false;
         }
         self.aggregate_signature
-            .verify(msg, aggregate_public_key.as_raw())
+            .fast_aggregate_verify_pre_aggregated(msg, aggregate_public_key.as_raw())
     }
 
-    /// Verify this AggregateSignature against multiple AggregatePublickeys with multiple Messages.
+    /// Verify the `AggregateSignature` against an `AggregatePublicKey`.
     ///
-    ///  All PublicKeys related to a Message should be aggregated into one AggregatePublicKey.
-    ///  Each AggregatePublicKey has a 1:1 ratio with a 32 byte Message.
-    pub fn verify_multiple(
-        &self,
-        messages: &[&[u8]],
-        aggregate_public_keys: &[&AggregatePublicKey],
-    ) -> bool {
+    /// Only returns `true` if the set of keys in the `AggregatePublicKey` match the set of keys
+    /// that signed the `AggregateSignature`.
+    pub fn verify_unaggregated(&self, msg: &[u8], public_keys: &[&PublicKey]) -> bool {
         if self.is_empty {
             return false;
         }
-        let aggregate_public_keys: Vec<&RawAggregatePublicKey> =
-            aggregate_public_keys.iter().map(|pk| pk.as_raw()).collect();
-
-        // Messages are concatenated into one long message.
-        let mut msgs: Vec<Vec<u8>> = vec![];
-        for message in messages {
-            msgs.push(message.to_vec());
-        }
-
+        let public_key_refs: Vec<_> = public_keys.iter().map(|pk| pk.as_raw()).collect();
         self.aggregate_signature
-            .verify_multiple(&msgs, &aggregate_public_keys[..])
+            .fast_aggregate_verify(msg, &public_key_refs)
+    }
+
+    /// Verify this AggregateSignature against multiple AggregatePublickeys and Messages.
+    ///
+    /// Each AggregatePublicKey has a 1:1 ratio with a 32 byte Message.
+    pub fn verify_multiple(&self, messages: &[&[u8]], public_keys: &[&PublicKey]) -> bool {
+        if self.is_empty {
+            return false;
+        }
+        let public_keys_refs: Vec<_> = public_keys.iter().map(|pk| pk.as_raw()).collect();
+        self.aggregate_signature
+            .aggregate_verify(&messages, &public_keys_refs)
     }
 
     /// Return AggregateSignature as bytes

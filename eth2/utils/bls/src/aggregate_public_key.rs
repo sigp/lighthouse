@@ -1,5 +1,5 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use milagro_bls::{AggregatePublicKey as RawAggregatePublicKey, G1Point};
+use milagro_bls::AggregatePublicKey as RawAggregatePublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -35,10 +35,6 @@ impl AggregatePublicKey {
 
     pub fn add(&mut self, public_key: &PublicKey) {
         self.0.add(public_key.as_raw())
-    }
-
-    pub fn add_point(&mut self, point: &G1Point) {
-        self.0.point.add(point)
     }
 
     /// Returns the underlying public key.

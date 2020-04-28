@@ -271,12 +271,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     .validator_store
                     .produce_selection_proof(duty.validator_pubkey(), slot)?;
                 let modulo = duty.duty.aggregator_modulo?;
-
                 let subscription = ValidatorSubscription {
                     validator_index,
                     attestation_committee_index,
                     slot,
-                    is_aggregator: selection_proof.is_aggregator(modulo),
+                    is_aggregator: selection_proof
+                        .is_aggregator(modulo)
+                        .map_err(|e| crit!(log_1, "Unable to determine aggregator: {:?}", e))
+                        .ok()?,
                 };
 
                 Some((subscription, (duty, selection_proof)))

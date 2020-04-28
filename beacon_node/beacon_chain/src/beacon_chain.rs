@@ -1124,11 +1124,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })?;
 
         let signature_set = indexed_attestation_signature_set_from_pubkeys(
-            |validator_index| {
-                pubkey_cache
-                    .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
-            },
+            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &attestation.signature,
             &indexed_attestation,
             &fork,
@@ -1444,6 +1440,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(BlockError::BlockIsAlreadyKnown) => continue,
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
+                // If the block is is for a finalized slot, simply ignore this block.
+                //
+                // The block is either:
+                //
+                // 1. In the canonical finalized chain.
+                // 2. In some non-canonical chain at a slot that has been finalized already.
+                //
+                // In the case of (1), there's no need to re-import and later blocks in this
+                // segement might be useful.
+                //
+                // In the case of (2), skipping the block is valid since we should never import it.
+                // However, we will potentially get a `ParentUnknown` on a later block. The sync
+                // protocol will need to ensure this is handled gracefully.
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
                 Err(BlockError::BeaconChainError(e)) => {

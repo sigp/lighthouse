@@ -15,11 +15,15 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
     let deposit_contract_deploy_block = parse_required(matches, "deposit-contract-deploy-block")?;
 
+    let overwrite_files = matches.is_present("force");
+
     if testnet_dir_path.exists() {
-        return Err(format!(
-            "{:?} already exists, will not overwrite",
-            testnet_dir_path
-        ));
+        if !overwrite_files {
+            return Err(format!(
+                "{:?} already exists, will not overwrite. Use --force to overwrite",
+                testnet_dir_path
+            ));
+        }
     }
 
     let mut spec = T::default_spec();
@@ -57,5 +61,5 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         yaml_config: Some(YamlConfig::from_spec::<T>(&spec)),
     };
 
-    testnet.write_to_file(testnet_dir_path)
+    testnet.write_to_file(testnet_dir_path, overwrite_files)
 }
