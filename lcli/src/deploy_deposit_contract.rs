@@ -5,7 +5,7 @@ use deposit_contract::{
     CONTRACT_DEPLOY_GAS,
 };
 use environment::Environment;
-use futures::{Future, IntoFuture};
+use futures::compat::Future01CompatExt;
 use std::path::PathBuf;
 use types::EthSpec;
 use web3::{
@@ -15,7 +15,10 @@ use web3::{
     Web3,
 };
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub async fn run<T: EthSpec>(
+    _env: Environment<T>,
+    matches: &ArgMatches<'_>,
+) -> Result<(), String> {
     let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
     let from_address: Address = clap_utils::parse_required(matches, "from-address")?;
     let confirmations: usize = clap_utils::parse_required(matches, "confirmations")?;
@@ -43,23 +46,21 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .await
         .map_err(|e| format!("Failed to get block number: {}", e))?;
 
-    let address = env.runtime().block_on(
-        Contract::deploy(web3.eth(), &ABI)
-            .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
-            .confirmations(confirmations)
-            .options(Options {
-                gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
-                ..Options::default()
-            })
-            .execute(bytecode, (), from_address)
-            .into_future()
-            .map_err(|e| format!("Unable to execute deployment: {:?}", e))
-            .and_then(|pending| {
-                pending.map_err(|e| format!("Unable to await pending contract: {:?}", e))
-            })
-            .map(|tx_receipt| tx_receipt.address())
-            .map_err(|e| format!("Failed to execute deployment: {:?}", e)),
-    )?;
+    let pending_contract = Contract::deploy(web3.eth(), &ABI)
+        .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
+        .confirmations(confirmations)
+        .options(Options {
+            gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
+            ..Options::default()
+        })
+        .execute(bytecode, (), from_address)
+        .map_err(|e| format!("Unable to execute deployment: {:?}", e))?;
+
+    let address = pending_contract
+        .compat()
+        .await
+        .map_err(|e| format!("Unable to await pending contract: {:?}", e))?
+        .address();
 
     println!("deposit_contract_address: {:?}", address);
     println!("deposit_contract_deploy_block: {}", deploy_block);
