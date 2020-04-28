@@ -5,7 +5,7 @@ use std::io::{Error, ErrorKind, Read, Write};
 use std::path::Path;
 
 pub const PUBLIC_KEY_BYTES_LEN: usize = 96;
-pub const SECRET_KEY_BYTES_LEN: usize = 48;
+pub const SECRET_KEY_BYTES_LEN: usize = 32;
 
 pub const BATCH_SIZE: usize = 1_000; // ~15MB
 
