@@ -56,7 +56,7 @@ mod reals {
 
 pub const BLS_AGG_SIG_BYTE_SIZE: usize = 96;
 pub const BLS_SIG_BYTE_SIZE: usize = 96;
-pub const BLS_SECRET_KEY_BYTE_SIZE: usize = 48;
+pub const BLS_SECRET_KEY_BYTE_SIZE: usize = 32;
 pub const BLS_PUBLIC_KEY_BYTE_SIZE: usize = 48;
 
 use eth2_hashing::hash;
