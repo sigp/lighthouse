@@ -2,18 +2,21 @@ use super::{
     AggregateAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
     SecretKey, Signature, SignedRoot,
 };
-use arbitrary::Arbitrary;
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// A Validators signed aggregate proof to publish on the `beacon_aggregate_and_proof`
 /// gossipsub topic.
 ///
 /// Spec v0.10.1
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "T: EthSpec")]
 pub struct SignedAggregateAndProof<T: EthSpec> {
     /// The `AggregateAndProof` that was signed.

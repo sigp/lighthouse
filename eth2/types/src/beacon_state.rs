@@ -2,7 +2,10 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
+
+#[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
+
 use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
@@ -103,7 +106,8 @@ impl AllowNextEpoch {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct BeaconStateHash(Hash256);
 
 impl fmt::Debug for BeaconStateHash {
@@ -1156,7 +1160,8 @@ impl From<ArithError> for Error {
     }
 }
 
-impl <T: EthSpec> Arbitrary for BeaconState<T> {
+#[cfg(feature = "arbitrary-fuzz")]
+impl<T: EthSpec> Arbitrary for BeaconState<T> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self {
             genesis_time: u64::arbitrary(u)?,
@@ -1174,13 +1179,23 @@ impl <T: EthSpec> Arbitrary for BeaconState<T> {
             balances: <VariableList<u64, T::ValidatorRegistryLimit>>::arbitrary(u)?,
             randao_mixes: <FixedVector<Hash256, T::EpochsPerHistoricalVector>>::arbitrary(u)?,
             slashings: <FixedVector<u64, T::EpochsPerSlashingsVector>>::arbitrary(u)?,
-            previous_epoch_attestations: <VariableList<PendingAttestation<T>, T::MaxPendingAttestations>>::arbitrary(u)?,
-            current_epoch_attestations: <VariableList<PendingAttestation<T>, T::MaxPendingAttestations>>::arbitrary(u)?,
+            previous_epoch_attestations: <VariableList<
+                PendingAttestation<T>,
+                T::MaxPendingAttestations,
+            >>::arbitrary(u)?,
+            current_epoch_attestations: <VariableList<
+                PendingAttestation<T>,
+                T::MaxPendingAttestations,
+            >>::arbitrary(u)?,
             justification_bits: <BitVector<T::JustificationBitsLength>>::arbitrary(u)?,
             previous_justified_checkpoint: Checkpoint::arbitrary(u)?,
             current_justified_checkpoint: Checkpoint::arbitrary(u)?,
             finalized_checkpoint: Checkpoint::arbitrary(u)?,
-            committee_caches: [CommitteeCache::arbitrary(u)?, CommitteeCache::arbitrary(u)?, CommitteeCache::arbitrary(u)?],
+            committee_caches: [
+                CommitteeCache::arbitrary(u)?,
+                CommitteeCache::arbitrary(u)?,
+                CommitteeCache::arbitrary(u)?,
+            ],
             pubkey_cache: PubkeyCache::arbitrary(u)?,
             exit_cache: ExitCache::arbitrary(u)?,
             tree_hash_cache: None,

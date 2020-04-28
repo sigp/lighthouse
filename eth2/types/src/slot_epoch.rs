@@ -12,7 +12,7 @@
 
 use crate::test_utils::TestRandom;
 use crate::SignedRoot;
-use arbitrary::Arbitrary;
+
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
@@ -22,11 +22,16 @@ use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize, Arbitrary)]
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Slot(u64);
 
-#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Eq, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Epoch(u64);
 
 impl_common!(Slot);

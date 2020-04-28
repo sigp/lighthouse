@@ -2,17 +2,20 @@ use crate::test_utils::TestRandom;
 use crate::utils::{graffiti_from_hex_str, graffiti_to_hex_str};
 use crate::*;
 
-use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// The body of a `BeaconChain` block, containing operations.
 ///
 /// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct BeaconBlockBody<T: EthSpec> {
     pub randao_reveal: Signature,

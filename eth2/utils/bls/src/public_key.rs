@@ -145,6 +145,7 @@ impl Hash for PublicKey {
     }
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary for PublicKey {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];

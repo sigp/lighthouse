@@ -18,6 +18,9 @@ types = { path = "../../types" }
 lazy_static = "1.4.0"
 
 [dependencies]
-ethereum-types = { version = "0.9", features = ["arbitrary"] }
+ethereum-types = "0.9"
 eth2_hashing = "0.1.0"
 smallvec = "1.2.0"
+
+[features]
+arbitrary = ["ethereum-types/arbitrary"]

@@ -13,9 +13,11 @@ pub use crate::keypair::Keypair;
 pub use crate::public_key_bytes::PublicKeyBytes;
 pub use crate::secret_key::SecretKey;
 pub use crate::signature_bytes::SignatureBytes;
-pub use arbitrary;
 pub use milagro_bls::{compress_g2, hash_on_g2, G1Point};
 pub use signature_set::{verify_signature_sets, G1Ref, SignatureSet, SignedMessage};
+
+#[cfg(feature = "arbitrary")]
+pub use arbitrary;
 
 #[cfg(feature = "fake_crypto")]
 mod fake_aggregate_public_key;

@@ -1,6 +1,5 @@
 use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
-use arbitrary::{Arbitrary, Unstructured};
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, Index, IndexMut};
@@ -267,8 +266,9 @@ where
     }
 }
 
-impl <T: Arbitrary, N: 'static + Unsigned> Arbitrary for FixedVector<T, N> {
-    fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+#[cfg(feature = "arbitrary")]
+impl<T: arbitrary::Arbitrary, N: 'static + Unsigned> arbitrary::Arbitrary for FixedVector<T, N> {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let size = N::to_usize();
         let mut vec: Vec<T> = Vec::with_capacity(size);
         for _ in 0..size {

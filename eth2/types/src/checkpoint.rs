@@ -1,14 +1,17 @@
 use crate::test_utils::TestRandom;
 use crate::{Epoch, Hash256};
-use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// Casper FFG checkpoint, used in attestations.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(
     Debug,
     Clone,
@@ -22,7 +25,6 @@ use tree_hash_derive::TreeHash;
     Decode,
     TreeHash,
     TestRandom,
-    Arbitrary,
 )]
 pub struct Checkpoint {
     pub epoch: Epoch,

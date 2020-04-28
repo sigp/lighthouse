@@ -114,6 +114,7 @@ impl<'de> Deserialize<'de> for FakeSignature {
     }
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary for FakeSignature {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BLS_SIG_BYTE_SIZE];

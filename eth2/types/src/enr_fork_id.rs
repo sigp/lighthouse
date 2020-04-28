@@ -2,18 +2,21 @@ use crate::test_utils::TestRandom;
 use crate::utils::{fork_from_hex_str, fork_to_hex_str};
 use crate::Epoch;
 
-use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// Specifies a fork which allows nodes to identify each other on the network. This fork is used in
 /// a nodes local ENR.
 ///
 /// Spec v0.11
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(
-    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary,
+    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct EnrForkId {
     #[serde(

@@ -1,5 +1,5 @@
 use crate::*;
-use arbitrary::Arbitrary;
+
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
@@ -7,6 +7,9 @@ use ssz_types::typenum::{
     U65536, U8, U8192,
 };
 use std::fmt::Debug;
+
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
 
 pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /*
@@ -132,7 +135,8 @@ macro_rules! params_from_eth_spec {
 /// Ethereum Foundation specifications.
 ///
 /// Spec v0.11.1
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
@@ -165,7 +169,8 @@ pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
 ///
 /// Spec v0.11.1
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
@@ -199,7 +204,8 @@ impl EthSpec for MinimalEthSpec {
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 
 /// Interop testnet spec
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct InteropEthSpec;
 
 impl EthSpec for InteropEthSpec {

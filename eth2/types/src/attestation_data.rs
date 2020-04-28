@@ -1,15 +1,18 @@
 use crate::test_utils::TestRandom;
 use crate::{Checkpoint, Hash256, SignedRoot, Slot};
 
-use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// The data upon which an attestation is based.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(
     Debug,
     Clone,
@@ -23,7 +26,6 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
     Default,
-    Arbitrary,
 )]
 pub struct AttestationData {
     pub slot: Slot,

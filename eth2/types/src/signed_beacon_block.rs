@@ -1,15 +1,17 @@
 use crate::{test_utils::TestRandom, BeaconBlock, EthSpec, Hash256, Slot};
-use bls::Signature;
-
 use std::fmt;
 
-use arbitrary::Arbitrary;
+use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Arbitrary)]
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SignedBeaconBlockHash(Hash256);
 
 impl fmt::Debug for SignedBeaconBlockHash {
@@ -39,7 +41,8 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 /// A `BeaconBlock` and a signature from its proposer.
 ///
 /// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBeaconBlock<E: EthSpec> {
     pub message: BeaconBlock<E>,

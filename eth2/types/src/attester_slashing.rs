@@ -1,15 +1,18 @@
 use crate::{test_utils::TestRandom, EthSpec, IndexedAttestation};
 
-use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// Two conflicting attestations.
 ///
-/// Spec v0.11.1
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary)]
+/// Spec v0.11.1#[cfg(feature = "arbitrary-fuzz")]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct AttesterSlashing<T: EthSpec> {
     pub attestation_1: IndexedAttestation<T>,

@@ -60,4 +60,3 @@ eth2_ssz = { path = "eth2/utils/ssz" }
 eth2_ssz_derive = { path = "eth2/utils/ssz_derive" }
 eth2_ssz_types = { path = "eth2/utils/ssz_types" }
 eth2_hashing = { path = "eth2/utils/eth2_hashing" }
-ethereum-types = { git = 'https://github.com/sigp/parity-common/', branch = "arbitrary" }

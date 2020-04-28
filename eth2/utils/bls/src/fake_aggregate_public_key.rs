@@ -1,5 +1,4 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use arbitrary;
 use hex::encode as hex_encode;
 use milagro_bls::G1Point;
 use serde::de::{Deserialize, Deserializer};
@@ -110,6 +109,7 @@ impl<'de> Deserialize<'de> for FakeAggregatePublicKey {
     }
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary for FakeAggregatePublicKey {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];

@@ -37,3 +37,11 @@ int_to_bytes = { path = "../utils/int_to_bytes" }
 
 [features]
 fake_crypto = ["bls/fake_crypto"]
+arbitrary-fuzz = [
+  "types/arbitrary",
+  "bls/arbitrary",
+  "merkle_proof/arbitrary",
+  "eth2_ssz/arbitrary",
+  "eth2_ssz_types/arbitrary",
+  "tree_hash/arbitrary",
+]

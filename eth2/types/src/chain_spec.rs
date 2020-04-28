@@ -1,5 +1,4 @@
 use crate::*;
-use arbitrary::Arbitrary;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
@@ -9,6 +8,9 @@ use utils::{
     fork_from_hex_str, fork_to_hex_str, u32_from_hex_str, u32_to_hex_str, u8_from_hex_str,
     u8_to_hex_str,
 };
+
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
 
 /// Each of the BLS signature domains.
 ///
@@ -27,7 +29,8 @@ pub enum Domain {
 /// Holds all the "constants" for a BeaconChain.
 ///
 /// Spec v0.11.1
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Arbitrary)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {
     /*

@@ -1,6 +1,5 @@
 use crate::tree_hash::bitfield_bytes_tree_hash_root;
 use crate::Error;
-use arbitrary::{Arbitrary, Unstructured};
 use core::marker::PhantomData;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -618,9 +617,9 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
     }
 }
 
-
-impl <N: 'static + Unsigned> Arbitrary for Bitfield<Fixed<N>> {
-    fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+#[cfg(feature = "arbitrary")]
+impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Fixed<N>> {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let size = N::to_usize();
         let mut vec: Vec<u8> = vec![0u8; size];
         u.fill_buffer(&mut vec)?;
@@ -628,9 +627,9 @@ impl <N: 'static + Unsigned> Arbitrary for Bitfield<Fixed<N>> {
     }
 }
 
-
-impl <N: 'static + Unsigned> Arbitrary for Bitfield<Variable<N>> {
-    fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+#[cfg(feature = "arbitrary")]
+impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Variable<N>> {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let max_size = N::to_usize();
         let rand = usize::arbitrary(u)?;
         let size = if rand < max_size { rand } else { max_size };

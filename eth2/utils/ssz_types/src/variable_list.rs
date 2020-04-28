@@ -1,6 +1,5 @@
 use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
-use arbitrary::{Arbitrary, Unstructured};
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
@@ -257,9 +256,9 @@ where
     }
 }
 
-
-impl <T: Arbitrary, N: 'static + Unsigned> Arbitrary for VariableList<T, N> {
-    fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+#[cfg(feature = "arbitrary")]
+impl<T: arbitrary::Arbitrary, N: 'static + Unsigned> arbitrary::Arbitrary for VariableList<T, N> {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let max_size = N::to_usize();
         let rand = usize::arbitrary(u)?;
         let size = if rand < max_size { rand } else { max_size };
