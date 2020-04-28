@@ -109,7 +109,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("disable-enr-auto-update")
-                .short("s")
+                .short("x")
                 .long("disable-enr-auto-update")
                 .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot.")
@@ -234,5 +234,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SIZE")
                 .help("Specifies how many states the database should cache in memory [default: 5]")
                 .takes_value(true)
+        )
+        /*
+         * Purge.
+         */
+        .arg(
+            Arg::with_name("purge-db")
+                .long("purge-db")
+                .help("If present, the chain database will be deleted. Use with caution.")
         )
 }

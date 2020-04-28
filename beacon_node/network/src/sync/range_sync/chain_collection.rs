@@ -4,16 +4,16 @@
 //! with this struct to to simplify the logic of the other layers of sync.
 
 use super::chain::{ChainSyncingState, SyncingChain};
-use crate::router::processor::PeerSyncInfo;
 use crate::sync::manager::SyncMessage;
 use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId};
 use slog::{debug, error, info};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
-use types::{Hash256, Slot};
+use types::{Epoch, Hash256, Slot};
 
 /// The state of the long range/batch sync.
 #[derive(Clone)]
@@ -110,10 +110,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     }
 
     /// Updates the global sync state and logs any changes.
-    fn update_sync_state(&mut self, state: RangeSyncState) {
+    pub fn update_sync_state(&mut self) {
         // if there is no range sync occurring, the state is either synced or not based on
         // connected peers.
-        self.state = state;
 
         if self.state == RangeSyncState::Idle {
             // there is no range sync, let the state of peers determine the global node sync state
@@ -150,7 +149,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         if let RangeSyncState::Head { .. } = self.state {
             if self.head_chains.is_empty() {
                 // Update the global network state to either synced or stalled.
-                self.update_sync_state(RangeSyncState::Idle);
+                self.state = RangeSyncState::Idle;
+                self.update_sync_state();
             }
         }
     }
@@ -165,13 +165,14 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 .head_info()
                 .map(|info| info.slot)
                 .unwrap_or_else(|_| Slot::from(0u64));
+
             // NOTE: This will modify the /node/syncing API to show current slot for all fields
             // while we update peers to look for new potentially HEAD chains.
             let temp_head_state = RangeSyncState::Head {
                 start_slot: current_slot,
                 head_slot: current_slot,
             };
-            self.update_sync_state(temp_head_state);
+            self.state = temp_head_state;
         }
     }
 
@@ -206,7 +207,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// This removes any out-dated chains, swaps to any higher priority finalized chains and
     /// updates the state of the collection.
     pub fn update_finalized(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        let local_slot = {
+        let local_epoch = {
             let local = match PeerSyncInfo::from_chain(&self.beacon_chain) {
                 Some(local) => local,
                 None => {
@@ -218,9 +219,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 }
             };
 
-            local
-                .finalized_epoch
-                .start_slot(T::EthSpec::slots_per_epoch())
+            local.finalized_epoch
         };
 
         // Remove any outdated finalized chains
@@ -241,20 +240,20 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     })
             {
                 // A chain has more peers. Swap the syncing chain
-                debug!(self.log, "Switching finalized chains to sync"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_slot"=> chain.start_slot);
+                debug!(self.log, "Switching finalized chains to sync"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_epoch"=> local_epoch);
 
                 // update the state to a new finalized state
                 let state = RangeSyncState::Finalized {
-                    start_slot: chain.start_slot,
+                    start_slot: chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
                     head_slot: chain.target_head_slot,
                     head_root: chain.target_head_root,
                 };
-                self.update_sync_state(state);
+                self.state = state;
 
                 // Stop the current chain from syncing
                 self.finalized_chains[index].stop_syncing();
                 // Start the new chain
-                self.finalized_chains[new_index].start_syncing(network, local_slot);
+                self.finalized_chains[new_index].start_syncing(network, local_epoch);
             }
         } else if let Some(chain) = self
             .finalized_chains
@@ -262,36 +261,36 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .max_by_key(|chain| chain.peer_pool.len())
         {
             // There is no currently syncing finalization chain, starting the one with the most peers
-            debug!(self.log, "New finalized chain started syncing"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_slot"=> chain.start_slot);
-            chain.start_syncing(network, local_slot);
+            debug!(self.log, "New finalized chain started syncing"; "new_target_root" => format!("{}", chain.target_head_root), "new_end_slot" => chain.target_head_slot, "new_start_epoch"=> chain.start_epoch);
+            chain.start_syncing(network, local_epoch);
             let state = RangeSyncState::Finalized {
-                start_slot: chain.start_slot,
+                start_slot: chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
                 head_slot: chain.target_head_slot,
                 head_root: chain.target_head_root,
             };
-            self.update_sync_state(state);
+            self.state = state;
         } else {
             // There are no finalized chains, update the state.
             if self.head_chains.is_empty() {
-                self.update_sync_state(RangeSyncState::Idle);
+                self.state = RangeSyncState::Idle;
             } else {
                 // for the syncing API, we find the minimal start_slot and the maximum
                 // target_slot of all head chains to report back.
 
-                let (min_slot, max_slot) = self.head_chains.iter().fold(
-                    (Slot::from(0u64), Slot::from(0u64)),
+                let (min_epoch, max_slot) = self.head_chains.iter().fold(
+                    (Epoch::from(0u64), Slot::from(0u64)),
                     |(min, max), chain| {
                         (
-                            std::cmp::min(min, chain.start_slot),
+                            std::cmp::min(min, chain.start_epoch),
                             std::cmp::max(max, chain.target_head_slot),
                         )
                     },
                 );
                 let head_state = RangeSyncState::Head {
-                    start_slot: min_slot,
+                    start_slot: min_epoch.start_slot(T::EthSpec::slots_per_epoch()),
                     head_slot: max_slot,
                 };
-                self.update_sync_state(head_state);
+                self.state = head_state;
             }
         }
     }
@@ -299,14 +298,16 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Add a new finalized chain to the collection.
     pub fn new_finalized_chain(
         &mut self,
-        local_finalized_slot: Slot,
+        local_finalized_epoch: Epoch,
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
         sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     ) {
+        let chain_id = rand::random();
         self.finalized_chains.push(SyncingChain::new(
-            local_finalized_slot,
+            chain_id,
+            local_finalized_epoch,
             target_slot,
             target_head,
             peer_id,
@@ -321,7 +322,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     pub fn new_head_chain(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
-        remote_finalized_slot: Slot,
+        remote_finalized_epoch: Epoch,
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
@@ -334,8 +335,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         });
         self.head_chains.retain(|chain| !chain.peer_pool.is_empty());
 
+        let chain_id = rand::random();
         let mut new_head_chain = SyncingChain::new(
-            remote_finalized_slot,
+            chain_id,
+            remote_finalized_epoch,
             target_slot,
             target_head,
             peer_id,
@@ -344,7 +347,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             self.log.clone(),
         );
         // All head chains can sync simultaneously
-        new_head_chain.start_syncing(network, remote_finalized_slot);
+        new_head_chain.start_syncing(network, remote_finalized_epoch);
         self.head_chains.push(new_head_chain);
     }
 
@@ -429,7 +432,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     .fork_choice
                     .contains_block(&chain.target_head_root)
             {
-                debug!(log_ref, "Purging out of finalized chain"; "start_slot" => chain.start_slot, "end_slot" => chain.target_head_slot);
+                debug!(log_ref, "Purging out of finalized chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
                 chain.status_peers(network);
                 false
             } else {
@@ -442,7 +445,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     .fork_choice
                     .contains_block(&chain.target_head_root)
             {
-                debug!(log_ref, "Purging out of date head chain"; "start_slot" => chain.start_slot, "end_slot" => chain.target_head_slot);
+                debug!(log_ref, "Purging out of date head chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
                 chain.status_peers(network);
                 false
             } else {
@@ -478,7 +481,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             chain
         };
 
-        debug!(self.log, "Chain was removed"; "start_slot" => chain.start_slot.as_u64(), "end_slot" => chain.target_head_slot.as_u64());
+        debug!(self.log, "Chain was removed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
 
         // update the state
         self.update_finalized(network);

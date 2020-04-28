@@ -49,6 +49,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     /// A cache of recently seen gossip messages. This is used to filter out any possible
     /// duplicates that may still be seen over gossipsub.
     #[behaviour(ignore)]
+    // TODO: Remove this
     seen_gossip_messages: LruCache<MessageId, ()>,
     /// A collections of variables accessible outside the network service.
     #[behaviour(ignore)]
@@ -297,14 +298,17 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     }
 
     /// Sends a PING/PONG request/response to a peer.
-    fn send_ping(&mut self, id: RequestId, peer_id: PeerId) {
-        let pong_response = RPCEvent::Response(
-            id,
-            RPCErrorResponse::Success(RPCResponse::Pong(crate::rpc::methods::Ping {
-                data: self.meta_data.seq_number,
-            })),
-        );
-        self.send_rpc(peer_id, pong_response);
+    fn send_ping(&mut self, id: RequestId, peer_id: PeerId, is_request: bool) {
+        let ping = crate::rpc::methods::Ping {
+            data: self.meta_data.seq_number,
+        };
+
+        let event = if is_request {
+            RPCEvent::Request(id, RPCRequest::Ping(ping))
+        } else {
+            RPCEvent::Response(id, RPCErrorResponse::Success(RPCResponse::Pong(ping)))
+        };
+        self.send_rpc(peer_id, event);
     }
 
     /// Sends a METADATA request to a peer.
@@ -349,7 +353,14 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                         }
                     }
                 } else {
-                    warn!(self.log, "A duplicate gossipsub message was received"; "message" => format!("{:?}", gs_msg));
+                    match PubsubMessage::<TSpec>::decode(&gs_msg.topics, &gs_msg.data) {
+                        Err(e) => {
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                        }
+                        Ok(msg) => {
+                            crit!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
+                        }
+                    }
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
@@ -417,7 +428,8 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                     RPCEvent::Request(id, RPCRequest::Ping(ping)) => {
                         // inform the peer manager and send the response
                         self.peer_manager.ping_request(&peer_id, ping.data);
-                        self.send_ping(id, peer_id);
+                        // send a ping response
+                        self.send_ping(id, peer_id, false);
                     }
                     RPCEvent::Request(id, RPCRequest::MetaData(_)) => {
                         // send the requested meta-data
@@ -466,16 +478,16 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
                         ));
                     }
                     PeerManagerEvent::Ping(peer_id) => {
-                        // send a ping to this peer
-                        self.send_ping(RequestId::from(0usize), peer_id);
+                        // send a ping request to this peer
+                        self.send_ping(RequestId::from(0usize), peer_id, true);
                     }
                     PeerManagerEvent::MetaData(peer_id) => {
                         self.send_meta_data_request(peer_id);
                     }
-                    PeerManagerEvent::DisconnectPeer(_peer_id) => {
+                    PeerManagerEvent::_DisconnectPeer(_peer_id) => {
                         //TODO: Implement
                     }
-                    PeerManagerEvent::BanPeer(_peer_id) => {
+                    PeerManagerEvent::_BanPeer(_peer_id) => {
                         //TODO: Implement
                     }
                 },

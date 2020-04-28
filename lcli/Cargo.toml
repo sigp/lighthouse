@@ -28,3 +28,5 @@ genesis = { path = "../beacon_node/genesis" }
 deposit_contract = { path = "../eth2/utils/deposit_contract" }
 tree_hash = { path = "../eth2/utils/tree_hash" }
 tokio = { version = "0.2", features = ["full"] }
+clap_utils = { path = "../eth2/utils/clap_utils" }
+eth2-libp2p = { path = "../beacon_node/eth2-libp2p" }

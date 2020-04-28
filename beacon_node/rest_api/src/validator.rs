@@ -507,10 +507,11 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                     }
                 }
             })?;
-            Ok(attestations)
+
+            Ok((attestations, beacon_chain))
             })
-            .and_then(|attestations| {
-                   publish_raw_attestations_to_network::<T>(network_chan, attestations)
+            .and_then(|(attestations, beacon_chain)| {
+                   publish_raw_attestations_to_network::<T>(network_chan, attestations, &beacon_chain.spec)
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )

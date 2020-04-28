@@ -1,4 +1,3 @@
-use hex;
 use hex::ToHex;
 use serde::de::{self, Visitor};
 use std::fmt;

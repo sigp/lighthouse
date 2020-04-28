@@ -1,3 +1,4 @@
+use safe_arith::SafeArith;
 use types::{BeaconStateError as Error, *};
 
 /// Process slashings.
@@ -13,12 +14,17 @@ pub fn process_slashings<T: EthSpec>(
 
     for (index, validator) in state.validators.iter().enumerate() {
         if validator.slashed
-            && epoch + T::EpochsPerSlashingsVector::to_u64() / 2 == validator.withdrawable_epoch
+            && epoch + T::EpochsPerSlashingsVector::to_u64().safe_div(2)?
+                == validator.withdrawable_epoch
         {
             let increment = spec.effective_balance_increment;
-            let penalty_numerator = validator.effective_balance / increment
-                * std::cmp::min(sum_slashings * 3, total_balance);
-            let penalty = penalty_numerator / total_balance * increment;
+            let penalty_numerator = validator
+                .effective_balance
+                .safe_div(increment)?
+                .safe_mul(std::cmp::min(sum_slashings.safe_mul(3)?, total_balance))?;
+            let penalty = penalty_numerator
+                .safe_div(total_balance)?
+                .safe_mul(increment)?;
 
             safe_sub_assign!(state.balances[index], penalty);
         }

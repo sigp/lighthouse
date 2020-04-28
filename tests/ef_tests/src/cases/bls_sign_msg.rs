@@ -23,7 +23,6 @@ impl Case for BlsSign {
         // Convert private_key and message to required types
         let mut sk = hex::decode(&self.input.privkey[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-        pad_to_48(&mut sk);
         let sk = SecretKey::from_bytes(&sk).unwrap();
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
@@ -35,12 +34,5 @@ impl Case for BlsSign {
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
         compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.as_bytes()), &Some(decoded))
-    }
-}
-
-// Increase the size of an array to 48 bytes
-fn pad_to_48(array: &mut Vec<u8>) {
-    while array.len() < 48 {
-        array.insert(0, 0);
     }
 }

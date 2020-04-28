@@ -9,7 +9,7 @@ use network::NetworkMessage;
 use ssz::Decode;
 use store::{iter::AncestorIter, Store};
 use types::{
-    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
+    Attestation, BeaconState, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
     SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
@@ -251,15 +251,22 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
 pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
     mut chan: NetworkChannel<T::EthSpec>,
     attestations: Vec<Attestation<T::EthSpec>>,
+    spec: &ChainSpec,
 ) -> Result<(), ApiError> {
     let messages = attestations
         .into_iter()
         .map(|attestation| {
             // create the gossip message to send to the network
-            let subnet_id = attestation.subnet_id();
-            PubsubMessage::Attestation(Box::new((subnet_id, attestation)))
+            let subnet_id = attestation
+                .subnet_id(spec)
+                .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?;
+
+            Ok(PubsubMessage::Attestation(Box::new((
+                subnet_id,
+                attestation,
+            ))))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, ApiError>>()?;
 
     // Publish the attestations to the p2p network via gossipsub.
     if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {

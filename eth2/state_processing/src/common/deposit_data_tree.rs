@@ -1,6 +1,7 @@
 use eth2_hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::{MerkleTree, MerkleTreeError};
+use safe_arith::SafeArith;
 use types::Hash256;
 
 /// Emulates the eth1 deposit contract merkle tree.
@@ -46,7 +47,7 @@ impl DepositDataTree {
     /// Add a deposit to the merkle tree.
     pub fn push_leaf(&mut self, leaf: Hash256) -> Result<(), MerkleTreeError> {
         self.tree.push_leaf(leaf, self.depth)?;
-        self.mix_in_length += 1;
+        self.mix_in_length.increment()?;
         Ok(())
     }
 }

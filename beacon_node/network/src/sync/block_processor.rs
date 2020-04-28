@@ -1,9 +1,9 @@
 use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
-use crate::sync::range_sync::BatchId;
+use crate::sync::range_sync::{BatchId, ChainId};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
-use slog::{crit, debug, error, trace, warn};
+use slog::{debug, error, trace, warn};
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
 use types::SignedBeaconBlock;
@@ -12,7 +12,7 @@ use types::SignedBeaconBlock;
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(BatchId),
+    RangeBatchId(ChainId, BatchId),
     /// Processing Id of the parent lookup of a block
     ParentLookup(PeerId),
 }
@@ -40,7 +40,7 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
     std::thread::spawn(move || {
         match process_id {
             // this a request from the range sync
-            ProcessId::RangeBatchId(batch_id) => {
+            ProcessId::RangeBatchId(chain_id, batch_id) => {
                 debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
                 let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                     (_, Ok(_)) => {
@@ -59,8 +59,9 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                 };
 
                 let msg = SyncMessage::BatchProcessed {
-                    batch_id: batch_id,
-                    downloaded_blocks: downloaded_blocks,
+                    chain_id,
+                    batch_id,
+                    downloaded_blocks,
                     result,
                 };
                 sync_send.try_send(msg).unwrap_or_else(|_| {
@@ -102,8 +103,6 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
 }
 
 /// Helper function to process blocks batches which only consumes the chain and blocks to process.
-// TODO: Verify the fork choice logic and the correct error handling from `process_chain_segment`.
-// Ensure fork-choice doesn't need to be run during the failed errors.
 fn process_blocks<
     'a,
     T: BeaconChainTypes,
@@ -125,7 +124,6 @@ fn process_blocks<
                         "count" => imported_blocks,
                     );
                     // Batch completed successfully with at least one block, run fork choice.
-                    // TODO: Verify this logic
                     run_fork_choice(chain, log);
                 }
 
@@ -135,8 +133,10 @@ fn process_blocks<
                 imported_blocks,
                 error,
             } => {
-                let r = handle_failed_chain_segment(chain, imported_blocks, error, log);
-
+                let r = handle_failed_chain_segment(error, log);
+                if imported_blocks > 0 {
+                    run_fork_choice(chain, log);
+                }
                 (imported_blocks, r)
             }
         };
@@ -166,31 +166,16 @@ fn run_fork_choice<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>, log: &slog::
 }
 
 /// Helper function to handle a `BlockError` from `process_chain_segment`
-fn handle_failed_chain_segment<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    imported_blocks: usize,
-    error: BlockError,
-    log: &slog::Logger,
-) -> Result<(), String> {
+fn handle_failed_chain_segment(error: BlockError, log: &slog::Logger) -> Result<(), String> {
     match error {
         BlockError::ParentUnknown(parent) => {
             // blocks should be sequential and all parents should exist
-            warn!(
-                log, "Parent block is unknown";
-                "parent_root" => format!("{}", parent),
-            );
-
-            // NOTE: logic from master. TODO: check
-            if imported_blocks > 0 {
-                run_fork_choice(chain, log);
-            }
 
             Err(format!("Block has an unknown parent: {}", parent))
         }
         BlockError::BlockIsAlreadyKnown => {
-            // TODO: Check handling of this
-            crit!(log, "Unknown handling of block error");
-
+            // This can happen for many reasons. Head sync's can download multiples and parent
+            // lookups can download blocks before range sync
             Ok(())
         }
         BlockError::FutureSlot {
@@ -206,10 +191,6 @@ fn handle_failed_chain_segment<T: BeaconChainTypes>(
                     "block_slot" => block_slot,
                     "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
                 );
-                // NOTE: logic from master. TODO: check
-                if imported_blocks > 0 {
-                    run_fork_choice(chain, log);
-                }
             } else {
                 // The block is in the future, but not too far.
                 debug!(
@@ -226,26 +207,15 @@ fn handle_failed_chain_segment<T: BeaconChainTypes>(
             ))
         }
         BlockError::WouldRevertFinalizedSlot { .. } => {
-            //TODO: Check handling. Run fork choice?
-            debug!(
-                log, "Finalized or earlier block processed";
-            );
-            // block reached our finalized slot or was earlier, move to the next block
-            // TODO: How does this logic happen for the chain segment. We would want to
-            // continue processing in this case.
+            debug!( log, "Finalized or earlier block processed";);
 
             Ok(())
         }
         BlockError::GenesisBlock => {
-            debug!(
-                log, "Genesis block was processed";
-            );
-            // TODO: Similarly here. Prefer to continue processing.
-
+            debug!(log, "Genesis block was processed");
             Ok(())
         }
         BlockError::BeaconChainError(e) => {
-            // TODO: Run fork choice?
             warn!(
                 log, "BlockProcessingFailure";
                 "msg" => "unexpected condition in processing block.",
@@ -255,11 +225,6 @@ fn handle_failed_chain_segment<T: BeaconChainTypes>(
             Err(format!("Internal error whilst processing block: {:?}", e))
         }
         other => {
-            // TODO: Run fork choice?
-            // NOTE: logic from master. TODO: check
-            if imported_blocks > 0 {
-                run_fork_choice(chain, log);
-            }
             warn!(
                 log, "Invalid block received";
                 "msg" => "peer sent invalid block",

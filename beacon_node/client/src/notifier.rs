@@ -48,18 +48,18 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
     let speedo = Mutex::new(Speedo::default());
 
-    // Note: `interval_at` panics when interval_duration is 0
-    // TODO: `Return type of closure passed to `for_each` is restricted to `Future<Output = ()>`
-    // Hence, shifting the .then() error logs into the `for_each` closure.
-    // Can be solved with `TryStreamExt::try_for_each` if `Interval` implemented `TryStream`.
-    // Check if this can be refactored better.
-    let interval_future = interval_at(start_instant, interval_duration).for_each(|_| {
-        let connected_peer_count = network.connected_peers();
+    let interval_future = Interval::new(start_instant, interval_duration)
+        .map_err(
+            move |e| error!(log_1, "Slot notifier timer failed"; "error" => format!("{:?}", e)),
+        )
+        .for_each(move |_| {
+            let log = log_2.clone();
 
-        let head_info = match beacon_chain.head_info() {
-            Ok(head) => head,
-            Err(e) => {
-                error!(
+            let connected_peer_count = network.connected_peers();
+            let sync_state = network.sync_state();
+
+            let head_info = beacon_chain.head_info()
+                .map_err(|e| error!(
                     log,
                     "Notifier failed to notify, Failed to get beacon chain head info";
                     "error" => format!("{:?}", e)
@@ -68,11 +68,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             }
         };
 
-        let head_slot = head_info.slot;
-        let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
-        let current_slot = match beacon_chain.slot() {
-            Ok(slot) => slot,
-            Err(e) => {
+            let head_slot = head_info.slot;
+            let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
                     log,
                     "Notify failed to notify, Unable to read current slot";
@@ -124,19 +121,45 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 log,
                 "Syncing";
                 "peers" => peer_count_pretty(connected_peer_count),
-                "distance" => distance,
-                "speed" => sync_speed_pretty(speedo.slots_per_second()),
-                "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                "finalized_root" => format!("{}", finalized_root),
+                "finalized_epoch" => finalized_epoch,
+                "head_block" => format!("{}", head_root),
+                "head_slot" => head_slot,
+                "current_slot" => current_slot,
+                "sync_state" =>format!("{}", sync_state) 
             );
 
-            return futures::future::ready(());
-        };
 
-        macro_rules! not_quite_synced_log {
-                ($message: expr) => {
+            // Log if we are syncing
+            if sync_state.is_syncing() {
+                let distance = format!(
+                    "{} slots ({})",
+                    head_distance.as_u64(),
+                    slot_distance_pretty(head_distance, slot_duration)
+                );
+                info!(
+                    log,
+                    "Syncing";
+                    "peers" => peer_count_pretty(connected_peer_count),
+                    "distance" => distance,
+                    "speed" => sync_speed_pretty(speedo.slots_per_second()),
+                    "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                );
+            } else {
+                if sync_state.is_synced() {
                     info!(
-                        log,
-                        $message;
+                        log_2,
+                        "Synced";
+                        "peers" => peer_count_pretty(connected_peer_count),
+                        "finalized_root" => format!("{}", finalized_root),
+                        "finalized_epoch" => finalized_epoch,
+                        "epoch" => current_epoch,
+                        "slot" => current_slot,
+                    );
+                } else {
+                    info!(
+                        log_2,
+                        "Searching for peers";
                         "peers" => peer_count_pretty(connected_peer_count),
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
@@ -145,25 +168,19 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     );
                 }
             }
-
-        if head_epoch + 1 == current_epoch {
-            not_quite_synced_log!("Synced to previous epoch")
-        } else if head_slot != current_slot {
-            not_quite_synced_log!("Synced to current epoch")
-        } else {
-            info!(
-                log,
-                "Synced";
-                "peers" => peer_count_pretty(connected_peer_count),
-                "finalized_root" => format!("{}", finalized_root),
-                "finalized_epoch" => finalized_epoch,
-                "epoch" => current_epoch,
-                "slot" => current_slot,
-            );
-        };
-
-        futures::future::ready(())
-    });
+            Ok(())
+        })
+        .then(move |result| {
+            match result {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    error!(
+                    log_3,
+                    "Notifier failed to notify";
+                    "error" => format!("{:?}", e)
+                );
+                Ok(())
+            } } });
 
     let (exit_signal, exit) = tokio::sync::oneshot::channel();
 

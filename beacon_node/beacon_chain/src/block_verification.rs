@@ -49,19 +49,22 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
 };
 use parking_lot::RwLockReadGuard;
+use slog::{error, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use state_processing::{
-    block_signature_verifier::{
-        BlockSignatureVerifier, Error as BlockSignatureVerifierError, G1Point,
-    },
+    block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
     SlotProcessingError,
 };
 use std::borrow::Cow;
+use std::fs;
+use std::io::Write;
 use store::{Error as DBError, StateBatch};
+use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    PublicKey, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 mod block_processing_outcome;
@@ -70,6 +73,12 @@ pub use block_processing_outcome::BlockProcessingOutcome;
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
+
+/// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
+/// files in the temp directory.
+///
+/// Only useful for testing.
+const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 /// Returned when a block was not verified. A block is not verified for two reasons:
 ///
@@ -304,6 +313,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             Err(BlockError::ProposalSignatureInvalid)
         }
     }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
+    }
 }
 
 impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for GossipVerifiedBlock<T> {
@@ -517,6 +530,13 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
          * invalid.
          */
 
+        write_state(
+            &format!("state_pre_block_{}", block_root),
+            &state,
+            &chain.log,
+        );
+        write_block(&block, block_root, &chain.log);
+
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         if let Err(err) = per_block_processing(
@@ -546,6 +566,12 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
         let state_root = state.update_tree_hash_cache()?;
 
         metrics::stop_timer(state_root_timer);
+
+        write_state(
+            &format!("state_post_block_{}", block_root),
+            &state,
+            &chain.log,
+        );
 
         /*
          * Check to ensure the state root on the block matches the one we have calculated.
@@ -785,7 +811,7 @@ fn get_signature_verifier<'a, E: EthSpec>(
     state: &'a BeaconState<E>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache,
     spec: &'a ChainSpec,
-) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone> {
+) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone> {
     BlockSignatureVerifier::new(
         state,
         move |validator_index| {
@@ -794,11 +820,54 @@ fn get_signature_verifier<'a, E: EthSpec>(
             if validator_index < state.validators.len() {
                 validator_pubkey_cache
                     .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
+                    .map(|pk| Cow::Borrowed(pk))
             } else {
                 None
             }
         },
         spec,
     )
+}
+
+fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let root = state.tree_hash_root();
+        let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
+
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&state.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log state";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
+        }
+    }
+}
+
+fn write_block<T: EthSpec>(block: &SignedBeaconBlock<T>, root: Hash256, log: &Logger) {
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let filename = format!("block_slot_{}_root{}.ssz", block.message.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
+
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&block.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log block";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
+        }
+    }
 }

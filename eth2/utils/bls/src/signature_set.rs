@@ -1,179 +1,74 @@
-use crate::{AggregatePublicKey, AggregateSignature, PublicKey, Signature};
-use milagro_bls::{G1Point, G2Point};
+use crate::{AggregateSignature, PublicKey, Signature};
 use std::borrow::Cow;
 
 #[cfg(not(feature = "fake_crypto"))]
-use milagro_bls::AggregateSignature as RawAggregateSignature;
+use milagro_bls::{
+    AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
+    PublicKey as RawPublicKey,
+};
+
+#[cfg(feature = "fake_crypto")]
+use crate::fakes::{
+    AggregatePublicKey as RawAggregatePublicKey, AggregateSignature as RawAggregateSignature,
+    PublicKey as RawPublicKey,
+};
 
 type Message = Vec<u8>;
 
 #[derive(Clone, Debug)]
-pub struct SignedMessage<'a> {
-    signing_keys: Vec<Cow<'a, G1Point>>,
+pub struct SignatureSet {
+    pub signature: RawAggregateSignature,
+    signing_keys: RawAggregatePublicKey,
     message: Message,
 }
 
-impl<'a> SignedMessage<'a> {
-    pub fn new(signing_keys: Vec<Cow<'a, G1Point>>, message: Message) -> Self {
+impl SignatureSet {
+    pub fn single(signature: &Signature, signing_key: Cow<PublicKey>, message: Message) -> Self {
         Self {
-            signing_keys,
+            signature: RawAggregateSignature::from_signature(signature.as_raw()),
+            signing_keys: RawAggregatePublicKey::from_public_key(signing_key.as_raw()),
             message,
         }
     }
-}
 
-#[derive(Clone, Debug)]
-pub struct SignatureSet<'a> {
-    pub signature: &'a G2Point,
-    signed_messages: Vec<SignedMessage<'a>>,
-}
-
-impl<'a> SignatureSet<'a> {
-    pub fn single<S>(signature: &'a S, signing_key: Cow<'a, G1Point>, message: Message) -> Self
-    where
-        S: G2Ref,
-    {
-        Self {
-            signature: signature.g2_ref(),
-            signed_messages: vec![SignedMessage::new(vec![signing_key], message)],
-        }
-    }
-
-    pub fn dual<S, T>(
-        signature: &'a S,
-        message_0: Message,
-        message_0_signing_keys: Vec<Cow<'a, G1Point>>,
-        message_1: Message,
-        message_1_signing_keys: Vec<Cow<'a, G1Point>>,
+    pub fn new(
+        signature: &AggregateSignature,
+        signing_keys: Vec<Cow<PublicKey>>,
+        message: Message,
     ) -> Self
-    where
-        T: G1Ref + Clone,
-        S: G2Ref,
-    {
+where {
+        let signing_keys_refs: Vec<&RawPublicKey> =
+            signing_keys.iter().map(|pk| pk.as_raw()).collect();
         Self {
-            signature: signature.g2_ref(),
-            signed_messages: vec![
-                SignedMessage::new(message_0_signing_keys, message_0),
-                SignedMessage::new(message_1_signing_keys, message_1),
-            ],
-        }
-    }
-
-    pub fn new<S>(signature: &'a S, signed_messages: Vec<SignedMessage<'a>>) -> Self
-    where
-        S: G2Ref,
-    {
-        Self {
-            signature: signature.g2_ref(),
-            signed_messages,
+            signature: signature.as_raw().clone(),
+            signing_keys: RawAggregatePublicKey::aggregate(&signing_keys_refs),
+            message,
         }
     }
 
     pub fn is_valid(&self) -> bool {
-        let sig = milagro_bls::AggregateSignature {
-            point: self.signature.clone(),
-        };
-
-        let mut messages: Vec<Vec<u8>> = vec![];
-        let mut pubkeys = vec![];
-
-        self.signed_messages.iter().for_each(|signed_message| {
-            messages.push(signed_message.message.clone());
-
-            let point = if signed_message.signing_keys.len() == 1 {
-                signed_message.signing_keys[0].clone().into_owned()
-            } else {
-                aggregate_public_keys(&signed_message.signing_keys)
-            };
-
-            pubkeys.push(milagro_bls::AggregatePublicKey { point });
-        });
-
-        let pubkey_refs: Vec<&milagro_bls::AggregatePublicKey> =
-            pubkeys.iter().map(std::borrow::Borrow::borrow).collect();
-
-        sig.verify_multiple(&messages, &pubkey_refs)
+        self.signature
+            .fast_aggregate_verify_pre_aggregated(&self.message, &self.signing_keys)
     }
 }
 
+type VerifySet<'a> = (
+    &'a RawAggregateSignature,
+    &'a RawAggregatePublicKey,
+    &'a [u8],
+);
+
 #[cfg(not(feature = "fake_crypto"))]
-pub fn verify_signature_sets<'a>(iter: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+pub fn verify_signature_sets<'a>(sets: Vec<SignatureSet>) -> bool {
     let rng = &mut rand::thread_rng();
-    RawAggregateSignature::verify_multiple_signatures(rng, iter.map(Into::into))
+    let verify_set: Vec<VerifySet> = sets
+        .iter()
+        .map(|ss| (&ss.signature, &ss.signing_keys, ss.message.as_slice()))
+        .collect();
+    RawAggregateSignature::verify_multiple_aggregate_signatures(rng, verify_set.into_iter())
 }
 
 #[cfg(feature = "fake_crypto")]
-pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+pub fn verify_signature_sets<'a>(sets: Vec<SignatureSet>) -> bool {
     true
-}
-
-type VerifySet<'a> = (G2Point, Vec<G1Point>, Vec<Vec<u8>>);
-
-impl<'a> Into<VerifySet<'a>> for SignatureSet<'a> {
-    fn into(self) -> VerifySet<'a> {
-        let signature = self.signature.clone();
-
-        let (pubkeys, messages): (Vec<G1Point>, Vec<Message>) = self
-            .signed_messages
-            .into_iter()
-            .map(|signed_message| {
-                let key = if signed_message.signing_keys.len() == 1 {
-                    signed_message.signing_keys[0].clone().into_owned()
-                } else {
-                    aggregate_public_keys(&signed_message.signing_keys)
-                };
-
-                (key, signed_message.message)
-            })
-            .unzip();
-
-        (signature, pubkeys, messages)
-    }
-}
-
-/// Create an aggregate public key for a list of validators, failing if any key can't be found.
-fn aggregate_public_keys<'a>(public_keys: &'a [Cow<'a, G1Point>]) -> G1Point {
-    let mut aggregate =
-        public_keys
-            .iter()
-            .fold(AggregatePublicKey::new(), |mut aggregate, pubkey| {
-                aggregate.add_point(&pubkey);
-                aggregate
-            });
-
-    aggregate.affine();
-
-    aggregate.into_raw().point
-}
-
-pub trait G1Ref {
-    fn g1_ref(&self) -> Cow<'_, G1Point>;
-}
-
-impl G1Ref for AggregatePublicKey {
-    fn g1_ref(&self) -> Cow<'_, G1Point> {
-        Cow::Borrowed(&self.as_raw().point)
-    }
-}
-
-impl G1Ref for PublicKey {
-    fn g1_ref(&self) -> Cow<'_, G1Point> {
-        Cow::Borrowed(&self.as_raw().point)
-    }
-}
-
-pub trait G2Ref {
-    fn g2_ref(&self) -> &G2Point;
-}
-
-impl G2Ref for AggregateSignature {
-    fn g2_ref(&self) -> &G2Point {
-        &self.as_raw().point
-    }
-}
-
-impl G2Ref for Signature {
-    fn g2_ref(&self) -> &G2Point {
-        &self.as_raw().point
-    }
 }

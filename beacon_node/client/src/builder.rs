@@ -4,11 +4,9 @@ use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
+    migrate::{BackgroundMigrator, Migrate, NullMigrator},
     slot_clock::{SlotClock, SystemTimeSlotClock},
-    store::{
-        migrate::{BackgroundMigrator, Migrate, NullMigrator},
-        DiskStore, MemoryStore, SimpleDiskStore, Store, StoreConfig,
-    },
+    store::{DiskStore, MemoryStore, SimpleDiskStore, Store, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
 use environment::RuntimeContext;
@@ -68,7 +66,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -403,7 +401,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -450,7 +448,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -498,7 +496,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -540,7 +538,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: store::Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, SimpleDiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -600,10 +598,15 @@ where
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     pub fn background_migrator(mut self) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "disk_store requires a log".to_string())?
+            .service_context("freezer_db".into());
         let store = self.store.clone().ok_or_else(|| {
             "background_migrator requires the store to be initialized".to_string()
         })?;
-        self.store_migrator = Some(BackgroundMigrator::new(store));
+        self.store_migrator = Some(BackgroundMigrator::new(store, context.log.clone()));
         Ok(self)
     }
 }
@@ -621,7 +624,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -727,7 +730,7 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: store::Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TStore, TEthSpec>,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,

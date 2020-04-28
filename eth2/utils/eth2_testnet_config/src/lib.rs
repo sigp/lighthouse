@@ -64,9 +64,11 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
         })
     }
 
-    // Write the files to the directory, only if the directory doesn't already exist.
-    pub fn write_to_file(&self, base_dir: PathBuf) -> Result<(), String> {
-        if base_dir.exists() {
+    // Write the files to the directory.
+    //
+    // Overwrites files if specified to do so.
+    pub fn write_to_file(&self, base_dir: PathBuf, overwrite: bool) -> Result<(), String> {
+        if base_dir.exists() && !overwrite {
             return Err("Testnet directory already exists".to_string());
         }
 
@@ -252,7 +254,7 @@ mod tests {
         };
 
         testnet
-            .write_to_file(base_dir.clone())
+            .write_to_file(base_dir.clone(), false)
             .expect("should write to file");
 
         let decoded = Eth2TestnetConfig::load(base_dir).expect("should load struct");
