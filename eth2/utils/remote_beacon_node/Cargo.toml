@@ -7,10 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = "0.9"
+reqwest = { version = "0.10", features = ["json"] }
 url = "1.2"
 serde = "1.0"
-futures = "0.1.25"
+futures = "0.3.4"
 types = { path = "../../../eth2/types" }
 rest_types = { path = "../rest_types" }
 hex = "0.3"
