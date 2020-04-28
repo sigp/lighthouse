@@ -67,6 +67,17 @@ impl FakeAggregatePublicKey {
         // No nothing.
     }
 
+    pub fn aggregate(_pks: &[&PublicKey]) -> Self {
+        Self::new()
+    }
+
+    pub fn from_public_key(public_key: &PublicKey) -> Self {
+        Self {
+            bytes: public_key.as_bytes(),
+            point: public_key.point.clone(),
+        }
+    }
+
     pub fn as_raw(&self) -> &Self {
         &self
     }
