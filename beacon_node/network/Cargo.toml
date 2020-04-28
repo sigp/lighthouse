@@ -8,6 +8,7 @@ edition = "2018"
 sloggers = "0.3.4"
 genesis = { path = "../genesis" }
 tempdir = "0.3"
+lazy_static = "1.4.0"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
@@ -30,3 +31,6 @@ smallvec = "1.0.0"
 rand = "0.7.2"
 fnv = "1.0.6"
 rlp = "0.4.3"
+tokio-timer = "0.2.12"
+matches = "0.1.8"
+tempfile = "3.1.0"
