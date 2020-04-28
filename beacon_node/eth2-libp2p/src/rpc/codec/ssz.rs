@@ -7,7 +7,7 @@ use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
-use tokio::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::UviBytes;
 
@@ -36,11 +36,10 @@ impl<T: EthSpec> SSZInboundCodec<T> {
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<TSpec: EthSpec> Encoder for SSZInboundCodec<TSpec> {
-    type Item = RPCErrorResponse<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCErrorResponse<TSpec>> for SSZInboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCErrorResponse<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCErrorResponse::Success(resp) => match resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
@@ -147,11 +146,10 @@ impl<TSpec: EthSpec> SSZOutboundCodec<TSpec> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<TSpec: EthSpec> Encoder for SSZOutboundCodec<TSpec> {
-    type Item = RPCRequest<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
@@ -255,7 +253,7 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> OutboundCodec for SSZOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
     type ErrorType = ErrorMessage;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {

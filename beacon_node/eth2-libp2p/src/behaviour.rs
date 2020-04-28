@@ -10,14 +10,15 @@ use libp2p::{
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
     swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
-    tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
+use tokio::io::{AsyncRead, AsyncWrite};
 use lru::LruCache;
 use slog::{crit, debug, o, warn};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{EnrForkId, EthSpec, SubnetId};
+use std::task::Poll;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
@@ -28,15 +29,15 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 #[behaviour(out_event = "BehaviourEvent<TSpec>", poll_method = "poll")]
 pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
     /// The routing pub-sub mechanism for eth2.
-    gossipsub: Gossipsub<TSubstream>,
+    gossipsub: Gossipsub,
     /// The Eth2 RPC specified in the wire-0 protocol.
     eth2_rpc: RPC<TSubstream, TSpec>,
     /// Keep regular connection to peers and disconnect if absent.
     // TODO: Using id for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
-    identify: Identify<TSubstream>,
+    identify: Identify,
     /// Discovery behaviour.
-    discovery: Discovery<TSubstream, TSpec>,
+    discovery: Discovery<TSpec>,
     /// The peer manager that keeps track of peer's reputation and status.
     #[behaviour(ignore)]
     peer_manager: PeerManager<TSpec>,
@@ -114,12 +115,12 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     }
 
     /// Obtain a reference to the discovery protocol.
-    pub fn discovery(&self) -> &Discovery<TSubstream, TSpec> {
+    pub fn discovery(&self) -> &Discovery<TSpec> {
         &self.discovery
     }
 
     /// Obtain a reference to the gossipsub protocol.
-    pub fn gs(&self) -> &Gossipsub<TSubstream> {
+    pub fn gs(&self) -> &Gossipsub {
         &self.gossipsub
     }
 
@@ -465,15 +466,15 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     /// Consumes the events list when polled.
     fn poll<TBehaviourIn>(
         &mut self,
-    ) -> Async<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
+    ) -> Poll<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
         // check the peer manager for events
         loop {
             match self.peer_manager.poll() {
-                Ok(Async::Ready(Some(event))) => match event {
+                Ok(Poll::Ready(Some(event))) => match event {
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
                         // the network to send a status to this peer
-                        return Async::Ready(NetworkBehaviourAction::GenerateEvent(
+                        return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
                             BehaviourEvent::StatusPeer(peer_id),
                         ));
                     }
@@ -491,8 +492,8 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
                         //TODO: Implement
                     }
                 },
-                Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) | Err(_) => {
+                Poll::Pending => break,
+                Poll::Ready(None) | Err(_) => {
                     crit!(self.log, "Error polling peer manager");
                     break;
                 }
@@ -500,10 +501,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         }
 
         if !self.events.is_empty() {
-            return Async::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
         }
 
-        Async::NotReady
+        Poll::Pending
     }
 }
 

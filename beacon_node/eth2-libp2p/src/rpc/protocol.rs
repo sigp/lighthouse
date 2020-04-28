@@ -16,11 +16,9 @@ use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, Upgra
 use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tokio::codec::Framed;
+use tokio_util::codec::Framed;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::timer::timeout;
-use tokio::util::FutureExt;
-use tokio_io_timeout::TimeoutStream;
+use tokio::time::Timeout;
 use types::EthSpec;
 
 /// The maximum bytes that can be sent across the RPC.
@@ -171,7 +169,7 @@ impl ProtocolName for ProtocolId {
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
-    Framed<TimeoutStream<upgrade::Negotiated<TSocket>>, InboundCodec<TSpec>>;
+    Framed<Timeout<upgrade::Negotiated<TSocket>>, InboundCodec<TSpec>>;
 type FnAndThen<TSocket, TSpec> = fn(
     (Option<RPCRequest<TSpec>>, InboundFramed<TSocket, TSpec>),
 ) -> FutureResult<InboundOutput<TSocket, TSpec>, RPCError>;
