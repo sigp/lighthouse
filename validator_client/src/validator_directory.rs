@@ -1,6 +1,6 @@
-use crate::keystore::Keystore;
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, DEPOSIT_GAS};
+use eth2_keystore::Keystore;
 use futures::{Future, IntoFuture};
 use hex;
 use ssz::{Decode, Encode};

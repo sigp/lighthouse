@@ -11,6 +11,7 @@ members = [
     "eth2/utils/deposit_contract",
     "eth2/utils/eth2_config",
     "eth2/utils/eth2_interop_keypairs",
+    "eth2/utils/eth2_keystore",
     "eth2/utils/eth2_testnet_config",
     "eth2/utils/logging",
     "eth2/utils/eth2_hashing",

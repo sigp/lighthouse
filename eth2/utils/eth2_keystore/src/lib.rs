@@ -2,16 +2,17 @@ mod checksum;
 mod cipher;
 mod crypto;
 mod kdf;
-use crate::keystore::cipher::Cipher;
-use crate::keystore::crypto::Crypto;
-use crate::keystore::kdf::Kdf;
+
+use crate::cipher::Cipher;
+use crate::crypto::Crypto;
+use crate::kdf::Kdf;
 use bls::{Keypair, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use uuid::Uuid;
 use zeroize::Zeroize;
 
-pub use crate::keystore::crypto::Password;
+pub use crate::crypto::Password;
 
 const PRIVATE_KEY_BYTES: usize = 48;
 

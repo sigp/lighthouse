@@ -1,6 +1,6 @@
-use crate::keystore::checksum::{Checksum, ChecksumModule};
-use crate::keystore::cipher::{Cipher, CipherModule};
-use crate::keystore::kdf::{Kdf, KdfModule};
+use crate::checksum::{Checksum, ChecksumModule};
+use crate::cipher::{Cipher, CipherModule};
+use crate::kdf::{Kdf, KdfModule};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use zeroize::Zeroize;
@@ -113,8 +113,8 @@ impl Crypto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keystore::cipher::{Aes128Ctr, Cipher};
-    use crate::keystore::kdf::{Kdf, Pbkdf2, Prf, Scrypt};
+    use crate::cipher::{Aes128Ctr, Cipher};
+    use crate::kdf::{Kdf, Pbkdf2, Prf, Scrypt};
 
     fn from_slice(bytes: &[u8]) -> [u8; 16] {
         let mut array = [0; 16];
