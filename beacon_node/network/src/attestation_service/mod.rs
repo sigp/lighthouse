@@ -659,7 +659,7 @@ mod tests {
     use beacon_chain::events::NullEventHandler;
     use beacon_chain::migrate::NullMigrator;
     use eth2_libp2p::discovery::{build_enr, Keypair};
-    use eth2_libp2p::{ discovery::CombinedKey, NetworkConfig, NetworkGlobals };
+    use eth2_libp2p::{discovery::CombinedKey, NetworkConfig, NetworkGlobals};
     use futures::Stream;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use lazy_static::lazy_static;
