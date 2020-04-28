@@ -10,7 +10,7 @@ use arbitrary::Arbitrary;
 
 /// Two conflicting attestations.
 ///
-/// Spec v0.11.1#[cfg(feature = "arbitrary-fuzz")]
+/// Spec v0.11.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
