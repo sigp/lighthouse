@@ -196,7 +196,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: &SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
-
         // verify the attestation is on the correct subnet
         let expected_subnet = match attestation.subnet_id(&self.beacon_chain.spec) {
             Ok(v) => v,
@@ -210,13 +209,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             warn!(self.log, "Received an attestation on the wrong subnet"; "subnet_received" => format!("{:?}", subnet), "subnet_expected" => format!("{:?}",expected_subnet), "peer_id" => format!("{}", peer_id));
             return false;
         }
-       
+
         let exact_subnet = ExactSubnet {
-            subnet_id: _subnet.clone(),
-            slot: _attestation.data.slot,
+            subnet_id: subnet.clone(),
+            slot: attestation.data.slot,
         };
         self.aggregate_validators_on_subnet.contains(&exact_subnet)
-
     }
 
     /* Internal private functions */
