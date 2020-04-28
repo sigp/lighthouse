@@ -225,6 +225,14 @@ fn main() {
                         .takes_value(true)
                         .help("The value for state.genesis_time. Defaults to now."),
                 )
+                .arg(
+                    Arg::with_name("genesis-fork-version")
+                        .long("genesis-fork-version")
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .help("Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default."),
+                )
         )
         .subcommand(
             SubCommand::with_name("change-genesis-time")
