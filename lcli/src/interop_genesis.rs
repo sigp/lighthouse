@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use clap_utils::{parse_ssz_optional};
+use clap_utils::parse_ssz_optional;
 use environment::Environment;
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::interop_genesis_state;
