@@ -1197,6 +1197,7 @@ name = "eth2_keystore"
 version = "0.1.0"
 dependencies = [
  "bls 0.2.0",
+ "eth2_ssz 0.1.2",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rust-crypto 0.2.36 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -3,10 +3,48 @@ use crypto::{hmac::Hmac, mac::Mac, pbkdf2, scrypt};
 use rand::prelude::*;
 use serde::{de, Deserialize, Serialize, Serializer};
 use std::default::Default;
+use zeroize::Zeroize;
 
 // TODO: verify size of salt
 const SALT_SIZE: usize = 32;
-const DECRYPTION_KEY_SIZE: u32 = 32;
+const DECRYPTION_KEY_SIZE: usize = 32;
+const DKLEN: u32 = 32;
+
+#[derive(Zeroize)]
+#[zeroize(drop)]
+pub struct DerivedKey([u8; DECRYPTION_KEY_SIZE]);
+
+impl DerivedKey {
+    /// Instantiates `Self` with a all-zeros byte array.
+    fn zero() -> Self {
+        Self([0; DECRYPTION_KEY_SIZE])
+    }
+
+    /// Returns a mutable reference to the underlying byte array.
+    fn as_mut_bytes(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+
+    /// Returns the `DK_slice` bytes used for checksum comparison.
+    ///
+    /// ## Reference
+    ///
+    /// # https://github.com/ethereum/EIPs/blob/master/EIPS/eip-2335.md#procedure
+    pub fn checksum_slice(&self) -> &[u8] {
+        &self.0[16..32]
+    }
+
+    /// Returns the aes-128-ctr key.
+    ///
+    /// Only the first 16 bytes of the decryption_key are used as the AES key.
+    ///
+    /// ## Reference
+    ///
+    /// https://github.com/ethereum/EIPs/blob/master/EIPS/eip-2335.md#secret-decryption
+    pub fn aes_key(&self) -> &[u8] {
+        &self.0[0..16]
+    }
+}
 
 /// Parameters for `pbkdf2` key derivation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -22,7 +60,7 @@ impl Default for Pbkdf2 {
     fn default() -> Self {
         let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
         Pbkdf2 {
-            dklen: DECRYPTION_KEY_SIZE,
+            dklen: DKLEN,
             c: 262144,
             prf: Prf::default(),
             salt: salt.to_vec(),
@@ -32,10 +70,10 @@ impl Default for Pbkdf2 {
 
 impl Pbkdf2 {
     /// Derive key from password.
-    pub fn derive_key(&self, password: &str) -> [u8; DECRYPTION_KEY_SIZE as usize] {
-        let mut dk = [0u8; DECRYPTION_KEY_SIZE as usize];
+    pub fn derive_key(&self, password: &str) -> DerivedKey {
+        let mut dk = DerivedKey::zero();
         let mut mac = self.prf.mac(password.as_bytes());
-        pbkdf2::pbkdf2(&mut mac, &self.salt, self.c, &mut dk);
+        pbkdf2::pbkdf2(&mut mac, &self.salt, self.c, dk.as_mut_bytes());
         dk
     }
 }
@@ -61,12 +99,12 @@ fn log2_int(x: u32) -> u32 {
 }
 
 impl Scrypt {
-    pub fn derive_key(&self, password: &str) -> [u8; DECRYPTION_KEY_SIZE as usize] {
-        let mut dk = [0u8; DECRYPTION_KEY_SIZE as usize];
+    pub fn derive_key(&self, password: &str) -> DerivedKey {
+        let mut dk = DerivedKey::zero();
         // Assert that `n` is power of 2
         debug_assert_eq!(self.n, 2u32.pow(log2_int(self.n)));
         let params = scrypt::ScryptParams::new(log2_int(self.n) as u8, self.r, self.p);
-        scrypt::scrypt(password.as_bytes(), &self.salt, &params, &mut dk);
+        scrypt::scrypt(password.as_bytes(), &self.salt, &params, &mut dk.0);
         dk
     }
 }
@@ -75,7 +113,7 @@ impl Default for Scrypt {
     fn default() -> Self {
         let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
         Scrypt {
-            dklen: DECRYPTION_KEY_SIZE,
+            dklen: DKLEN,
             n: 262144,
             r: 8,
             p: 1,

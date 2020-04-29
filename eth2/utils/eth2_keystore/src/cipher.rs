@@ -2,8 +2,31 @@ use crypto::aes::{ctr, KeySize};
 use rand::prelude::*;
 use serde::{de, Deserialize, Serialize, Serializer};
 use std::default::Default;
+use zeroize::Zeroize;
 
 const IV_SIZE: usize = 16;
+
+#[derive(Zeroize, Clone, PartialEq)]
+#[zeroize(drop)]
+pub struct PlainText(Vec<u8>);
+
+impl PlainText {
+    pub fn zero(len: usize) -> Self {
+        Self(vec![0; len])
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn as_mut_bytes(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
 
 /// Convert slice to fixed length array.
 /// Returns `None` if slice has len > `IV_SIZE`
@@ -41,10 +64,10 @@ impl Aes128Ctr {
         ct
     }
 
-    pub fn decrypt(&self, key: &[u8], ct: &[u8]) -> Vec<u8> {
+    pub fn decrypt(&self, key: &[u8], ct: &[u8]) -> PlainText {
         // TODO: sanity checks
-        let mut pt = vec![0; ct.len()];
-        ctr(KeySize::KeySize128, key, &self.iv).process(ct, &mut pt);
+        let mut pt = PlainText::zero(ct.len());
+        ctr(KeySize::KeySize128, key, &self.iv).process(ct, &mut pt.as_mut_bytes());
         pt
     }
 }

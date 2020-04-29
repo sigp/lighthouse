@@ -1,3 +1,4 @@
+use crate::kdf::DerivedKey;
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 use serde::{Deserialize, Serialize};
@@ -11,13 +12,13 @@ pub struct ChecksumModule {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct Checksum(String);
+pub struct Sha256Checksum(String);
 
-impl Checksum {
-    /// Generate checksum using checksum function.
-    pub fn gen_checksum(message: &[u8]) -> String {
+impl Sha256Checksum {
+    pub fn generate(derived_key: &DerivedKey, cipher_message: &[u8]) -> String {
         let mut hasher = Sha256::new();
-        hasher.input(message);
+        hasher.input(derived_key.checksum_slice());
+        hasher.input(cipher_message);
         hasher.result_str()
     }
 

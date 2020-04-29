@@ -1,6 +1,7 @@
-use crate::checksum::{Checksum, ChecksumModule};
-use crate::cipher::{Cipher, CipherModule};
+use crate::checksum::{ChecksumModule, Sha256Checksum};
+use crate::cipher::{Cipher, CipherModule, PlainText};
 use crate::kdf::{Kdf, KdfModule};
+use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use zeroize::Zeroize;
@@ -20,12 +21,14 @@ impl Password {
     }
 }
 
+#[cfg(test)]
 impl From<String> for Password {
     fn from(s: String) -> Password {
         Password(s)
     }
 }
 
+#[cfg(test)]
 impl<'a> From<&'a str> for Password {
     fn from(s: &'a str) -> Password {
         Password::from(String::from(s))
@@ -50,13 +53,10 @@ impl Crypto {
             Kdf::Scrypt(scrypt) => scrypt.derive_key(password.as_str()),
         };
         // Encrypt secret
-        let cipher_message = match &cipher {
-            Cipher::Aes128Ctr(cipher) => cipher.encrypt(&derived_key[0..16], secret),
+        let cipher_message: Vec<u8> = match &cipher {
+            Cipher::Aes128Ctr(cipher) => cipher.encrypt(derived_key.aes_key(), secret),
         };
-        // Generate checksum
-        let mut pre_image: Vec<u8> = derived_key[16..32].to_owned();
-        pre_image.append(&mut cipher_message.clone());
-        let checksum = Checksum::gen_checksum(&pre_image);
+
         Crypto {
             kdf: KdfModule {
                 function: kdf.function(),
@@ -64,9 +64,9 @@ impl Crypto {
                 message: "".to_string(),
             },
             checksum: ChecksumModule {
-                function: Checksum::function(),
+                function: Sha256Checksum::function(),
                 params: serde_json::Value::Object(serde_json::Map::default()),
-                message: checksum,
+                message: Sha256Checksum::generate(&derived_key, &cipher_message),
             },
             cipher: CipherModule {
                 function: cipher.function(),
@@ -80,31 +80,25 @@ impl Crypto {
     ///
     /// An error will be returned if `cipher.message` is not in hex format or
     /// if password is incorrect.
-    pub fn decrypt(&self, password: Password) -> Result<Vec<u8>, String> {
+    pub fn decrypt(&self, password: Password) -> Result<PlainText, Error> {
+        let cipher_message =
+            hex::decode(self.cipher.message.clone()).map_err(Error::InvalidCipherMessageHex)?;
+
         // Generate derived key
         let derived_key = match &self.kdf.params {
             Kdf::Pbkdf2(pbkdf2) => pbkdf2.derive_key(password.as_str()),
             Kdf::Scrypt(scrypt) => scrypt.derive_key(password.as_str()),
         };
-        // Regenerate checksum
-        let mut pre_image: Vec<u8> = derived_key[16..32].to_owned();
-        pre_image.append(
-            &mut hex::decode(self.cipher.message.clone())
-                .map_err(|e| format!("Cipher message should be in hex: {}", e))?,
-        );
-        let checksum = Checksum::gen_checksum(&pre_image);
 
-        // `password` is incorrect if checksums don't match
-        if checksum != self.checksum.message {
-            return Err("Incorrect password. Checksum does not match".into());
+        // Mismatching `password` indicates an invalid password.
+        if Sha256Checksum::generate(&derived_key, &cipher_message) != self.checksum.message {
+            return Err(Error::InvalidPassword);
         }
+
         let secret = match &self.cipher.params {
-            Cipher::Aes128Ctr(cipher) => cipher.decrypt(
-                &derived_key[0..16],
-                &hex::decode(self.cipher.message.clone())
-                    .map_err(|e| format!("Cipher message should be in hex: {}", e))?,
-            ),
+            Cipher::Aes128Ctr(cipher) => cipher.decrypt(&derived_key.aes_key(), &cipher_message),
         };
+
         Ok(secret)
     }
 }
@@ -156,7 +150,7 @@ mod tests {
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
         let recovered_secret = recovered_keystore.decrypt(password).unwrap();
 
-        assert_eq!(secret, recovered_secret);
+        assert_eq!(secret, recovered_secret.as_bytes());
     }
 
     #[test]
@@ -193,6 +187,6 @@ mod tests {
         let recovered_keystore: Crypto = serde_json::from_str(&json).unwrap();
         let recovered_secret = recovered_keystore.decrypt(password).unwrap();
 
-        assert_eq!(secret, recovered_secret);
+        assert_eq!(secret, recovered_secret.as_bytes());
     }
 }

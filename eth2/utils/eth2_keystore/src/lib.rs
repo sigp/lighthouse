@@ -7,11 +7,15 @@ use crate::cipher::Cipher;
 use crate::crypto::Crypto;
 use crate::kdf::Kdf;
 use bls::{Keypair, PublicKey, SecretKey};
+use hex::FromHexError;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
+use ssz::DecodeError;
 use uuid::Uuid;
 
 pub use crate::crypto::Password;
+
+const SECRET_KEY_LEN: usize = 32;
 
 /// Version for `Keystore`.
 #[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -24,6 +28,15 @@ impl Default for Version {
     fn default() -> Self {
         Version::V4
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    InvalidSecretKeyLen { len: usize, expected: usize },
+    InvalidCipherMessageHex(FromHexError),
+    InvalidPassword,
+    InvalidSecretKeyBytes(DecodeError),
+    PublicKeyMismatch,
 }
 
 /// TODO: Implement `path` according to
@@ -72,16 +85,19 @@ impl Keystore {
     /// An error is returned if the password provided is incorrect or if
     /// keystore does not contain valid hex strings or if the secret contained is not a
     /// BLS12-381 secret key.
-    pub fn to_keypair(&self, password: Password) -> Result<Keypair, String> {
+    pub fn to_keypair(&self, password: Password) -> Result<Keypair, Error> {
         let sk_bytes = self.crypto.decrypt(password)?;
-        if sk_bytes.len() != 32 {
-            return Err(format!("Invalid secret key size: {:?}", sk_bytes));
+        if sk_bytes.len() != SECRET_KEY_LEN {
+            return Err(Error::InvalidSecretKeyLen {
+                len: sk_bytes.len(),
+                expected: SECRET_KEY_LEN,
+            });
         }
-        let sk = SecretKey::from_bytes(sk_bytes.as_ref())
-            .map_err(|e| format!("Invalid secret key in keystore {:?}", e))?;
+        let sk =
+            SecretKey::from_bytes(sk_bytes.as_bytes()).map_err(Error::InvalidSecretKeyBytes)?;
         let pk = PublicKey::from_secret_key(&sk);
         if pk.as_hex_string()[2..].to_string() != self.pubkey {
-            return Err(format!("Decoded pubkey doesn't match keystore pubkey"));
+            return Err(Error::PublicKeyMismatch);
         }
         Ok(Keypair { sk, pk })
     }

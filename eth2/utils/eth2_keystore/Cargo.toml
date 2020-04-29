@@ -16,4 +16,5 @@ serde = "1.0.102"
 serde_repr = "0.1"
 hex = "0.3"
 bls = { path = "../bls" }
+eth2_ssz = { path = "../ssz" }
 serde_json = "1.0.41"
