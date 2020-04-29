@@ -6,13 +6,10 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
-
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.11.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,

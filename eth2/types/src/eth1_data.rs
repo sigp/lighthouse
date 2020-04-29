@@ -6,13 +6,10 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
-
 /// Contains data obtained from the Eth1 chain.
 ///
 /// Spec v0.11.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug,
     PartialEq,

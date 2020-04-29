@@ -9,9 +9,6 @@ use utils::{
     u8_to_hex_str,
 };
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
-
 /// Each of the BLS signature domains.
 ///
 /// Spec v0.11.1
@@ -29,7 +26,7 @@ pub enum Domain {
 /// Holds all the "constants" for a BeaconChain.
 ///
 /// Spec v0.11.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChainSpec {

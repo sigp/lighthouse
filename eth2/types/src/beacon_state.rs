@@ -3,9 +3,6 @@ use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
-
 use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
@@ -106,7 +103,7 @@ impl AllowNextEpoch {
     }
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct BeaconStateHash(Hash256);
 
@@ -1162,7 +1159,7 @@ impl From<ArithError> for Error {
 }
 
 #[cfg(feature = "arbitrary-fuzz")]
-impl<T: EthSpec> Arbitrary for BeaconState<T> {
+impl<T: EthSpec> arbitrary::Arbitrary for BeaconState<T> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self {
             genesis_time: u64::arbitrary(u)?,

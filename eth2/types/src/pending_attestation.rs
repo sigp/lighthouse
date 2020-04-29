@@ -6,9 +6,6 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
-
 /// An attestation that has been included in the state but not yet fully processed.
 ///
 /// Spec v0.11.1
@@ -21,7 +18,7 @@ pub struct PendingAttestation<T: EthSpec> {
 }
 
 #[cfg(feature = "arbitrary-fuzz")]
-impl<T: EthSpec> Arbitrary for PendingAttestation<T> {
+impl<T: EthSpec> arbitrary::Arbitrary for PendingAttestation<T> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self {
             aggregation_bits: <BitList<T::MaxValidatorsPerCommittee>>::arbitrary(u)?,

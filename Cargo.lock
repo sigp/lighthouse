@@ -98,10 +98,10 @@ dependencies = [
 
 [[package]]
 name = "arbitrary"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "derive_arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "derive_arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -374,7 +374,7 @@ dependencies = [
 name = "bls"
 version = "0.2.0"
 dependencies = [
- "arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_hashing 0.1.1",
  "eth2_ssz 0.1.2",
  "eth2_ssz_types 0.2.0",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "derive_arbitrary"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "proc-macro2 1.0.10 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1219,7 +1219,7 @@ dependencies = [
 name = "eth2_ssz_types"
 version = "0.2.0"
 dependencies = [
- "arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz 0.1.2",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1320,7 +1320,7 @@ name = "fixed-hash"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hex 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -4458,7 +4458,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "types"
 version = "0.2.0"
 dependencies = [
- "arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "bls 0.2.0",
  "cached_tree_hash 0.1.0",
  "compare_fields 0.2.0",
@@ -4498,7 +4498,7 @@ name = "uint"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "crunchy 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hex 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5027,7 +5027,7 @@ dependencies = [
 "checksum aho-corasick 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)" = "8716408b8bc624ed7f65d223ddb9ac2d044c0547b6fa4b0d554f3a9540496ada"
 "checksum amcl 0.2.0 (git+https://github.com/sigp/milagro_bls?tag=v1.0.1)" = "<none>"
 "checksum ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
-"checksum arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1148c9b25d393a07c4cc3ef5dd30f82a40a1c261018c4a670611ed8e76cad3ea"
+"checksum arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "4128060818e1993996df2368a1c154ffdba9df04ec84eb9a8c03ee381906fd9a"
 "checksum arc-swap 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "d663a8e9a99154b5fb793032533f6328da35e23aac63d5c152279aa8ba356825"
 "checksum arrayref 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)" = "a4c527152e37cf757a3f78aae5a06fbeefdb07ccc535c980a3208ee3060dd544"
 "checksum arrayvec 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)" = "cd9fd44efafa8690358b7408d253adf110036b88f55672a933f01d616ad9b1b9"
@@ -5102,7 +5102,7 @@ dependencies = [
 "checksum data-encoding 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "11c0346158a19b3627234e15596f5e465c360fcdb97d817bcb255e0510f5a788"
 "checksum db-key 0.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 "checksum derivative 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "3c6d883546668a3e2011b6a716a7330b82eabb0151b138217f632c8243e17135"
-"checksum derive_arbitrary 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9735d3bee627701429c04d0e5bbaa966d22dcd64e50e4296e5aa960a15159881"
+"checksum derive_arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "665fb22bf9f8e54aaf364f1e5e21cbf5984491871dbc6c7d95b7c43bc580705f"
 "checksum derive_more 0.99.5 (registry+https://github.com/rust-lang/crates.io-index)" = "e2323f3f47db9a0e77ce7a300605d8d2098597fc451ed1a97bb1f6411bb550a7"
 "checksum digest 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f3d0c8c8752312f9713efd397ff63acb9f85585afbf179282e720e7704954dd5"
 "checksum dirs 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "13aea89a5c93364a98e9b37b2fa237effbb694d5cfe01c5b70941f7eb087d5e3"
