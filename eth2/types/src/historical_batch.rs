@@ -10,6 +10,7 @@ use tree_hash_derive::TreeHash;
 /// Historical block and state roots.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct HistoricalBatch<T: EthSpec> {
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,

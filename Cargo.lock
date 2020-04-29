@@ -3855,6 +3855,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "state_processing"
 version = "0.2.0"
 dependencies = [
+ "arbitrary 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "beacon_chain 0.2.0",
  "bls 0.2.0",
  "criterion 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",

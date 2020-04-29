@@ -17,6 +17,7 @@ impl<'a> BeaconCommittee<'a> {
     }
 }
 
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct OwnedBeaconCommittee {
     pub slot: Slot,
