@@ -1,6 +1,6 @@
 use super::per_block_processing::{errors::BlockProcessingError, process_deposit};
 use crate::common::DepositDataTree;
-use safe_arith::SafeArith;
+use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
 use types::*;
@@ -15,9 +15,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     deposits: Vec<Deposit>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, BlockProcessingError> {
-    let genesis_time = eth1_timestamp
-        .safe_sub(eth1_timestamp.safe_rem(spec.min_genesis_delay)?)?
-        .safe_add(2.safe_mul(spec.min_genesis_delay)?)?;
+    let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
     let eth1_data = Eth1Data {
         // Temporary deposit root
         deposit_root: Hash256::zero(),
@@ -78,4 +76,15 @@ pub fn process_activations<T: EthSpec>(
         }
     }
     Ok(())
+}
+
+/// Returns the `state.genesis_time` for the corresponding `eth1_timestamp`.
+///
+/// Does _not_ ensure that the time is greater than `MIN_GENESIS_TIME`.
+///
+/// Spec v0.11.1
+pub fn eth2_genesis_time(eth1_timestamp: u64, spec: &ChainSpec) -> Result<u64, ArithError> {
+    eth1_timestamp
+        .safe_sub(eth1_timestamp.safe_rem(spec.min_genesis_delay)?)?
+        .safe_add(2.safe_mul(spec.min_genesis_delay)?)
 }
