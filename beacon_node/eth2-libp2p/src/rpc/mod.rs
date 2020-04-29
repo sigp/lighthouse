@@ -94,12 +94,12 @@ impl<TSubstream, TSpec: EthSpec> RPC<TSubstream, TSpec> {
     }
 }
 
-impl<TSubstream, TSpec> NetworkBehaviour for RPC<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> NetworkBehaviour for RPC<TSubstream, TSpec>
 where
     TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
-    type ProtocolsHandler = RPCHandler<TSubstream, TSpec>;
+    type ProtocolsHandler = RPCHandler<'a, TSubstream, TSpec>;
     type OutEvent = RPCMessage<TSpec>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {

@@ -38,8 +38,9 @@ type InboundRequestId = RequestId;
 type OutboundRequestId = RequestId;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
-pub struct RPCHandler<TSpec>
+pub struct RPCHandler<'a, TSubstream, TSpec>
 where
+    TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
     /// The upgrade for inbound substreams.
@@ -61,7 +62,7 @@ where
     inbound_substreams: FnvHashMap<
         InboundRequestId,
         (
-            InboundSubstreamState<TSpec>,
+            InboundSubstreamState<'a, TSubstream, TSpec>,
             Option<delay_queue::Key>,
         ),
     >,
@@ -73,7 +74,7 @@ where
     /// maintained by the application sending the request.
     outbound_substreams: FnvHashMap<
         OutboundRequestId,
-        (OutboundSubstreamState<TSpec>, delay_queue::Key),
+        (OutboundSubstreamState<TSubstream, TSpec>, delay_queue::Key),
     >,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
@@ -103,15 +104,15 @@ where
 }
 
 /// State of an outbound substream. Either waiting for a response, or in the process of sending.
-pub enum InboundSubstreamState<TSubstream, TSpec>
+pub enum InboundSubstreamState<'a, TSubstream, TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TSubstream: AsyncRead + AsyncWrite + Unpin,
     TSpec: EthSpec,
 {
     /// A response has been sent, pending writing and flush.
     ResponsePendingSend {
         /// The substream used to send the response
-        substream: futures::sink::Send<InboundFramed<TSubstream, TSpec>>,
+        substream: futures::sink::Send<'a, InboundFramed<TSubstream, TSpec>, RPCErrorResponse<TSpec>>,
         /// Whether a stream termination is requested. If true the stream will be closed after
         /// this send. Otherwise it will transition to an idle state until a stream termination is
         /// requested or a timeout is reached.
@@ -141,9 +142,8 @@ pub enum OutboundSubstreamState<TSubstream, TSpec: EthSpec> {
     Poisoned,
 }
 
-impl<TSubstream, TSpec> InboundSubstreamState<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> InboundSubstreamState<'a, TSpec, TSubstream>
 where
-    TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
     /// Moves the substream state to closing and informs the connected peer. The
@@ -188,7 +188,7 @@ where
     }
 }
 
-impl<TSubstream, TSpec> RPCHandler<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> RPCHandler<'a, TSubstream, TSpec>
 where
     TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
@@ -215,7 +215,6 @@ where
             inactive_timeout,
             outbound_io_error_retries: 0,
             log: log.clone(),
-            _phantom: PhantomData,
         }
     }
 
@@ -248,9 +247,9 @@ where
     }
 }
 
-impl<TSubstream, TSpec> ProtocolsHandler for RPCHandler<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> ProtocolsHandler for RPCHandler<'a, TSubstream, TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TSubstream: AsyncRead + AsyncWrite + Unpin,
     TSpec: EthSpec,
 {
     type InEvent = RPCEvent<TSpec>;
@@ -777,11 +776,11 @@ where
 }
 
 // Check for new items to send to the peer and update the underlying stream
-fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>(
+fn apply_queued_responses<'a, TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>(
     raw_substream: InboundFramed<TSubstream, TSpec>,
     queued_outbound_items: &mut Option<&mut Vec<RPCErrorResponse<TSpec>>>,
     new_items_to_send: &mut bool,
-) -> InboundSubstreamState<TSubstream, TSpec> {
+) -> InboundSubstreamState<'a, TSubstream, TSpec> {
     match queued_outbound_items {
         Some(ref mut queue) if !queue.is_empty() => {
             *new_items_to_send = true;
