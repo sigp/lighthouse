@@ -97,7 +97,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // received a ping
             // reset the to-ping timer for this peer
             debug!(self.log, "Received a ping request"; "peer_id" => format!("{}", peer_id), "seq_no" => seq);
-            self.ping_peers.insert(peer_id.clone());
+            /*
+            * Commented out to try and hot-patch around a panic:
+            *
+            * https://github.com/sigp/lighthouse/issues/1067
+               self.ping_peers.insert(peer_id.clone());
+            */
 
             // if the sequence number is unknown send update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
