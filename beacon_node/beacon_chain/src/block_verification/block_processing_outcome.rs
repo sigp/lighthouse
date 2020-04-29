@@ -4,7 +4,7 @@ use types::{Hash256, Slot};
 
 /// This is a legacy object that is being kept around to reduce merge conflicts.
 ///
-/// As soon as this is merged into master, it should be removed as soon as possible.
+/// TODO: As soon as this is merged into master, it should be removed as soon as possible.
 #[derive(Debug, PartialEq)]
 pub enum BlockProcessingOutcome {
     /// Block was valid and imported into the block graph.

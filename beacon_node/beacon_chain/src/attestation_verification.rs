@@ -666,11 +666,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         .map(|head| head.beacon_state.fork.clone())?;
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
-        |validator_index| {
-            pubkey_cache
-                .get(validator_index)
-                .map(|pk| Cow::Borrowed(pk.as_point()))
-        },
+        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
         &indexed_attestation.signature,
         &indexed_attestation,
         &fork,
@@ -726,11 +722,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(
-            |validator_index| {
-                pubkey_cache
-                    .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
-            },
+            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -738,11 +730,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         signed_aggregate_signature_set(
-            |validator_index| {
-                pubkey_cache
-                    .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
-            },
+            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &signed_aggregate,
             &fork,
             chain.genesis_validators_root,
@@ -750,11 +738,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         )
         .map_err(BeaconChainError::SignatureSetError)?,
         indexed_attestation_signature_set_from_pubkeys(
-            |validator_index| {
-                pubkey_cache
-                    .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
-            },
+            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &indexed_attestation.signature,
             &indexed_attestation,
             &fork,
@@ -764,7 +748,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
     ];
 
-    Ok(verify_signature_sets(signature_sets.into_iter()))
+    Ok(verify_signature_sets(signature_sets))
 }
 
 /// Returns the `indexed_attestation` for the `attestation` using the public keys cached in the
