@@ -10,22 +10,8 @@ use bls::{Keypair, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 use uuid::Uuid;
-use zeroize::Zeroize;
 
 pub use crate::crypto::Password;
-
-const PRIVATE_KEY_BYTES: usize = 48;
-
-/// Wrapper over BLS secret key that is compatible with Milagro.
-#[derive(Zeroize)]
-#[zeroize(drop)]
-struct MilagroSecretKey([u8; PRIVATE_KEY_BYTES]);
-
-impl MilagroSecretKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
 
 /// Version for `Keystore`.
 #[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -91,8 +77,7 @@ impl Keystore {
         if sk_bytes.len() != 32 {
             return Err(format!("Invalid secret key size: {:?}", sk_bytes));
         }
-        let padded_sk_bytes = pad_secret_key(&sk_bytes);
-        let sk = SecretKey::from_bytes(padded_sk_bytes.as_ref())
+        let sk = SecretKey::from_bytes(sk_bytes.as_ref())
             .map_err(|e| format!("Invalid secret key in keystore {:?}", e))?;
         let pk = PublicKey::from_secret_key(&sk);
         if pk.as_hex_string()[2..].to_string() != self.pubkey {
@@ -102,18 +87,11 @@ impl Keystore {
     }
 }
 
-/// Pad 0's to a 32 bytes BLS secret key to make it compatible with the Milagro library
-/// Note: Milagro library only accepts 48 byte bls12 381 private keys.
-fn pad_secret_key(sk: &[u8]) -> MilagroSecretKey {
-    let mut bytes = [0; PRIVATE_KEY_BYTES];
-    bytes[PRIVATE_KEY_BYTES - sk.len()..].copy_from_slice(sk);
-    MilagroSecretKey(bytes)
-}
-
 // Test cases taken from https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_vectors() {
         let expected_secret = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
@@ -188,11 +166,8 @@ mod tests {
         for test in test_vectors {
             let keystore: Keystore = serde_json::from_str(test).unwrap();
             let keypair = keystore.to_keypair(password.clone()).unwrap();
-            let expected_sk = pad_secret_key(&hex::decode(expected_secret).unwrap());
-            assert_eq!(
-                keypair.sk.as_raw().as_bytes(),
-                expected_sk.as_ref().to_vec()
-            )
+            let expected_sk = hex::decode(expected_secret).unwrap();
+            assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk)
         }
     }
 }
