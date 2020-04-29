@@ -29,7 +29,7 @@ impl DerivedKey {
     ///
     /// ## Reference
     ///
-    /// # https://github.com/ethereum/EIPs/blob/master/EIPS/eip-2335.md#procedure
+    /// https://github.com/ethereum/EIPs/blob/master/EIPS/eip-2335.md#procedure
     pub fn checksum_slice(&self) -> &[u8] {
         &self.0[16..32]
     }
