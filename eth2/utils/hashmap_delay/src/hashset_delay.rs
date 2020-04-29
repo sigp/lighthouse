@@ -5,6 +5,7 @@
 /// entries.
 const DEFAULT_DELAY: u64 = 30;
 
+use crate::Error;
 use futures::prelude::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -144,7 +145,7 @@ where
     K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
 {
     type Item = K;
-    type Error = &'static str;
+    type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         match self.expirations.poll() {
@@ -152,12 +153,12 @@ where
                 let key = key.into_inner();
                 match self.entries.remove(&key) {
                     Some(_) => Ok(Async::Ready(Some(key))),
-                    None => Err("Value no longer exists in expirations"),
+                    None => Err(Error::MissingValue),
                 }
             }
             Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
             Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(_) => Err("Error polling HashSetDelay"),
+            Err(e) => Err(Error::TimerError(e)),
         }
     }
 }

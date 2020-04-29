@@ -19,3 +19,9 @@ mod hashset_delay;
 
 pub use crate::hashmap_delay::HashMapDelay;
 pub use crate::hashset_delay::HashSetDelay;
+
+#[derive(Debug)]
+pub enum Error {
+    TimerError(tokio_timer::Error),
+    MissingValue,
+}

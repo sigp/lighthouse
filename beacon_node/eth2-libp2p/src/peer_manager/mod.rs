@@ -319,7 +319,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         // poll the timeouts for pings and status'
         while let Async::Ready(Some(peer_id)) = self.ping_peers.poll().map_err(|e| {
-            error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e));
+            error!(self.log, "Failed to check for peers to ping"; "error" => format!("{:?}",e));
         })? {
             debug!(self.log, "Pinging peer"; "peer_id" => format!("{}", peer_id));
             // add the ping timer back
@@ -328,7 +328,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         }
 
         while let Async::Ready(Some(peer_id)) = self.status_peers.poll().map_err(|e| {
-            error!(self.log, "Failed to check for peers to status"; "error" => format!("{}",e));
+            error!(self.log, "Failed to check for peers to status"; "error" => format!("{:?}",e));
         })? {
             debug!(self.log, "Sending Status to peer"; "peer_id" => format!("{}", peer_id));
             // add the status timer back

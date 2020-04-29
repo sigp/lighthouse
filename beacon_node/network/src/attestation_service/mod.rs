@@ -604,7 +604,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         // process any peer discovery events
         while let Async::Ready(Some(exact_subnet)) =
                     self.discover_peers.poll().map_err(|e| {
-                        error!(self.log, "Failed to check for peer discovery requests"; "error"=> format!("{}", e));
+                        error!(self.log, "Failed to check for peer discovery requests"; "error"=> format!("{:?}", e));
                     })?
                 {
                     self.handle_discover_peers(exact_subnet);
@@ -612,7 +612,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
 
         // process any subscription events
         while let Async::Ready(Some(exact_subnet)) = self.subscriptions.poll().map_err(|e| {
-                        error!(self.log, "Failed to check for subnet subscription times"; "error"=> format!("{}", e));
+                        error!(self.log, "Failed to check for subnet subscription times"; "error"=> format!("{:?}", e));
                     })?
                 {
                     self.handle_subscriptions(exact_subnet);
@@ -620,7 +620,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
 
         // process any un-subscription events
         while let Async::Ready(Some(exact_subnet)) = self.unsubscriptions.poll().map_err(|e| {
-                        error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> format!("{}", e));
+                        error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> format!("{:?}", e));
                     })?
                 {
                     self.handle_unsubscriptions(exact_subnet);
@@ -628,7 +628,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
 
         // process any random subnet expiries
         while let Async::Ready(Some(subnet)) = self.random_subnets.poll().map_err(|e| {
-                        error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{}", e));
+                        error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{:?}", e));
                     })?
                 {
                     self.handle_random_subnet_expiry(subnet);
@@ -636,7 +636,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
 
         // process any known validator expiries
         while let Async::Ready(Some(_validator_index)) = self.known_validators.poll().map_err(|e| {
-                        error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{}", e));
+                        error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{:?}", e));
                     })?
                 {
                     let _ = self.handle_known_validator_expiry();
