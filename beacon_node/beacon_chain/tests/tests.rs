@@ -3,8 +3,11 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
+use beacon_chain::{
+    attestation_verification::Error as AttnError,
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
+    },
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -407,7 +410,6 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
     }
 }
 
-/*
 #[test]
 fn attestations_with_increasing_slots() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
@@ -445,28 +447,28 @@ fn attestations_with_increasing_slots() {
         harness.advance_slot();
     }
 
-    let current_epoch = harness.chain.epoch().expect("should get epoch");
-
-    for attestation in attestations {
-        let attestation_epoch = attestation.data.target.epoch;
+    for attestation in attestations.into_iter().flatten() {
         let res = harness
             .chain
-            .process_attestation(attestation, AttestationType::Aggregated);
+            .verify_unaggregated_attestation_for_gossip(attestation.clone());
 
-        if attestation_epoch + 1 < current_epoch {
+        let current_slot = harness.chain.slot().expect("should get slot");
+        let attestation_slot = attestation.data.slot;
+        let earliest_permissible_slot = current_slot - MinimalEthSpec::slots_per_epoch() - 1;
+
+        if attestation_slot < earliest_permissible_slot {
             assert_eq!(
-                res,
-                Ok(AttestationProcessingOutcome::PastEpoch {
-                    attestation_epoch,
-                    current_epoch,
-                })
+                res.err().unwrap(),
+                AttnError::PastSlot {
+                    attestation_slot,
+                    earliest_permissible_slot,
+                }
             )
         } else {
-            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed))
+            res.expect("should process attestation");
         }
     }
 }
-*/
 
 #[test]
 fn unaggregated_attestations_added_to_fork_choice_all_updated() {
