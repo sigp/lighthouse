@@ -1,14 +1,13 @@
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{Future, Stream};
+use futures::{FutureExt, StreamExt};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{crit, info, trace};
+use slog::{info, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, EthSpec, Fork};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
@@ -111,7 +110,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
         let interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            Interval::new(
+            // Note: interval_at panics if `slot_duration * E::slots_per_epoch()` = 0
+            interval_at(
                 Instant::now() + duration_to_next_epoch + TIME_DELAY_FROM_SLOT,
                 slot_duration * E::slots_per_epoch() as u32,
             )
@@ -119,43 +119,37 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
         let (exit_signal, exit_fut) = exit_future::signal();
         let service = self.clone();
-        let log_1 = log.clone();
-        let log_2 = log.clone();
 
         // Run an immediate update before starting the updater service.
-        self.context.executor.spawn(service.clone().do_update());
+        tokio::task::spawn(service.clone().do_update());
 
-        self.context.executor.spawn(
-            exit_fut
-                .until(
-                    interval
-                        .map_err(move |e| {
-                            crit! {
-                                log_1,
-                                "Timer thread failed";
-                                "error" => format!("{}", e)
-                            }
-                        })
-                        .for_each(move |_| service.do_update().then(|_| Ok(()))),
-                )
-                .map(move |_| info!(log_2, "Shutdown complete")),
+        let interval_fut = interval.for_each(move |_| {
+            let _ = service.do_update();
+            futures::future::ready(())
+        });
+
+        let future = futures::future::select(
+            interval_fut,
+            exit_fut.map(|_| info!(log, "Shutdown complete")),
         );
+        tokio::task::spawn(future);
 
         Ok(exit_signal)
     }
 
     /// Attempts to download the `Fork` from the server.
-    fn do_update(&self) -> impl Future<Item = (), Error = ()> {
-        let service_1 = self.clone();
-        let log_1 = service_1.context.log.clone();
-        let log_2 = service_1.context.log.clone();
+    async fn do_update(&self) -> Result<(), ()> {
+        let log_1 = self.context.log.clone();
+        let log_2 = self.context.log.clone();
 
-        self.inner
+        let _ = self
+            .inner
             .beacon_node
             .http
             .beacon()
             .get_fork()
-            .map(move |fork| *(service_1.fork.write()) = Some(fork))
+            .await
+            .map(move |fork| *(self.fork.write()) = Some(fork))
             .map(move |_| trace!(log_1, "Fork update success"))
             .map_err(move |e| {
                 trace!(
@@ -163,9 +157,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
                     "Fork update failed";
                     "error" => format!("Error retrieving fork: {:?}", e)
                 )
-            })
-            // Returning an error will stop the interval. This is not desired, a single failure
-            // should not stop all future attempts.
-            .then(|_| Ok(()))
+            });
+        // Returning an error will stop the interval. This is not desired, a single failure
+        // should not stop all future attempts.
+        Ok(())
     }
 }
