@@ -6,10 +6,10 @@ use crate::{NetworkConfig, NetworkGlobals};
 use futures::prelude::*;
 use futures::Stream;
 use libp2p::core::{
+    connection::Substream,
     identity::Keypair,
     multiaddr::Multiaddr,
     muxing::StreamMuxerBox,
-    connection::Substream,
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
     ConnectedPoint,
@@ -19,15 +19,12 @@ use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::time::DelayQueue;
 use types::{EnrForkId, EthSpec};
-use std::pin::Pin;
-use std::task::{Poll, Context};
-
-type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
@@ -38,7 +35,7 @@ const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
 pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour<TSpec>>,
+    pub swarm: Swarm<Behaviour<TSpec>>,
 
     /// This node's PeerId.
     pub local_peer_id: PeerId,

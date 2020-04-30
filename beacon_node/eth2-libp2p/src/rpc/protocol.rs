@@ -11,17 +11,16 @@ use crate::rpc::{
     methods::ResponseTermination,
 };
 use futures::future::*;
-use futures::{future, sink, stream};
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use std::io;
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::Timeout;
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::codec::Framed;
 use types::EthSpec;
-use std::pin::Pin;
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 1_048_576; // 1M
@@ -171,7 +170,7 @@ impl ProtocolName for ProtocolId {
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
-    Framed<Timeout<upgrade::Negotiated<TSocket>>, InboundCodec<TSpec, RPCErrorResponse<TSpec>>>;
+    Framed<Timeout<TSocket>, InboundCodec<TSpec, RPCErrorResponse<TSpec>>>;
 type FnAndThen<TSocket, TSpec> = fn(
     (Option<RPCRequest<TSpec>>, InboundFramed<TSocket, TSpec>),
 ) -> Ready<Result<InboundOutput<TSocket, TSpec>, RPCError>>;
@@ -181,26 +180,14 @@ type FnMapErr = fn(tokio::time::Error) -> RPCError;
 
 impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
 where
-    TSocket: AsyncRead + AsyncWrite,
+    TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     TSpec: EthSpec,
 {
     type Output = InboundOutput<TSocket, TSpec>;
     type Error = RPCError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
-    type Future = future::Either<
-        Ready<Result<InboundOutput<TSocket, TSpec>, RPCError>>,
-        future::AndThen<
-            future::MapErr<Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>, FnMapErr>,
-            Ready<Result<InboundOutput<TSocket, TSpec>, RPCError>>,
-            FnAndThen<TSocket, TSpec>,
-        >,
-    >;
-
-    fn upgrade_inbound(
-        self,
-        socket: upgrade::Negotiated<TSocket>,
-        protocol: ProtocolId,
-    ) -> Self::Future {
+    fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
         let protocol_name = protocol.message_name.clone();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
@@ -348,24 +335,18 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, TSpec> =
-    Framed<upgrade::Negotiated<TSocket>, OutboundCodec<TSpec, RPCRequest<TSpec>>>;
+pub type OutboundFramed<TSocket, TSpec> = Framed<TSocket, OutboundCodec<TSpec, RPCRequest<TSpec>>>;
 
 impl<TSocket, TSpec> OutboundUpgrade<TSocket> for RPCRequest<TSpec>
 where
     TSpec: EthSpec,
-    TSocket: AsyncRead + AsyncWrite + Send,
+    TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     type Output = OutboundFramed<TSocket, TSpec>;
     type Error = RPCError;
-    // TODO: Send takes a mutable reference to the sink now, hence the lifetime parameter
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
-    // type Future = sink::Send<'a, &'a mut OutboundFramed<TSocket, TSpec>, RPCRequest<TSpec>>;
-    fn upgrade_outbound(
-        self,
-        socket: upgrade::Negotiated<TSocket>,
-        protocol: Self::Info,
-    ) -> Self::Future {
+
+    fn upgrade_outbound(self, socket: TSocket, protocol: Self::Info) -> Self::Future {
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec =

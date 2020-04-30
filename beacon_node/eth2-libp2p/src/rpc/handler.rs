@@ -5,19 +5,21 @@ use super::methods::{ErrorMessage, RPCErrorResponse, RequestId, ResponseTerminat
 use super::protocol::{RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
-use core::marker::PhantomData;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use libp2p::core::upgrade::{InboundUpgrade, OutboundUpgrade, UpgradeError};
 use libp2p::swarm::protocols_handler::{
     KeepAlive, ProtocolsHandler, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
 };
+use libp2p::swarm::NegotiatedSubstream;
 use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
-use std::collections::hash_map::Entry;
-use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncWrite};
+use std::{
+    collections::hash_map::Entry,
+    pin::Pin,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
 use tokio::time::{delay_queue, DelayQueue};
 use types::EthSpec;
 
@@ -38,9 +40,8 @@ type InboundRequestId = RequestId;
 type OutboundRequestId = RequestId;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
-pub struct RPCHandler<'a, TSubstream, TSpec>
+pub struct RPCHandler<TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
     /// The upgrade for inbound substreams.
@@ -59,23 +60,16 @@ where
     dial_negotiated: u32,
 
     /// Current inbound substreams awaiting processing.
-    inbound_substreams: FnvHashMap<
-        InboundRequestId,
-        (
-            InboundSubstreamState<'a, TSubstream, TSpec>,
-            Option<delay_queue::Key>,
-        ),
-    >,
+    inbound_substreams:
+        FnvHashMap<InboundRequestId, (InboundSubstreamState<TSpec>, Option<delay_queue::Key>)>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     inbound_substreams_delay: DelayQueue<InboundRequestId>,
 
     /// Map of outbound substreams that need to be driven to completion. The `RequestId` is
     /// maintained by the application sending the request.
-    outbound_substreams: FnvHashMap<
-        OutboundRequestId,
-        (OutboundSubstreamState<TSubstream, TSpec>, delay_queue::Key),
-    >,
+    outbound_substreams:
+        FnvHashMap<OutboundRequestId, (OutboundSubstreamState<TSpec>, delay_queue::Key)>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<OutboundRequestId>,
@@ -103,16 +97,14 @@ where
     log: slog::Logger,
 }
 
-/// State of an outbound substream. Either waiting for a response, or in the process of sending.
-pub enum InboundSubstreamState<'a, TSubstream, TSpec>
+pub enum InboundSubstreamState<TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite + Unpin,
     TSpec: EthSpec,
 {
     /// A response has been sent, pending writing and flush.
     ResponsePendingSend {
         /// The substream used to send the response
-        substream: futures::sink::Send<'a, InboundFramed<TSubstream, TSpec>, RPCErrorResponse<TSpec>>,
+        substream: InboundFramed<NegotiatedSubstream, TSpec>,
         /// Whether a stream termination is requested. If true the stream will be closed after
         /// this send. Otherwise it will transition to an idle state until a stream termination is
         /// requested or a timeout is reached.
@@ -120,29 +112,30 @@ where
     },
     /// The response stream is idle and awaiting input from the application to send more chunked
     /// responses.
-    ResponseIdle(InboundFramed<TSubstream, TSpec>),
+    ResponseIdle(InboundFramed<NegotiatedSubstream, TSpec>),
     /// The substream is attempting to shutdown.
-    Closing(InboundFramed<TSubstream, TSpec>),
+    Closing(InboundFramed<NegotiatedSubstream, TSpec>),
     /// Temporary state during processing
     Poisoned,
 }
 
-pub enum OutboundSubstreamState<TSubstream, TSpec: EthSpec> {
+/// State of an outbound substream. Either waiting for a response, or in the process of sending.
+pub enum OutboundSubstreamState<TSpec: EthSpec> {
     /// A request has been sent, and we are awaiting a response. This future is driven in the
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
-        substream: OutboundFramed<TSubstream, TSpec>,
+        substream: OutboundFramed<NegotiatedSubstream, TSpec>,
         /// Keeps track of the actual request sent.
         request: RPCRequest<TSpec>,
     },
     /// Closing an outbound substream>
-    Closing(OutboundFramed<TSubstream, TSpec>),
+    Closing(OutboundFramed<NegotiatedSubstream, TSpec>),
     /// Temporary state during processing
     Poisoned,
 }
 
-impl<'a, TSubstream, TSpec> InboundSubstreamState<'a, TSpec, TSubstream>
+impl<TSpec> InboundSubstreamState<TSpec>
 where
     TSpec: EthSpec,
 {
@@ -188,9 +181,8 @@ where
     }
 }
 
-impl<'a, TSubstream, TSpec> RPCHandler<'a, TSubstream, TSpec>
+impl<TSpec> RPCHandler<TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
     pub fn new(
@@ -247,9 +239,8 @@ where
     }
 }
 
-impl<'a, TSubstream, TSpec> ProtocolsHandler for RPCHandler<'a, TSubstream, TSpec>
+impl<TSpec> ProtocolsHandler for RPCHandler<TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite + Unpin,
     TSpec: EthSpec,
 {
     type InEvent = RPCEvent<TSpec>;
@@ -265,14 +256,14 @@ where
 
     fn inject_fully_negotiated_inbound(
         &mut self,
-        out: <RPCProtocol<TSpec> as InboundUpgrade<TSubstream>>::Output,
+        substream: <RPCProtocol<TSpec> as InboundUpgrade<NegotiatedSubstream>>::Output,
     ) {
         // update the keep alive timeout if there are no more remaining outbound streams
         if let KeepAlive::Until(_) = self.keep_alive {
             self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
         }
 
-        let (req, substream) = out;
+        let (req, substream) = substream;
         // drop the stream and return a 0 id for goodbye "requests"
         if let r @ RPCRequest::Goodbye(_) = req {
             self.events_out.push(RPCEvent::Request(0, r));
@@ -297,7 +288,7 @@ where
 
     fn inject_fully_negotiated_outbound(
         &mut self,
-        out: <RPCRequest<TSpec> as OutboundUpgrade<TSubstream>>::Output,
+        out: <RPCRequest<TSpec> as OutboundUpgrade<NegotiatedSubstream>>::Output,
         rpc_event: Self::OutboundOpenInfo,
     ) {
         self.dial_negotiated -= 1;
@@ -452,6 +443,7 @@ where
 
     fn poll(
         &mut self,
+        cx: &mut Context<'_>,
     ) -> Poll<
         ProtocolsHandlerEvent<
             Self::OutboundProtocol,
@@ -533,21 +525,18 @@ where
         }
 
         // purge expired outbound substreams
-        if let Poll::Ready(Some(d)) =
-            self.outbound_substreams_delay.poll() {
-                let stream_id = d.map_err(|e| {
+        if let Poll::Ready(Some(d)) = self.outbound_substreams_delay.poll() {
+            let stream_id = d.map_err(|e| {
                 warn!(self.log, "Outbound substream poll failed"; "error" => format!("{:?}", e));
                 ProtocolsHandlerUpgrErr::Timer
             })?;
-         
+
             self.outbound_substreams.remove(stream_id.get_ref());
             // notify the user
-            return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(
-                RPCEvent::Error(
-                    *stream_id.get_ref(),
-                    RPCError::Custom("Stream timed out".into()),
-                ),
-            )));
+            return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                *stream_id.get_ref(),
+                RPCError::Custom("Stream timed out".into()),
+            ))));
         }
 
         // drive inbound streams that need to be processed
@@ -614,7 +603,7 @@ where
                             InboundSubstreamState::Closing(mut substream) => {
                                 // TODO: check if this is supposed to be a stream
                                 match substream.close() {
-                                    Poll::Ready(_)  => {
+                                    Poll::Ready(_) => {
                                         //trace!(self.log, "Inbound stream dropped");
                                         if let Some(delay_key) = &entry.get().1 {
                                             self.inbound_substreams_delay.remove(delay_key);
@@ -729,7 +718,7 @@ where
                         },
                         OutboundSubstreamState::Closing(mut substream) => match substream.close() {
                             // TODO: check if this is supposed to be a stream
-                            Poll::Ready(_)=> {
+                            Poll::Ready(_) => {
                                 //trace!(self.log, "Outbound stream dropped");
                                 // drop the stream
                                 let delay_key = &entry.get().1;
@@ -763,12 +752,10 @@ where
             let rpc_event = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
             if let RPCEvent::Request(id, req) = rpc_event {
-                return Poll::Ready(Ok(
-                    ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                        protocol: SubstreamProtocol::new(req.clone()),
-                        info: RPCEvent::Request(id, req),
-                    },
-                ));
+                return Poll::Ready(Ok(ProtocolsHandlerEvent::OutboundSubstreamRequest {
+                    protocol: SubstreamProtocol::new(req.clone()),
+                    info: RPCEvent::Request(id, req),
+                }));
             }
         }
         Poll::Pending
@@ -776,11 +763,11 @@ where
 }
 
 // Check for new items to send to the peer and update the underlying stream
-fn apply_queued_responses<'a, TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>(
-    raw_substream: InboundFramed<TSubstream, TSpec>,
+fn apply_queued_responses<TSpec: EthSpec>(
+    raw_substream: InboundFramed<NegotiatedSubstream, TSpec>,
     queued_outbound_items: &mut Option<&mut Vec<RPCErrorResponse<TSpec>>>,
     new_items_to_send: &mut bool,
-) -> InboundSubstreamState<'a, TSubstream, TSpec> {
+) -> InboundSubstreamState<TSpec> {
     match queued_outbound_items {
         Some(ref mut queue) if !queue.is_empty() => {
             *new_items_to_send = true;

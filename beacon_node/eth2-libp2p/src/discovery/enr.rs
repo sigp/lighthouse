@@ -1,11 +1,11 @@
 //! Helper functions and an extension trait for Ethereum 2 ENRs.
 
-pub use libp2p::{core::identity::Keypair, discv5::enr::CombinedKey};
+pub use discv5::enr::{CombinedKey, EnrBuilder};
+pub use libp2p::core::identity::Keypair;
 
 use super::ENR_FILENAME;
 use crate::types::{Enr, EnrBitfield};
 use crate::NetworkConfig;
-use libp2p::discv5::enr::EnrBuilder;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;

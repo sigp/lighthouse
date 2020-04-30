@@ -6,14 +6,14 @@ pub use enr::{build_enr, CombinedKey, Keypair};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
+use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
-use libp2p::core::{Multiaddr, PeerId};
-use libp2p::discv5::enr::NodeId;
-use libp2p::discv5::{Discv5, Discv5Event};
+use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::{
-    DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler,
+    protocols_handler::DummyProtocolsHandler, DialPeerCondition, NetworkBehaviour,
+    NetworkBehaviourAction, PollParameters, ProtocolsHandler,
 };
 use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
@@ -74,7 +74,7 @@ pub struct Discovery<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> Discovery<TSpec> {
-    pub async fn new(
+    pub fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -93,13 +93,17 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
 
+        // convert the keypair into an ENR key
+        let enr_key: CombinedKey = local_key
+            .try_into()
+            .map_err(|_| "Invalid key type for ENR records")?;
+
         let mut discovery = Discv5::new(
             local_enr,
-            local_key.clone(),
+            enr_key,
             config.discv5_config.clone(),
             listen_socket,
         )
-        .await
         .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
@@ -345,23 +349,66 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 }
 
-// Redirect all behaviour events to underlying discovery behaviour.
+// Build a dummy Network behaviour around the discv5 server
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
-    type ProtocolsHandler = <Discv5 as NetworkBehaviour>::ProtocolsHandler;
-    type OutEvent = <Discv5 as NetworkBehaviour>::OutEvent;
+    type ProtocolsHandler = DummyProtocolsHandler;
+    type OutEvent = Discv5Event;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        NetworkBehaviour::new_handler(&mut self.discovery)
+        DummyProtocolsHandler::default()
     }
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        // Let discovery track possible known peers.
-        self.discovery.addresses_of_peer(peer_id)
+        // TODO
+        // Addresses are ordered by decreasing likelyhood of connectivity, so start with
+        // the addresses of that peer in the k-buckets.
+
+        /*
+        if let Some(node_id) = self.known_peer_ids.get(peer_id) {
+            let key = kbucket::Key::from(node_id.clone());
+            let mut out_list =
+                if let kbucket::Entry::Present(mut entry, _) = self.kbuckets.entry(&key) {
+                    entry.value().multiaddr().to_vec()
+                } else {
+                    Vec::new()
+                };
+
+            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+            // port is removed, which is assumed to be associated with the discv5 protocol (and
+            // therefore irrelevant for other libp2p components).
+            out_list.retain(|addr| {
+                addr.iter()
+                    .find(|v| match v {
+                        Protocol::Udp(_) => true,
+                        _ => false,
+                    })
+                    .is_none()
+            });
+
+            out_list
+        } else {
+            // PeerId is not known
+            Vec::new()
+        }
+        */
+        Vec::new()
     }
 
-    fn inject_connected(&mut self, _peer_id: &PeerId) {}
+    // ignore libp2p connections/streams
+    fn inject_connected(&mut self, _: PeerId, _: ConnectedPoint) {}
 
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
+    // ignore libp2p connections/streams
+    fn inject_disconnected(&mut self, _: &PeerId, _: ConnectedPoint) {}
+
+    // no libp2p discv5 events - event originate from the session_service.
+    fn inject_event(
+        &mut self,
+        _: PeerId,
+        _: ConnectionId,
+        _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
+        void::unreachable(_event)
+    }
 
     fn poll(
         &mut self,

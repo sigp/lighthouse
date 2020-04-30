@@ -18,10 +18,10 @@ pub use methods::{
 pub use protocol::{RPCError, RPCProtocol, RPCRequest};
 use slog::{debug, o};
 use std::marker::PhantomData;
+use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use types::EthSpec;
-use std::task::{Poll, Context};
 
 pub(crate) mod codec;
 mod handler;
@@ -64,16 +64,14 @@ impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-pub struct RPC<TSubstream, TSpec: EthSpec> {
+pub struct RPC<TSpec: EthSpec> {
     /// Queue of events to processed.
     events: Vec<NetworkBehaviourAction<RPCEvent<TSpec>, RPCMessage<TSpec>>>,
-    /// Pins the generic substream.
-    marker: PhantomData<TSubstream>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
-impl<TSubstream, TSpec: EthSpec> RPC<TSubstream, TSpec> {
+impl<TSpec: EthSpec> RPC<TSpec> {
     pub fn new(log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         RPC {
@@ -94,12 +92,11 @@ impl<TSubstream, TSpec: EthSpec> RPC<TSubstream, TSpec> {
     }
 }
 
-impl<'a, TSubstream, TSpec> NetworkBehaviour for RPC<TSubstream, TSpec>
+impl<TSpec> NetworkBehaviour for RPC<TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
-    type ProtocolsHandler = RPCHandler<'a, TSubstream, TSpec>;
+    type ProtocolsHandler = RPCHandler<TSpec>;
     type OutEvent = RPCMessage<TSpec>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {

@@ -273,6 +273,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b41b7ea54a0c9d92199de89e20e58d49f02f8e699814ef3fdf266f6f748d15c7"
 
 [[package]]
+name = "base64"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d5ca2cd0adc3f48f9e9ea5a6bbdf9ccc0bfade884847e484d452414c7ccffb3"
+
+[[package]]
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
@@ -345,6 +351,16 @@ dependencies = [
  "toml",
  "types",
  "version",
+]
+
+[[package]]
+name = "bigint"
+version = "4.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebecac13b3c745150d7b6c3ea7572d372f09d627c2077e893bf26c5c7f70d282"
+dependencies = [
+ "byteorder 1.3.4",
+ "crunchy 0.1.6",
 ]
 
 [[package]]
@@ -896,6 +912,12 @@ dependencies = [
 
 [[package]]
 name = "crunchy"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2f4a431c5c9f662e1200b7c7f02c34e91361150e382089a8f2dec3ba680cbda"
+
+[[package]]
+name = "crunchy"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
@@ -1053,6 +1075,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "discv5"
+version = "0.1.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58f722f5ee08f95ee8e223e8766ce55fa6ea9782e8588a68170b1b969fb5d88d"
+dependencies = [
+ "arrayvec 0.5.1",
+ "bigint",
+ "digest",
+ "enr",
+ "fnv",
+ "futures 0.3.4",
+ "hex 0.4.2",
+ "hkdf",
+ "libsecp256k1",
+ "log 0.4.8",
+ "net2",
+ "openssl",
+ "rand 0.7.3",
+ "rlp",
+ "sha2",
+ "smallvec 1.4.0",
+ "tokio 0.2.20",
+ "zeroize",
+]
+
+[[package]]
 name = "dns-parser"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1117,6 +1165,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd8d03faa7fe0c1431609dfad7bbe827af30f82e1e2ae6f7ee4fca6bd764bc28"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "enr"
+version = "0.1.0-alpha.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d4c8e39a1c41e3ffd5048e0617888cdc1316c87720ede64c83f3914056a58e"
+dependencies = [
+ "base64 0.12.0",
+ "bs58",
+ "ed25519-dalek",
+ "hex 0.4.2",
+ "libsecp256k1",
+ "log 0.4.8",
+ "rand 0.7.3",
+ "rlp",
+ "serde",
+ "tiny-keccak 2.0.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -1222,8 +1289,9 @@ dependencies = [
 name = "eth2-libp2p"
 version = "0.2.0"
 dependencies = [
- "base64 0.11.0",
+ "base64 0.12.0",
  "dirs",
+ "discv5",
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -1231,12 +1299,12 @@ dependencies = [
  "fnv",
  "futures 0.3.4",
  "hashmap_delay",
- "hex 0.3.2",
+ "hex 0.4.2",
  "lazy_static",
  "libp2p",
  "lighthouse_metrics",
  "lru",
- "parking_lot 0.9.0",
+ "parking_lot 0.10.2",
  "serde",
  "serde_derive",
  "sha2",
@@ -1348,7 +1416,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "tiny-keccak",
+ "tiny-keccak 1.5.0",
 ]
 
 [[package]]
@@ -1361,7 +1429,7 @@ dependencies = [
  "rustc-hex",
  "serde",
  "serde_json",
- "tiny-keccak",
+ "tiny-keccak 1.5.0",
  "uint",
 ]
 
@@ -1371,11 +1439,11 @@ version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cfe1c169414b709cf28aa30c74060bdb830a03a8ba473314d079ac79d80a5f"
 dependencies = [
- "crunchy",
+ "crunchy 0.2.2",
  "fixed-hash",
  "impl-rlp",
  "impl-serde 0.2.3",
- "tiny-keccak",
+ "tiny-keccak 1.5.0",
 ]
 
 [[package]]
@@ -1802,6 +1870,16 @@ name = "hex"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
+
+[[package]]
+name = "hkdf"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fa08a006102488bd9cd5b8013aabe84955cf5ae22e304c2caf655b633aefae3"
+dependencies = [
+ "digest",
+ "hmac",
+]
 
 [[package]]
 name = "hmac"
@@ -2656,7 +2734,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fc1e2c808481a63dc6da2074752fdd4336a3c8fcc68b83db6f1fd5224ae7962"
 dependencies = [
  "arrayref",
- "crunchy",
+ "crunchy 0.2.2",
  "digest",
  "hmac-drbg",
  "rand 0.7.3",
@@ -4862,7 +4940,16 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d8a021c69bb74a44ccedb824a046447e2c84a01df9e5c20779750acb38e11b2"
 dependencies = [
- "crunchy",
+ "crunchy 0.2.2",
+]
+
+[[package]]
+name = "tiny-keccak"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
+dependencies = [
+ "crunchy 0.2.2",
 ]
 
 [[package]]
@@ -5339,7 +5426,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "173cd16430c206dc1a430af8a89a0e9c076cf15cb42b4aedb10e8cc8fee73681"
 dependencies = [
  "byteorder 1.3.4",
- "crunchy",
+ "crunchy 0.2.2",
  "rustc-hex",
  "static_assertions",
 ]
