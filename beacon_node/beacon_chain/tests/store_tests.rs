@@ -1,8 +1,9 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 #[macro_use]
 extern crate lazy_static;
 
+use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
@@ -249,7 +250,6 @@ fn split_slot_restore() {
     assert_eq!(store.get_split_slot(), split_slot);
 }
 
-/*
 // Check attestation processing and `load_epoch_boundary_state` in the presence of a split DB.
 // This is a bit of a monster test in that it tests lots of different things, but until they're
 // tested elsewhere, this is as good a place as any.
@@ -273,7 +273,7 @@ fn epoch_boundary_state_attestation_processing() {
         );
 
         let head = harness.chain.head().expect("head ok");
-        late_attestations.extend(harness.get_free_attestations(
+        late_attestations.extend(harness.get_unaggregated_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_block_root,
@@ -290,7 +290,7 @@ fn epoch_boundary_state_attestation_processing() {
 
     let mut checked_pre_fin = false;
 
-    for attestation in late_attestations {
+    for attestation in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
         let block = store.get_block(&block_root).unwrap().expect("block exists");
@@ -311,31 +311,33 @@ fn epoch_boundary_state_attestation_processing() {
             .expect("head ok")
             .finalized_checkpoint
             .epoch;
+
         let res = harness
             .chain
-            .process_attestation_internal(attestation.clone(), AttestationType::Aggregated);
+            .verify_unaggregated_attestation_for_gossip(attestation.clone());
 
-        let current_epoch = harness.chain.epoch().expect("should get epoch");
-        let attestation_epoch = attestation.data.target.epoch;
+        let current_slot = harness.chain.slot().expect("should get slot");
+        let attestation_slot = attestation.data.slot;
+        // Extra -1 to handle gossip clock disparity.
+        let earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
-        if attestation.data.slot <= finalized_epoch.start_slot(E::slots_per_epoch())
-            || attestation_epoch + 1 < current_epoch
+        if attestation_slot <= finalized_epoch.start_slot(E::slots_per_epoch())
+            || attestation_slot < earliest_permissible_slot
         {
             checked_pre_fin = true;
             assert_eq!(
-                res,
-                Ok(AttestationProcessingOutcome::PastEpoch {
-                    attestation_epoch,
-                    current_epoch,
-                })
+                res.err().unwrap(),
+                AttnError::PastSlot {
+                    attestation_slot,
+                    earliest_permissible_slot,
+                }
             );
         } else {
-            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed));
+            res.expect("should have verified attetation");
         }
     }
     assert!(checked_pre_fin);
 }
-*/
 
 #[test]
 fn delete_blocks_and_states() {
