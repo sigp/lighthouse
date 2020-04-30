@@ -1,5 +1,6 @@
 use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
+use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -385,14 +386,8 @@ pub fn get_eth2_testnet_config<E: EthSpec>(
         Eth2TestnetConfig::load(testnet_dir.clone())
             .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
     } else {
-        Eth2TestnetConfig::hard_coded().map_err(|e| {
-            format!(
-                "The hard-coded testnet directory was invalid. \
-                 This happens when Lighthouse is migrating between spec versions. \
-                 Error : {}",
-                e
-            )
-        })?
+        Eth2TestnetConfig::hard_coded()
+            .map_err(|e| format!("{} Error : {}", BAD_TESTNET_DIR_MESSAGE, e))?
     })
 }
 
