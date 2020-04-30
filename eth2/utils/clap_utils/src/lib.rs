@@ -8,6 +8,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use types::EthSpec;
 
+pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
+                                        This happens when Lighthouse is migrating between spec versions \
+                                        or when there is no default public network to connect to. \
+                                        During these times you must specify a --testnet-dir.";
+
 /// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
 /// the path cannot be found or the testnet dir is invalid.
 ///
@@ -20,14 +25,8 @@ pub fn parse_testnet_dir_with_hardcoded_default<E: EthSpec>(
         Eth2TestnetConfig::load(path.clone())
             .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
     } else {
-        Eth2TestnetConfig::hard_coded().map_err(|e| {
-            format!(
-                "The hard-coded testnet directory was invalid. \
-                 This happens when Lighthouse is migrating between spec versions. \
-                 Error : {}",
-                e
-            )
-        })
+        Eth2TestnetConfig::hard_coded()
+            .map_err(|e| format!("{} Error : {}", BAD_TESTNET_DIR_MESSAGE, e))
     }
 }
 

@@ -250,6 +250,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain 0.2.0",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "clap_utils 0.1.0",
  "client 0.2.0",
  "ctrlc 3.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "dirs 2.0.2 (registry+https://github.com/rust-lang/crates.io-index)",

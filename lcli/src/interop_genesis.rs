@@ -1,4 +1,5 @@
 use clap::ArgMatches;
+use clap_utils::parse_ssz_optional;
 use environment::Environment;
 use eth2_testnet_config::Eth2TestnetConfig;
 use genesis::interop_genesis_state;
@@ -49,7 +50,9 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             )
         })?;
 
-    spec.genesis_fork_version = [1, 3, 3, 7];
+    if let Some(v) = parse_ssz_optional(matches, "genesis-fork-version")? {
+        spec.genesis_fork_version = v;
+    }
 
     let keypairs = generate_deterministic_keypairs(validator_count);
     let genesis_state = interop_genesis_state(&keypairs, genesis_time, &spec)?;
