@@ -193,7 +193,7 @@ pub fn get_config<E: EthSpec>(
                         .map(|a| a.ip())
                         .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
                 } else {
-                    return Err("Failed to parse enr-address".into());
+                    return Err(format!("Failed to parse enr-address: {}", enr_address));
                 };
                 client_config.network.discv5_config.enr_update = false;
                 resolved_addr
