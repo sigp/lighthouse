@@ -612,11 +612,10 @@ impl<E: EthSpec> Node<E> {
         client.json_get(url, vec![]).await
     }
 
-    pub fn syncing_status(&self) -> impl Future<Item = SyncingResponse, Error = Error> {
+    pub async fn syncing_status(&self) -> Result<SyncingResponse, Error> {
         let client = self.0.clone();
-        self.url("syncing")
-            .into_future()
-            .and_then(move |url| client.json_get(url, vec![]))
+        let url = self.url("syncing")?;
+        client.json_get(url, vec![]).await
     }
 }
 

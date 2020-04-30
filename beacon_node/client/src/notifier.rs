@@ -2,13 +2,13 @@ use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
 use eth2_libp2p::NetworkGlobals;
-use futures::{FutureExt, StreamExt, TryFutureExt};
+use futures::{Future, Stream};
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::{interval_at, Instant};
+use std::time::{Duration, Instant};
+use tokio::timer::Interval;
 use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
@@ -32,7 +32,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
 ) -> Result<tokio::sync::oneshot::Sender<()>, String> {
-    let log = context.log.clone();
+    let log_1 = context.log.clone();
+    let log_2 = context.log.clone();
+    let log_3 = context.log.clone();
 
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
@@ -61,65 +63,38 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let head_info = beacon_chain.head_info()
                 .map_err(|e| error!(
                     log,
-                    "Notifier failed to notify, Failed to get beacon chain head info";
+                    "Failed to get beacon chain head info";
                     "error" => format!("{:?}", e)
-                );
-                return futures::future::ready(());
-            }
-        };
+                ))?;
 
             let head_slot = head_info.slot;
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
                     log,
-                    "Notify failed to notify, Unable to read current slot";
+                    "Unable to read current slot";
                     "error" => format!("{:?}", e)
-                );
-                return futures::future::ready(());
+                )
+            })?;
+            let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+            let finalized_epoch = head_info.finalized_checkpoint.epoch;
+            let finalized_root = head_info.finalized_checkpoint.root;
+            let head_root = head_info.block_root;
+
+            let mut speedo = speedo.lock();
+            speedo.observe(head_slot, Instant::now());
+
+            metrics::set_gauge(&metrics::SYNC_SLOTS_PER_SECOND, speedo.slots_per_second().unwrap_or_else(|| 0_f64) as i64);
+
+            // The next two lines take advantage of saturating subtraction on `Slot`.
+            let head_distance = current_slot - head_slot;
+
+            if connected_peer_count <= WARN_PEER_COUNT {
+                warn!(log, "Low peer count"; "peer_count" => peer_count_pretty(connected_peer_count));
             }
-        };
 
-        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let finalized_epoch = head_info.finalized_checkpoint.epoch;
-        let finalized_root = head_info.finalized_checkpoint.root;
-        let head_root = head_info.block_root;
-
-        let mut speedo = speedo.lock();
-        speedo.observe(head_slot, Instant::now());
-
-        metrics::set_gauge(
-            &metrics::SYNC_SLOTS_PER_SECOND,
-            speedo.slots_per_second().unwrap_or_else(|| 0_f64) as i64,
-        );
-
-        // The next two lines take advantage of saturating subtraction on `Slot`.
-        let head_distance = current_slot - head_slot;
-
-        if connected_peer_count <= WARN_PEER_COUNT {
-            warn!(log, "Low peer count"; "peer_count" => peer_count_pretty(connected_peer_count));
-        }
-
-        debug!(
-            log,
-            "Slot timer";
-            "peers" => peer_count_pretty(connected_peer_count),
-            "finalized_root" => format!("{}", finalized_root),
-            "finalized_epoch" => finalized_epoch,
-            "head_block" => format!("{}", head_root),
-            "head_slot" => head_slot,
-            "current_slot" => current_slot,
-        );
-
-        if head_epoch + 1 < current_epoch {
-            let distance = format!(
-                "{} slots ({})",
-                head_distance.as_u64(),
-                slot_distance_pretty(head_distance, slot_duration)
-            );
-
-            info!(
+            debug!(
                 log,
-                "Syncing";
+                "Slot timer";
                 "peers" => peer_count_pretty(connected_peer_count),
                 "finalized_root" => format!("{}", finalized_root),
                 "finalized_epoch" => finalized_epoch,
@@ -186,10 +161,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
     let (exit_signal, exit) = tokio::sync::oneshot::channel();
 
-    let future = futures::future::select(interval_future, exit.map_err(|_| ()).map(|_| ()));
-
-    // TODO: check if the runtime handle should spawn this future.
-    tokio::task::spawn(future);
+    context
+        .executor
+        .spawn(interval_future.select(exit).map(|_| ()).map_err(|_| ()));
 
     Ok(exit_signal)
 }
