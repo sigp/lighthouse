@@ -23,16 +23,16 @@ serde_json = "1.0.41"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.3.0"
 slog-term = "2.4.2"
-tokio = "0.1.22"
-tokio-timer = "0.2.12"
+# Reduces features to only required ones
+tokio = {version = "0.2.20", features = ["full"]}
 error-chain = "0.12.1"
 bincode = "1.2.0"
-futures = "0.1.29"
+futures = "0.3.4"
 dirs = "2.0.2"
 logging = { path = "../eth2/utils/logging" }
 environment = { path = "../lighthouse/environment" }
 parking_lot = "0.7"
-exit-future = "0.1.4"
+exit-future = "0.2.0"
 libc = "0.2.65"
 eth2_ssz_derive = { path = "../eth2/utils/ssz_derive" }
 hex = "0.3"
