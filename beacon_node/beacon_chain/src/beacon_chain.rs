@@ -798,11 +798,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Produce an `AttestationData` that attests to the chain denoted by `block_root` and `state`.
-    ///
-    /// Permits attesting to any arbitrary chain. Generally, the `produce_attestation_data`
-    /// function should be used as it attests to the canonical chain.
-    ///
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
     /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
     /// `block` identified by `beacon_block_root`.
