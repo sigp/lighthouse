@@ -10,7 +10,9 @@ use hashmap_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use types::EthSpec;
 
@@ -314,34 +316,38 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
 impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
     type Item = PeerManagerEvent;
-    type Error = ();
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // poll the timeouts for pings and status'
-        while let Async::Ready(Some(peer_id)) = self.ping_peers.poll().map_err(|e| {
-            error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e));
-        })? {
-            debug!(self.log, "Pinging peer"; "peer_id" => format!("{}", peer_id));
-            // add the ping timer back
-            self.ping_peers.insert(peer_id.clone());
-            self.events.push(PeerManagerEvent::Ping(peer_id));
+        // TODO: was getting a bit messy with while lets. Check if logic is preserved.
+        loop {
+            match self.ping_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => self.events.push(PeerManagerEvent::Ping(peer_id)),
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e))
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
         }
 
-        while let Async::Ready(Some(peer_id)) = self.status_peers.poll().map_err(|e| {
-            error!(self.log, "Failed to check for peers to status"; "error" => format!("{}",e));
-        })? {
-            debug!(self.log, "Sending Status to peer"; "peer_id" => format!("{}", peer_id));
-            // add the status timer back
-            self.status_peers.insert(peer_id.clone());
-            self.events.push(PeerManagerEvent::Status(peer_id));
+        loop {
+            match self.status_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
+                    self.events.push(PeerManagerEvent::Status(peer_id))
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e))
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
         }
 
         if !self.events.is_empty() {
-            return Ok(Async::Ready(Some(self.events.remove(0))));
+            return Poll::Ready(Some(self.events.remove(0)));
         } else {
             self.events.shrink_to_fit();
         }
 
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }

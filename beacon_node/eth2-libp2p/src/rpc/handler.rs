@@ -15,9 +15,10 @@ use libp2p::swarm::protocols_handler::{
 use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::timer::{delay_queue, DelayQueue};
+use tokio::time::{delay_queue, DelayQueue};
 use types::EthSpec;
 
 //TODO: Implement close() on the substream types to improve the poll code.
@@ -37,7 +38,7 @@ type InboundRequestId = RequestId;
 type OutboundRequestId = RequestId;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
-pub struct RPCHandler<TSubstream, TSpec>
+pub struct RPCHandler<'a, TSubstream, TSpec>
 where
     TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
@@ -61,7 +62,7 @@ where
     inbound_substreams: FnvHashMap<
         InboundRequestId,
         (
-            InboundSubstreamState<TSubstream, TSpec>,
+            InboundSubstreamState<'a, TSubstream, TSpec>,
             Option<delay_queue::Key>,
         ),
     >,
@@ -100,21 +101,18 @@ where
 
     /// Logger for handling RPC streams
     log: slog::Logger,
-
-    /// Marker to pin the generic stream.
-    _phantom: PhantomData<TSubstream>,
 }
 
 /// State of an outbound substream. Either waiting for a response, or in the process of sending.
-pub enum InboundSubstreamState<TSubstream, TSpec>
+pub enum InboundSubstreamState<'a, TSubstream, TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TSubstream: AsyncRead + AsyncWrite + Unpin,
     TSpec: EthSpec,
 {
     /// A response has been sent, pending writing and flush.
     ResponsePendingSend {
         /// The substream used to send the response
-        substream: futures::sink::Send<InboundFramed<TSubstream, TSpec>>,
+        substream: futures::sink::Send<'a, InboundFramed<TSubstream, TSpec>, RPCErrorResponse<TSpec>>,
         /// Whether a stream termination is requested. If true the stream will be closed after
         /// this send. Otherwise it will transition to an idle state until a stream termination is
         /// requested or a timeout is reached.
@@ -144,9 +142,8 @@ pub enum OutboundSubstreamState<TSubstream, TSpec: EthSpec> {
     Poisoned,
 }
 
-impl<TSubstream, TSpec> InboundSubstreamState<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> InboundSubstreamState<'a, TSpec, TSubstream>
 where
-    TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
     /// Moves the substream state to closing and informs the connected peer. The
@@ -191,7 +188,7 @@ where
     }
 }
 
-impl<TSubstream, TSpec> RPCHandler<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> RPCHandler<'a, TSubstream, TSpec>
 where
     TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
@@ -218,7 +215,6 @@ where
             inactive_timeout,
             outbound_io_error_retries: 0,
             log: log.clone(),
-            _phantom: PhantomData,
         }
     }
 
@@ -251,15 +247,14 @@ where
     }
 }
 
-impl<TSubstream, TSpec> ProtocolsHandler for RPCHandler<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> ProtocolsHandler for RPCHandler<'a, TSubstream, TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
+    TSubstream: AsyncRead + AsyncWrite + Unpin,
     TSpec: EthSpec,
 {
     type InEvent = RPCEvent<TSpec>;
     type OutEvent = RPCEvent<TSpec>;
     type Error = ProtocolsHandlerUpgrErr<RPCError>;
-    type Substream = TSubstream;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RPCRequest<TSpec>;
     type OutboundOpenInfo = RPCEvent<TSpec>; // Keep track of the id and the request
@@ -429,7 +424,7 @@ where
         &mut self,
         request: Self::OutboundOpenInfo,
         error: ProtocolsHandlerUpgrErr<
-            <Self::OutboundProtocol as OutboundUpgrade<Self::Substream>>::Error,
+            <Self::OutboundProtocol as OutboundUpgrade<libp2p::swarm::NegotiatedSubstream>>::Error,
         >,
     ) {
         if let ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error {
@@ -458,8 +453,12 @@ where
     fn poll(
         &mut self,
     ) -> Poll<
-        ProtocolsHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::OutEvent>,
-        Self::Error,
+        ProtocolsHandlerEvent<
+            Self::OutboundProtocol,
+            Self::OutboundOpenInfo,
+            Self::OutEvent,
+            Self::Error,
+        >,
     > {
         if let Some((request_id, err)) = self.pending_error.pop() {
             // Returning an error here will result in dropping the peer.
@@ -472,53 +471,52 @@ where
                     // other clients testing their software. In the future, we will need to decide
                     // which protocols are a bare minimum to support before kicking the peer.
                     error!(self.log, "Peer doesn't support the RPC protocol"; "protocol" => protocol_string);
-                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                        RPCEvent::Error(request_id, RPCError::InvalidProtocol(protocol_string)),
-                    )));
+                    return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                        request_id,
+                        RPCError::InvalidProtocol(protocol_string),
+                    ))));
                 }
                 ProtocolsHandlerUpgrErr::Timeout | ProtocolsHandlerUpgrErr::Timer => {
                     // negotiation timeout, mark the request as failed
                     debug!(self.log, "Active substreams before timeout"; "len" => self.outbound_substreams.len());
-                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                        RPCEvent::Error(
-                            request_id,
-                            RPCError::Custom("Protocol negotiation timeout".into()),
-                        ),
-                    )));
+                    return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                        request_id,
+                        RPCError::Custom("Protocol negotiation timeout".into()),
+                    ))));
                 }
                 ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(err)) => {
                     // IO/Decode/Custom Error, report to the application
                     debug!(self.log, "Upgrade Error"; "error" => format!("{}",err));
-                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                        RPCEvent::Error(request_id, err),
-                    )));
+                    return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                        request_id, err,
+                    ))));
                 }
                 ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Select(err)) => {
                     // Error during negotiation
                     debug!(self.log, "Upgrade Error"; "error" => format!("{}",err));
-                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                        RPCEvent::Error(request_id, RPCError::Custom(format!("{}", err))),
-                    )));
+                    return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                        request_id,
+                        RPCError::Custom(format!("{}", err)),
+                    ))));
                 }
             }
         }
 
         // return any events that need to be reported
         if !self.events_out.is_empty() {
-            return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
-                self.events_out.remove(0),
-            )));
+            return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(self.events_out.remove(0))));
         } else {
             self.events_out.shrink_to_fit();
         }
 
         // purge expired inbound substreams and send an error
-        while let Async::Ready(Some(stream_id)) =
-            self.inbound_substreams_delay.poll().map_err(|e| {
+        // TODO: check if this pattern is equivalent to
+        // while let Async::Ready() = stream.poll().map_err(..)
+        while let Poll::Ready(Some(d)) = self.inbound_substreams_delay.poll() {
+            let stream_id = d.map_err(|e| {
                 warn!(self.log, "Inbound substream poll failed"; "error" => format!("{:?}", e));
                 ProtocolsHandlerUpgrErr::Timer
-            })?
-        {
+            })?;
             let rpc_id = stream_id.get_ref();
 
             // handle a stream timeout for various states
@@ -535,15 +533,16 @@ where
         }
 
         // purge expired outbound substreams
-        if let Async::Ready(Some(stream_id)) =
-            self.outbound_substreams_delay.poll().map_err(|e| {
+        if let Poll::Ready(Some(d)) =
+            self.outbound_substreams_delay.poll() {
+                let stream_id = d.map_err(|e| {
                 warn!(self.log, "Outbound substream poll failed"; "error" => format!("{:?}", e));
                 ProtocolsHandlerUpgrErr::Timer
-            })?
-        {
+            })?;
+         
             self.outbound_substreams.remove(stream_id.get_ref());
             // notify the user
-            return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+            return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(
                 RPCEvent::Error(
                     *stream_id.get_ref(),
                     RPCError::Custom("Stream timed out".into()),
@@ -569,7 +568,7 @@ where
                                 closing,
                             } => {
                                 match substream.poll() {
-                                    Ok(Async::Ready(raw_substream)) => {
+                                    Poll::Ready(Ok(raw_substream)) => {
                                         // completed the send
 
                                         // close the stream if required
@@ -587,7 +586,7 @@ where
                                             );
                                         }
                                     }
-                                    Ok(Async::NotReady) => {
+                                    Poll::Pending => {
                                         entry.get_mut().0 =
                                             InboundSubstreamState::ResponsePendingSend {
                                                 substream,
@@ -599,7 +598,7 @@ where
                                             self.inbound_substreams_delay.remove(delay_key);
                                         }
                                         entry.remove_entry();
-                                        return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                        return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(
                                             RPCEvent::Error(0, e),
                                         )));
                                     }
@@ -613,8 +612,9 @@ where
                                 );
                             }
                             InboundSubstreamState::Closing(mut substream) => {
+                                // TODO: check if this is supposed to be a stream
                                 match substream.close() {
-                                    Ok(Async::Ready(())) | Err(_) => {
+                                    Poll::Ready(_)  => {
                                         //trace!(self.log, "Inbound stream dropped");
                                         if let Some(delay_key) = &entry.get().1 {
                                             self.inbound_substreams_delay.remove(delay_key);
@@ -630,7 +630,7 @@ where
                                             );
                                         }
                                     } // drop the stream
-                                    Ok(Async::NotReady) => {
+                                    Poll::Pending => {
                                         entry.get_mut().0 =
                                             InboundSubstreamState::Closing(substream);
                                     }
@@ -659,7 +659,7 @@ where
                             mut substream,
                             request,
                         } => match substream.poll() {
-                            Ok(Async::Ready(Some(response))) => {
+                            Poll::Ready(Some(Ok(response))) => {
                                 if request.multiple_responses() && !response.is_error() {
                                     entry.get_mut().0 =
                                         OutboundSubstreamState::RequestPendingResponse {
@@ -677,11 +677,11 @@ where
                                     entry.get_mut().0 = OutboundSubstreamState::Closing(substream);
                                 }
 
-                                return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(
                                     RPCEvent::Response(request_id, response),
                                 )));
                             }
-                            Ok(Async::Ready(None)) => {
+                            Poll::Ready(None) => {
                                 // stream closed
                                 // if we expected multiple streams send a stream termination,
                                 // else report the stream terminating only.
@@ -693,7 +693,7 @@ where
                                 // notify the application error
                                 if request.multiple_responses() {
                                     // return an end of stream result
-                                    return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                    return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(
                                         RPCEvent::Response(
                                             request_id,
                                             RPCErrorResponse::StreamTermination(
@@ -702,7 +702,7 @@ where
                                         ),
                                     )));
                                 } // else we return an error, stream should not have closed early.
-                                return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(
                                     RPCEvent::Error(
                                         request_id,
                                         RPCError::Custom(
@@ -711,24 +711,25 @@ where
                                     ),
                                 )));
                             }
-                            Ok(Async::NotReady) => {
+                            Poll::Pending => {
                                 entry.get_mut().0 = OutboundSubstreamState::RequestPendingResponse {
                                     substream,
                                     request,
                                 }
                             }
-                            Err(e) => {
+                            Poll::Ready(Some(Err(e))) => {
                                 // drop the stream
                                 let delay_key = &entry.get().1;
                                 self.outbound_substreams_delay.remove(delay_key);
                                 entry.remove_entry();
-                                return Ok(Async::Ready(ProtocolsHandlerEvent::Custom(
+                                return Poll::Ready(Ok(ProtocolsHandlerEvent::Custom(
                                     RPCEvent::Error(request_id, e),
                                 )));
                             }
                         },
                         OutboundSubstreamState::Closing(mut substream) => match substream.close() {
-                            Ok(Async::Ready(())) | Err(_) => {
+                            // TODO: check if this is supposed to be a stream
+                            Poll::Ready(_)=> {
                                 //trace!(self.log, "Outbound stream dropped");
                                 // drop the stream
                                 let delay_key = &entry.get().1;
@@ -742,7 +743,7 @@ where
                                         KeepAlive::Until(Instant::now() + self.inactive_timeout);
                                 }
                             }
-                            Ok(Async::NotReady) => {
+                            Poll::Pending => {
                                 entry.get_mut().0 = OutboundSubstreamState::Closing(substream);
                             }
                         },
@@ -762,7 +763,7 @@ where
             let rpc_event = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
             if let RPCEvent::Request(id, req) = rpc_event {
-                return Ok(Async::Ready(
+                return Poll::Ready(Ok(
                     ProtocolsHandlerEvent::OutboundSubstreamRequest {
                         protocol: SubstreamProtocol::new(req.clone()),
                         info: RPCEvent::Request(id, req),
@@ -770,16 +771,16 @@ where
                 ));
             }
         }
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }
 
 // Check for new items to send to the peer and update the underlying stream
-fn apply_queued_responses<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>(
+fn apply_queued_responses<'a, TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>(
     raw_substream: InboundFramed<TSubstream, TSpec>,
     queued_outbound_items: &mut Option<&mut Vec<RPCErrorResponse<TSpec>>>,
     new_items_to_send: &mut bool,
-) -> InboundSubstreamState<TSubstream, TSpec> {
+) -> InboundSubstreamState<'a, TSubstream, TSpec> {
     match queued_outbound_items {
         Some(ref mut queue) if !queue.is_empty() => {
             *new_items_to_send = true;

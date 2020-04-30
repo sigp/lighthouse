@@ -9,7 +9,7 @@ use libp2p::core::{
     identity::Keypair,
     multiaddr::Multiaddr,
     muxing::StreamMuxerBox,
-    nodes::Substream,
+    connection::Substream,
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
     ConnectedPoint,
@@ -21,8 +21,10 @@ use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::timer::DelayQueue;
+use tokio::time::DelayQueue;
 use types::{EnrForkId, EthSpec};
+use std::pin::Pin;
+use std::task::{Poll, Context};
 
 type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
 type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
@@ -180,17 +182,16 @@ impl<TSpec: EthSpec> Service<TSpec> {
 }
 
 impl<TSpec: EthSpec> Stream for Service<TSpec> {
-    type Item = BehaviourEvent<TSpec>;
-    type Error = error::Error;
+    type Item = Result<BehaviourEvent<TSpec>, error::Error>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.swarm.poll() {
-                Ok(Async::Ready(Some(event))) => {
-                    return Ok(Async::Ready(Some(event)));
+                Poll::Ready(Some(event)) => {
+                    return Poll::Ready(Some(event));
                 }
-                Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
-                Ok(Async::NotReady) => break,
+                Ok(Poll::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
+                Ok(Poll::Pending) => break,
                 _ => break,
             }
         }
@@ -198,7 +199,7 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
         // check if peers need to be banned
         loop {
             match self.peers_to_ban.poll() {
-                Ok(Async::Ready(Some(peer_id))) => {
+                Poll::Ready(Some(Ok(peer_id))) => {
                     let peer_id = peer_id.into_inner();
                     Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
                     // TODO: Correctly notify protocols of the disconnect
@@ -213,8 +214,8 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
                     // inform the behaviour that the peer has been banned
                     self.swarm.peer_banned(peer_id);
                 }
-                Ok(Async::NotReady) | Ok(Async::Ready(None)) => break,
-                Err(e) => {
+                Poll::Pending | Poll::Ready(None) => break,
+                Poll::Ready(Some(Err(e))) => {
                     warn!(self.log, "Peer banning queue failed"; "error" => format!("{:?}", e));
                 }
             }
@@ -223,20 +224,20 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
         // un-ban peer if it's timeout has expired
         loop {
             match self.peer_ban_timeout.poll() {
-                Ok(Async::Ready(Some(peer_id))) => {
+                Poll::Ready(Some(Ok(peer_id))) => {
                     let peer_id = peer_id.into_inner();
                     debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_id));
                     self.swarm.peer_unbanned(&peer_id);
                     Swarm::unban_peer_id(&mut self.swarm, peer_id);
                 }
-                Ok(Async::NotReady) | Ok(Async::Ready(None)) => break,
-                Err(e) => {
+                Poll::Pending | Poll::Ready(None) => break,
+                Poll::Ready(Some(Err(e))) => {
                     warn!(self.log, "Peer banning timeout queue failed"; "error" => format!("{:?}", e));
                 }
             }
         }
 
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }
 

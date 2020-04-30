@@ -11,17 +11,17 @@ use crate::rpc::{
     methods::ResponseTermination,
 };
 use futures::future::*;
-use futures::{future, sink, stream, Sink, Stream};
+use futures::{future, sink, stream};
 use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tokio::codec::Framed;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::timer::timeout;
-use tokio::util::FutureExt;
+use tokio::time::Timeout;
 use tokio_io_timeout::TimeoutStream;
+use tokio_util::codec::Framed;
 use types::EthSpec;
+use std::pin::Pin;
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 1_048_576; // 1M
@@ -171,12 +171,13 @@ impl ProtocolName for ProtocolId {
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
-    Framed<TimeoutStream<upgrade::Negotiated<TSocket>>, InboundCodec<TSpec>>;
+    Framed<Timeout<upgrade::Negotiated<TSocket>>, InboundCodec<TSpec, RPCErrorResponse<TSpec>>>;
 type FnAndThen<TSocket, TSpec> = fn(
     (Option<RPCRequest<TSpec>>, InboundFramed<TSocket, TSpec>),
-) -> FutureResult<InboundOutput<TSocket, TSpec>, RPCError>;
-type FnMapErr<TSocket, TSpec> =
-    fn(timeout::Error<(RPCError, InboundFramed<TSocket, TSpec>)>) -> RPCError;
+) -> Ready<Result<InboundOutput<TSocket, TSpec>, RPCError>>;
+// TODO: Error doesn't take a generic parameter in new tokio
+// Need to check implications
+type FnMapErr = fn(tokio::time::Error) -> RPCError;
 
 impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
 where
@@ -187,13 +188,10 @@ where
     type Error = RPCError;
 
     type Future = future::Either<
-        FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
+        Ready<Result<InboundOutput<TSocket, TSpec>, RPCError>>,
         future::AndThen<
-            future::MapErr<
-                timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>,
-                FnMapErr<TSocket, TSpec>,
-            >,
-            FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
+            future::MapErr<Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>, FnMapErr>,
+            Ready<Result<InboundOutput<TSocket, TSpec>, RPCError>>,
             FnAndThen<TSocket, TSpec>,
         >,
     >;
@@ -351,16 +349,18 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 /* Outbound upgrades */
 
 pub type OutboundFramed<TSocket, TSpec> =
-    Framed<upgrade::Negotiated<TSocket>, OutboundCodec<TSpec>>;
+    Framed<upgrade::Negotiated<TSocket>, OutboundCodec<TSpec, RPCRequest<TSpec>>>;
 
 impl<TSocket, TSpec> OutboundUpgrade<TSocket> for RPCRequest<TSpec>
 where
     TSpec: EthSpec,
-    TSocket: AsyncRead + AsyncWrite,
+    TSocket: AsyncRead + AsyncWrite + Send,
 {
     type Output = OutboundFramed<TSocket, TSpec>;
     type Error = RPCError;
-    type Future = sink::Send<OutboundFramed<TSocket, TSpec>>;
+    // TODO: Send takes a mutable reference to the sink now, hence the lifetime parameter
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
+    // type Future = sink::Send<'a, &'a mut OutboundFramed<TSocket, TSpec>, RPCRequest<TSpec>>;
     fn upgrade_outbound(
         self,
         socket: upgrade::Negotiated<TSocket>,
@@ -378,7 +378,7 @@ where
                 OutboundCodec::SSZ(ssz_codec)
             }
         };
-        Framed::new(socket, codec).send(self)
+        Box::pin(Framed::new(socket, codec).send(self))
     }
 }
 
@@ -416,8 +416,8 @@ impl From<ssz::DecodeError> for RPCError {
         RPCError::SSZDecodeError(err)
     }
 }
-impl<T> From<tokio::timer::timeout::Error<T>> for RPCError {
-    fn from(err: tokio::timer::timeout::Error<T>) -> Self {
+impl From<tokio::time::Error> for RPCError {
+    fn from(err: tokio::time::Error) -> Self {
         if err.is_elapsed() {
             RPCError::StreamTimeout
         } else {

@@ -4,7 +4,6 @@
 //! direct peer-to-peer communication primarily for sending/receiving chain information for
 //! syncing.
 
-use futures::prelude::*;
 use handler::RPCHandler;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::{
@@ -22,6 +21,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use types::EthSpec;
+use std::task::{Poll, Context};
 
 pub(crate) mod codec;
 mod handler;
@@ -94,12 +94,12 @@ impl<TSubstream, TSpec: EthSpec> RPC<TSubstream, TSpec> {
     }
 }
 
-impl<TSubstream, TSpec> NetworkBehaviour for RPC<TSubstream, TSpec>
+impl<'a, TSubstream, TSpec> NetworkBehaviour for RPC<TSubstream, TSpec>
 where
     TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
-    type ProtocolsHandler = RPCHandler<TSubstream, TSpec>;
+    type ProtocolsHandler = RPCHandler<'a, TSubstream, TSpec>;
     type OutEvent = RPCMessage<TSpec>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
@@ -151,7 +151,7 @@ where
         ));
     }
 
-    fn inject_node_event(
+    fn inject_event(
         &mut self,
         source: PeerId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
@@ -165,17 +165,18 @@ where
 
     fn poll(
         &mut self,
+        _cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Async<
+    ) -> Poll<
         NetworkBehaviourAction<
             <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
             Self::OutEvent,
         >,
     > {
         if !self.events.is_empty() {
-            return Async::Ready(self.events.remove(0));
+            return Poll::Ready(self.events.remove(0));
         }
-        Async::NotReady
+        Poll::Pending
     }
 }
 

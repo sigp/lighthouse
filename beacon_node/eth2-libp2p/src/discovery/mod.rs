@@ -8,11 +8,13 @@ use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
 use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
-use libp2p::core::{ConnectedPoint, Multiaddr, PeerId};
+use libp2p::core::{Multiaddr, PeerId};
 use libp2p::discv5::enr::NodeId;
 use libp2p::discv5::{Discv5, Discv5Event};
 use libp2p::multiaddr::Protocol;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
+use libp2p::swarm::{
+    DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler,
+};
 use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
@@ -20,9 +22,9 @@ use std::collections::{HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::timer::Delay;
+use std::task::Poll;
+use std::time::Duration;
+use tokio::time::{delay_until, Delay, Instant};
 use types::{EnrForkId, EthSpec, SubnetId};
 
 /// Maximum seconds before searching for extra peers.
@@ -36,7 +38,7 @@ const TARGET_SUBNET_PEERS: u64 = 3;
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
-pub struct Discovery<TSubstream, TSpec: EthSpec> {
+pub struct Discovery<TSpec: EthSpec> {
     /// Events to be processed by the behaviour.
     events: VecDeque<NetworkBehaviourAction<void::Void, Discv5Event>>,
 
@@ -62,7 +64,7 @@ pub struct Discovery<TSubstream, TSpec: EthSpec> {
     tcp_port: u16,
 
     /// The discovery behaviour used to discover new peers.
-    discovery: Discv5<TSubstream>,
+    discovery: Discv5,
 
     /// A collection of network constants that can be read from other threads.
     network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -71,8 +73,8 @@ pub struct Discovery<TSubstream, TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
-    pub fn new(
+impl<TSpec: EthSpec> Discovery<TSpec> {
+    pub async fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -97,6 +99,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             config.discv5_config.clone(),
             listen_socket,
         )
+        .await
         .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
@@ -123,7 +126,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             events: VecDeque::with_capacity(16),
             banned_peers: HashSet::new(),
             max_peers: config.max_peers,
-            peer_discovery_delay: Delay::new(Instant::now()),
+            peer_discovery_delay: delay_until(Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
             tcp_port: config.libp2p_port,
             discovery,
@@ -343,12 +346,9 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 }
 
 // Redirect all behaviour events to underlying discovery behaviour.
-impl<TSubstream, TSpec: EthSpec> NetworkBehaviour for Discovery<TSubstream, TSpec>
-where
-    TSubstream: AsyncRead + AsyncWrite,
-{
-    type ProtocolsHandler = <Discv5<TSubstream> as NetworkBehaviour>::ProtocolsHandler;
-    type OutEvent = <Discv5<TSubstream> as NetworkBehaviour>::OutEvent;
+impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
+    type ProtocolsHandler = <Discv5 as NetworkBehaviour>::ProtocolsHandler;
+    type OutEvent = <Discv5 as NetworkBehaviour>::OutEvent;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
         NetworkBehaviour::new_handler(&mut self.discovery)
@@ -359,31 +359,14 @@ where
         self.discovery.addresses_of_peer(peer_id)
     }
 
-    fn inject_connected(&mut self, _peer_id: PeerId, _endpoint: ConnectedPoint) {}
+    fn inject_connected(&mut self, _peer_id: &PeerId) {}
 
-    fn inject_disconnected(&mut self, _peer_id: &PeerId, _endpoint: ConnectedPoint) {}
-
-    fn inject_replaced(
-        &mut self,
-        _peer_id: PeerId,
-        _closed: ConnectedPoint,
-        _opened: ConnectedPoint,
-    ) {
-        // discv5 doesn't implement
-    }
-
-    fn inject_node_event(
-        &mut self,
-        _peer_id: PeerId,
-        _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
-    ) {
-        // discv5 doesn't implement
-    }
+    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
 
     fn poll(
         &mut self,
         params: &mut impl PollParameters,
-    ) -> Async<
+    ) -> Poll<
         NetworkBehaviourAction<
             <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
             Self::OutEvent,
@@ -392,7 +375,7 @@ where
         // search for peers if it is time
         loop {
             match self.peer_discovery_delay.poll() {
-                Ok(Async::Ready(_)) => {
+                Poll::Ready(_) => {
                     if self.network_globals.connected_peers() < self.max_peers {
                         self.find_peers();
                     }
@@ -401,7 +384,7 @@ where
                         Instant::now() + Duration::from_secs(MAX_TIME_BETWEEN_PEER_SEARCHES),
                     );
                 }
-                Ok(Async::NotReady) => break,
+                Poll::Pending => break,
                 Err(e) => {
                     warn!(self.log, "Discovery peer search failed"; "error" => format!("{:?}", e));
                 }
@@ -411,7 +394,7 @@ where
         // Poll discovery
         loop {
             match self.discovery.poll(params) {
-                Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
+                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
                     match event {
                         Discv5Event::Discovered(_enr) => {
                             // peers that get discovered during a query but are not contactable or
@@ -434,7 +417,7 @@ where
                             let enr = self.discovery.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), enr, &self.log);
 
-                            return Async::Ready(NetworkBehaviourAction::ReportObservedAddr {
+                            return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr {
                                 address,
                             });
                         }
@@ -465,8 +448,10 @@ where
                                 {
                                     debug!(self.log, "Connecting to discovered peer"; "peer_id"=> format!("{:?}", peer_id));
                                     self.network_globals.peers.write().dialing_peer(&peer_id);
-                                    self.events
-                                        .push_back(NetworkBehaviourAction::DialPeer { peer_id });
+                                    self.events.push_back(NetworkBehaviourAction::DialPeer {
+                                        peer_id,
+                                        condition: DialPeerCondition::NotDialing, // TODO: check if this is the condition we want
+                                    });
                                 }
                             }
                         }
@@ -474,16 +459,16 @@ where
                     }
                 }
                 // discv5 does not output any other NetworkBehaviourAction
-                Async::Ready(_) => {}
-                Async::NotReady => break,
+                Poll::Ready(_) => {}
+                Poll::Pending => break,
             }
         }
 
         // process any queued events
         if let Some(event) = self.events.pop_front() {
-            return Async::Ready(event);
+            return Poll::Ready(event);
         }
 
-        Async::NotReady
+        Poll::Pending
     }
 }
