@@ -25,12 +25,11 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
 
     let duties_service = client.duties_service.clone();
     let log_1 = context.log.clone();
-    let log_2 = context.log.clone();
 
     // Note: interval_at panics if `interval_duration` is 0
     let interval_fut = interval_at(start_instant, interval_duration)
         .for_each(move |_| {
-            let log = log_2.clone();
+            let log = log_1.clone();
 
             if let Some(slot) = duties_service.slot_clock.now() {
                 let epoch = slot.epoch(T::slots_per_epoch());
@@ -43,7 +42,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                     error!(log, "No validators present")
                 } else if total_validators == attesting_validators {
                     info!(
-                        log_2,
+                        log_1,
                         "All validators active";
                         "proposers" => proposing_validators,
                         "active_validators" => attesting_validators,
@@ -53,7 +52,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                     );
                 } else if attesting_validators > 0 {
                     info!(
-                        log_2,
+                        log_1,
                         "Some validators active";
                         "proposers" => proposing_validators,
                         "active_validators" => attesting_validators,
@@ -63,7 +62,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                     );
                 } else {
                     info!(
-                        log_2,
+                        log_1,
                         "Awaiting activation";
                         "validators" => total_validators,
                         "epoch" => format!("{}", epoch),
@@ -81,7 +80,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let log = context.log.clone();
     let future = futures::future::select(
         interval_fut,
-        exit.map(|_| info!(log, "Shutdown complete")),
+        exit.map(move |_| info!(log, "Shutdown complete")),
     );
     tokio::task::spawn(future);
     
