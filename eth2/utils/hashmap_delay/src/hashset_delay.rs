@@ -161,30 +161,3 @@ where
         }
     }
 }
-
-#[cfg(test)]
-
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn should_not_panic() {
-        let key = 2u8;
-
-        let mut map = HashSetDelay::default();
-
-        map.insert(key);
-        map.update_timeout(&key, Duration::from_secs(100));
-
-        let fut = |cx: &mut Context| {
-            let _ = map.poll_next_unpin(cx);
-            let _ = map.poll_next_unpin(cx);
-            Poll::Ready(())
-        };
-
-        future::poll_fn(fut).await;
-
-        map.insert(key);
-        map.update_timeout(&key, Duration::from_secs(100));
-    }
-}
