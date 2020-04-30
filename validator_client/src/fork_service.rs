@@ -138,7 +138,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     }
 
     /// Attempts to download the `Fork` from the server.
-    /// TODO: how to return a 'static lifetime future from an async function so this function can be &self instead
+    /// TODO: how to return a 'static lifetime future from an async function so this function can borrow self
     async fn do_update(self) -> Result<(), ()> {
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();

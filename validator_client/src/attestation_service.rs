@@ -242,7 +242,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// This informs the beacon node that the validator has a duty on a particular
     /// slot allowing the beacon node to connect to the required subnet and determine
     /// if attestations need to be aggregated.
-    // TODO: remove return type altogether
+    /// TODO: how to return a 'static lifetime future from an async function so this function can borrow self
     async fn send_subscriptions(self, duties: Vec<DutyAndState>) -> Result<(), ()> {
         let num_duties = duties.len();
 
@@ -322,6 +322,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     ///
     /// The given `validator_duties` should already be filtered to only contain those that match
     /// `slot` and `committee_index`. Critical errors will be logged if this is not the case.
+    /// TODO: how to return a 'static lifetime future from an async function so this function can borrow self
     async fn publish_attestations_and_aggregates(
         self,
         slot: Slot,

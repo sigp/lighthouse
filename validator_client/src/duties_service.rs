@@ -470,7 +470,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
-    /// TODO: how to return a 'static lifetime future from an async function so this function can be &self instead
+    /// TODO: how to return a 'static lifetime future from an async function so this function can borrow self
     async fn do_update(self) -> Result<(), ()> {
         let log = self.context.log.clone();
         let log_1 = self.context.log.clone();
