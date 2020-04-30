@@ -453,7 +453,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let log = log.clone();
 
         // Run an immediate update before starting the updater service.
-        tokio::task::spawn(service.clone().do_update());
+        let service_1 = service.clone();
+        tokio::task::spawn(service_1.do_update());
 
         let interval_fut = interval.for_each(move |_| {
             let _ = service.clone().do_update();
@@ -461,7 +462,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         });
         let future = futures::future::select(
             interval_fut,
-            exit_fut.map(|_| info!(log, "Shutdown complete")),
+            exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
         tokio::task::spawn(future);
         
@@ -469,7 +470,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
-    async fn do_update(&self) -> Result<(), ()> {
+    /// TODO: how to return a 'static lifetime future from an async function so this function can be &self instead
+    async fn do_update(self) -> Result<(), ()> {
         let log = self.context.log.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
@@ -524,13 +526,13 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 );
             }
 
-            self.update_epoch(epoch + 1).await.map_err(move |e| {
+            let _ = self.update_epoch(epoch + 1).await.map_err(move |e| {
                 error!(
                     log_2,
                     "Failed to get next epoch duties";
                     "http_error" => format!("{:?}", e)
                 );
-            });
+            })?;
         };
 
         Ok(())

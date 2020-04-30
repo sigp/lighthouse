@@ -124,13 +124,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         tokio::task::spawn(service.clone().do_update());
 
         let interval_fut = interval.for_each(move |_| {
-            let _ = service.do_update();
+            let _ = service.clone().do_update();
             futures::future::ready(())
         });
 
         let future = futures::future::select(
             interval_fut,
-            exit_fut.map(|_| info!(log, "Shutdown complete")),
+            exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
         tokio::task::spawn(future);
 
@@ -138,7 +138,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     }
 
     /// Attempts to download the `Fork` from the server.
-    async fn do_update(&self) -> Result<(), ()> {
+    /// TODO: how to return a 'static lifetime future from an async function so this function can be &self instead
+    async fn do_update(self) -> Result<(), ()> {
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
 

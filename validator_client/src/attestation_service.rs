@@ -141,19 +141,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let service = self.clone();
         let log_1 = log.clone();
         let log_2 = log.clone();
-        let log_3 = log.clone();
 
         // Note: interval panics if `slot_duration` is 0
         let interval_fut = interval.for_each(move |_| {
             if let Err(e) = service.spawn_attestation_tasks(slot_duration) {
                 crit!(
-                    log_2,
+                    log_1,
                     "Failed to spawn attestation tasks";
                     "error" => e
                 )
             } else {
                 trace!(
-                    log_2,
+                    log_1,
                     "Spawned attestation tasks";
                 )
             }
@@ -162,7 +161,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let future = futures::future::select(
             interval_fut,
-            exit_fut.map(|_| info!(log_3, "Shutdown complete")),
+            exit_fut.map(move |_| info!(log_2, "Shutdown complete")),
         );
         tokio::task::spawn(future);
 
@@ -200,7 +199,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         );
 
         // spawn a task to subscribe all the duties
-        tokio::task::spawn(self.clone().send_subscriptions(duties_to_subscribe));
+        let service_1 = self.clone();
+        let service_2 = self.clone();
+        tokio::task::spawn(service_1.clone().send_subscriptions(duties_to_subscribe));
 
         let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndState>> = self
             .duties_service
@@ -225,7 +226,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
                 // TODO: check if this is the correct kind of spawn we want
-                tokio::task::spawn(self.clone().publish_attestations_and_aggregates(
+                tokio::task::spawn(service_2.clone().publish_attestations_and_aggregates(
                     slot,
                     committee_index,
                     validator_duties,
@@ -242,7 +243,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// slot allowing the beacon node to connect to the required subnet and determine
     /// if attestations need to be aggregated.
     // TODO: remove return type altogether
-    async fn send_subscriptions(&self, duties: Vec<DutyAndState>) -> Result<(), ()> {
+    async fn send_subscriptions(self, duties: Vec<DutyAndState>) -> Result<(), ()> {
         let num_duties = duties.len();
 
         let log = self.context.log.clone();
@@ -322,7 +323,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// The given `validator_duties` should already be filtered to only contain those that match
     /// `slot` and `committee_index`. Critical errors will be logged if this is not the case.
     async fn publish_attestations_and_aggregates(
-        &self,
+        self,
         slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndState>,
