@@ -256,9 +256,9 @@ pub fn get_new_eth1_data<T: EthSpec>(
     state: &BeaconState<T>,
     eth1_data: &Eth1Data,
 ) -> Result<Option<Eth1Data>, ArithError> {
-    // Return early when `state.eth1_data` cannot change (redundant vote or insufficient total votes).
-    let max_votes = state.eth1_data_votes.count()
-    if max_votes.safe_mul(2)? <= T::SlotsPerEth1VotingPeriod::to_usize() || state.eth1_data == eth1_data {
+    // Return early when `state.eth1_data` cannot change (insufficient total votes or redundant vote).
+    let total_votes = state.eth1_data_votes.count()
+    if total_votes.safe_mul(2)? <= T::SlotsPerEth1VotingPeriod::to_usize() || state.eth1_data == eth1_data {
         return Ok(None)
     }
 
