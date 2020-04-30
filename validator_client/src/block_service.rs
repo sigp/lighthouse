@@ -1,15 +1,14 @@
 use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{stream, Future, IntoFuture, Stream};
+use futures::{FutureExt, StreamExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
-use types::{ChainSpec, EthSpec};
+use tokio::time::{interval_at, Duration, Instant};
+use types::{ChainSpec, EthSpec, PublicKey, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
 const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
@@ -124,7 +123,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            Interval::new(
+            // Note: interval_at panics if slot_duration = 0
+            interval_at(
                 Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,
                 slot_duration,
             )
@@ -132,135 +132,103 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let (exit_signal, exit_fut) = exit_future::signal();
         let service = self.clone();
-        let log_1 = log.clone();
-        let log_2 = log.clone();
+        let interval_fut = interval.for_each(move |_| {
+            let _ = service.clone().do_update();
+            futures::future::ready(())
+        });
 
-        self.context.executor.spawn(
-            exit_fut
-                .until(
-                    interval
-                        .map_err(move |e| {
-                            crit! {
-                                log_1,
-                                "Timer thread failed";
-                                "error" => format!("{}", e)
-                            }
-                        })
-                        .for_each(move |_| service.clone().do_update().then(|_| Ok(()))),
-                )
-                .map(move |_| info!(log_2, "Shutdown complete")),
+        let future = futures::future::select(
+            interval_fut,
+            exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
+        tokio::task::spawn(future);
 
         Ok(exit_signal)
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    fn do_update(self) -> impl Future<Item = (), Error = ()> {
+    fn do_update(&self) -> Result<(), ()> {
         let service = self.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
 
-        self.slot_clock
-            .now()
-            .ok_or_else(move || {
-                crit!(log_1, "Duties manager failed to read slot clock");
-            })
-            .into_future()
-            .and_then(move |slot| {
-                let iter = service.duties_service.block_producers(slot).into_iter();
+        let slot = self.slot_clock.now().ok_or_else(move || {
+            crit!(log_1, "Duties manager failed to read slot clock");
+        })?;
+        let iter = service.duties_service.block_producers(slot).into_iter();
 
-                if iter.len() == 0 {
-                    trace!(
-                        log_2,
-                        "No local block proposers for this slot";
-                        "slot" => slot.as_u64()
-                    )
-                } else if iter.len() > 1 {
-                    error!(
-                        log_2,
-                        "Multiple block proposers for this slot";
-                        "action" => "producing blocks for all proposers",
-                        "num_proposers" => iter.len(),
-                        "slot" => slot.as_u64(),
-                    )
-                }
+        if iter.len() == 0 {
+            trace!(
+                log_2,
+                "No local block proposers for this slot";
+                "slot" => slot.as_u64()
+            )
+        } else if iter.len() > 1 {
+            error!(
+                log_2,
+                "Multiple block proposers for this slot";
+                "action" => "producing blocks for all proposers",
+                "num_proposers" => iter.len(),
+                "slot" => slot.as_u64(),
+            )
+        }
 
-                stream::unfold(iter, move |mut block_producers| {
-                    let log_1 = service.context.log.clone();
-                    let log_2 = service.context.log.clone();
-                    let service_1 = service.clone();
-                    let service_2 = service.clone();
-                    let service_3 = service.clone();
+        // TODO: check if the logic is same as stream::unfold version
+        let _ = futures::stream::iter(iter).for_each(|validator_pubkey| async {
+            match self.publish_block(slot, validator_pubkey).await {
+                Ok(()) => (),
+                Err(e) => crit!(
+                    log_2,
+                    "Error whilst producing block";
+                    "message" => e
+                ),
+            }
+        });
 
-                    block_producers.next().map(move |validator_pubkey| {
-                        service_1
-                            .validator_store
-                            .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
-                            .ok_or_else(|| "Unable to produce randao reveal".to_string())
-                            .into_future()
-                            .and_then(move |randao_reveal| {
-                                service_1
-                                    .beacon_node
-                                    .http
-                                    .validator()
-                                    .produce_block(slot, randao_reveal)
-                                    .map_err(|e| {
-                                        format!(
-                                            "Error from beacon node when producing block: {:?}",
-                                            e
-                                        )
-                                    })
-                            })
-                            .and_then(move |block| {
-                                service_2
-                                    .validator_store
-                                    .sign_block(&validator_pubkey, block)
-                                    .ok_or_else(|| "Unable to sign block".to_string())
-                            })
-                            .and_then(move |block| {
-                                service_3
-                                    .beacon_node
-                                    .http
-                                    .validator()
-                                    .publish_block(block.clone())
-                                    .map(|publish_status| (block, publish_status))
-                                    .map_err(|e| {
-                                        format!(
-                                            "Error from beacon node when publishing block: {:?}",
-                                            e
-                                        )
-                                    })
-                            })
-                            .map(move |(block, publish_status)| match publish_status {
-                                PublishStatus::Valid => info!(
-                                    log_1,
-                                    "Successfully published block";
-                                    "deposits" => block.message.body.deposits.len(),
-                                    "attestations" => block.message.body.attestations.len(),
-                                    "slot" => block.slot().as_u64(),
-                                ),
-                                PublishStatus::Invalid(msg) => crit!(
-                                    log_1,
-                                    "Published block was invalid";
-                                    "message" => msg,
-                                    "slot" => block.slot().as_u64(),
-                                ),
-                                PublishStatus::Unknown => {
-                                    crit!(log_1, "Unknown condition when publishing block")
-                                }
-                            })
-                            .map_err(move |e| {
-                                crit!(
-                                    log_2,
-                                    "Error whilst producing block";
-                                    "message" => e
-                                )
-                            })
-                            .then(|_| Ok(((), block_producers)))
-                    })
-                })
-                .collect()
-                .map(|_| ())
-            })
+        Ok(())
+    }
+
+    /// Produce a block at the given slot for validator_pubkey
+    async fn publish_block(&self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
+        let log_1 = self.context.log.clone();
+        let randao_reveal = self
+            .validator_store
+            .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
+            .ok_or_else(|| "Unable to produce randao reveal".to_string())?;
+        let block = self
+            .beacon_node
+            .http
+            .validator()
+            .produce_block(slot, randao_reveal)
+            .await
+            .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?;
+        let signed_block = self
+            .validator_store
+            .sign_block(&validator_pubkey, block)
+            .ok_or_else(|| "Unable to sign block".to_string())?;
+        let publish_status = self
+            .beacon_node
+            .http
+            .validator()
+            .publish_block(signed_block.clone())
+            .await
+            .map_err(|e| format!("Error from beacon node when publishing block: {:?}", e))?;
+        match publish_status {
+            PublishStatus::Valid => info!(
+                log_1,
+                "Successfully published block";
+                "deposits" => signed_block.message.body.deposits.len(),
+                "attestations" => signed_block.message.body.attestations.len(),
+                "slot" => signed_block.slot().as_u64(),
+            ),
+            PublishStatus::Invalid(msg) => crit!(
+                log_1,
+                "Published block was invalid";
+                "message" => msg,
+                "slot" => signed_block.slot().as_u64(),
+            ),
+            PublishStatus::Unknown => crit!(log_1, "Unknown condition when publishing block"),
+        }
+        Ok(())
     }
 }
