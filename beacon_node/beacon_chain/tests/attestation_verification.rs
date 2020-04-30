@@ -746,7 +746,7 @@ fn fork_choice_verification() {
         "attestation without any aggregation bits set",
         {
             let mut a = attestation.clone();
-            a.indexed_attestation_mut().attesting_indices = vec![].into();
+            a.__indexed_attestation_mut().attesting_indices = vec![].into();
             a
         },
         AttnError::EmptyAggregationBitfield
@@ -765,9 +765,7 @@ fn fork_choice_verification() {
         "attestation from future epoch",
         {
             let mut a = attestation.clone();
-            unsafe {
-                a.indexed_attestation_mut().data.target.epoch = future_epoch;
-            }
+            a.__indexed_attestation_mut().data.target.epoch = future_epoch;
             a
         },
         AttnError::FutureEpoch {
@@ -786,9 +784,7 @@ fn fork_choice_verification() {
         "attestation from past epoch",
         {
             let mut a = attestation.clone();
-            unsafe {
-                a.indexed_attestation_mut().data.target.epoch = past_epoch;
-            }
+            a.__indexed_attestation_mut().data.target.epoch = past_epoch;
             a
         },
         AttnError::PastEpoch {
@@ -810,10 +806,8 @@ fn fork_choice_verification() {
         {
             let mut a = attestation.clone();
 
-            unsafe {
-                let indexed = a.indexed_attestation_mut();
-                indexed.data.target.epoch = indexed.data.slot.epoch(E::slots_per_epoch()) - 1;
-            }
+            let indexed = a.__indexed_attestation_mut();
+            indexed.data.target.epoch = indexed.data.slot.epoch(E::slots_per_epoch()) - 1;
             a
         },
         AttnError::BadTargetEpoch
@@ -836,10 +830,8 @@ fn fork_choice_verification() {
         {
             let mut a = attestation.clone();
 
-            unsafe {
-                let indexed = a.indexed_attestation_mut();
-                indexed.data.target.root = unknown_root;
-            }
+            let indexed = a.__indexed_attestation_mut();
+            indexed.data.target.root = unknown_root;
             a
         },
         AttnError::UnknownTargetRoot(unknown_root)
@@ -869,10 +861,8 @@ fn fork_choice_verification() {
         {
             let mut a = attestation.clone();
 
-            unsafe {
-                let indexed = a.indexed_attestation_mut();
-                indexed.data.beacon_block_root = unknown_root;
-            }
+            let indexed = a.__indexed_attestation_mut();
+            indexed.data.beacon_block_root = unknown_root;
             a
         },
         AttnError::UnknownHeadBlock {
@@ -890,16 +880,14 @@ fn fork_choice_verification() {
         {
             let mut a = attestation.clone();
 
-            unsafe {
-                let indexed = a.indexed_attestation_mut();
+            let indexed = a.__indexed_attestation_mut();
 
-                assert!(
-                    future_block.slot() > indexed.data.slot,
-                    "precondition: the attestation must attest to the future"
-                );
+            assert!(
+                future_block.slot() > indexed.data.slot,
+                "precondition: the attestation must attest to the future"
+            );
 
-                indexed.data.beacon_block_root = future_block.canonical_root();
-            }
+            indexed.data.beacon_block_root = future_block.canonical_root();
             a
         },
         AttnError::AttestsToFutureBlock {

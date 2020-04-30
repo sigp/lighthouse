@@ -468,10 +468,9 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
 
     /// Returns a mutable reference to the underlying attestation.
     ///
-    /// Only available during testing since modifying the `IndexedAttestation` can cause the attestation to
-    /// no-longer be valid.
-    #[cfg(test)]
-    pub fn indexed_attestation_mut(&mut self) -> &mut IndexedAttestation<T::EthSpec> {
+    /// Only use during testing since modifying the `IndexedAttestation` can cause the attestation
+    /// to no-longer be valid.
+    pub fn __indexed_attestation_mut(&mut self) -> &mut IndexedAttestation<T::EthSpec> {
         &mut self.indexed_attestation
     }
 }
