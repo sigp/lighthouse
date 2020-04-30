@@ -5,7 +5,6 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [features]
-
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 
 [dependencies]
@@ -42,6 +41,7 @@ rand = "0.7.2"
 proto_array_fork_choice = { path = "../../eth2/proto_array_fork_choice" }
 lru = "0.4.3"
 tempfile = "3.1.0"
+safe_arith = { path = "../../eth2/utils/safe_arith" }
 
 [dev-dependencies]
 lazy_static = "1.4.0"

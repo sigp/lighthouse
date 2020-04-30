@@ -20,8 +20,8 @@ pub use operation_pool::PersistedOperationPool;
 pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_types::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, IndividualVotesRequest,
-    IndividualVotesResponse, ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorRequest,
-    ValidatorResponse, ValidatorSubscription,
+    IndividualVotesResponse, SyncingResponse, ValidatorDutiesRequest, ValidatorDutyBytes,
+    ValidatorRequest, ValidatorResponse, ValidatorSubscription,
 };
 
 // Setting a long timeout for debug ensures that crypto-heavy operations can still succeed.
@@ -609,6 +609,12 @@ impl<E: EthSpec> Node<E> {
     pub async fn get_version(&self) -> Result<String, Error> {
         let client = self.0.clone();
         let url = self.url("version")?;
+        client.json_get(url, vec![]).await
+    }
+
+    pub async fn syncing_status(&self) -> Result<SyncingResponse, Error> {
+        let client = self.0.clone();
+        let url = self.url("syncing")?;
         client.json_get(url, vec![]).await
     }
 }

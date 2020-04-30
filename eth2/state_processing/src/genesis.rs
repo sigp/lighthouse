@@ -1,5 +1,6 @@
 use super::per_block_processing::{errors::BlockProcessingError, process_deposit};
 use crate::common::DepositDataTree;
+use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
 use types::*;
@@ -14,8 +15,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     deposits: Vec<Deposit>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, BlockProcessingError> {
-    let genesis_time =
-        eth1_timestamp - eth1_timestamp % spec.min_genesis_delay + 2 * spec.min_genesis_delay;
+    let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
     let eth1_data = Eth1Data {
         // Temporary deposit root
         deposit_root: Hash256::zero(),
@@ -37,7 +37,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         process_deposit(&mut state, &deposit, spec, true)?;
     }
 
-    process_activations(&mut state, spec);
+    process_activations(&mut state, spec)?;
 
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
@@ -60,11 +60,14 @@ pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSp
 /// Activate genesis validators, if their balance is acceptable.
 ///
 /// Spec v0.11.1
-pub fn process_activations<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) {
+pub fn process_activations<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
     for (index, validator) in state.validators.iter_mut().enumerate() {
         let balance = state.balances[index];
         validator.effective_balance = std::cmp::min(
-            balance - balance % spec.effective_balance_increment,
+            balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
             spec.max_effective_balance,
         );
         if validator.effective_balance == spec.max_effective_balance {
@@ -72,4 +75,16 @@ pub fn process_activations<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainS
             validator.activation_epoch = T::genesis_epoch();
         }
     }
+    Ok(())
+}
+
+/// Returns the `state.genesis_time` for the corresponding `eth1_timestamp`.
+///
+/// Does _not_ ensure that the time is greater than `MIN_GENESIS_TIME`.
+///
+/// Spec v0.11.1
+pub fn eth2_genesis_time(eth1_timestamp: u64, spec: &ChainSpec) -> Result<u64, ArithError> {
+    eth1_timestamp
+        .safe_sub(eth1_timestamp.safe_rem(spec.min_genesis_delay)?)?
+        .safe_add(2.safe_mul(spec.min_genesis_delay)?)
 }

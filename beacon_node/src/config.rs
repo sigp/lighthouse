@@ -1,4 +1,6 @@
+use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
+use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -32,6 +34,32 @@ pub fn get_config<E: EthSpec>(
     let mut client_config = ClientConfig::default();
 
     client_config.data_dir = get_data_dir(cli_args);
+
+    // If necessary, remove any existing database and configuration
+    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+        // Remove the chain_db.
+        fs::remove_dir_all(
+            client_config
+                .get_db_path()
+                .ok_or("Failed to get db_path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // Remove the freezer db.
+        fs::remove_dir_all(
+            client_config
+                .get_freezer_db_path()
+                .ok_or("Failed to get freezer db path".to_string())?,
+        )
+        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+
+        // Remove the pubkey cache file if it exists
+        let pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
+        if pubkey_cache_file.exists() {
+            fs::remove_file(&pubkey_cache_file)
+                .map_err(|e| format!("Failed to remove {:?}: {:?}", pubkey_cache_file, e))?;
+        }
+    }
 
     // Create `datadir` and any non-existing parent directories.
     fs::create_dir_all(&client_config.data_dir)
@@ -85,7 +113,6 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| format!("Invalid port: {}", port_str))?;
         client_config.network.libp2p_port = port;
         client_config.network.discovery_port = port;
-        dbg!(&client_config.network.discovery_port);
     }
 
     if let Some(port_str) = cli_args.value_of("discovery-port") {
@@ -293,24 +320,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Load the eth2 testnet dir to obtain some addition config values.
-     */
-    let eth2_testnet_config: Eth2TestnetConfig<E> =
-        get_eth2_testnet_config(&client_config.testnet_dir)?;
-
-    client_config.eth1.deposit_contract_address =
-        format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
-    client_config.eth1.deposit_contract_deploy_block =
-        eth2_testnet_config.deposit_contract_deploy_block;
-    client_config.eth1.lowest_cached_block_number =
-        client_config.eth1.deposit_contract_deploy_block;
-
-    if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config.network.boot_nodes.append(&mut boot_nodes)
-    }
-
-    /*
-     * Load the eth2 testnet dir to obtain some addition config values.
+     * Load the eth2 testnet dir to obtain some additional config values.
      */
     let eth2_testnet_config: Eth2TestnetConfig<E> =
         get_eth2_testnet_config(&client_config.testnet_dir)?;
@@ -376,14 +386,8 @@ pub fn get_eth2_testnet_config<E: EthSpec>(
         Eth2TestnetConfig::load(testnet_dir.clone())
             .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
     } else {
-        Eth2TestnetConfig::hard_coded().map_err(|e| {
-            format!(
-                "The hard-coded testnet directory was invalid. \
-                 This happens when Lighthouse is migrating between spec versions. \
-                 Error : {}",
-                e
-            )
-        })?
+        Eth2TestnetConfig::hard_coded()
+            .map_err(|e| format!("{} Error : {}", BAD_TESTNET_DIR_MESSAGE, e))?
     })
 }
 

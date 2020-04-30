@@ -1,6 +1,7 @@
 //! Available RPC methods types and ids.
 
 use crate::types::EnrBitfield;
+use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -37,7 +38,8 @@ pub struct Ping {
 }
 
 /// The METADATA response structure.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Serialize)]
+#[serde(bound = "T: EthSpec")]
 pub struct MetaData<T: EthSpec> {
     /// A sequential counter indicating when data gets modified.
     pub seq_number: u64,

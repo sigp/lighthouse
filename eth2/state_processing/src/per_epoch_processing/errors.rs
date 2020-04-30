@@ -18,6 +18,7 @@ pub enum EpochProcessingError {
     BeaconStateError(BeaconStateError),
     InclusionError(InclusionError),
     SszTypesError(ssz_types::Error),
+    ArithError(safe_arith::ArithError),
 }
 
 impl From<InclusionError> for EpochProcessingError {
@@ -35,6 +36,12 @@ impl From<BeaconStateError> for EpochProcessingError {
 impl From<ssz_types::Error> for EpochProcessingError {
     fn from(e: ssz_types::Error) -> EpochProcessingError {
         EpochProcessingError::SszTypesError(e)
+    }
+}
+
+impl From<safe_arith::ArithError> for EpochProcessingError {
+    fn from(e: safe_arith::ArithError) -> EpochProcessingError {
+        EpochProcessingError::ArithError(e)
     }
 }
 

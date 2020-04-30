@@ -5,7 +5,7 @@ mod change_genesis_time;
 mod check_deposit_data;
 mod deploy_deposit_contract;
 mod eth1_genesis;
-mod helpers;
+mod generate_bootnode_enr;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
@@ -18,6 +18,7 @@ use log::Level;
 use parse_hex::run_parse_hex;
 use std::fs::File;
 use std::path::PathBuf;
+use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -28,8 +29,7 @@ async fn main() {
 
     let matches = App::new("Lighthouse CLI Tool")
         .about(
-            "Performs various testing-related tasks, modelled after zcli. \
-             by @protolambda.",
+            "Performs various testing-related tasks, including defining testnets.",
         )
         .arg(
             Arg::with_name("spec")
@@ -40,6 +40,15 @@ async fn main() {
                 .required(true)
                 .possible_values(&["minimal", "mainnet"])
                 .default_value("mainnet")
+        )
+        .arg(
+            Arg::with_name("testnet-dir")
+                .short("d")
+                .long("testnet-dir")
+                .value_name("PATH")
+                .takes_value(true)
+                .global(true)
+                .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
         )
         .subcommand(
             SubCommand::with_name("genesis_yaml")
@@ -120,13 +129,22 @@ async fn main() {
                     "Deploy a testing eth1 deposit contract.",
                 )
                 .arg(
-                    Arg::with_name("eth1-endpoint")
+                    Arg::with_name("eth1-ipc")
+                        .long("eth1-ipc")
                         .short("e")
-                        .long("eth1-endpoint")
-                        .value_name("HTTP_SERVER")
+                        .value_name("ETH1_IPC_PATH")
+                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
                         .takes_value(true)
-                        .default_value("http://localhost:8545")
-                        .help("The URL to the eth1 JSON-RPC http API."),
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("from-address")
+                        .long("from-address")
+                        .short("f")
+                        .value_name("FROM_ETH1_ADDRESS")
+                        .help("The address that will submit the contract creation. Must be unlocked.")
+                        .takes_value(true)
+                        .required(true)
                 )
                 .arg(
                     Arg::with_name("confirmations")
@@ -136,13 +154,6 @@ async fn main() {
                         .default_value("3")
                         .help("The number of block confirmations before declaring the contract deployed."),
                 )
-                .arg(
-                    Arg::with_name("password")
-                        .long("password")
-                        .value_name("FILE")
-                        .takes_value(true)
-                        .help("The password file to unlock the eth1 account (see --index)"),
-                )
         )
         .subcommand(
             SubCommand::with_name("refund-deposit-contract")
@@ -150,51 +161,38 @@ async fn main() {
                     "Calls the steal() function on a testnet eth1 contract.",
                 )
                 .arg(
-                    Arg::with_name("testnet-dir")
-                        .short("d")
-                        .long("testnet-dir")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
-                )
-                .arg(
-                    Arg::with_name("eth1-endpoint")
+                    Arg::with_name("eth1-ipc")
+                        .long("eth1-ipc")
                         .short("e")
-                        .long("eth1-endpoint")
-                        .value_name("HTTP_SERVER")
+                        .value_name("ETH1_IPC_PATH")
+                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
                         .takes_value(true)
-                        .default_value("http://localhost:8545")
-                        .help("The URL to the eth1 JSON-RPC http API."),
+                        .required(true)
                 )
                 .arg(
-                    Arg::with_name("password")
-                        .long("password")
-                        .value_name("FILE")
+                    Arg::with_name("from-address")
+                        .long("from-address")
+                        .short("f")
+                        .value_name("FROM_ETH1_ADDRESS")
+                        .help("The address that will submit the contract creation. Must be unlocked.")
                         .takes_value(true)
-                        .help("The password file to unlock the eth1 account (see --index)"),
+                        .required(true)
                 )
                 .arg(
-                    Arg::with_name("account-index")
-                        .short("i")
-                        .long("account-index")
-                        .value_name("INDEX")
+                    Arg::with_name("contract-address")
+                        .long("contract-address")
+                        .short("c")
+                        .value_name("CONTRACT_ETH1_ADDRESS")
+                        .help("The address of the contract to be refunded. Its owner must match
+                            --from-address.")
                         .takes_value(true)
-                        .default_value("0")
-                        .help("The eth1 accounts[] index which will send the transaction"),
+                        .required(true)
                 )
         )
         .subcommand(
             SubCommand::with_name("eth1-genesis")
                 .about(
                     "Listens to the eth1 chain and finds the genesis beacon state",
-                )
-                .arg(
-                    Arg::with_name("testnet-dir")
-                        .short("d")
-                        .long("testnet-dir")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
                 )
                 .arg(
                     Arg::with_name("eth1-endpoint")
@@ -212,14 +210,6 @@ async fn main() {
                     "Produces an interop-compatible genesis state using deterministic keypairs",
                 )
                 .arg(
-                    Arg::with_name("testnet-dir")
-                        .short("d")
-                        .long("testnet-dir")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
-                )
-                .arg(
                     Arg::with_name("validator-count")
                         .long("validator-count")
                         .index(1)
@@ -235,6 +225,14 @@ async fn main() {
                         .value_name("UNIX_EPOCH")
                         .takes_value(true)
                         .help("The value for state.genesis_time. Defaults to now."),
+                )
+                .arg(
+                    Arg::with_name("genesis-fork-version")
+                        .long("genesis-fork-version")
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .help("Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default."),
                 )
         )
         .subcommand(
@@ -262,14 +260,15 @@ async fn main() {
         .subcommand(
             SubCommand::with_name("new-testnet")
                 .about(
-                    "Produce a new testnet directory.",
+                    "Produce a new testnet directory. If any of the optional flags are not
+                    supplied the values will remain the default for the --spec flag",
                 )
                 .arg(
-                    Arg::with_name("testnet-dir")
-                        .long("testnet-dir")
-                        .value_name("DIRECTORY")
-                        .takes_value(true)
-                        .help("The output path for the new testnet directory. Defaults to ~/.lighthouse/testnet"),
+                    Arg::with_name("force")
+                        .long("force")
+                        .short("f")
+                        .takes_value(false)
+                        .help("Overwrites any previous testnet configurations"),
                 )
                 .arg(
                     Arg::with_name("min-genesis-time")
@@ -284,7 +283,6 @@ async fn main() {
                         .long("min-genesis-active-validator-count")
                         .value_name("INTEGER")
                         .takes_value(true)
-                        .default_value("16384")
                         .help("The number of validators required to trigger eth2 genesis."),
                 )
                 .arg(
@@ -292,7 +290,6 @@ async fn main() {
                         .long("min-genesis-delay")
                         .value_name("SECONDS")
                         .takes_value(true)
-                        .default_value("3600")    // 10 minutes
                         .help("The delay between sufficient eth1 deposits and eth2 genesis."),
                 )
                 .arg(
@@ -300,7 +297,6 @@ async fn main() {
                         .long("min-deposit-amount")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("100000000")    // 0.1 Eth
                         .help("The minimum permitted deposit amount."),
                 )
                 .arg(
@@ -308,7 +304,6 @@ async fn main() {
                         .long("max-effective-balance")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("3200000000")    // 3.2 Eth
                         .help("The amount required to become a validator."),
                 )
                 .arg(
@@ -316,7 +311,6 @@ async fn main() {
                         .long("effective-balance-increment")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("100000000")    // 0.1 Eth
                         .help("The steps in effective balance calculation."),
                 )
                 .arg(
@@ -324,7 +318,6 @@ async fn main() {
                         .long("ejection-balance")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .default_value("1600000000")    // 1.6 Eth
                         .help("The balance at which a validator gets ejected."),
                 )
                 .arg(
@@ -332,7 +325,6 @@ async fn main() {
                         .long("eth1-follow-distance")
                         .value_name("ETH1_BLOCKS")
                         .takes_value(true)
-                        .default_value("16")
                         .help("The distance to follow behind the eth1 chain head."),
                 )
                 .arg(
@@ -340,7 +332,6 @@ async fn main() {
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
-                        .default_value("0x00000000") 
                         .help("Used to avoid reply attacks between testnets. Recommended to set to
                               non-default."),
                 )
@@ -349,7 +340,7 @@ async fn main() {
                         .long("deposit-contract-address")
                         .value_name("ETH1_ADDRESS")
                         .takes_value(true)
-                        .default_value("0x0000000000000000000000000000000000000000")
+                        .required(true)
                         .help("The address of the deposit contract."),
                 )
                 .arg(
@@ -385,18 +376,62 @@ async fn main() {
                             function signature."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("generate-bootnode-enr")
+                .about(
+                    "Generates an ENR address to be used as a pre-genesis boot node..",
+                )
+                .arg(
+                    Arg::with_name("ip")
+                        .long("ip")
+                        .value_name("IP_ADDRESS")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The IP address to be included in the ENR and used for discovery"),
+                )
+                .arg(
+                    Arg::with_name("udp-port")
+                        .long("udp-port")
+                        .value_name("UDP_PORT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The UDP port to be included in the ENR and used for discovery"),
+                )
+                .arg(
+                    Arg::with_name("tcp-port")
+                        .long("tcp-port")
+                        .value_name("TCP_PORT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The TCP port to be included in the ENR and used for application comms"),
+                )
+                .arg(
+                    Arg::with_name("output-dir")
+                        .long("output-dir")
+                        .value_name("OUTPUT_DIRECTORY")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The directory in which to create the network dir"),
+                )
+        )
         .get_matches();
 
     macro_rules! run_with_spec {
         ($env_builder: expr) => {
-            run($env_builder, &matches)
+            match run($env_builder, &matches).await {
+                Ok(()) => process::exit(0),
+                Err(e) => {
+                    println!("Failed to run lcli: {}", e);
+                    process::exit(1)
+                }
+            }
         };
     }
 
     match matches.value_of("spec") {
-        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()).await,
-        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()).await,
-        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()).await,
+        Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
+        Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
+        Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);
@@ -404,14 +439,17 @@ async fn main() {
     }
 }
 
-async fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches<'_>) {
+async fn run<T: EthSpec>(
+    env_builder: EnvironmentBuilder<T>,
+    matches: &ArgMatches<'_>,
+) -> Result<(), String> {
     let env = env_builder
         .multi_threaded_tokio_runtime()
-        .expect("should start tokio runtime")
+        .map_err(|e| format!("should start tokio runtime: {:?}", e))?
         .async_logger("trace", None)
-        .expect("should start null logger")
+        .map_err(|e| format!("should start null logger: {:?}", e))?
         .build()
-        .expect("should build env");
+        .map_err(|e| format!("should build env: {:?}", e))?;
 
     match matches.subcommand() {
         ("genesis_yaml", Some(matches)) => {
@@ -450,31 +488,35 @@ async fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatche
                 _ => unreachable!("guarded by slog possible_values"),
             };
             info!("Genesis state YAML file created. Exiting successfully.");
+            Ok(())
         }
         ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(matches)
-            .unwrap_or_else(|e| error!("Failed to transition blocks: {}", e)),
-        ("pretty-hex", Some(matches)) => run_parse_hex::<T>(matches)
-            .unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e)),
-        ("deploy-deposit-contract", Some(matches)) => deploy_deposit_contract::run::<T>(matches)
-            .await
-            .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract command: {}", e)),
+            .map_err(|e| format!("Failed to transition blocks: {}", e)),
+        ("pretty-hex", Some(matches)) => {
+            run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+        }
+        ("deploy-deposit-contract", Some(matches)) => {
+            deploy_deposit_contract::run::<T>(env, matches).await
+                .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
+        }
         ("refund-deposit-contract", Some(matches)) => {
-            refund_deposit_contract::run::<T>(env, matches)
-                .await
-                .unwrap_or_else(|e| error!("Failed to run refund-deposit-contract command: {}", e))
+            refund_deposit_contract::run::<T>(env, matches).await
+                .map_err(|e| format!("Failed to run refund-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
             .await
-            .unwrap_or_else(|e| error!("Failed to run eth1-genesis command: {}", e)),
+            .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
         ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(env, matches)
-            .unwrap_or_else(|e| error!("Failed to run interop-genesis command: {}", e)),
+            .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),
         ("change-genesis-time", Some(matches)) => change_genesis_time::run::<T>(matches)
-            .unwrap_or_else(|e| error!("Failed to run change-genesis-time command: {}", e)),
+            .map_err(|e| format!("Failed to run change-genesis-time command: {}", e)),
         ("new-testnet", Some(matches)) => new_testnet::run::<T>(matches)
-            .unwrap_or_else(|e| error!("Failed to run new_testnet command: {}", e)),
+            .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
         ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
-            .unwrap_or_else(|e| error!("Failed to run check-deposit-data command: {}", e)),
-        (other, _) => error!("Unknown subcommand {}. See --help.", other),
+            .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
+        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
+            .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
+        (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }
 

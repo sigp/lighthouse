@@ -1,10 +1,7 @@
 use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
-    protocol::{
-        ProtocolId, RPCError, RPC_BLOCKS_BY_RANGE, RPC_BLOCKS_BY_ROOT, RPC_GOODBYE, RPC_META_DATA,
-        RPC_PING, RPC_STATUS,
-    },
+    protocol::{Encoding, Protocol, ProtocolId, RPCError, Version},
 };
 use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::BytesMut;
@@ -34,7 +31,7 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
-        debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZSnappy);
 
         SSZSnappyInboundCodec {
             inner: uvi_codec,
@@ -122,39 +119,34 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 let n = reader.get_ref().position();
                 self.len = None;
                 src.split_to(n as usize);
-                match self.protocol.message_name.as_str() {
-                    RPC_STATUS => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
+                match self.protocol.message_name {
+                    Protocol::Status => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
                             &decoded_buffer,
                         )?))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    RPC_GOODBYE => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
-                            &decoded_buffer,
-                        )?))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
+                    Protocol::Goodbye => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCRequest::Goodbye(
+                            GoodbyeReason::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
                     },
-                    RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCRequest::BlocksByRange(
+                    Protocol::BlocksByRange => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCRequest::BlocksByRange(
                             BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
                         ))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                    Protocol::BlocksByRoot => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
                             block_roots: Vec::from_ssz_bytes(&decoded_buffer)?,
                         }))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    RPC_PING => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCRequest::Ping(Ping::from_ssz_bytes(
+                    Protocol::Ping => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCRequest::Ping(Ping::from_ssz_bytes(
                             &decoded_buffer,
                         )?))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    RPC_META_DATA => match self.protocol.version.as_str() {
-                        "1" => {
+                    Protocol::MetaData => match self.protocol.version {
+                        Version::V1 => {
                             if decoded_buffer.len() > 0 {
                                 Err(RPCError::Custom(
                                     "Get metadata request should be empty".into(),
@@ -163,9 +155,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                                 Ok(Some(RPCRequest::MetaData(PhantomData)))
                             }
                         }
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    _ => unreachable!("Cannot negotiate an unknown protocol"),
                 }
             }
             Err(e) => match e.kind() {
@@ -194,7 +184,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let uvi_codec = Uvi::default();
         // this encoding only applies to ssz_snappy.
-        debug_assert!(protocol.encoding.as_str() == "ssz_snappy");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZSnappy);
 
         SSZSnappyOutboundCodec {
             inner: uvi_codec,
@@ -279,41 +269,35 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 let n = reader.get_ref().position();
                 self.len = None;
                 src.split_to(n as usize);
-                match self.protocol.message_name.as_str() {
-                    RPC_STATUS => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
-                            &decoded_buffer,
-                        )?))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
+                match self.protocol.message_name {
+                    Protocol::Status => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCResponse::Status(
+                            StatusMessage::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
                     },
-                    RPC_GOODBYE => {
+                    Protocol::Goodbye => {
                         Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
                     }
-                    RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    Protocol::BlocksByRange => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                             SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                         )))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    Protocol::BlocksByRoot => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                             SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
                         )))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    RPC_PING => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::Pong(Ping {
+                    Protocol::Ping => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCResponse::Pong(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
                         }))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    RPC_META_DATA => match self.protocol.version.as_str() {
-                        "1" => Ok(Some(RPCResponse::MetaData(MetaData::from_ssz_bytes(
+                    Protocol::MetaData => match self.protocol.version {
+                        Version::V1 => Ok(Some(RPCResponse::MetaData(MetaData::from_ssz_bytes(
                             &decoded_buffer,
                         )?))),
-                        _ => unreachable!("Cannot negotiate an unknown version"),
                     },
-                    _ => unreachable!("Cannot negotiate an unknown protocol"),
                 }
             }
             Err(e) => match e.kind() {

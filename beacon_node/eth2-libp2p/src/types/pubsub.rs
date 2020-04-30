@@ -172,3 +172,30 @@ impl<T: EthSpec> PubsubMessage<T> {
         }
     }
 }
+
+impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PubsubMessage::BeaconBlock(block) => write!(
+                f,
+                "Beacon Block: slot: {}, proposer_index: {}",
+                block.message.slot, block.message.proposer_index
+            ),
+            PubsubMessage::AggregateAndProofAttestation(att) => write!(
+                f,
+                "Aggregate and Proof: slot: {}, index: {}, aggregator_index: {}",
+                att.message.aggregate.data.slot,
+                att.message.aggregate.data.index,
+                att.message.aggregator_index,
+            ),
+            PubsubMessage::Attestation(data) => write!(
+                f,
+                "Attestation: subnet_id: {}, attestation_slot: {}, attestation_index: {}",
+                *data.0, data.1.data.slot, data.1.data.index,
+            ),
+            PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
+            PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),
+            PubsubMessage::AttesterSlashing(_data) => write!(f, "Attester Slashing"),
+        }
+    }
+}
