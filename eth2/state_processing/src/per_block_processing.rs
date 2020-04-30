@@ -240,11 +240,10 @@ pub fn process_eth1_data<T: EthSpec>(
     state: &mut BeaconState<T>,
     eth1_data: &Eth1Data,
 ) -> Result<(), Error> {
+    state.eth1_data_votes.push(eth1_data.clone())?;    
     if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data)? {
         state.eth1_data = new_eth1_data;
     }
-
-    state.eth1_data_votes.push(eth1_data.clone())?;
 
     Ok(())
 }
@@ -257,14 +256,19 @@ pub fn get_new_eth1_data<T: EthSpec>(
     state: &BeaconState<T>,
     eth1_data: &Eth1Data,
 ) -> Result<Option<Eth1Data>, ArithError> {
+    // Return early when `state.eth1_data` cannot change (redundant vote or insufficient total votes).
+    let max_votes = state.eth1_data_votes.count()
+    if max_votes.safe_mul(2)? <= T::SlotsPerEth1VotingPeriod::to_usize() || state.eth1_data == eth1_data {
+        return Ok(None)
+    }
+
     let num_votes = state
         .eth1_data_votes
         .iter()
         .filter(|vote| *vote == eth1_data)
         .count();
 
-    // The +1 is to account for the `eth1_data` supplied to the function.
-    if num_votes.safe_add(1)?.safe_mul(2)? > T::SlotsPerEth1VotingPeriod::to_usize() {
+    if num_votes.safe_mul(2)? > T::SlotsPerEth1VotingPeriod::to_usize() {
         Ok(Some(eth1_data.clone()))
     } else {
         Ok(None)
