@@ -746,9 +746,7 @@ fn fork_choice_verification() {
         "attestation without any aggregation bits set",
         {
             let mut a = attestation.clone();
-            unsafe {
-                a.indexed_attestation_mut().attesting_indices = vec![].into();
-            }
+            a.indexed_attestation_mut().attesting_indices = vec![].into();
             a
         },
         AttnError::EmptyAggregationBitfield
