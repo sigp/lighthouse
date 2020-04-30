@@ -485,7 +485,7 @@ mod release_tests {
         state_builder.teleport_to_slot(slot);
         state_builder.build_caches(&spec).unwrap();
         let (state, keypairs) = state_builder.build();
-        (state, keypairs, MainnetEthSpec::default_spec())
+        (state, keypairs, spec)
     }
 
     #[test]
@@ -889,5 +889,45 @@ mod release_tests {
             prev_reward = rewards;
             seen_indices.extend(fresh_indices);
         }
+    }
+
+    /// Insert two slashings for the same proposer and ensure only one is returned.
+    #[test]
+    fn duplicate_proposer_slashing() {
+        let spec = MainnetEthSpec::default_spec();
+        let num_validators = 32;
+        let mut state_builder =
+            TestingBeaconStateBuilder::<MainnetEthSpec>::from_default_keypairs_file_if_exists(
+                num_validators,
+                &spec,
+            );
+        state_builder.build_caches(&spec).unwrap();
+        let (state, keypairs) = state_builder.build();
+        let op_pool = OperationPool::new();
+
+        let proposer_index = 0;
+        let slashing1 = TestingProposerSlashingBuilder::double_vote::<MainnetEthSpec>(
+            ProposerSlashingTestTask::Valid,
+            proposer_index,
+            &keypairs[proposer_index as usize].sk,
+            &state.fork,
+            state.genesis_validators_root,
+            &spec,
+        );
+        let slashing2 = ProposerSlashing {
+            signed_header_1: slashing1.signed_header_2.clone(),
+            signed_header_2: slashing1.signed_header_1.clone(),
+        };
+
+        // Both slashings should be accepted by the pool.
+        op_pool
+            .insert_proposer_slashing(slashing1.clone(), &state, &spec)
+            .unwrap();
+        op_pool
+            .insert_proposer_slashing(slashing2.clone(), &state, &spec)
+            .unwrap();
+
+        // Should only get the second slashing back.
+        assert_eq!(op_pool.get_slashings(&state, &spec).0, vec![slashing2]);
     }
 }
