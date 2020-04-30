@@ -27,7 +27,7 @@ slog-term = "2.4.2"
 tokio = {version = "0.2.20", features = ["full"]}
 error-chain = "0.12.1"
 bincode = "1.2.0"
-futures = "0.3.4"
+futures = {version = "0.3.4", features = ["compat"]}
 dirs = "2.0.2"
 logging = { path = "../eth2/utils/logging" }
 environment = { path = "../lighthouse/environment" }

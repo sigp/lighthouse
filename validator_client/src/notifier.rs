@@ -1,10 +1,9 @@
 use crate::ProductionValidatorClient;
 use exit_future::Signal;
-use futures::{Future, Stream};
+use futures::{FutureExt, StreamExt};
 use slog::{error, info};
 use slot_clock::SlotClock;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::time::{Duration, Instant, interval_at};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
@@ -28,10 +27,8 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let log_1 = context.log.clone();
     let log_2 = context.log.clone();
 
-    let interval_future = Interval::new(start_instant, interval_duration)
-        .map_err(
-            move |e| error!(log_1, "Slot notifier timer failed"; "error" => format!("{:?}", e)),
-        )
+    // Note: interval_at panics if `interval_duration` is 0
+    let interval_fut = interval_at(start_instant, interval_duration)
         .for_each(move |_| {
             let log = log_2.clone();
 
@@ -77,15 +74,16 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                 error!(log, "Unable to read slot clock");
             }
 
-            Ok(())
+            futures::future::ready(())
         });
 
     let (exit_signal, exit) = exit_future::signal();
     let log = context.log.clone();
-    client.context.executor.spawn(
-        exit.until(interval_future)
-            .map(move |_| info!(log, "Shutdown complete")),
+    let future = futures::future::select(
+        interval_fut,
+        exit.map(|_| info!(log, "Shutdown complete")),
     );
-
+    tokio::task::spawn(future);
+    
     Ok(exit_signal)
 }

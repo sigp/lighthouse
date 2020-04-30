@@ -1,6 +1,5 @@
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, DEPOSIT_GAS};
-use futures::{Future, IntoFuture};
 use hex;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -9,6 +8,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use futures::compat::Future01CompatExt;
 use types::{
     test_utils::generate_deterministic_keypair, ChainSpec, DepositData, Hash256, Keypair,
     PublicKey, SecretKey, Signature,
@@ -303,29 +303,27 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
-    pub fn submit_eth1_deposit<T: Transport>(
-        self,
+    pub async fn submit_eth1_deposit<T: Transport>(
+        &self,
         web3: Web3<T>,
         from: Address,
         deposit_contract: Address,
-    ) -> impl Future<Item = (Self, Hash256), Error = String> {
-        self.get_deposit_data()
-            .into_future()
-            .and_then(move |(deposit_data, deposit_amount)| {
-                web3.eth()
-                    .send_transaction(TransactionRequest {
-                        from,
-                        to: Some(deposit_contract),
-                        gas: Some(DEPOSIT_GAS.into()),
-                        gas_price: None,
-                        value: Some(from_gwei(deposit_amount)),
-                        data: Some(deposit_data.into()),
-                        nonce: None,
-                        condition: None,
-                    })
-                    .map_err(|e| format!("Failed to send transaction: {:?}", e))
+    ) -> Result<Hash256, String> {
+        let (deposit_data, deposit_amount) = self.get_deposit_data()?;
+        web3.eth()
+            .send_transaction(TransactionRequest {
+                from,
+                to: Some(deposit_contract),
+                gas: Some(DEPOSIT_GAS.into()),
+                gas_price: None,
+                value: Some(from_gwei(deposit_amount)),
+                data: Some(deposit_data.into()),
+                nonce: None,
+                condition: None,
             })
-            .map(|tx| (self, tx))
+            .compat()
+            .await
+            .map_err(|e| format!("Failed to send transaction: {:?}", e))
     }
 
     pub fn build(self) -> Result<ValidatorDirectory, String> {
