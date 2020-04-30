@@ -455,11 +455,9 @@ async fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatche
             .unwrap_or_else(|e| error!("Failed to transition blocks: {}", e)),
         ("pretty-hex", Some(matches)) => run_parse_hex::<T>(matches)
             .unwrap_or_else(|e| error!("Failed to pretty print hex: {}", e)),
-        ("deploy-deposit-contract", Some(matches)) => {
-            deploy_deposit_contract::run::<T>(env, matches)
-                .await
-                .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract command: {}", e))
-        }
+        ("deploy-deposit-contract", Some(matches)) => deploy_deposit_contract::run::<T>(matches)
+            .await
+            .unwrap_or_else(|e| error!("Failed to run deploy-deposit-contract command: {}", e)),
         ("refund-deposit-contract", Some(matches)) => {
             refund_deposit_contract::run::<T>(env, matches)
                 .await
