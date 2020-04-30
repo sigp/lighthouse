@@ -283,26 +283,25 @@ pub fn process_proposer_slashings<T: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // Verify proposer slashings in parallel.
+    // Verify and apply proposer slashings in series.
+    // We have to verify in series because an invalid block may contain multiple slashings
+    // for the same validator, and we need to correctly detect and reject that.
     proposer_slashings
-        .par_iter()
+        .into_iter()
         .enumerate()
         .try_for_each(|(i, proposer_slashing)| {
             verify_proposer_slashing(proposer_slashing, &state, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))
-        })?;
+                .map_err(|e| e.into_with_index(i))?;
 
-    // Update the state.
-    for proposer_slashing in proposer_slashings {
-        slash_validator(
-            state,
-            proposer_slashing.signed_header_1.message.proposer_index as usize,
-            None,
-            spec,
-        )?;
-    }
+            slash_validator(
+                state,
+                proposer_slashing.signed_header_1.message.proposer_index as usize,
+                None,
+                spec,
+            )?;
 
-    Ok(())
+            Ok(())
+        })
 }
 
 /// Validates each `AttesterSlashing` and updates the state, short-circuiting on an invalid object.
