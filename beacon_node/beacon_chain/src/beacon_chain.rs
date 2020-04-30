@@ -802,6 +802,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Permits attesting to any arbitrary chain. Generally, the `produce_attestation_data`
     /// function should be used as it attests to the canonical chain.
+    ///
+    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
+    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
+    /// `block` identified by `beacon_block_root`.
+    ///
+    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
+    /// however this function is only required in the context of forming an unaggregated
+    /// attestation. It would be an (undetectable) violation of the protocol to create a
+    /// `SignedAggregateAndProof` based upon the output of this function.
     pub fn produce_unaggregated_attestation_for_block(
         &self,
         slot: Slot,
@@ -850,6 +859,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Accepts some `Attestation` from the network and attempts to verify it, returning `Ok(_)` if
+    /// it is valid to be (re)broadcast on the gossip network.
+    ///
+    /// The attestation must be "unaggregated", that is it must have exactly one
+    /// aggregation bit set.
     pub fn verify_unaggregated_attestation_for_gossip(
         &self,
         attestation: Attestation<T::EthSpec>,
@@ -857,6 +871,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         VerifiedUnaggregatedAttestation::verify(attestation, self)
     }
 
+    /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
+    /// returning `Ok(_)` if it is valid to be (re)broadcast on the gossip network.
     pub fn verify_aggregated_attestation_for_gossip(
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
@@ -864,6 +880,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         VerifiedAggregatedAttestation::verify(signed_aggregate, self)
     }
 
+    /// Accepts some attestation-type object and attempts to verify it in the context of fork
+    /// choice. If it is valid it is applied to `self.fork_choice`.
+    ///
+    /// Common items that implement `IntoForkChoiceVerifiedAttestation`:
+    ///
+    /// - `VerifiedUnaggregatedAttestation`
+    /// - `VerifiedAggregatedAttestation`
+    /// - `ForkChoiceVerifiedAttestation`
     pub fn apply_attestation_to_fork_choice<'a>(
         &self,
         unverified_attestation: &'a impl IntoForkChoiceVerifiedAttestation<'a, T>,
@@ -876,7 +900,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(verified)
     }
 
-    /// We accept `Attestation` without any specific
+    /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
+    /// aggregation pool".
+    ///
+    /// The naive aggregation pool is used by local validators to produce
+    /// `SignedAggregateAndProof`.
+    ///
+    /// If the attestation is too old (low slot) to be included in the pool it is simply dropped
+    /// and no error is returned.
     pub fn add_to_naive_aggregation_pool(
         &self,
         unaggregated_attestation: VerifiedUnaggregatedAttestation<T>,
@@ -917,6 +948,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(unaggregated_attestation)
     }
 
+    /// Accepts a `VerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
+    ///
+    /// The op pool is used by local block producers to pack blocks with operations.
     pub fn add_to_block_inclusion_pool(
         &self,
         signed_aggregate: VerifiedAggregatedAttestation<T>,
