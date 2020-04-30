@@ -5,7 +5,7 @@ use beacon_chain::{
     BlockProcessingOutcome, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RPCResponse, RequestId};
+use eth2_libp2p::rpc::{RPCCodedResponse, RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::{NetworkGlobals, PeerId};
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
@@ -314,7 +314,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         self.network.send_rpc_error_response(
             peer_id,
             request_id,
-            RPCErrorResponse::StreamTermination(ResponseTermination::BlocksByRoot),
+            RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRoot),
         );
     }
 
@@ -413,7 +413,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         self.network.send_rpc_error_response(
             peer_id,
             request_id,
-            RPCErrorResponse::StreamTermination(ResponseTermination::BlocksByRange),
+            RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
         );
     }
 
@@ -691,16 +691,16 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     ) {
         self.send_rpc_event(
             peer_id,
-            RPCEvent::Response(request_id, RPCErrorResponse::Success(rpc_response)),
+            RPCEvent::Response(request_id, RPCCodedResponse::Success(rpc_response)),
         );
     }
 
-    /// Send an RPCErrorResponse. This handles errors and stream terminations.
+    /// Send an RPCCodedResponse. This handles errors and stream terminations.
     pub fn send_rpc_error_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        rpc_error_response: RPCErrorResponse<T>,
+        rpc_error_response: RPCCodedResponse<T>,
     ) {
         self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_error_response));
     }
