@@ -12,10 +12,10 @@ use futures::{
 };
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
-use slog::{debug, error, trace, Logger};
+use slog::{debug, error, info, trace, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::timer::Delay;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
@@ -61,19 +61,15 @@ pub enum Error {
 
 /// The success message for an Eth1Data cache update.
 #[derive(Debug, PartialEq, Clone)]
-pub enum BlockCacheUpdateOutcome {
-    /// The cache was sucessfully updated.
-    Success {
-        blocks_imported: usize,
-        head_block_number: Option<u64>,
-    },
+pub struct BlockCacheUpdateOutcome {
+    pub blocks_imported: usize,
+    pub head_block_number: Option<u64>,
 }
 
 /// The success message for an Eth1 deposit cache update.
 #[derive(Debug, PartialEq, Clone)]
-pub enum DepositCacheUpdateOutcome {
-    /// The cache was sucessfully updated.
-    Success { logs_imported: usize },
+pub struct DepositCacheUpdateOutcome {
+    pub logs_imported: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,7 +255,7 @@ impl Service {
             .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
             .then(move |result| {
                 match &result {
-                    Ok(DepositCacheUpdateOutcome::Success { logs_imported }) => trace!(
+                    Ok(DepositCacheUpdateOutcome { logs_imported }) => trace!(
                         log_a,
                         "Updated eth1 deposit cache";
                         "cached_deposits" => inner_1.deposit_cache.read().cache.len(),
@@ -281,7 +277,7 @@ impl Service {
             .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
             .then(move |result| {
                 match &result {
-                    Ok(BlockCacheUpdateOutcome::Success {
+                    Ok(BlockCacheUpdateOutcome {
                         blocks_imported,
                         head_block_number,
                     }) => trace!(
@@ -382,6 +378,7 @@ impl Service {
     ) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> {
         let service_1 = self.clone();
         let service_2 = self.clone();
+        let service_3 = self.clone();
         let blocks_per_log_query = self.config().blocks_per_log_query;
         let max_log_requests_per_update = self
             .config()
@@ -484,7 +481,26 @@ impl Service {
 
                 Ok(sum)
             })
-            .map(|logs_imported| DepositCacheUpdateOutcome::Success { logs_imported })
+            .map(move |logs_imported| {
+                if logs_imported > 0 {
+                    info!(
+                        service_3.log,
+                        "Imported deposit log(s)";
+                        "latest_block" => service_3.inner.deposit_cache.read().cache.latest_block_number(),
+                        "total" => service_3.deposit_cache_len(),
+                        "new" => logs_imported
+                    );
+                } else {
+                    debug!(
+                        service_3.log,
+                        "No new deposits found";
+                        "latest_block" => service_3.inner.deposit_cache.read().cache.latest_block_number(),
+                        "total_deposits" => service_3.deposit_cache_len(),
+                    );
+                }
+
+                DepositCacheUpdateOutcome { logs_imported }
+            })
         })
     }
 
@@ -506,6 +522,8 @@ impl Service {
         let cache_4 = self.inner.clone();
         let cache_5 = self.inner.clone();
         let cache_6 = self.inner.clone();
+
+        let service_1 = self.clone();
 
         let block_cache_truncation = self.config().block_cache_truncation;
         let max_blocks_per_update = self
@@ -613,7 +631,37 @@ impl Service {
                 cache_4.block_cache.read().len() as i64,
             );
 
-            Ok(BlockCacheUpdateOutcome::Success {
+            let block_cache = service_1.inner.block_cache.read();
+            let latest_block_mins = block_cache
+                .latest_block_timestamp()
+                .and_then(|timestamp| {
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .ok()
+                        .and_then(|now| now.checked_sub(Duration::from_secs(timestamp)))
+                })
+                .map(|duration| format!("{} mins", duration.as_secs() / 60))
+                .unwrap_or_else(|| "n/a".into());
+
+            if blocks_imported > 0 {
+                info!(
+                    service_1.log,
+                    "Imported eth1 block(s)";
+                    "latest_block_age" => latest_block_mins,
+                    "latest_block" => block_cache.highest_block_number(),
+                    "total_cached_blocks" => block_cache.len(),
+                    "new" => blocks_imported
+                );
+            } else {
+                debug!(
+                    service_1.log,
+                    "No new eth1 blocks imported";
+                    "latest_block" => block_cache.highest_block_number(),
+                    "cached_blocks" => block_cache.len(),
+                );
+            }
+
+            Ok(BlockCacheUpdateOutcome {
                 blocks_imported,
                 head_block_number: cache_4.block_cache.read().highest_block_number(),
             })
