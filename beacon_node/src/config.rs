@@ -12,7 +12,7 @@ use std::io::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const BEACON_NODE_DIR: &str = "beacon";
@@ -29,6 +29,7 @@ pub const NETWORK_DIR: &str = "network";
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
     spec_constants: &str,
+    spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
     let mut client_config = ClientConfig::default();
@@ -331,6 +332,7 @@ pub fn get_config<E: EthSpec>(
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
+    client_config.eth1.follow_distance = spec.eth1_follow_distance;
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes.append(&mut boot_nodes)
