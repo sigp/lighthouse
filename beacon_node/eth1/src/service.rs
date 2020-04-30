@@ -633,7 +633,7 @@ impl Service {
 
             let block_cache = service_1.inner.block_cache.read();
             let latest_block_mins = block_cache
-                .earliest_block_timestamp()
+                .latest_block_timestamp()
                 .and_then(|timestamp| {
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
