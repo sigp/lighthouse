@@ -59,7 +59,7 @@ impl SlotHashSet {
         }
     }
 
-    /// Store the attestation in self so future observations recognise it's existence.
+    /// Store the attestation in self so future observations recognise its existence.
     pub fn observe_attestation<E: EthSpec>(
         &mut self,
         a: &Attestation<E>,
@@ -198,7 +198,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
         }
 
         // Prune the pool if this attestation indicates that the current slot has advanced.
-        if (lowest_permissible_slot + self.max_capacity()) < slot + 1 {
+        if lowest_permissible_slot + self.max_capacity() < slot + 1 {
             self.prune(slot)
         }
 

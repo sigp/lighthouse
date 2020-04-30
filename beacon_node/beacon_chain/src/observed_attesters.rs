@@ -116,10 +116,13 @@ impl Item for EpochHashSet {
         self.set.len()
     }
 
+    /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
+    /// already in the set.
     fn insert(&mut self, validator_index: usize) -> bool {
         !self.set.insert(validator_index)
     }
 
+    /// Returns `true` if the `validator_index` is in the set.
     fn contains(&self, validator_index: usize) -> bool {
         self.set.contains(&validator_index)
     }

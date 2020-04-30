@@ -456,7 +456,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         })
     }
 
-    /// A helper function to add this attestation to `beacon_chain.op_pool`.
+    /// A helper function to add this attestation to `beacon_chain.naive_aggregation_pool`.
     pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
         chain.add_to_naive_aggregation_pool(self)
     }
@@ -521,7 +521,7 @@ impl<'a, T: BeaconChainTypes> ForkChoiceVerifiedAttestation<'a, T> {
             return Err(Error::BadTargetEpoch);
         }
 
-        // Attestations target be for a known block.
+        // Attestation target must be for a known block.
         if !chain.fork_choice.contains_block(&target.root) {
             return Err(Error::UnknownTargetRoot(target.root));
         }

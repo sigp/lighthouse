@@ -66,8 +66,7 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
 
     /// Insert an attestation into `self`, aggregating it into the pool.
     ///
-    /// The given attestation (`a`) must only have one signature and be from the slot that `self`
-    /// was initialized with.
+    /// The given attestation (`a`) must only have one signature.
     pub fn insert(&mut self, a: &Attestation<E>) -> Result<InsertOutcome, Error> {
         let set_bits = a
             .aggregation_bits
