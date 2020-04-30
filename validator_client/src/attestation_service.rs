@@ -4,7 +4,7 @@ use crate::{
 };
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{future, FutureExt, StreamExt};
+use futures::{future, Future, FutureExt, StreamExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use rest_types::ValidatorSubscription;
 use slog::{crit, debug, info, trace};
@@ -171,7 +171,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// For each each required attestation, spawn a new task that downloads, signs and uploads the
     /// attestation to the beacon node.
     fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
-
         let slot = self
             .slot_clock
             .now()
@@ -192,16 +191,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         // Check if any attestation subscriptions are required. If there a new attestation duties for
         // this epoch or the next, send them to the beacon node
         let mut duties_to_subscribe = self.duties_service.unsubscribed_epoch_duties(&epoch);
-        duties_to_subscribe.append(
-            &mut self
-                .duties_service
-                .unsubscribed_epoch_duties(&(epoch + 1)),
-        );
+        duties_to_subscribe
+            .append(&mut self.duties_service.unsubscribed_epoch_duties(&(epoch + 1)));
 
         // spawn a task to subscribe all the duties
-        let service_1 = self.clone();
-        let service_2 = self.clone();
-        tokio::task::spawn(service_1.clone().send_subscriptions(duties_to_subscribe));
+        tokio::task::spawn(self.send_subscriptions(duties_to_subscribe));
 
         let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndState>> = self
             .duties_service
@@ -221,12 +215,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         //
         // - Create and publish an `Attestation` for all required validators.
         // - Create and publish `SignedAggregateAndProof` for all aggregating validators.
+        let service_1 = self.clone();
         duties_by_committee_index
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
                 // TODO: check if this is the correct kind of spawn we want
-                tokio::task::spawn(service_2.clone().publish_attestations_and_aggregates(
+                tokio::task::spawn(service_1.clone().publish_attestations_and_aggregates(
                     slot,
                     committee_index,
                     validator_duties,
@@ -242,75 +237,82 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// This informs the beacon node that the validator has a duty on a particular
     /// slot allowing the beacon node to connect to the required subnet and determine
     /// if attestations need to be aggregated.
-    /// TODO: how to return a 'static lifetime future from an async function so this function can borrow self
-    async fn send_subscriptions(self, duties: Vec<DutyAndState>) -> Result<(), ()> {
+    /// TODO: how to return a 'static lifetime future without the self.clone()
+    fn send_subscriptions(
+        &self,
+        duties: Vec<DutyAndState>,
+    ) -> impl Future<Output = Result<(), ()>> + 'static {
         let num_duties = duties.len();
 
+        let service = self.clone();
         let log = self.context.log.clone();
         let log_1 = self.context.log.clone();
 
-        let (validator_subscriptions, successful_duties): (Vec<_>, Vec<_>) = duties
-            .into_iter()
-            .filter_map(|duty| {
-                let (slot, attestation_committee_index, _, validator_index) =
-                    duty.attestation_duties()?;
-                let selection_proof = self
-                    .validator_store
-                    .produce_selection_proof(duty.validator_pubkey(), slot)?;
-                let modulo = duty.duty.aggregator_modulo?;
-                let subscription = ValidatorSubscription {
-                    validator_index,
-                    attestation_committee_index,
-                    slot,
-                    is_aggregator: selection_proof
-                        .is_aggregator(modulo)
-                        .map_err(|e| crit!(log, "Unable to determine aggregator: {:?}", e))
-                        .ok()?,
-                };
+        async move {
+            let (validator_subscriptions, successful_duties): (Vec<_>, Vec<_>) = duties
+                .into_iter()
+                .filter_map(|duty| {
+                    let (slot, attestation_committee_index, _, validator_index) =
+                        duty.attestation_duties()?;
+                    let selection_proof = service
+                        .validator_store
+                        .produce_selection_proof(duty.validator_pubkey(), slot)?;
+                    let modulo = duty.duty.aggregator_modulo?;
+                    let subscription = ValidatorSubscription {
+                        validator_index,
+                        attestation_committee_index,
+                        slot,
+                        is_aggregator: selection_proof
+                            .is_aggregator(modulo)
+                            .map_err(|e| crit!(log, "Unable to determine aggregator: {:?}", e))
+                            .ok()?,
+                    };
 
-                Some((subscription, (duty, selection_proof)))
-            })
-            .unzip();
+                    Some((subscription, (duty, selection_proof)))
+                })
+                .unzip();
 
-        let num_failed_duties = num_duties - successful_duties.len();
+            let num_failed_duties = num_duties - successful_duties.len();
 
-        self.beacon_node
-            .http
-            .validator()
-            .subscribe(validator_subscriptions)
-            .await
-            .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
-            .map(move |publish_status| match publish_status {
-                PublishStatus::Valid => info!(
-                    log,
-                    "Successfully subscribed validators";
-                    "validators" => num_duties,
-                    "failed_validators" => num_failed_duties,
-                ),
-                PublishStatus::Invalid(msg) => crit!(
-                    log,
-                    "Validator Subscription was invalid";
-                    "message" => msg,
-                ),
-                PublishStatus::Unknown => {
-                    crit!(log, "Unknown condition when publishing attestation")
-                }
-            })
-            .and_then(move |_| {
-                for (duty, selection_proof) in successful_duties {
-                    self
-                        .duties_service
-                        .subscribe_duty(&duty.duty, selection_proof);
-                }
-                Ok(())
-            })
-            .map_err(move |e| {
-                crit!(
-                    log_1,
-                    "Error during attestation production";
-                    "error" => e
-                )
-            })
+            service
+                .beacon_node
+                .http
+                .validator()
+                .subscribe(validator_subscriptions)
+                .await
+                .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
+                .map(move |publish_status| match publish_status {
+                    PublishStatus::Valid => info!(
+                        log,
+                        "Successfully subscribed validators";
+                        "validators" => num_duties,
+                        "failed_validators" => num_failed_duties,
+                    ),
+                    PublishStatus::Invalid(msg) => crit!(
+                        log,
+                        "Validator Subscription was invalid";
+                        "message" => msg,
+                    ),
+                    PublishStatus::Unknown => {
+                        crit!(log, "Unknown condition when publishing attestation")
+                    }
+                })
+                .and_then(move |_| {
+                    for (duty, selection_proof) in successful_duties {
+                        service
+                            .duties_service
+                            .subscribe_duty(&duty.duty, selection_proof);
+                    }
+                    Ok(())
+                })
+                .map_err(move |e| {
+                    crit!(
+                        log_1,
+                        "Error during attestation production";
+                        "error" => e
+                    )
+                })
+        }
     }
 
     /// Performs the first step of the attesting process: downloading `Attestation` objects,
@@ -371,8 +373,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // Note: `delay_until` panics on failure
             // TODO: check if use of await is okay here
             delay_until(aggregate_production_instant).await;
-            self
-                .produce_and_publish_aggregates(attestation, validator_duties_2)
+            self.produce_and_publish_aggregates(attestation, validator_duties_2)
                 .await
         } else {
             // If `produce_and_publish_attestations` did not download any
@@ -588,9 +589,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     return None;
                 }
 
-                if let Some(signed_aggregate_and_proof) = self
-                    .validator_store
-                    .produce_signed_aggregate_and_proof(
+                if let Some(signed_aggregate_and_proof) =
+                    self.validator_store.produce_signed_aggregate_and_proof(
                         pubkey,
                         validator_index,
                         aggregated_attestation.clone(),

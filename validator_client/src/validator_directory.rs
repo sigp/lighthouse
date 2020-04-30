@@ -1,5 +1,6 @@
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, DEPOSIT_GAS};
+use futures::compat::Future01CompatExt;
 use hex;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -8,7 +9,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use futures::compat::Future01CompatExt;
 use types::{
     test_utils::generate_deterministic_keypair, ChainSpec, DepositData, Hash256, Keypair,
     PublicKey, SecretKey, Signature,

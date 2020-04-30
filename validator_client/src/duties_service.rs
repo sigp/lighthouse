@@ -1,7 +1,7 @@
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{future, FutureExt, StreamExt};
+use futures::{future, Future, FutureExt, StreamExt};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
 use rest_types::{ValidatorDuty, ValidatorDutyBytes};
@@ -453,8 +453,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let log = log.clone();
 
         // Run an immediate update before starting the updater service.
-        let service_1 = service.clone();
-        tokio::task::spawn(service_1.do_update());
+        tokio::task::spawn(self.do_update());
 
         let interval_fut = interval.for_each(move |_| {
             let _ = service.clone().do_update();
@@ -465,77 +464,79 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
         tokio::task::spawn(future);
-        
+
         Ok(exit_signal)
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
-    /// TODO: how to return a 'static lifetime future from an async function so this function can borrow self
-    async fn do_update(self) -> Result<(), ()> {
+    /// TODO: how to return a 'static lifetime future without the self.clone()
+    fn do_update(&self) -> impl Future<Output = Result<(), ()>> + 'static {
+        let service = self.clone();
         let log = self.context.log.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
-
-        let slot = self.slot_clock.now().ok_or_else(move || {
-            error!(log_1, "Duties manager failed to read slot clock");
-        })?;
-        let epoch = slot.epoch(E::slots_per_epoch());
-
-        if slot % E::slots_per_epoch() == 0 {
-            let prune_below = epoch - PRUNE_DEPTH;
-
-            trace!(
-                log_2,
-                "Pruning duties cache";
-                "pruning_below" => prune_below.as_u64(),
-                "current_epoch" => epoch.as_u64(),
-            );
-
-            self.store.prune(prune_below);
-        }
-
-        let beacon_head_epoch = self
-            .beacon_node
-            .http
-            .beacon()
-            .get_head()
-            .await
-            .map(move |head| head.slot.epoch(E::slots_per_epoch()))
-            .map_err(move |e| {
-                error!(
-                        log,
-                        "Failed to contact beacon node";
-                        "error" => format!("{:?}", e)
-                )
+        async move {
+            let slot = service.slot_clock.now().ok_or_else(move || {
+                error!(log_1, "Duties manager failed to read slot clock");
             })?;
+            let epoch = slot.epoch(E::slots_per_epoch());
 
-        if beacon_head_epoch + 1 < epoch && !self.allow_unsynced_beacon_node {
-            error!(
-                log_2,
-                "Beacon node is not synced";
-                "node_head_epoch" => format!("{}", beacon_head_epoch),
-                "current_epoch" => format!("{}", epoch),
-            );
-        } else {
-            let result = self.update_epoch(epoch).await;
-            if let Err(e) = result {
-                error!(
+            if slot % E::slots_per_epoch() == 0 {
+                let prune_below = epoch - PRUNE_DEPTH;
+
+                trace!(
                     log_2,
-                    "Failed to get current epoch duties";
-                    "http_error" => format!("{:?}", e)
+                    "Pruning duties cache";
+                    "pruning_below" => prune_below.as_u64(),
+                    "current_epoch" => epoch.as_u64(),
                 );
+
+                service.store.prune(prune_below);
             }
 
-            let _ = self.update_epoch(epoch + 1).await.map_err(move |e| {
+            let beacon_head_epoch = service
+                .beacon_node
+                .http
+                .beacon()
+                .get_head()
+                .await
+                .map(move |head| head.slot.epoch(E::slots_per_epoch()))
+                .map_err(move |e| {
+                    error!(
+                            log,
+                            "Failed to contact beacon node";
+                            "error" => format!("{:?}", e)
+                    )
+                })?;
+
+            if beacon_head_epoch + 1 < epoch && !service.allow_unsynced_beacon_node {
                 error!(
                     log_2,
-                    "Failed to get next epoch duties";
-                    "http_error" => format!("{:?}", e)
+                    "Beacon node is not synced";
+                    "node_head_epoch" => format!("{}", beacon_head_epoch),
+                    "current_epoch" => format!("{}", epoch),
                 );
-            })?;
-        };
+            } else {
+                let result = service.update_epoch(epoch).await;
+                if let Err(e) = result {
+                    error!(
+                        log_2,
+                        "Failed to get current epoch duties";
+                        "http_error" => format!("{:?}", e)
+                    );
+                }
 
-        Ok(())
+                let _ = service.update_epoch(epoch + 1).await.map_err(move |e| {
+                    error!(
+                        log_2,
+                        "Failed to get next epoch duties";
+                        "http_error" => format!("{:?}", e)
+                    );
+                })?;
+            };
+
+            Ok(())
+        }
     }
 
     /// Attempt to download the duties of all managed validators for the given `epoch`.
