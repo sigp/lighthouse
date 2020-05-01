@@ -19,9 +19,9 @@ pub trait OutboundCodec<TItem>: Encoder<TItem> + Decoder {
 /* Global Inbound Codec */
 // This deals with Decoding RPC Requests from other peers and encoding our responses
 
-pub struct BaseInboundCodec<TCodec, TSpec, TItem>
+pub struct BaseInboundCodec<TCodec, TSpec>
 where
-    TCodec: Encoder<TItem> + Decoder,
+    TCodec: Encoder<RPCErrorResponse<TSpec>> + Decoder,
     TSpec: EthSpec,
 {
     /// Inner codec for handling various encodings
@@ -29,9 +29,9 @@ where
     phantom: PhantomData<TSpec>,
 }
 
-impl<TCodec, TSpec, TItem> BaseInboundCodec<TCodec, TSpec, TItem>
+impl<TCodec, TSpec> BaseInboundCodec<TCodec, TSpec>
 where
-    TCodec: Encoder<TItem> + Decoder,
+    TCodec: Encoder<RPCErrorResponse<TSpec>> + Decoder,
     TSpec: EthSpec,
 {
     pub fn new(codec: TCodec) -> Self {
@@ -44,9 +44,9 @@ where
 
 /* Global Outbound Codec */
 // This deals with Decoding RPC Responses from other peers and encoding our requests
-pub struct BaseOutboundCodec<TOutboundCodec, TSpec, TItem>
+pub struct BaseOutboundCodec<TOutboundCodec, TSpec>
 where
-    TOutboundCodec: OutboundCodec<TItem>,
+    TOutboundCodec: OutboundCodec<RPCRequest<TSpec>>,
     TSpec: EthSpec,
 {
     /// Inner codec for handling various encodings.
@@ -56,10 +56,10 @@ where
     phantom: PhantomData<TSpec>,
 }
 
-impl<TOutboundCodec, TSpec, TItem> BaseOutboundCodec<TOutboundCodec, TSpec, TItem>
+impl<TOutboundCodec, TSpec> BaseOutboundCodec<TOutboundCodec, TSpec>
 where
     TSpec: EthSpec,
-    TOutboundCodec: OutboundCodec<TItem>,
+    TOutboundCodec: OutboundCodec<RPCRequest<TSpec>>,
 {
     pub fn new(codec: TOutboundCodec) -> Self {
         BaseOutboundCodec {
@@ -75,8 +75,7 @@ where
 /* Base Inbound Codec */
 
 // This Encodes RPC Responses sent to external peers
-impl<TCodec, TSpec> Encoder<RPCErrorResponse<TSpec>>
-    for BaseInboundCodec<TCodec, TSpec, RPCErrorResponse<TSpec>>
+impl<TCodec, TSpec> Encoder<RPCErrorResponse<TSpec>> for BaseInboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
     TCodec: Decoder + Encoder<RPCErrorResponse<TSpec>>,
@@ -100,7 +99,7 @@ where
 
 // This Decodes RPC Requests from external peers
 // TODO: check if the Item parameter is correct
-impl<TCodec, TSpec> Decoder for BaseInboundCodec<TCodec, TSpec, RPCErrorResponse<TSpec>>
+impl<TCodec, TSpec> Decoder for BaseInboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
     // TODO: check if the Item parameter is correct
@@ -117,8 +116,7 @@ where
 /* Base Outbound Codec */
 
 // This Encodes RPC Requests sent to external peers
-impl<TCodec, TSpec> Encoder<RPCRequest<TSpec>>
-    for BaseOutboundCodec<TCodec, TSpec, RPCRequest<TSpec>>
+impl<TCodec, TSpec> Encoder<RPCRequest<TSpec>> for BaseOutboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
     TCodec: OutboundCodec<RPCRequest<TSpec>> + Encoder<RPCRequest<TSpec>>,
@@ -131,7 +129,7 @@ where
 }
 
 // This decodes RPC Responses received from external peers
-impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec, RPCRequest<TSpec>>
+impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
     TCodec: OutboundCodec<RPCRequest<TSpec>, ErrorType = ErrorMessage>

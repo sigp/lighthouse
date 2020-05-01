@@ -19,7 +19,7 @@ pub struct SSZInboundCodec<TSpec: EthSpec> {
     phantom: PhantomData<TSpec>,
 }
 
-impl<T: EthSpec> SSZInboundCodec<T> {
+impl<TSpec: EthSpec> SSZInboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let mut uvi_codec = UviBytes::default();
         uvi_codec.set_max_len(max_packet_size);
@@ -39,7 +39,11 @@ impl<T: EthSpec> SSZInboundCodec<T> {
 impl<TSpec: EthSpec> Encoder<RPCErrorResponse<TSpec>> for SSZInboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RPCErrorResponse<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: RPCErrorResponse<TSpec>,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCErrorResponse::Success(resp) => match resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),

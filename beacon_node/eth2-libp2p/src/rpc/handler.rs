@@ -256,7 +256,7 @@ where
 
     fn inject_fully_negotiated_inbound(
         &mut self,
-        substream: <RPCProtocol<TSpec> as InboundUpgrade<NegotiatedSubstream>>::Output,
+        substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
     ) {
         // update the keep alive timeout if there are no more remaining outbound streams
         if let KeepAlive::Until(_) = self.keep_alive {
@@ -288,7 +288,7 @@ where
 
     fn inject_fully_negotiated_outbound(
         &mut self,
-        out: <RPCRequest<TSpec> as OutboundUpgrade<NegotiatedSubstream>>::Output,
+        out: <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Output,
         rpc_event: Self::OutboundOpenInfo,
     ) {
         self.dial_negotiated -= 1;
@@ -415,7 +415,7 @@ where
         &mut self,
         request: Self::OutboundOpenInfo,
         error: ProtocolsHandlerUpgrErr<
-            <Self::OutboundProtocol as OutboundUpgrade<libp2p::swarm::NegotiatedSubstream>>::Error,
+            <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Error,
         >,
     ) {
         if let ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error {
