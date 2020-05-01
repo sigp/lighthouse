@@ -4,19 +4,20 @@ use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use discv5::Discv5Event;
-use futures::prelude::*;
 use libp2p::{
     core::{identity::Keypair, ConnectedPoint},
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
-    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
+    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters},
     NetworkBehaviour, PeerId,
 };
 use lru::LruCache;
 use slog::{crit, debug, o, warn};
-use std::marker::PhantomData;
-use std::sync::Arc;
-use std::task::Poll;
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use types::{EnrForkId, EthSpec, SubnetId};
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
@@ -461,11 +462,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Consumes the events list when polled.
     fn poll<TBehaviourIn>(
         &mut self,
+        cx: &mut Context,
+        _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
         // check the peer manager for events
         loop {
-            match self.peer_manager.poll() {
-                Ok(Poll::Ready(Some(event))) => match event {
+            match self.peer_manager.poll_next_unpin(cx) {
+                Poll::Ready(Some(event))) => match event {
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
                         // the network to send a status to this peer
@@ -488,9 +491,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                 },
                 Poll::Pending => break,
-                Poll::Ready(None) | Err(_) => {
-                    crit!(self.log, "Error polling peer manager");
-                    break;
+                Poll::Ready(None) => break, // peer manager ended
                 }
             }
         }
