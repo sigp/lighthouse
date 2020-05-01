@@ -34,6 +34,7 @@ tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec"] }
 libp2p = "0.18.1"
 discv5 = "0.1.0-alpha.1"
+tiny-keccak = "2.0.2"
 
 [dev-dependencies]
 slog-stdlog = "4.0.0"

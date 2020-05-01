@@ -1315,6 +1315,7 @@ dependencies = [
  "smallvec 1.4.0",
  "snap",
  "tempdir",
+ "tiny-keccak 2.0.2",
  "tokio 0.2.20",
  "tokio-io-timeout",
  "tokio-util",
