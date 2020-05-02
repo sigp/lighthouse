@@ -632,7 +632,7 @@ impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Variable<N>> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let max_size = N::to_usize();
         let rand = usize::arbitrary(u)?;
-        let size = if rand < max_size { rand } else { max_size };
+        let size = std::cmp::min(rand, max_size);
         let mut vec: Vec<u8> = vec![0u8; size];
         u.fill_buffer(&mut vec)?;
         Ok(Self::from_bytes(vec).map_err(|_| arbitrary::Error::IncorrectFormat)?)
