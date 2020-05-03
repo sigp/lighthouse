@@ -98,7 +98,7 @@ impl std::fmt::Display for Client {
 // helper function to identify clients from their agent_version. Returns the client
 // kind and it's associated version and the OS kind.
 fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String) {
-    let mut agent_split = agent_version.split("/");
+    let mut agent_split = agent_version.split('/');
     match agent_split.next() {
         Some("Lighthouse") => {
             let kind = ClientKind::Lighthouse;
@@ -116,7 +116,7 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
             let kind = ClientKind::Teku;
             let mut version = String::from("unknown");
             let mut os_version = version.clone();
-            if let Some(_) = agent_split.next() {
+            if agent_split.next().is_some() {
                 if let Some(agent_version) = agent_split.next() {
                     version = agent_version.into();
                     if let Some(agent_os_version) = agent_split.next() {
