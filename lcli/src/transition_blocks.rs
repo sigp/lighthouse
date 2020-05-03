@@ -76,7 +76,7 @@ fn do_transition<T: EthSpec>(
     Ok(pre_state)
 }
 
-fn load_from_ssz<T: Decode>(path: PathBuf) -> Result<T, String> {
+pub fn load_from_ssz<T: Decode>(path: PathBuf) -> Result<T, String> {
     let mut file =
         File::open(path.clone()).map_err(|e| format!("Unable to open file {:?}: {:?}", path, e))?;
     let mut bytes = vec![];
