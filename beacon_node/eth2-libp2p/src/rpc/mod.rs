@@ -13,10 +13,10 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{
-    ErrorMessage, MetaData, RPCErrorResponse, RPCResponse, RequestId, ResponseTermination,
-    StatusMessage,
+    ErrorMessage, MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId,
+    ResponseTermination, StatusMessage,
 };
-pub use protocol::{RPCError, RPCProtocol, RPCRequest};
+pub use protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use slog::{debug, o};
 use std::marker::PhantomData;
 use std::time::Duration;
@@ -37,9 +37,9 @@ pub enum RPCEvent<T: EthSpec> {
     /// A response that is being sent or has been received from the RPC protocol. The first parameter returns
     /// that which was sent with the corresponding request, the second is a single chunk of a
     /// response.
-    Response(RequestId, RPCErrorResponse<T>),
+    Response(RequestId, RPCCodedResponse<T>),
     /// An Error occurred.
-    Error(RequestId, RPCError),
+    Error(RequestId, Protocol, RPCError),
 }
 
 impl<T: EthSpec> RPCEvent<T> {
@@ -47,7 +47,7 @@ impl<T: EthSpec> RPCEvent<T> {
         match *self {
             RPCEvent::Request(id, _) => id,
             RPCEvent::Response(id, _) => id,
-            RPCEvent::Error(id, _) => id,
+            RPCEvent::Error(id, _, _) => id,
         }
     }
 }
@@ -57,7 +57,11 @@ impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
         match self {
             RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {}, {})", id, req),
             RPCEvent::Response(id, res) => write!(f, "RPC Response(id: {}, {})", id, res),
-            RPCEvent::Error(id, err) => write!(f, "RPC Request(id: {}, error: {:?})", id, err),
+            RPCEvent::Error(id, prot, err) => write!(
+                f,
+                "RPC Error(id: {}, protocol: {:?} error: {:?})",
+                id, prot, err
+            ),
         }
     }
 }

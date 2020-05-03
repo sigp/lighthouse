@@ -1,6 +1,6 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
-use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
+use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use std::marker::PhantomData;
@@ -78,9 +78,9 @@ where
 impl<TCodec, TSpec> Encoder for BaseInboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec: Decoder + Encoder<Item = RPCErrorResponse<TSpec>>,
+    TCodec: Decoder + Encoder<Item = RPCCodedResponse<TSpec>>,
 {
-    type Item = RPCErrorResponse<TSpec>;
+    type Item = RPCCodedResponse<TSpec>;
     type Error = <TCodec as Encoder>::Error;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -130,7 +130,7 @@ where
     TSpec: EthSpec,
     TCodec: OutboundCodec<ErrorType = ErrorMessage> + Decoder<Item = RPCResponse<TSpec>>,
 {
-    type Item = RPCErrorResponse<TSpec>;
+    type Item = RPCCodedResponse<TSpec>;
     type Error = <TCodec as Decoder>::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -146,17 +146,17 @@ where
         });
 
         let inner_result = {
-            if RPCErrorResponse::<TSpec>::is_response(response_code) {
+            if RPCCodedResponse::<TSpec>::is_response(response_code) {
                 // decode an actual response and mutates the buffer if enough bytes have been read
                 // returning the result.
                 self.inner
                     .decode(src)
-                    .map(|r| r.map(RPCErrorResponse::Success))
+                    .map(|r| r.map(RPCCodedResponse::Success))
             } else {
                 // decode an error
                 self.inner
                     .decode_error(src)
-                    .map(|r| r.map(|resp| RPCErrorResponse::from_error(response_code, resp)))
+                    .map(|r| r.map(|resp| RPCCodedResponse::from_error(response_code, resp)))
             }
         };
         // if the inner decoder was capable of decoding a chunk, we need to reset the current
