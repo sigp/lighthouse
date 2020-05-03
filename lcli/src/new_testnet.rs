@@ -46,7 +46,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     maybe_update!("max-effective-balance", max_effective_balance);
     maybe_update!("effective-balance-increment", effective_balance_increment);
     maybe_update!("ejection-balance", ejection_balance);
-    maybe_update!("eth1-follow_distance", eth1_follow_distance);
+    maybe_update!("eth1-follow-distance", eth1_follow_distance);
     maybe_update!("min-genesis-delay", min_genesis_delay);
 
     if let Some(v) = parse_ssz_optional(matches, "genesis-fork-version")? {
