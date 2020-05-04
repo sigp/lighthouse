@@ -42,7 +42,4 @@ bls = { path = "../eth2/utils/bls" }
 remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }
 tempdir = "0.3"
 rayon = "1.2.0"
-uuid = { version = "0.8", features = ["serde", "v4"] }
 web3 = "0.10.0"
-time = "0.1.42"
-eth2_keystore = { path = "../eth2/utils/eth2_keystore" }

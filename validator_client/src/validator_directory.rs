@@ -1,6 +1,5 @@
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, DEPOSIT_GAS};
-use eth2_keystore::Keystore;
 use futures::{Future, IntoFuture};
 use hex;
 use ssz::{Decode, Encode};
@@ -14,7 +13,6 @@ use types::{
     test_utils::generate_deterministic_keypair, ChainSpec, DepositData, Hash256, Keypair,
     PublicKey, SecretKey, Signature,
 };
-use uuid::Uuid;
 use web3::{
     types::{Address, TransactionRequest, U256},
     Transport, Web3,
@@ -29,31 +27,9 @@ fn keypair_file(prefix: &str) -> String {
     format!("{}_keypair", prefix)
 }
 
-/// Returns the filename of a keystore file.
-fn keystore_file(keystore: &Keystore, prefix: &str) -> String {
-    format!(
-        "{}-{}-{}",
-        prefix,
-        &get_utc_time(),
-        keystore.uuid.to_string()
-    )
-}
-
 /// Returns the name of the folder to be generated for a validator with the given voting key.
 fn dir_name(voting_pubkey: &PublicKey) -> String {
     format!("0x{}", hex::encode(voting_pubkey.as_ssz_bytes()))
-}
-
-/// Returns the name of folder to be generated for a keystore with a given uuid.
-fn dir_name_keystore(uuid: &Uuid) -> String {
-    uuid.to_string()
-}
-
-/// Return UTC time.
-fn get_utc_time() -> String {
-    let timestamp = time::strftime("%Y-%m-%dT%H-%M-%S", &time::now_utc())
-        .expect("Time-format string is valid.");
-    format!("UTC--{}--", timestamp)
 }
 
 /// Represents the files/objects for each dedicated lighthouse validator directory.
@@ -108,19 +84,6 @@ fn load_keypair(base_path: PathBuf, file_prefix: &str) -> Result<Keypair, String
     SszEncodableKeypair::from_ssz_bytes(&bytes)
         .map(Into::into)
         .map_err(|e| format!("Unable to decode keypair: {:?}", e))
-}
-
-/// Load a `Keystore` from a file.
-fn load_keystore(path: PathBuf) -> Result<Keystore, String> {
-    if !path.exists() {
-        return Err(format!("Keypair file does not exist: {:?}", path));
-    }
-
-    let mut key_file =
-        File::open(path.clone()).map_err(|e| format!("Unable to open keystore file: {}", e))?;
-    let keystore: Keystore = serde_json::from_reader(&mut key_file)
-        .map_err(|e| format!("Invalid keystore format: {:?}", e))?;
-    Ok(keystore)
 }
 
 /// Load eth1_deposit_data from file.
@@ -240,22 +203,6 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
-    pub fn create_keystore_directory(
-        keystore: &Keystore,
-        base_path: PathBuf,
-    ) -> Result<(), String> {
-        let directory = base_path.join(dir_name_keystore(&keystore.uuid));
-        if directory.exists() {
-            return Err(format!(
-                "Validator keystore directory already exists: {:?}",
-                directory
-            ));
-        }
-        fs::create_dir_all(&directory)
-            .map_err(|e| format!("Unable to create keystore validator directory: {}", e))?;
-        Ok(())
-    }
-
     pub fn write_keypair_files(self) -> Result<Self, String> {
         let voting_keypair = self
             .voting_keypair
@@ -296,35 +243,6 @@ impl ValidatorDirectoryBuilder {
         file.write_all(&SszEncodableKeypair::from(keypair).as_ssz_bytes())
             .map_err(|e| format!("Unable to write keypair to file: {}", e))?;
 
-        Ok(())
-    }
-
-    pub fn save_keystore(
-        &self,
-        base_path: PathBuf,
-        keystore: &Keystore,
-        file_prefix: &str,
-    ) -> Result<(), String> {
-        let directory = base_path.join(dir_name_keystore(&keystore.uuid));
-        let path = directory.join(keystore_file(&keystore, file_prefix));
-
-        if path.exists() {
-            return Err(format!("Keystore file already exists at: {:?}", path));
-        }
-
-        let file = File::create(&path).map_err(|e| format!("Unable to create file: {}", e))?;
-
-        // Ensure file has correct permissions.
-        let mut perm = file
-            .metadata()
-            .map_err(|e| format!("Unable to get file metadata: {}", e))?
-            .permissions();
-        perm.set_mode((libc::S_IWUSR | libc::S_IRUSR) as u32);
-        file.set_permissions(perm)
-            .map_err(|e| format!("Unable to set file permissions: {}", e))?;
-
-        serde_json::to_writer_pretty(file, &keystore)
-            .map_err(|e| format!("Error writing keystore into file: {}", e))?;
         Ok(())
     }
 
