@@ -236,6 +236,7 @@ fn validator_produce_attestation() {
     let signed_aggregate_and_proof = SignedAggregateAndProof::from_aggregate(
         validator_index as u64,
         aggregated_attestation,
+        None,
         &keypair.sk,
         &state.fork,
         genesis_validators_root,
