@@ -430,6 +430,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         "head_block" => format!("{:?}", beacon_block_root),
                                         "committee_index" => committee_index,
                                         "slot" => slot.as_u64(),
+                                        "type" => "unaggregated",
                                     ),
                                     PublishStatus::Invalid(msg) => crit!(
                                         log,
@@ -437,10 +438,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         "message" => msg,
                                         "committee_index" => committee_index,
                                         "slot" => slot.as_u64(),
+                                        "type" => "unaggregated",
                                     ),
-                                    PublishStatus::Unknown => {
-                                        crit!(log, "Unknown condition when publishing attestation")
-                                    }
+                                    PublishStatus::Unknown => crit!(
+                                        log,
+                                        "Unknown condition when publishing unagg. attestation"
+                                    ),
                                 })
                                 .map(|()| Some(attestation)),
                         )
@@ -541,11 +544,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         .map(move |(attestation, publish_status)| match publish_status {
                             PublishStatus::Valid => info!(
                                 log_1,
-                                "Successfully published aggregate attestations";
+                                "Successfully published attestations";
                                 "signatures" => attestation.aggregation_bits.num_set_bits(),
                                 "head_block" => format!("{}", attestation.data.beacon_block_root),
                                 "committee_index" => attestation.data.index,
                                 "slot" => attestation.data.slot.as_u64(),
+                                "type" => "aggregated",
                             ),
                             PublishStatus::Invalid(msg) => crit!(
                                 log_1,
@@ -553,9 +557,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 "message" => msg,
                                 "committee_index" => attestation.data.index,
                                 "slot" => attestation.data.slot.as_u64(),
+                                "type" => "aggregated",
                             ),
                             PublishStatus::Unknown => {
-                                crit!(log_1, "Unknown condition when publishing attestation")
+                                crit!(log_1, "Unknown condition when publishing agg. attestation")
                             }
                         }))
                     } else {
