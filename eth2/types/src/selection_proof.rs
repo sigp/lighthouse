@@ -2,6 +2,7 @@ use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
 };
 use safe_arith::{ArithError, SafeArith};
+use std::cmp;
 use std::convert::TryInto;
 use tree_hash::TreeHash;
 
@@ -27,17 +28,20 @@ impl SelectionProof {
         Self(Signature::new(message.as_bytes(), secret_key))
     }
 
+    /// Returns the "modulo" used for determining if a `SelectionProof` elects an aggregator.
+    pub fn modulo(committee_len: usize, spec: &ChainSpec) -> Result<u64, ArithError> {
+        Ok(cmp::max(
+            1,
+            (committee_len as u64).safe_div(spec.target_aggregators_per_committee)?,
+        ))
+    }
+
     pub fn is_aggregator(
         &self,
         committee_len: usize,
         spec: &ChainSpec,
     ) -> Result<bool, ArithError> {
-        let modulo = std::cmp::max(
-            1,
-            (committee_len as u64).safe_div(spec.target_aggregators_per_committee)?,
-        );
-
-        self.is_aggregator_from_modulo(modulo)
+        self.is_aggregator_from_modulo(Self::modulo(committee_len, spec)?)
     }
 
     pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {

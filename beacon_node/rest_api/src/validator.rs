@@ -16,8 +16,8 @@ use slog::{error, info, trace, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{
-    Attestation, AttestationData, BeaconState, Epoch, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, Slot,
+    Attestation, AttestationData, BeaconState, Epoch, RelativeEpoch, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -224,14 +224,12 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                // Obtain the aggregator modulo
-                let aggregator_modulo = duties.map(|d| {
-                    std::cmp::max(
-                        1,
-                        d.committee_len as u64
-                            / &beacon_chain.spec.target_aggregators_per_committee,
-                    )
-                });
+                let aggregator_modulo = duties
+                    .map(|duties| SelectionProof::modulo(duties.committee_len, &beacon_chain.spec))
+                    .transpose()
+                    .map_err(|e| {
+                        ApiError::ServerError(format!("Unable to find modulo: {:?}", e))
+                    })?;
 
                 let block_proposal_slots = validator_proposers
                     .iter()
