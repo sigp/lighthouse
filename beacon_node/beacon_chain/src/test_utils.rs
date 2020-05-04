@@ -625,6 +625,7 @@ where
                     let signed_aggregate = SignedAggregateAndProof::from_aggregate(
                         aggregator_index as u64,
                         aggregate,
+                        None,
                         self.get_sk(aggregator_index),
                         fork,
                         state.genesis_validators_root,

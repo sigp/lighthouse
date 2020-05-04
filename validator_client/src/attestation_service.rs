@@ -492,10 +492,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         .filter_map(|duty_and_state| {
                             // Do not produce a signed aggregator for validators that are not
                             // subscribed aggregators.
-                            //
-                            // TODO: use this selection proof instead of creating a new one. This
-                            // provides a minor optimization.
-                            let _selection_proof = duty_and_state.selection_proof.clone()?;
+                            let selection_proof = duty_and_state.selection_proof.as_ref()?.clone();
 
                             let (duty_slot, duty_committee_index, _, validator_index) =
                                 duty_and_state.attestation_duties().or_else(|| {
@@ -518,6 +515,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                     pubkey,
                                     validator_index,
                                     aggregated_attestation.clone(),
+                                    selection_proof,
                                 )
                             {
                                 Some(signed_aggregate_and_proof)
