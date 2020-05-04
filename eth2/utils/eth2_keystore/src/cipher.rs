@@ -6,23 +6,28 @@ use zeroize::Zeroize;
 
 const IV_SIZE: usize = 16;
 
+/// Provides wrapper around `Vec<u8>` that implements zeroize.
 #[derive(Zeroize, Clone, PartialEq)]
 #[zeroize(drop)]
 pub struct PlainText(Vec<u8>);
 
 impl PlainText {
+    /// Instantiate self with `len` zeros.
     pub fn zero(len: usize) -> Self {
         Self(vec![0; len])
     }
 
+    /// The byte-length of `self`
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Returns a reference to the underlying bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
+    /// Returns a mutable reference to the underlying bytes.
     pub fn as_mut_bytes(&mut self) -> &mut [u8] {
         &mut self.0
     }

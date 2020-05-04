@@ -211,7 +211,7 @@ mod tests {
     //
     // https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
     #[test]
-    fn test_vectors() {
+    fn eip_2335_test_vectors() {
         let expected_secret = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
         let password: Password = "testpassword".into();
         let scrypt_test_vector = r#"
@@ -287,5 +287,93 @@ mod tests {
             let expected_sk = hex::decode(expected_secret).unwrap();
             assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk)
         }
+    }
+
+    #[test]
+    fn json_invalid_version() {
+        let vector = r#"
+            {
+            "crypto": {
+                "kdf": {
+                    "function": "scrypt",
+                    "params": {
+                        "dklen": 32,
+                        "n": 262144,
+                        "p": 1,
+                        "r": 8,
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "sha256",
+                    "params": {},
+                    "message": "149aafa27b041f3523c53d7acba1905fa6b1c90f9fef137568101f44b531a3cb"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "54ecc8863c0550351eee5720f3be6a5d4a016025aa91cd6436cfec938d6a8d30"
+                }
+            },
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "uuid": "1d85ae20-35c5-4611-98e8-aa14a633906f",
+            "path": "",
+            "version": 5
+        }
+        "#;
+
+        assert_eq!(
+            Keystore::from_json_str(&vector).err().unwrap(),
+            Error::InvalidJson
+        );
+    }
+
+    #[test]
+    fn json_bad_checksum() {
+        let vector = r#"
+            {
+            "crypto": {
+                "kdf": {
+                    "function": "scrypt",
+                    "params": {
+                        "dklen": 32,
+                        "n": 262144,
+                        "p": 1,
+                        "r": 8,
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "sha256",
+                    "params": {},
+                    "message": "149aafa27b041f3523c53d7acba1905fa6b1c90f9fef137568101f44b531a3cd"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "54ecc8863c0550351eee5720f3be6a5d4a016025aa91cd6436cfec938d6a8d30"
+                }
+            },
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "uuid": "1d85ae20-35c5-4611-98e8-aa14a633906f",
+            "path": "",
+            "version": 4
+        }
+        "#;
+
+        assert_eq!(
+            Keystore::from_json_str(&vector)
+                .unwrap()
+                .decrypt_keypair("testpassword".into())
+                .err()
+                .unwrap(),
+            Error::InvalidPassword
+        );
     }
 }
