@@ -20,7 +20,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio_io_timeout::TimeoutStream;
-use tokio_util::codec::Framed;
+use tokio_util::{
+    codec::Framed,
+    compat::{Compat, FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt},
+};
 use types::EthSpec;
 
 /// The maximum bytes that can be sent across the RPC.
@@ -171,7 +174,7 @@ impl ProtocolName for ProtocolId {
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
-    Framed<TimeoutStream<TokioNegotiatedStream<TSocket>>, InboundCodec<TSpec>>;
+    Framed<TimeoutStream<Compat<TSocket>>, InboundCodec<TSpec>>;
 type FnAndThen<TSocket, TSpec> = fn(
     (
         Option<Result<RPCRequest<TSpec>, RPCError>>,
@@ -191,7 +194,8 @@ where
 
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
         let protocol_name = protocol.message_name;
-        let socket = TokioNegotiatedStream(socket);
+        // convert the socket to tokio compatible socket
+        let socket = socket.compat();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec =
@@ -220,9 +224,7 @@ where
                     .and_then({
                         |(req, stream)| match req {
                             Some(Ok(request)) => future::ok((request, stream)),
-                            Some(Err(_)) => | None => {
-                                future::err(RPCError::IncompleteStream)
-                            }
+                            Some(Err(_)) | None => future::err(RPCError::IncompleteStream),
                         }
                     } as FnAndThen<TSocket, TSpec>),
             ),
@@ -346,8 +348,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, TSpec> =
-    Framed<TokioNegotiatedStream<TSocket>, OutboundCodec<TSpec>>;
+pub type OutboundFramed<TSocket, TSpec> = Framed<Compat<TSocket>, OutboundCodec<TSpec>>;
 
 impl<TSocket, TSpec> OutboundUpgrade<TSocket> for RPCRequest<TSpec>
 where
@@ -359,7 +360,8 @@ where
     type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
     fn upgrade_outbound(self, socket: TSocket, protocol: Self::Info) -> Self::Future {
-        let socket = TokioNegotiatedStream(socket);
+        // convert to a tokio compatible socket
+        let socket = socket.comapt();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec =
