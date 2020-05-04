@@ -3,10 +3,12 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
+use beacon_chain::{
+    attestation_verification::Error as AttnError,
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
+    },
 };
-use beacon_chain::{AttestationProcessingOutcome, AttestationType};
 use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
@@ -361,7 +363,7 @@ fn roundtrip_operation_pool() {
 }
 
 #[test]
-fn free_attestations_added_to_fork_choice_some_none() {
+fn unaggregated_attestations_added_to_fork_choice_some_none() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() / 2;
 
     let harness = get_harness(VALIDATOR_COUNT);
@@ -425,7 +427,7 @@ fn attestations_with_increasing_slots() {
         );
 
         attestations.append(
-            &mut harness.get_free_attestations(
+            &mut harness.get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &harness.chain.head().expect("should get head").beacon_state,
                 harness
@@ -445,30 +447,31 @@ fn attestations_with_increasing_slots() {
         harness.advance_slot();
     }
 
-    let current_epoch = harness.chain.epoch().expect("should get epoch");
-
-    for attestation in attestations {
-        let attestation_epoch = attestation.data.target.epoch;
+    for attestation in attestations.into_iter().flatten() {
         let res = harness
             .chain
-            .process_attestation(attestation, AttestationType::Aggregated);
+            .verify_unaggregated_attestation_for_gossip(attestation.clone());
 
-        if attestation_epoch + 1 < current_epoch {
+        let current_slot = harness.chain.slot().expect("should get slot");
+        let attestation_slot = attestation.data.slot;
+        let earliest_permissible_slot = current_slot - MinimalEthSpec::slots_per_epoch() - 1;
+
+        if attestation_slot < earliest_permissible_slot {
             assert_eq!(
-                res,
-                Ok(AttestationProcessingOutcome::PastEpoch {
-                    attestation_epoch,
-                    current_epoch,
-                })
+                res.err().unwrap(),
+                AttnError::PastSlot {
+                    attestation_slot,
+                    earliest_permissible_slot,
+                }
             )
         } else {
-            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed))
+            res.expect("should process attestation");
         }
     }
 }
 
 #[test]
-fn free_attestations_added_to_fork_choice_all_updated() {
+fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
 
     let harness = get_harness(VALIDATOR_COUNT);

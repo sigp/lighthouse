@@ -93,11 +93,20 @@ fn validator_produce_attestation() {
     let genesis_validators_root = beacon_chain.genesis_validators_root;
     let state = beacon_chain.head().expect("should get head").beacon_state;
 
-    let validator_index = 0;
-    let duties = state
-        .get_attestation_duties(validator_index, RelativeEpoch::Current)
-        .expect("should have attestation duties cache")
-        .expect("should have attestation duties");
+    // Find a validator that has duties in the current slot of the chain.
+    let mut validator_index = 0;
+    let duties = loop {
+        let duties = state
+            .get_attestation_duties(validator_index, RelativeEpoch::Current)
+            .expect("should have attestation duties cache")
+            .expect("should have attestation duties");
+
+        if duties.slot == node.client.beacon_chain().unwrap().slot().unwrap() {
+            break duties;
+        } else {
+            validator_index += 1
+        }
+    };
 
     let mut attestation = env
         .runtime()
@@ -134,15 +143,18 @@ fn validator_produce_attestation() {
 
     // Try publishing the attestation without a signature or a committee bit set, ensure it is
     // raises an error.
-    let publish_result = env.runtime().block_on(
-        remote_node
-            .http
-            .validator()
-            .publish_attestations(vec![attestation.clone()]),
-    );
+    let publish_status = env
+        .runtime()
+        .block_on(
+            remote_node
+                .http
+                .validator()
+                .publish_attestations(vec![attestation.clone()]),
+        )
+        .expect("should publish unsigned attestation");
     assert!(
-        publish_result.is_err(),
-        "the unsigned published attestation should return error"
+        !publish_status.is_valid(),
+        "the unsigned published attestation should be invalid"
     );
 
     // Set the aggregation bit.
@@ -224,6 +236,7 @@ fn validator_produce_attestation() {
     let signed_aggregate_and_proof = SignedAggregateAndProof::from_aggregate(
         validator_index as u64,
         aggregated_attestation,
+        None,
         &keypair.sk,
         &state.fork,
         genesis_validators_root,

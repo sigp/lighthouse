@@ -10,6 +10,7 @@ mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
 mod refund_deposit_contract;
+mod skip_slots;
 mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -76,6 +77,32 @@ async fn main() {
                         .takes_value(true)
                         .default_value("./genesis_state.yaml")
                         .help("Output file for generated state."),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("skip-slots")
+                .about("Performs a state transition from some state across some number of skip slots")
+                .arg(
+                    Arg::with_name("pre-state")
+                        .value_name("BEACON_STATE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Path to a SSZ file of the pre-state."),
+                )
+                .arg(
+                    Arg::with_name("slots")
+                        .value_name("SLOT_COUNT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Number of slots to skip before outputting a state.."),
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .value_name("SSZ_FILE")
+                        .takes_value(true)
+                        .required(true)
+                        .default_value("./output.ssz")
+                        .help("Path to output a SSZ file."),
                 ),
         )
         .subcommand(
@@ -492,6 +519,9 @@ async fn run<T: EthSpec>(
         }
         ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(matches)
             .map_err(|e| format!("Failed to transition blocks: {}", e)),
+        ("skip-slots", Some(matches)) => {
+            skip_slots::run::<T>(matches).map_err(|e| format!("Failed to skip slots: {}", e))
+        }
         ("pretty-hex", Some(matches)) => {
             run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }

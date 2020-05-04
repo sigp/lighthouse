@@ -229,6 +229,8 @@ checksum = "7d5ca2cd0adc3f48f9e9ea5a6bbdf9ccc0bfade884847e484d452414c7ccffb3"
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
+ "bitvec",
+ "bls",
  "environment",
  "eth1",
  "eth2_config",

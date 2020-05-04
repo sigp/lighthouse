@@ -10,8 +10,8 @@ use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
-    Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit,
-    SigningRoot,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot,
+    SignedVoluntaryExit, SigningRoot,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -26,6 +26,10 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The public keys supplied do not match the number of objects requiring keys. Block validity
     /// was not determined.
     MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
@@ -72,6 +76,13 @@ where
 {
     let block = &signed_block.message;
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+
+    if proposer_index as u64 != block.proposer_index {
+        return Err(Error::IncorrectBlockProposer {
+            block: block.proposer_index,
+            local_shuffling: proposer_index as u64,
+        });
+    }
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -340,6 +351,77 @@ where
     Ok(SignatureSet::single(
         &signed_exit.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        message,
+    ))
+}
+
+pub fn signed_aggregate_selection_proof_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let slot = signed_aggregate_and_proof.message.aggregate.data.slot;
+
+    let domain = spec.get_domain(
+        slot.epoch(T::slots_per_epoch()),
+        Domain::SelectionProof,
+        fork,
+        genesis_validators_root,
+    );
+    let message = slot.signing_root(domain).as_bytes().to_vec();
+    let signature = &signed_aggregate_and_proof.message.selection_proof;
+    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single(
+        signature,
+        get_pubkey(validator_index as usize)
+            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
+        message,
+    ))
+}
+
+pub fn signed_aggregate_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let target_epoch = signed_aggregate_and_proof
+        .message
+        .aggregate
+        .data
+        .target
+        .epoch;
+
+    let domain = spec.get_domain(
+        target_epoch,
+        Domain::AggregateAndProof,
+        fork,
+        genesis_validators_root,
+    );
+    let message = signed_aggregate_and_proof
+        .message
+        .signing_root(domain)
+        .as_bytes()
+        .to_vec();
+    let signature = &signed_aggregate_and_proof.signature;
+    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single(
+        signature,
+        get_pubkey(validator_index as usize)
+            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
         message,
     ))
 }

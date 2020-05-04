@@ -9,10 +9,10 @@ use ssz::Encode;
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const BEACON_NODE_DIR: &str = "beacon";
@@ -29,6 +29,7 @@ pub const NETWORK_DIR: &str = "network";
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
     spec_constants: &str,
+    spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
     let mut client_config = ClientConfig::default();
@@ -140,14 +141,6 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
-    if let Some(enr_address_str) = cli_args.value_of("enr-address") {
-        client_config.network.enr_address = Some(
-            enr_address_str
-                .parse()
-                .map_err(|_| format!("Invalid discovery address: {:?}", enr_address_str))?,
-        )
-    }
-
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
         client_config.network.enr_udp_port = Some(
             enr_udp_port_str
@@ -175,6 +168,40 @@ pub fn get_config<E: EthSpec>(
             client_config.network.enr_address = Some(client_config.network.listen_address);
         }
         client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
+    }
+
+    if let Some(enr_address) = cli_args.value_of("enr-address") {
+        let resolved_addr = match enr_address.parse::<IpAddr>() {
+            Ok(addr) => addr, // // Input is an IpAddr
+            Err(_) => {
+                let mut addr = enr_address.to_string();
+                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
+                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
+                // will make the node undiscoverable.
+                if let Some(enr_udp_port) = client_config.network.enr_udp_port {
+                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                } else {
+                    return Err(
+                        "enr-udp-port must be set for node to be discoverable with dns address"
+                            .into(),
+                    );
+                }
+                // `to_socket_addr()` does the dns resolution
+                // Note: `to_socket_addrs()` is a blocking call
+                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
+                    // Pick the first ip from the list of resolved addresses
+                    resolved_addrs
+                        .next()
+                        .map(|a| a.ip())
+                        .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
+                } else {
+                    return Err(format!("Failed to parse enr-address: {}", enr_address));
+                };
+                client_config.network.discv5_config.enr_update = false;
+                resolved_addr
+            }
+        };
+        client_config.network.enr_address = Some(resolved_addr);
     }
 
     if cli_args.is_present("disable_enr_auto_update") {
@@ -331,6 +358,7 @@ pub fn get_config<E: EthSpec>(
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
+    client_config.eth1.follow_distance = spec.eth1_follow_distance;
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes.append(&mut boot_nodes)
