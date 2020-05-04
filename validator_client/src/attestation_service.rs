@@ -546,7 +546,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 log_1,
                                 "Successfully published attestations";
                                 "signatures" => attestation.aggregation_bits.num_set_bits(),
-                                "head_block" => format!("{}", attestation.data.beacon_block_root),
+                                "head_block" => format!("{:?}", attestation.data.beacon_block_root),
                                 "committee_index" => attestation.data.index,
                                 "slot" => attestation.data.slot.as_u64(),
                                 "type" => "aggregated",
