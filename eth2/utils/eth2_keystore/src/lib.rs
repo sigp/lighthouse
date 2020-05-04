@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 pub use crate::crypto::Password;
 
+/// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
 
 /// Version for `Keystore`.
@@ -38,8 +39,11 @@ pub enum Error {
     InvalidSecretKeyBytes(DecodeError),
     PublicKeyMismatch,
     EmptyPassword,
+    UnableToSerialize,
+    InvalidJson,
 }
 
+/// Constructs a `Keystore`.
 pub struct KeystoreBuilder<'a> {
     keypair: &'a Keypair,
     password: Password,
@@ -49,6 +53,11 @@ pub struct KeystoreBuilder<'a> {
 }
 
 impl<'a> KeystoreBuilder<'a> {
+    /// Creates a new builder.
+    ///
+    /// ## Errors
+    ///
+    /// Returns `Error::EmptyPassword` if `password == ""`.
     pub fn new(keypair: &'a Keypair, password: Password) -> Result<Self, Error> {
         if password.as_str() == "" {
             Err(Error::EmptyPassword)
@@ -63,6 +72,7 @@ impl<'a> KeystoreBuilder<'a> {
         }
     }
 
+    /// Consumes `self`, returning a `Keystore`.
     pub fn build(self) -> Keystore {
         Keystore::new(
             self.keypair,
@@ -74,9 +84,9 @@ impl<'a> KeystoreBuilder<'a> {
     }
 }
 
-/// TODO: Implement `path` according to
-/// https://github.com/CarlBeek/EIPs/blob/bls_path/EIPS/eip-2334.md
-/// For now, `path` is set to en empty string.
+/// Provides a BLS keystore as defined in [EIP-2335](https://eips.ethereum.org/EIPS/eip-2335).
+///
+/// Use `KeystoreBuilder` to create a new keystore.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Keystore {
     crypto: Crypto,
@@ -95,32 +105,45 @@ impl Keystore {
         Keystore {
             crypto,
             uuid,
+            // TODO: Implement `path` according to
+            // https://github.com/CarlBeek/EIPs/blob/bls_path/EIPS/eip-2334.md
+            // For now, `path` is set to en empty string.
             path: String::new(),
             pubkey: keypair.pk.as_hex_string()[2..].to_string(),
             version: Version::default(),
         }
     }
 
-    /// Regenerate a BLS12-381 `Keypair` from given the `Keystore` object and
-    /// the correct password.
+    /// Regenerate a BLS12-381 `Keypair` from `self` and the correct password.
     ///
-    /// An error is returned if the password provided is incorrect or if
-    /// keystore does not contain valid hex strings or if the secret contained is not a
-    /// BLS12-381 secret key.
-    pub fn to_keypair(&self, password: Password) -> Result<Keypair, Error> {
+    /// ## Errors
+    ///
+    /// - The provided password is incorrect.
+    /// - The keystore is badly formed.
+    pub fn decrypt_keypair(&self, password: Password) -> Result<Keypair, Error> {
+        // Decrypt cipher-text into plain-text.
         let sk_bytes = self.crypto.decrypt(password)?;
+
+        // Verify that secret key material is correct length.
         if sk_bytes.len() != SECRET_KEY_LEN {
             return Err(Error::InvalidSecretKeyLen {
                 len: sk_bytes.len(),
                 expected: SECRET_KEY_LEN,
             });
         }
+
+        // Instantiate a `SecretKey`.
         let sk =
             SecretKey::from_bytes(sk_bytes.as_bytes()).map_err(Error::InvalidSecretKeyBytes)?;
+
+        // Derive a `PublicKey` from `SecretKey`.
         let pk = PublicKey::from_secret_key(&sk);
+
+        // Verify that the derived `PublicKey` matches `self`.
         if pk.as_hex_string()[2..].to_string() != self.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
+
         Ok(Keypair { sk, pk })
     }
 
@@ -128,13 +151,65 @@ impl Keystore {
     pub fn uuid(&self) -> &Uuid {
         &self.uuid
     }
+
+    /// Returns `self` encoded as a JSON object.
+    pub fn to_json_string(&self) -> Result<String, Error> {
+        serde_json::to_string(self).map_err(|_| Error::UnableToSerialize)
+    }
+
+    /// Returns `self` encoded as a JSON object.
+    pub fn from_json_str(json_string: &str) -> Result<Self, Error> {
+        serde_json::from_str(json_string).map_err(|_| Error::InvalidJson)
+    }
 }
 
-// Test cases taken from https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn password() -> Password {
+        "ilikecats".to_string().into()
+    }
+
+    fn bad_password() -> Password {
+        "idontlikecats".to_string().into()
+    }
+
+    #[test]
+    fn empty_password() {
+        assert_eq!(
+            KeystoreBuilder::new(&Keypair::random(), "".into())
+                .err()
+                .unwrap(),
+            Error::EmptyPassword
+        );
+    }
+
+    #[test]
+    fn string_round_trip() {
+        let keypair = Keypair::random();
+
+        let keystore = KeystoreBuilder::new(&keypair, password()).unwrap().build();
+
+        let json = keystore.to_json_string().unwrap();
+        let decoded = Keystore::from_json_str(&json).unwrap();
+
+        assert_eq!(
+            decoded.decrypt_keypair(bad_password()).err().unwrap(),
+            Error::InvalidPassword,
+            "should not decrypt with bad password"
+        );
+
+        assert_eq!(
+            decoded.decrypt_keypair(password()).unwrap(),
+            keypair,
+            "should decrypt with good password"
+        );
+    }
+
+    // Test cases taken from:
+    //
+    // https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
     #[test]
     fn test_vectors() {
         let expected_secret = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
@@ -208,7 +283,7 @@ mod tests {
         let test_vectors = vec![scrypt_test_vector, pbkdf2_test_vector];
         for test in test_vectors {
             let keystore: Keystore = serde_json::from_str(test).unwrap();
-            let keypair = keystore.to_keypair(password.clone()).unwrap();
+            let keypair = keystore.decrypt_keypair(password.clone()).unwrap();
             let expected_sk = hex::decode(expected_secret).unwrap();
             assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk)
         }

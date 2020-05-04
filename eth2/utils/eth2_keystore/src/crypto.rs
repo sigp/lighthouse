@@ -22,7 +22,6 @@ impl Password {
     }
 }
 
-#[cfg(test)]
 impl From<String> for Password {
     fn from(s: String) -> Password {
         Password(s)
