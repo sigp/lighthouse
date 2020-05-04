@@ -37,6 +37,41 @@ pub enum Error {
     InvalidPassword,
     InvalidSecretKeyBytes(DecodeError),
     PublicKeyMismatch,
+    EmptyPassword,
+}
+
+pub struct KeystoreBuilder<'a> {
+    keypair: &'a Keypair,
+    password: Password,
+    kdf: Kdf,
+    cipher: Cipher,
+    uuid: Uuid,
+}
+
+impl<'a> KeystoreBuilder<'a> {
+    pub fn new(keypair: &'a Keypair, password: Password) -> Result<Self, Error> {
+        if password.as_str() == "" {
+            Err(Error::EmptyPassword)
+        } else {
+            Ok(Self {
+                keypair,
+                password,
+                kdf: <_>::default(),
+                cipher: <_>::default(),
+                uuid: Uuid::new_v4(),
+            })
+        }
+    }
+
+    pub fn build(self) -> Keystore {
+        Keystore::new(
+            self.keypair,
+            self.password,
+            self.kdf,
+            self.cipher,
+            self.uuid,
+        )
+    }
 }
 
 /// TODO: Implement `path` according to
@@ -44,38 +79,25 @@ pub enum Error {
 /// For now, `path` is set to en empty string.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Keystore {
-    pub crypto: Crypto,
-    pub uuid: Uuid,
-    pub path: String,
-    pub pubkey: String,
-    pub version: Version,
+    crypto: Crypto,
+    uuid: Uuid,
+    path: String,
+    pubkey: String,
+    version: Version,
 }
 
 impl Keystore {
     /// Generate `Keystore` object for a BLS12-381 secret key from a
-    /// keypair and password. Optionally, provide params for kdf, cipher and a uuid.
-    pub fn new(
-        keypair: &Keypair,
-        password: Password,
-        kdf: Option<Kdf>,
-        cipher: Option<Cipher>,
-        uuid: Option<Uuid>,
-    ) -> Self {
-        let crypto = Crypto::encrypt(
-            password,
-            &keypair.sk.as_raw().as_bytes(),
-            kdf.unwrap_or_default(),
-            cipher.unwrap_or_default(),
-        );
-        let uuid = uuid.unwrap_or(Uuid::new_v4());
-        let version = Version::default();
-        let path = String::new();
+    /// keypair and password.
+    fn new(keypair: &Keypair, password: Password, kdf: Kdf, cipher: Cipher, uuid: Uuid) -> Self {
+        let crypto = Crypto::encrypt(password, &keypair.sk.as_raw().as_bytes(), kdf, cipher);
+
         Keystore {
             crypto,
             uuid,
-            path,
+            path: String::new(),
             pubkey: keypair.pk.as_hex_string()[2..].to_string(),
-            version,
+            version: Version::default(),
         }
     }
 
@@ -100,6 +122,11 @@ impl Keystore {
             return Err(Error::PublicKeyMismatch);
         }
         Ok(Keypair { sk, pk })
+    }
+
+    /// Returns the UUID for the keystore.
+    pub fn uuid(&self) -> &Uuid {
+        &self.uuid
     }
 }
 

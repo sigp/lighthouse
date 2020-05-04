@@ -15,6 +15,7 @@ impl fmt::Display for Password {
         write!(f, "******")
     }
 }
+
 impl Password {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
