@@ -3,7 +3,7 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version},
 };
-use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
+use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -45,28 +45,28 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
 impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
-    type Item = RPCErrorResponse<TSpec>;
+    type Item = RPCCodedResponse<TSpec>;
     type Error = RPCError;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
-            RPCErrorResponse::Success(resp) => match resp {
+            RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) => res.as_ssz_bytes(),
             },
-            RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
-            RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
-            RPCErrorResponse::Unknown(err) => err.as_ssz_bytes(),
-            RPCErrorResponse::StreamTermination(_) => {
+            RPCCodedResponse::InvalidRequest(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::ServerError(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::Unknown(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
-            return Err(RPCError::Custom(
+            return Err(RPCError::InternalError(
                 "attempting to encode data > max_packet_size".into(),
             ));
         }
@@ -106,9 +106,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 
         // Should not attempt to decode rpc chunks with length > max_packet_size
         if length > self.max_packet_size {
-            return Err(RPCError::Custom(
-                "attempting to decode data > max_packet_size".into(),
-            ));
+            return Err(RPCError::InvalidData);
         }
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
@@ -148,9 +146,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     Protocol::MetaData => match self.protocol.version {
                         Version::V1 => {
                             if decoded_buffer.len() > 0 {
-                                Err(RPCError::Custom(
-                                    "Get metadata request should be empty".into(),
-                                ))
+                                Err(RPCError::InvalidData)
                             } else {
                                 Ok(Some(RPCRequest::MetaData(PhantomData)))
                             }
@@ -212,8 +208,8 @@ impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
-            return Err(RPCError::Custom(
-                "attempting to encode data > max_packet_size".into(),
+            return Err(RPCError::InternalError(
+                "attempting to encode data > max_packet_size",
             ));
         }
 
@@ -257,9 +253,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
         // Should not attempt to decode rpc chunks with length > max_packet_size
         if length > self.max_packet_size {
-            return Err(RPCError::Custom(
-                "attempting to decode data > max_packet_size".into(),
-            ));
+            return Err(RPCError::InvalidData);
         }
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];
@@ -276,7 +270,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         ))),
                     },
                     Protocol::Goodbye => {
-                        Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
+                        // Goodbye does not have a response
+                        Err(RPCError::InvalidData)
                     }
                     Protocol::BlocksByRange => match self.protocol.version {
                         Version::V1 => Ok(Some(RPCResponse::BlocksByRange(Box::new(
@@ -330,9 +325,7 @@ impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
 
         // Should not attempt to decode rpc chunks with length > max_packet_size
         if length > self.max_packet_size {
-            return Err(RPCError::Custom(
-                "attempting to decode data > max_packet_size".into(),
-            ));
+            return Err(RPCError::InvalidData);
         }
         let mut reader = FrameDecoder::new(Cursor::new(&src));
         let mut decoded_buffer = vec![0; length];

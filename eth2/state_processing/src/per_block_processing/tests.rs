@@ -1030,6 +1030,37 @@ fn invalid_proposer_slashing_not_slashable() {
 }
 
 #[test]
+fn invalid_proposer_slashing_duplicate_slashing() {
+    let spec = MainnetEthSpec::default_spec();
+    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let test_task = ProposerSlashingTestTask::Valid;
+    let (mut block, mut state) =
+        builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
+
+    let slashing = block.message.body.proposer_slashings[0].clone();
+    let slashed_proposer = slashing.signed_header_1.message.proposer_index;
+    block.message.body.proposer_slashings.push(slashing);
+
+    let result = per_block_processing(
+        &mut state,
+        &block,
+        None,
+        BlockSignatureStrategy::NoVerification,
+        &spec,
+    );
+
+    // Expecting ProposerNotSlashable for the 2nd slashing because the validator has been
+    // slashed by the 1st slashing.
+    assert_eq!(
+        result,
+        Err(BlockProcessingError::ProposerSlashingInvalid {
+            index: 1,
+            reason: ProposerSlashingInvalid::ProposerNotSlashable(slashed_proposer)
+        })
+    );
+}
+
+#[test]
 fn invalid_bad_proposal_1_signature() {
     let spec = MainnetEthSpec::default_spec();
     let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
