@@ -669,39 +669,49 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
                 Ok(validator_subscriptions)
             })
-            .and_then(move |validator_subscriptions| {
+            .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(move |validator_subscriptions| {
                 let log = service_3.context.log.clone();
                 let count = validator_subscriptions.len();
 
-                service_3.beacon_node
-                    .http
-                    .validator()
-                    .subscribe(validator_subscriptions)
-                    .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
-                    .map(move |status| {
-                        match status {
-                            PublishStatus::Valid => {
-                                debug!(
-                                    log,
-                                    "Successfully subscribed validators";
-                                    "count" => count
-                                )
-                            },
-                            PublishStatus::Unknown => {
-                                error!(
-                                    log,
-                                    "Unknown response from subscription";
-                                )
-                            },
-                            PublishStatus::Invalid(e) => {
-                                error!(
-                                    log,
-                                    "Failed to subscribe validator";
-                                    "error" => e
-                                )
-                            },
-                        };
-                    })
+                if count == 0 {
+                    debug!(
+                        log,
+                        "No new subscriptions required"
+                    );
+
+                    Box::new(future::ok(()))
+                } else {
+                    Box::new(service_3.beacon_node
+                        .http
+                        .validator()
+                        .subscribe(validator_subscriptions)
+                        .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
+                        .map(move |status| {
+                            match status {
+                                PublishStatus::Valid => {
+                                    debug!(
+                                        log,
+                                        "Successfully subscribed validators";
+                                        "count" => count
+                                    )
+                                },
+                                PublishStatus::Unknown => {
+                                    error!(
+                                        log,
+                                        "Unknown response from subscription";
+                                    )
+                                },
+                                PublishStatus::Invalid(e) => {
+                                    error!(
+                                        log,
+                                        "Failed to subscribe validator";
+                                        "error" => e
+                                    )
+                                },
+                            };
+                        }))
+                }
+
             })
     }
 }
