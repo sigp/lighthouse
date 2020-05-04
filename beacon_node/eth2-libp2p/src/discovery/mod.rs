@@ -4,7 +4,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, CombinedKey, Keypair};
-use enr_ext::{CombinedKeyExt, ENRExt};
+use enr_ext::{CombinedKeyExt, EnrExt};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};

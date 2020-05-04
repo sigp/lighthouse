@@ -17,7 +17,7 @@ pub mod types;
 pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage};
 pub use behaviour::BehaviourEvent;
 pub use config::Config as NetworkConfig;
-pub use discovery::enr_ext::{CombinedKeyExt, ENRExt};
+pub use discovery::enr_ext::{CombinedKeyExt, EnrExt};
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use libp2p::{PeerId, Swarm};

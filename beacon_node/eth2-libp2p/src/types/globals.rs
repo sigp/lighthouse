@@ -2,6 +2,7 @@
 use crate::peer_manager::PeerDB;
 use crate::rpc::methods::MetaData;
 use crate::types::SyncState;
+use crate::EnrExt;
 use crate::{discovery::enr::Eth2Enr, Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;

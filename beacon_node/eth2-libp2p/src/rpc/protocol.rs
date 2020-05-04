@@ -361,7 +361,7 @@ where
 
     fn upgrade_outbound(self, socket: TSocket, protocol: Self::Info) -> Self::Future {
         // convert to a tokio compatible socket
-        let socket = socket.comapt();
+        let socket = socket.compat();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec =
@@ -381,13 +381,13 @@ where
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
     // NOTE: in the future a ssz::DecodeError should map to an InvalidData error
     SSZDecodeError(ssz::DecodeError),
     /// IO Error.
-    IoError(io::Error),
+    IoError(String),
     /// The peer returned a valid response but the response indicated an error.
     ErrorResponse(RPCResponseErrorCode),
     /// Timed out waiting for a response.
@@ -418,7 +418,7 @@ impl From<tokio::time::Elapsed> for RPCError {
 
 impl From<io::Error> for RPCError {
     fn from(err: io::Error) -> Self {
-        RPCError::IoError(err)
+        RPCError::IoError(err.to_string())
     }
 }
 

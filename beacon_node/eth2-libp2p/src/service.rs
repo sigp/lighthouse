@@ -2,6 +2,7 @@ use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
 use crate::types::{error, GossipKind};
+use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals};
 use futures::prelude::*;
 use futures::Stream;

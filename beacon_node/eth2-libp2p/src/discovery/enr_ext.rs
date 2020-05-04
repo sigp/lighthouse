@@ -5,7 +5,7 @@ use libp2p::core::{identity::Keypair, multiaddr::Protocol};
 use tiny_keccak::{Hasher, Keccak};
 
 /// Extend ENR for libp2p types.
-pub trait ENRExt {
+pub trait EnrExt {
     /// The libp2p `PeerId` for the record.
     fn peer_id(&self) -> PeerId;
 
@@ -26,7 +26,7 @@ pub trait CombinedKeyExt {
     fn from_libp2p(key: &libp2p::core::identity::Keypair) -> Result<CombinedKey, &'static str>;
 }
 
-impl ENRExt for Enr {
+impl EnrExt for Enr {
     /// The libp2p `PeerId` for the record.
     fn peer_id(&self) -> PeerId {
         self.public_key().into_peer_id()
