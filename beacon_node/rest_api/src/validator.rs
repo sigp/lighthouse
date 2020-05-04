@@ -12,7 +12,7 @@ use hyper::{Body, Request};
 use network::NetworkMessage;
 use rayon::prelude::*;
 use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscription};
-use slog::{error, info, warn, Logger};
+use slog::{error, info, trace, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{
@@ -605,17 +605,44 @@ fn process_aggregated_attestation<T: BeaconChainTypes>(
 ) -> Result<(), ApiError> {
     let data = &signed_aggregate.message.aggregate.data.clone();
 
-    // Verify that the attestation is valid to included on the gossip network.
-    let verified_attestation = beacon_chain
-        .verify_aggregated_attestation_for_gossip(signed_aggregate.clone())
-        .map_err(|e| {
-            handle_attestation_error(
-                e,
-                &format!("aggregated attestation {} failed gossip verification", i),
-                data,
-                log,
-            )
-        })?;
+    // Verify that the attestation is valid to be included on the gossip network.
+    //
+    // Using this gossip check for local validators is not necessarily ideal, there will be some
+    // attestations that we reject that could possibly be included in a block (e.g., attestations
+    // that late by more than 1 epoch but less than 2). We can come pick this back up if we notice
+    // that it's materially affecting validator profits. Until then, I'm hesitant to introduce yet
+    // _another_ attestation verification path.
+    let verified_attestation =
+        match beacon_chain.verify_aggregated_attestation_for_gossip(signed_aggregate.clone()) {
+            Ok(verified_attestation) => verified_attestation,
+            Err(AttnError::AttestationAlreadyKnown(attestation_root)) => {
+                trace!(
+                    log,
+                    "Ignored known attn from local validator";
+                    "attn_root" => format!("{}", attestation_root)
+                );
+
+                // Exit early with success for a known attestation, there's no need to re-process
+                // an aggregate we already know.
+                return Ok(());
+            }
+            /*
+             * It's worth noting that we don't check for `Error::AggregatorAlreadyKnown` since (at
+             * the time of writing) we check for `AttestationAlreadyKnown` first.
+             *
+             * Given this, it's impossible to hit `Error::AggregatorAlreadyKnown` without that
+             * aggregator having already produced a conflicting aggregation. This is not slashable
+             * but I think it's still the sort of condition we should error on, at least for now.
+             */
+            Err(e) => {
+                return Err(handle_attestation_error(
+                    e,
+                    &format!("aggregated attestation {} failed gossip verification", i),
+                    data,
+                    log,
+                ))
+            }
+        };
 
     // Publish the attestation to the network
     if let Err(e) = network_chan.try_send(NetworkMessage::Publish {
