@@ -699,7 +699,7 @@ fn handle_attestation_error(
                 "Internal error verifying local attestation";
                 "detail" => detail,
                 "error" => format!("{:?}", e),
-                "target" => data.source.epoch,
+                "target" => data.target.epoch,
                 "source" => data.source.epoch,
                 "index" => data.index,
                 "slot" => data.slot,
@@ -716,7 +716,7 @@ fn handle_attestation_error(
                 "Invalid local attestation";
                 "detail" => detail,
                 "reason" => format!("{:?}", e),
-                "target" => data.source.epoch,
+                "target" => data.target.epoch,
                 "source" => data.source.epoch,
                 "index" => data.index,
                 "slot" => data.slot,
