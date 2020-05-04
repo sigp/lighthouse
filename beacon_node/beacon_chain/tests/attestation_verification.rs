@@ -122,6 +122,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     let signed_aggregate = SignedAggregateAndProof::from_aggregate(
         aggregator_index as u64,
         aggregate,
+        None,
         &aggregator_sk,
         &state.fork,
         chain.genesis_validators_root,
@@ -427,6 +428,7 @@ fn aggregated_gossip_verification() {
             SignedAggregateAndProof::from_aggregate(
                 non_aggregator_index as u64,
                 valid_aggregate.message.aggregate.clone(),
+                None,
                 &non_aggregator_sk,
                 &harness.chain.head_info().unwrap().fork,
                 harness.chain.genesis_validators_root,
