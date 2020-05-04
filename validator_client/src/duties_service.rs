@@ -21,17 +21,17 @@ const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
 /// Remove any duties where the `duties_epoch < current_epoch - PRUNE_DEPTH`.
 const PRUNE_DEPTH: u64 = 4;
 
-type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, DutyAndState>>;
+type BaseHashMap = HashMap<PublicKey, HashMap<Epoch, DutyAndProof>>;
 
 #[derive(Debug, Clone)]
-pub struct DutyAndState {
+pub struct DutyAndProof {
     /// The validator duty.
     pub duty: ValidatorDuty,
     /// Stores the selection proof if the duty elects the validator to be an aggregator.
     pub selection_proof: Option<SelectionProof>,
 }
 
-impl DutyAndState {
+impl DutyAndProof {
     /// Computes the selection proof for `self.validator_pubkey` and `self.duty.attestation_slot`,
     /// storing it in `self.selection_proof` _if_ the validator is an aggregator. If the validator
     /// is not an aggregator, `self.selection_proof` is set to `None`.
@@ -106,10 +106,10 @@ impl DutyAndState {
     }
 }
 
-impl TryInto<DutyAndState> for ValidatorDutyBytes {
+impl TryInto<DutyAndProof> for ValidatorDutyBytes {
     type Error = String;
 
-    fn try_into(self) -> Result<DutyAndState, Self::Error> {
+    fn try_into(self) -> Result<DutyAndProof, Self::Error> {
         let duty = ValidatorDuty {
             validator_pubkey: (&self.validator_pubkey)
                 .try_into()
@@ -121,7 +121,7 @@ impl TryInto<DutyAndState> for ValidatorDutyBytes {
             block_proposal_slots: self.block_proposal_slots,
             aggregator_modulo: self.aggregator_modulo,
         };
-        Ok(DutyAndState {
+        Ok(DutyAndProof {
             duty,
             selection_proof: None,
         })
@@ -210,7 +210,7 @@ impl DutiesStore {
             .collect()
     }
 
-    fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<DutyAndState> {
+    fn attesters(&self, slot: Slot, slots_per_epoch: u64) -> Vec<DutyAndProof> {
         self.store
             .read()
             .iter()
@@ -234,7 +234,7 @@ impl DutiesStore {
     fn insert<T: SlotClock + 'static, E: EthSpec>(
         &self,
         epoch: Epoch,
-        mut duties: DutyAndState,
+        mut duties: DutyAndProof,
         slots_per_epoch: u64,
         validator_store: &ValidatorStore<T, E>,
     ) -> Result<InsertOutcome, String> {
@@ -425,7 +425,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
-    pub fn attesters(&self, slot: Slot) -> Vec<DutyAndState> {
+    pub fn attesters(&self, slot: Slot) -> Vec<DutyAndProof> {
         self.store.attesters(slot, E::slots_per_epoch())
     }
 
@@ -591,7 +591,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 // list of new or changed selections proofs for any aggregating validators.
                 let validator_subscriptions = all_duties.into_iter().filter_map(|remote_duties| {
                     // Convert the remote duties into our local representation.
-                    let duties: DutyAndState = remote_duties
+                    let duties: DutyAndProof = remote_duties
                         .try_into()
                         .map_err(|e| error!(
                             log,

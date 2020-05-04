@@ -1,5 +1,5 @@
 use crate::{
-    duties_service::{DutiesService, DutyAndState},
+    duties_service::{DutiesService, DutyAndProof},
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
@@ -197,15 +197,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndState>> = service
+        let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = service
             .duties_service
             .attesters(slot)
             .into_iter()
-            .fold(HashMap::new(), |mut map, duty_and_state| {
-                if let Some(committee_index) = duty_and_state.duty.attestation_committee_index {
+            .fold(HashMap::new(), |mut map, duty_and_proof| {
+                if let Some(committee_index) = duty_and_proof.duty.attestation_committee_index {
                     let validator_duties = map.entry(committee_index).or_insert_with(|| vec![]);
 
-                    validator_duties.push(duty_and_state);
+                    validator_duties.push(duty_and_proof);
                 }
 
                 map
@@ -246,7 +246,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
-        validator_duties: Vec<DutyAndState>,
+        validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
     ) -> Box<dyn Future<Item = (), Error = ()> + Send> {
         // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
@@ -329,7 +329,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
-        validator_duties: Arc<Vec<DutyAndState>>,
+        validator_duties: Arc<Vec<DutyAndProof>>,
     ) -> Box<dyn Future<Item = Option<Attestation<E>>, Error = String> + Send> {
         if validator_duties.is_empty() {
             return Box::new(future::ok(None));
@@ -473,7 +473,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     fn produce_and_publish_aggregates(
         &self,
         attestation: Attestation<E>,
-        validator_duties: Arc<Vec<DutyAndState>>,
+        validator_duties: Arc<Vec<DutyAndProof>>,
     ) -> impl Future<Item = (), Error = String> {
         let service_1 = self.clone();
         let log_1 = self.context.log.clone();
@@ -489,18 +489,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     // a `SignedAggregateAndProof`
                     let signed_aggregate_and_proofs = validator_duties
                         .iter()
-                        .filter_map(|duty_and_state| {
+                        .filter_map(|duty_and_proof| {
                             // Do not produce a signed aggregator for validators that are not
                             // subscribed aggregators.
-                            let selection_proof = duty_and_state.selection_proof.as_ref()?.clone();
+                            let selection_proof = duty_and_proof.selection_proof.as_ref()?.clone();
 
                             let (duty_slot, duty_committee_index, _, validator_index) =
-                                duty_and_state.attestation_duties().or_else(|| {
+                                duty_and_proof.attestation_duties().or_else(|| {
                                     crit!(log_1, "Missing duties when signing aggregate");
                                     None
                                 })?;
 
-                            let pubkey = &duty_and_state.duty.validator_pubkey;
+                            let pubkey = &duty_and_proof.duty.validator_pubkey;
                             let slot = attestation.data.slot;
                             let committee_index = attestation.data.index;
 
