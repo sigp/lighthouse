@@ -1,3 +1,9 @@
+//! This module intends to separate the JSON representation of the keystore from the actual crypto
+//! logic.
+//!
+//! This module **MUST NOT** contain any logic beyond what is required to serialize/deserialize the
+//! data structures. Specifically, there should not be any actual crypto logic in this file.
+
 mod checksum_module;
 mod cipher_module;
 mod hex_bytes;

@@ -1,4 +1,4 @@
-use crate::DKLEN;
+use crate::keystore::DKLEN;
 use zeroize::Zeroize;
 
 #[derive(Zeroize)]
