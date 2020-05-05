@@ -1,18 +1,17 @@
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{future, Future, IntoFuture, Stream};
+use futures::{FutureExt, StreamExt};
 use parking_lot::RwLock;
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use rest_types::{ValidatorDuty, ValidatorDutyBytes, ValidatorSubscription};
-use slog::{crit, debug, error, info, trace, warn};
+use slog::{debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, CommitteeIndex, Epoch, EthSpec, PublicKey, SelectionProof, Slot};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
@@ -440,54 +439,52 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         let interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            Interval::new(
+            interval_at(
                 Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,
                 slot_duration,
             )
         };
 
         let (exit_signal, exit_fut) = exit_future::signal();
-        let service = self.clone();
-        let log_1 = log.clone();
-        let log_2 = log.clone();
+        let service_1 = self.clone();
+        let service_2 = self.clone();
 
         // Run an immediate update before starting the updater service.
-        self.context.executor.spawn(service.clone().do_update());
+        tokio::task::spawn(service_1.do_update());
 
-        self.context.executor.spawn(
-            exit_fut
-                .until(
-                    interval
-                        .map_err(move |e| {
-                            crit! {
-                                log_1,
-                                "Timer thread failed";
-                                "error" => format!("{}", e)
-                            }
-                        })
-                        .for_each(move |_| service.clone().do_update().then(|_| Ok(()))),
-                )
-                .map(move |_| info!(log_2, "Shutdown complete")),
+        let interval_fut = interval.for_each(move |_| {
+            let _ = service_2.clone().do_update();
+            futures::future::ready(())
+        });
+
+        let future = futures::future::select(
+            interval_fut,
+            exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
+        tokio::task::spawn(future);
 
         Ok(exit_signal)
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
-    fn do_update(&self) -> impl Future<Item = (), Error = ()> {
+    async fn do_update(self) -> Result<(), ()> {
+        let log_1 = self.context.log.clone();
+        let log_2 = self.context.log.clone();
+        let log_3 = self.context.log.clone();
+        let log = self.context.log.clone();
+
         let service_1 = self.clone();
         let service_2 = self.clone();
         let service_3 = self.clone();
         let service_4 = self.clone();
-        let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
+        let service_5 = self.clone();
 
-        self.slot_clock
+        let current_epoch = service_1
+            .slot_clock
             .now()
             .ok_or_else(move || {
                 error!(log_1, "Duties manager failed to read slot clock");
             })
-            .into_future()
             .map(move |slot| {
                 let epoch = slot.epoch(E::slots_per_epoch());
 
@@ -501,218 +498,202 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         "current_epoch" => epoch.as_u64(),
                     );
 
-                    service_1.store.prune(prune_below);
+                    self.store.prune(prune_below);
                 }
 
                 epoch
-            })
-            .and_then(move |epoch| {
-                let log = service_2.context.log.clone();
+            })?;
 
-                service_2
-                    .beacon_node
-                    .http
-                    .beacon()
-                    .get_head()
-                    .map(move |head| (epoch, head.slot.epoch(E::slots_per_epoch())))
-                    .map_err(move |e| {
-                        error!(
-                                log,
-                                "Failed to contact beacon node";
-                                "error" => format!("{:?}", e)
-                        )
-                    })
-            })
-            .and_then(move |(current_epoch, beacon_head_epoch)| {
-                let log = service_3.context.log.clone();
+        let beacon_head_epoch = service_2
+            .beacon_node
+            .http
+            .beacon()
+            .get_head()
+            .await
+            .map(|head| head.slot.epoch(E::slots_per_epoch()))
+            .map_err(move |e| {
+                error!(
+                        log_3,
+                        "Failed to contact beacon node";
+                        "error" => format!("{:?}", e)
+                )
+            })?;
+        
 
-                let future: Box<dyn Future<Item = (), Error = ()> + Send> = if beacon_head_epoch + 1
-                    < current_epoch
-                    && !service_3.allow_unsynced_beacon_node
-                {
+        if beacon_head_epoch + 1 < current_epoch && !service_3.allow_unsynced_beacon_node {
+            error!(
+                log,
+                "Beacon node is not synced";
+                "node_head_epoch" => format!("{}", beacon_head_epoch),
+                "current_epoch" => format!("{}", current_epoch),
+            );
+        } else {
+            let result = service_4.clone().update_epoch(current_epoch).await;
+            if let Err(e) = result {
+                error!(
+                    log,
+                    "Failed to get current epoch duties";
+                    "http_error" => format!("{:?}", e)
+                );
+            }
+
+            service_5.clone().update_epoch(current_epoch + 1)
+                .await
+                .map_err(move |e| {
                     error!(
                         log,
-                        "Beacon node is not synced";
-                        "node_head_epoch" => format!("{}", beacon_head_epoch),
-                        "current_epoch" => format!("{}", current_epoch),
+                        "Failed to get next epoch duties";
+                        "http_error" => format!("{:?}", e)
                     );
-
-                    Box::new(future::ok(()))
-                } else {
-                    Box::new(service_3.update_epoch(current_epoch).then(move |result| {
-                        if let Err(e) = result {
-                            error!(
-                                log,
-                                "Failed to get current epoch duties";
-                                "http_error" => format!("{:?}", e)
-                            );
-                        }
-
-                        let log = service_4.context.log.clone();
-                        service_4.update_epoch(current_epoch + 1).map_err(move |e| {
-                            error!(
-                                log,
-                                "Failed to get next epoch duties";
-                                "http_error" => format!("{:?}", e)
-                            );
-                        })
-                    }))
-                };
-
-                future
-            })
-            .map(|_| ())
+                })?;
+        };
+        Ok(())
     }
 
     /// Attempt to download the duties of all managed validators for the given `epoch`.
-    fn update_epoch(self, epoch: Epoch) -> impl Future<Item = (), Error = String> {
-        let service_1 = self.clone();
-        let service_2 = self.clone();
-        let service_3 = self;
-
-        let pubkeys = service_1.validator_store.voting_pubkeys();
-        service_1
+    async fn update_epoch(self, epoch: Epoch) -> Result<(), String> {
+        let pubkeys = self.validator_store.voting_pubkeys();
+        let all_duties = self
             .beacon_node
             .http
             .validator()
             .get_duties(epoch, pubkeys.as_slice())
-            .map(move |all_duties| (epoch, all_duties))
-            .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))
-            .and_then(move |(epoch, all_duties)| {
-                let log = service_2.context.log.clone();
+            .await
+            .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))?;
 
-                let mut new_validator = 0;
-                let mut new_epoch = 0;
-                let mut identical = 0;
-                let mut replaced = 0;
-                let mut invalid = 0;
+        let log = self.context.log.clone();
 
-                // For each of the duties, attempt to insert them into our local store and build a
-                // list of new or changed selections proofs for any aggregating validators.
-                let validator_subscriptions = all_duties.into_iter().filter_map(|remote_duties| {
-                    // Convert the remote duties into our local representation.
-                    let duties: DutyAndProof = remote_duties
-                        .try_into()
-                        .map_err(|e| error!(
+        let mut new_validator = 0;
+        let mut new_epoch = 0;
+        let mut identical = 0;
+        let mut replaced = 0;
+        let mut invalid = 0;
+
+        // For each of the duties, attempt to insert them into our local store and build a
+        // list of new or changed selections proofs for any aggregating validators.
+        let validator_subscriptions = all_duties
+            .into_iter()
+            .filter_map(|remote_duties| {
+                // Convert the remote duties into our local representation.
+                let duties: DutyAndProof = remote_duties
+                    .try_into()
+                    .map_err(|e| {
+                        error!(
                             log,
                             "Unable to convert remote duties";
                             "error" => e
-                        ))
-                        .ok()?;
+                        )
+                    })
+                    .ok()?;
 
-                    // Attempt to update our local store.
-                    let outcome = service_2
-                        .store
-                        .insert(epoch, duties.clone(), E::slots_per_epoch(), &service_2.validator_store)
-                        .map_err(|e| error!(
+                // Attempt to update our local store.
+                let outcome = self
+                    .store
+                    .insert(
+                        epoch,
+                        duties.clone(),
+                        E::slots_per_epoch(),
+                        &self.validator_store,
+                    )
+                    .map_err(|e| {
+                        error!(
                             log,
                             "Unable to store duties";
                             "error" => e
-                        ))
-                        .ok()?;
+                        )
+                    })
+                    .ok()?;
 
-                    match &outcome {
-                        InsertOutcome::NewValidator => {
-                            debug!(
-                                log,
-                                "First duty assignment for validator";
-                                "proposal_slots" => format!("{:?}", &duties.duty.block_proposal_slots),
-                                "attestation_slot" => format!("{:?}", &duties.duty.attestation_slot),
-                                "validator" => format!("{:?}", &duties.duty.validator_pubkey)
-                            );
-                            new_validator += 1;
-                        }
-                        InsertOutcome::NewEpoch => new_epoch += 1,
-                        InsertOutcome::Identical => identical += 1,
-                        InsertOutcome::Replaced { .. } => replaced += 1,
-                        InsertOutcome::Invalid => invalid += 1,
-                    };
-
-                    if outcome.is_subscription_candidate() {
-                        Some(ValidatorSubscription {
-                            validator_index: duties.duty.validator_index?,
-                            attestation_committee_index: duties.duty.attestation_committee_index?,
-                            slot: duties.duty.attestation_slot?,
-                            is_aggregator: duties.selection_proof.is_some(),
-                        })
-                    } else {
-                        None
+                match &outcome {
+                    InsertOutcome::NewValidator => {
+                        debug!(
+                            log,
+                            "First duty assignment for validator";
+                            "proposal_slots" => format!("{:?}", &duties.duty.block_proposal_slots),
+                            "attestation_slot" => format!("{:?}", &duties.duty.attestation_slot),
+                            "validator" => format!("{:?}", &duties.duty.validator_pubkey)
+                        );
+                        new_validator += 1;
                     }
-                }).collect::<Vec<_>>();
+                    InsertOutcome::NewEpoch => new_epoch += 1,
+                    InsertOutcome::Identical => identical += 1,
+                    InsertOutcome::Replaced { .. } => replaced += 1,
+                    InsertOutcome::Invalid => invalid += 1,
+                };
 
-                if invalid > 0 {
-                    error!(
-                        log,
-                        "Received invalid duties from beacon node";
-                        "bad_duty_count" => invalid,
-                        "info" => "Duties are from wrong epoch."
-                    )
-                }
-
-                trace!(
-                    log,
-                    "Performed duties update";
-                    "identical" => identical,
-                    "new_epoch" => new_epoch,
-                    "new_validator" => new_validator,
-                    "replaced" => replaced,
-                    "epoch" => format!("{}", epoch)
-                );
-
-                if replaced > 0 {
-                    warn!(
-                        log,
-                        "Duties changed during routine update";
-                        "info" => "Chain re-org likely occurred."
-                    )
-                }
-
-                Ok(validator_subscriptions)
-            })
-            .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(move |validator_subscriptions| {
-                let log = service_3.context.log.clone();
-                let count = validator_subscriptions.len();
-
-                if count == 0 {
-                    debug!(
-                        log,
-                        "No new subscriptions required"
-                    );
-
-                    Box::new(future::ok(()))
+                if outcome.is_subscription_candidate() {
+                    Some(ValidatorSubscription {
+                        validator_index: duties.duty.validator_index?,
+                        attestation_committee_index: duties.duty.attestation_committee_index?,
+                        slot: duties.duty.attestation_slot?,
+                        is_aggregator: duties.selection_proof.is_some(),
+                    })
                 } else {
-                    Box::new(service_3.beacon_node
-                        .http
-                        .validator()
-                        .subscribe(validator_subscriptions)
-                        .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
-                        .map(move |status| {
-                            match status {
-                                PublishStatus::Valid => {
-                                    debug!(
-                                        log,
-                                        "Successfully subscribed validators";
-                                        "count" => count
-                                    )
-                                },
-                                PublishStatus::Unknown => {
-                                    error!(
-                                        log,
-                                        "Unknown response from subscription";
-                                    )
-                                },
-                                PublishStatus::Invalid(e) => {
-                                    error!(
-                                        log,
-                                        "Failed to subscribe validator";
-                                        "error" => e
-                                    )
-                                },
-                            };
-                        }))
+                    None
                 }
-
             })
+            .collect::<Vec<_>>();
+
+        if invalid > 0 {
+            error!(
+                log,
+                "Received invalid duties from beacon node";
+                "bad_duty_count" => invalid,
+                "info" => "Duties are from wrong epoch."
+            )
+        }
+
+        trace!(
+            log,
+            "Performed duties update";
+            "identical" => identical,
+            "new_epoch" => new_epoch,
+            "new_validator" => new_validator,
+            "replaced" => replaced,
+            "epoch" => format!("{}", epoch)
+        );
+
+        if replaced > 0 {
+            warn!(
+                log,
+                "Duties changed during routine update";
+                "info" => "Chain re-org likely occurred."
+            )
+        }
+
+        let log = self.context.log.clone();
+        let count = validator_subscriptions.len();
+
+        if count == 0 {
+            debug!(log, "No new subscriptions required");
+
+            Ok(())
+        } else {
+            self.beacon_node
+                .http
+                .validator()
+                .subscribe(validator_subscriptions)
+                .await
+                .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
+                .map(move |status| {
+                    match status {
+                        PublishStatus::Valid => debug!(
+                            log,
+                            "Successfully subscribed validators";
+                            "count" => count
+                        ),
+                        PublishStatus::Unknown => error!(
+                            log,
+                            "Unknown response from subscription";
+                        ),
+                        PublishStatus::Invalid(e) => error!(
+                            log,
+                            "Failed to subscribe validator";
+                            "error" => e
+                        ),
+                    };
+                })
+        }
     }
 }
 
