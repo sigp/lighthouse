@@ -252,5 +252,14 @@ macro_rules! bytes_struct {
                 Ok(signature)
             }
         }
+
+        #[cfg(feature = "arbitrary")]
+        impl $crate::arbitrary::Arbitrary for $name {
+			fn arbitrary(u: &mut $crate::arbitrary::Unstructured<'_>) -> $crate::arbitrary::Result<Self> {
+				let mut bytes = [0u8; $byte_size];
+				u.fill_buffer(&mut bytes)?;
+                Self::from_bytes(&bytes).map_err(|_| $crate::arbitrary::Error::IncorrectFormat)
+			}
+		}
     };
 }

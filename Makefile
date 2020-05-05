@@ -58,6 +58,10 @@ lint:
 make-ef-tests:
 	make -C $(EF_TESTS)
 
+# Verifies that state_processing feature arbitrary-fuzz will compile
+arbitrary-fuzz:
+	cargo check --manifest-path=eth2/state_processing/Cargo.toml --features arbitrary-fuzz
+
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
 	cargo clean
