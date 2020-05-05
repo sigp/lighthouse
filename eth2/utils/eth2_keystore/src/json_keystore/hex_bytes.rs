@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
-/// Used for ensuring that serde only decodes valid checksum functions.
+/// To allow serde to encode/decode byte arrays from HEX ASCII strings.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct HexBytes(Vec<u8>);

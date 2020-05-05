@@ -1,6 +1,6 @@
 use zeroize::Zeroize;
 
-/// Provides wrapper around `Vec<u8>` that implements zeroize.
+/// Provides wrapper around `Vec<u8>` that implements `Zeroize`.
 #[derive(Zeroize, Clone, PartialEq)]
 #[zeroize(drop)]
 pub struct PlainText(Vec<u8>);

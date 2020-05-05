@@ -1,6 +1,7 @@
 use crate::keystore::DKLEN;
 use zeroize::Zeroize;
 
+/// Provides wrapper around `[u8; DKLEN]` that implements `Zeroize`.
 #[derive(Zeroize)]
 #[zeroize(drop)]
 pub struct DerivedKey([u8; DKLEN as usize]);
