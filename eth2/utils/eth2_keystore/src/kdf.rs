@@ -49,6 +49,7 @@ impl DerivedKey {
 
 /// Parameters for `pbkdf2` key derivation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Pbkdf2 {
     pub c: u32,
     pub dklen: u32,
@@ -81,6 +82,7 @@ impl Pbkdf2 {
 
 /// Parameters for `scrypt` key derivation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Scrypt {
     pub dklen: u32,
     pub n: u32,

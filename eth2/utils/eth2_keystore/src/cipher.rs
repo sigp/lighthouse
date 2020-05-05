@@ -1,6 +1,7 @@
 use crypto::aes::{ctr, KeySize};
 use rand::prelude::*;
 use serde::{de, Deserialize, Serialize, Serializer};
+use std::convert::TryFrom;
 use std::default::Default;
 use zeroize::Zeroize;
 
@@ -45,16 +46,43 @@ fn from_slice(bytes: &[u8]) -> Option<[u8; IV_SIZE]> {
     Some(array)
 }
 
+/// Used for ensuring that serde only decodes valid cipher functions.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum CipherFunction {
+    Aes128Ctr,
+}
+
+impl Into<String> for CipherFunction {
+    fn into(self) -> String {
+        match self {
+            CipherFunction::Aes128Ctr => "aes-128-ctr".into(),
+        }
+    }
+}
+
+impl TryFrom<String> for CipherFunction {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.as_ref() {
+            "aes-128-ctr" => Ok(CipherFunction::Aes128Ctr),
+            other => Err(format!("Unsupported cipher function: {}", other)),
+        }
+    }
+}
+
 /// Cipher module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct CipherModule {
-    pub function: String,
+    pub function: CipherFunction,
     pub params: Cipher,
     pub message: String,
 }
 
 /// Parameters for AES128 with ctr mode.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Aes128Ctr {
     #[serde(serialize_with = "serialize_iv")]
     #[serde(deserialize_with = "deserialize_iv")]
@@ -108,7 +136,7 @@ where
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum Cipher {
     Aes128Ctr(Aes128Ctr),
 }
@@ -121,9 +149,9 @@ impl Default for Cipher {
 }
 
 impl Cipher {
-    pub fn function(&self) -> String {
+    pub fn function(&self) -> CipherFunction {
         match &self {
-            Cipher::Aes128Ctr(_) => "aes-128-ctr".to_string(),
+            Cipher::Aes128Ctr(_) => CipherFunction::Aes128Ctr,
         }
     }
 }
