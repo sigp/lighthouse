@@ -9,7 +9,6 @@ pub use uuid::Uuid;
 use bls::{Keypair, PublicKey, SecretKey};
 use crypto::{digest::Digest, sha2::Sha256};
 use derived_key::DerivedKey;
-use hex::FromHexError;
 use json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, HexBytes, JsonKeystore, Kdf,
     KdfModule, Pbkdf2, Prf, Sha256Checksum, Version,
@@ -18,6 +17,7 @@ use plain_text::PlainText;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use ssz::DecodeError;
+use std::io::{Read, Write};
 
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
@@ -33,13 +33,14 @@ const HASH_SIZE: usize = 32;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
-    InvalidCipherMessageHex(FromHexError),
     InvalidPassword,
     InvalidSecretKeyBytes(DecodeError),
     PublicKeyMismatch,
     EmptyPassword,
-    UnableToSerialize,
+    UnableToSerialize(String),
     InvalidJson(String),
+    WriteError(String),
+    ReadError(String),
     IncorrectIvSize { expected: usize, len: usize },
 }
 
@@ -50,6 +51,7 @@ pub struct KeystoreBuilder<'a> {
     kdf: Kdf,
     cipher: Cipher,
     uuid: Uuid,
+    path: String,
 }
 
 impl<'a> KeystoreBuilder<'a> {
@@ -58,7 +60,7 @@ impl<'a> KeystoreBuilder<'a> {
     /// ## Errors
     ///
     /// Returns `Error::EmptyPassword` if `password == ""`.
-    pub fn new(keypair: &'a Keypair, password: Password) -> Result<Self, Error> {
+    pub fn new(keypair: &'a Keypair, password: Password, path: String) -> Result<Self, Error> {
         if password.as_str() == "" {
             Err(Error::EmptyPassword)
         } else {
@@ -76,6 +78,7 @@ impl<'a> KeystoreBuilder<'a> {
                 }),
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
                 uuid: Uuid::new_v4(),
+                path,
             })
         }
     }
@@ -88,6 +91,7 @@ impl<'a> KeystoreBuilder<'a> {
             self.kdf,
             self.cipher,
             self.uuid,
+            self.path,
         )
     }
 }
@@ -110,6 +114,7 @@ impl Keystore {
         kdf: Kdf,
         cipher: Cipher,
         uuid: Uuid,
+        path: String,
     ) -> Result<Self, Error> {
         // Generate derived key
         let derived_key = derive_key(&password, &kdf);
@@ -153,10 +158,7 @@ impl Keystore {
                     },
                 },
                 uuid,
-                // TODO: Implement `path` according to
-                // https://github.com/CarlBeek/EIPs/blob/bls_path/EIPS/eip-2334.md
-                // For now, `path` is set to en empty string.
-                path: String::new(),
+                path,
                 pubkey: keypair.pk.as_hex_string()[2..].to_string(),
                 version: Version::four(),
             },
@@ -224,14 +226,24 @@ impl Keystore {
         &self.json.uuid
     }
 
-    /// Returns `self` encoded as a JSON object.
+    /// Encodes `self` as a JSON object.
     pub fn to_json_string(&self) -> Result<String, Error> {
-        serde_json::to_string(self).map_err(|_| Error::UnableToSerialize)
+        serde_json::to_string(self).map_err(|e| Error::UnableToSerialize(format!("{}", e)))
     }
 
     /// Returns `self` encoded as a JSON object.
     pub fn from_json_str(json_string: &str) -> Result<Self, Error> {
         serde_json::from_str(json_string).map_err(|e| Error::InvalidJson(format!("{}", e)))
+    }
+
+    /// Encodes self as a JSON object to the given `writer`.
+    pub fn to_json_writer<W: Write>(&self, writer: W) -> Result<(), Error> {
+        serde_json::to_writer(writer, self).map_err(|e| Error::WriteError(format!("{}", e)))
+    }
+
+    /// Instantiates `self` from a JSON `reader`.
+    pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
+        serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
     }
 }
 

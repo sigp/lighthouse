@@ -2,8 +2,10 @@
 
 use bls::Keypair;
 use eth2_keystore::{Error, Keystore, KeystoreBuilder, Password};
+use std::fs::OpenOptions;
+use tempfile::tempdir;
 
-fn password() -> Password {
+fn good_password() -> Password {
     "ilikecats".to_string().into()
 }
 
@@ -14,7 +16,7 @@ fn bad_password() -> Password {
 #[test]
 fn empty_password() {
     assert_eq!(
-        KeystoreBuilder::new(&Keypair::random(), "".into())
+        KeystoreBuilder::new(&Keypair::random(), "".into(), "".into())
             .err()
             .unwrap(),
         Error::EmptyPassword
@@ -25,7 +27,7 @@ fn empty_password() {
 fn string_round_trip() {
     let keypair = Keypair::random();
 
-    let keystore = KeystoreBuilder::new(&keypair, password())
+    let keystore = KeystoreBuilder::new(&keypair, good_password(), "".into())
         .unwrap()
         .build()
         .unwrap();
@@ -40,7 +42,46 @@ fn string_round_trip() {
     );
 
     assert_eq!(
-        decoded.decrypt_keypair(password()).unwrap(),
+        decoded.decrypt_keypair(good_password()).unwrap(),
+        keypair,
+        "should decrypt with good password"
+    );
+}
+
+#[test]
+fn file() {
+    let keypair = Keypair::random();
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("keystore.json");
+
+    let get_file = || {
+        OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create(true)
+            .open(path.clone())
+            .expect("should create file")
+    };
+
+    let keystore = KeystoreBuilder::new(&keypair, good_password(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    keystore
+        .to_json_writer(&mut get_file())
+        .expect("should write to file");
+
+    let decoded = Keystore::from_json_reader(&mut get_file()).expect("should read from file");
+
+    assert_eq!(
+        decoded.decrypt_keypair(bad_password()).err().unwrap(),
+        Error::InvalidPassword,
+        "should not decrypt with bad password"
+    );
+
+    assert_eq!(
+        decoded.decrypt_keypair(good_password()).unwrap(),
         keypair,
         "should decrypt with good password"
     );
