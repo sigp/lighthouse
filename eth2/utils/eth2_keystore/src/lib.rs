@@ -1,3 +1,6 @@
+//! Provides a JSON keystore for a BLS keypair, as specified by
+//! [EIP-2335](https://eips.ethereum.org/EIPS/eip-2335).
+
 mod derived_key;
 mod json_keystore;
 mod password;
@@ -22,12 +25,24 @@ use std::io::{Read, Write};
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
 /// The default byte length of the salt used to seed the KDF.
+///
+/// NOTE: there is no clear guidance in EIP-2335 regarding the size of this salt. Neither
+/// [pbkdf2](https://www.ietf.org/rfc/rfc2898.txt) or [scrypt](https://tools.ietf.org/html/rfc7914)
+/// make a clear statement about what size it should be, however 32-bytes certainly seems
+/// reasonable and larger than their examples.
 const SALT_SIZE: usize = 32;
 /// The length of the derived key.
 const DKLEN: u32 = 32;
-// TODO: comment
+/// Size of the IV (initialization vector) used for aes-128-ctr encryption of private key material.
+///
+/// NOTE: the EIP-2335 test vectors use a 16-byte IV whilst RFC3868 uses an 8-byte IV. Reference:
+///
+/// - https://tools.ietf.org/html/rfc3686
+/// - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
+///
+/// I (Paul H) have raised with this Carl B., the author of EIP2335 and await a response.
 const IV_SIZE: usize = 16;
-// TODO: comment
+/// The byte size of a SHA256 hash.
 const HASH_SIZE: usize = 32;
 
 #[derive(Debug, PartialEq)]
@@ -116,25 +131,20 @@ impl Keystore {
         uuid: Uuid,
         path: String,
     ) -> Result<Self, Error> {
-        // Generate derived key
         let derived_key = derive_key(&password, &kdf);
 
         let secret = PlainText::from(keypair.sk.as_raw().as_bytes());
 
         // Encrypt secret.
-        let cipher_message: Vec<u8> = match &cipher {
+        let mut cipher_text = vec![0; secret.len()];
+        match &cipher {
             Cipher::Aes128Ctr(params) => {
-                // TODO: sanity checks
-                // TODO: check IV size
-                let mut cipher_text = vec![0; secret.len()];
-
                 crypto::aes::ctr(
                     crypto::aes::KeySize::KeySize128,
                     derived_key.aes_key(),
-                    &get_iv(params.iv.as_bytes())?,
+                    params.iv.as_bytes(),
                 )
                 .process(secret.as_bytes(), &mut cipher_text);
-                cipher_text
             }
         };
 
@@ -149,12 +159,12 @@ impl Keystore {
                     checksum: ChecksumModule {
                         function: Sha256Checksum::function(),
                         params: EmptyMap,
-                        message: generate_checksum(&derived_key, &cipher_message),
+                        message: generate_checksum(&derived_key, &cipher_text),
                     },
                     cipher: CipherModule {
                         function: cipher.function(),
                         params: cipher.clone(),
-                        message: cipher_message.into(),
+                        message: cipher_text.into(),
                     },
                 },
                 uuid,
@@ -184,31 +194,35 @@ impl Keystore {
             return Err(Error::InvalidPassword);
         }
 
-        let sk_bytes = match &self.json.crypto.cipher.params {
+        let mut plain_text = PlainText::zero(cipher_message.len());
+        match &self.json.crypto.cipher.params {
             Cipher::Aes128Ctr(params) => {
-                // cipher.decrypt(&derived_key.aes_key(), &cipher_message)
-                let mut pt = PlainText::zero(cipher_message.len());
                 crypto::aes::ctr(
                     crypto::aes::KeySize::KeySize128,
                     derived_key.aes_key(),
-                    &get_iv(&params.iv.as_bytes())?,
+                    // NOTE: we do not check the size of the `iv` as there is no guidance about
+                    // this on EIP-2335.
+                    //
+                    // Reference:
+                    //
+                    // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
+                    params.iv.as_bytes(),
                 )
-                .process(cipher_message.as_bytes(), pt.as_mut_bytes());
-                pt
+                .process(cipher_message.as_bytes(), plain_text.as_mut_bytes());
             }
         };
 
         // Verify that secret key material is correct length.
-        if sk_bytes.len() != SECRET_KEY_LEN {
+        if plain_text.len() != SECRET_KEY_LEN {
             return Err(Error::InvalidSecretKeyLen {
-                len: sk_bytes.len(),
+                len: plain_text.len(),
                 expected: SECRET_KEY_LEN,
             });
         }
 
         // Instantiate a `SecretKey`.
         let sk =
-            SecretKey::from_bytes(sk_bytes.as_bytes()).map_err(Error::InvalidSecretKeyBytes)?;
+            SecretKey::from_bytes(plain_text.as_bytes()).map_err(Error::InvalidSecretKeyBytes)?;
 
         // Derive a `PublicKey` from `SecretKey`.
         let pk = PublicKey::from_secret_key(&sk);
@@ -289,20 +303,6 @@ fn derive_key(password: &Password, kdf: &Kdf) -> DerivedKey {
     }
 
     dk
-}
-
-// TODO: what says IV _must_ be 4 bytes?
-fn get_iv(bytes: &[u8]) -> Result<[u8; IV_SIZE], Error> {
-    if bytes.len() == IV_SIZE {
-        let mut iv = [0; IV_SIZE];
-        iv.copy_from_slice(bytes);
-        Ok(iv)
-    } else {
-        Err(Error::IncorrectIvSize {
-            expected: IV_SIZE,
-            len: bytes.len(),
-        })
-    }
 }
 
 /// Compute floor of log2 of a u32.
