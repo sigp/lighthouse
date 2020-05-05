@@ -135,7 +135,7 @@ impl Keystore {
             Cipher::Aes128Ctr(params) => {
                 crypto::aes::ctr(
                     crypto::aes::KeySize::KeySize128,
-                    derived_key.aes_key(),
+                    &derived_key.as_bytes()[0..16],
                     params.iv.as_bytes(),
                 )
                 .process(secret.as_bytes(), &mut cipher_text);
@@ -193,7 +193,7 @@ impl Keystore {
             Cipher::Aes128Ctr(params) => {
                 crypto::aes::ctr(
                     crypto::aes::KeySize::KeySize128,
-                    derived_key.aes_key(),
+                    &derived_key.as_bytes()[0..16],
                     // NOTE: we do not check the size of the `iv` as there is no guidance about
                     // this on EIP-2335.
                     //
@@ -259,7 +259,7 @@ impl Keystore {
 /// `cipher_message`.
 fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> HexBytes {
     let mut hasher = Sha256::new();
-    hasher.input(derived_key.checksum_slice());
+    hasher.input(&derived_key.as_bytes()[16..32]);
     hasher.input(cipher_message);
 
     let mut digest = vec![0; HASH_SIZE];
