@@ -20,7 +20,6 @@ impl From<String> for Password {
     }
 }
 
-#[cfg(test)]
 impl<'a> From<&'a str> for Password {
     fn from(s: &'a str) -> Password {
         Password::from(String::from(s))

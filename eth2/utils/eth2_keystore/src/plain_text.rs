@@ -26,3 +26,9 @@ impl PlainText {
         &mut self.0
     }
 }
+
+impl From<Vec<u8>> for PlainText {
+    fn from(vec: Vec<u8>) -> Self {
+        Self(vec)
+    }
+}
