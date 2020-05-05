@@ -147,7 +147,7 @@ impl Keystore {
                 crypto: Crypto {
                     kdf: KdfModule {
                         function: kdf.function(),
-                        params: kdf.clone(),
+                        params: kdf,
                         message: HexBytes::empty(),
                     },
                     checksum: ChecksumModule {
@@ -157,7 +157,7 @@ impl Keystore {
                     },
                     cipher: CipherModule {
                         function: cipher.function(),
-                        params: cipher.clone(),
+                        params: cipher,
                         message: cipher_text.into(),
                     },
                 },
