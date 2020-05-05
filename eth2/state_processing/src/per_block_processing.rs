@@ -33,7 +33,11 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// The strategy to be used when validating the block's signatures.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(PartialEq, Clone, Copy)]
 pub enum BlockSignatureStrategy {
     /// Do not validate any signature. Use with caution.
@@ -45,6 +49,7 @@ pub enum BlockSignatureStrategy {
 }
 
 /// The strategy to be used when validating the block's signatures.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(PartialEq, Clone, Copy)]
 pub enum VerifySignatures {
     /// Validate all signatures encountered.

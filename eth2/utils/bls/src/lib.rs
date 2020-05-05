@@ -16,6 +16,9 @@ pub use crate::signature_bytes::SignatureBytes;
 pub use milagro_bls::{compress_g2, hash_to_curve_g2};
 pub use signature_set::{verify_signature_sets, SignatureSet};
 
+#[cfg(feature = "arbitrary")]
+pub use arbitrary;
+
 #[cfg(feature = "fake_crypto")]
 mod fake_aggregate_public_key;
 #[cfg(feature = "fake_crypto")]
