@@ -1,35 +1,33 @@
-mod checksum;
-mod cipher;
-mod crypto;
-mod kdf;
+mod derived_key;
+mod json_keystore;
+mod password;
+mod plain_text;
 
-use crate::cipher::Cipher;
-use crate::crypto::Crypto;
-use crate::kdf::Kdf;
 use bls::{Keypair, PublicKey, SecretKey};
+use crypto::{digest::Digest, sha2::Sha256};
+use derived_key::DerivedKey;
 use hex::FromHexError;
+use json_keystore::{
+    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, HexBytes, JsonKeystore, Kdf,
+    KdfModule, Pbkdf2, Prf, Sha256Checksum, Version,
+};
+use password::Password;
+use plain_text::PlainText;
+use rand::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_repr::*;
 use ssz::DecodeError;
 use uuid::Uuid;
 
-pub use crate::crypto::Password;
-
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
-
-/// Version for `Keystore`.
-#[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
-#[repr(u8)]
-pub enum Version {
-    V4 = 4,
-}
-
-impl Default for Version {
-    fn default() -> Self {
-        Version::V4
-    }
-}
+/// The default byte length of the salt used to seed the KDF.
+const SALT_SIZE: usize = 32;
+/// The length of the derived key.
+const DKLEN: u32 = 32;
+// TODO: comment
+const IV_SIZE: usize = 16;
+// TODO: comment
+const HASH_SIZE: usize = 32;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -41,6 +39,7 @@ pub enum Error {
     EmptyPassword,
     UnableToSerialize,
     InvalidJson(String),
+    IncorrectIvSize { expected: usize, len: usize },
 }
 
 /// Constructs a `Keystore`.
@@ -62,19 +61,27 @@ impl<'a> KeystoreBuilder<'a> {
         if password.as_str() == "" {
             Err(Error::EmptyPassword)
         } else {
+            let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
+            let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
+
             Ok(Self {
                 keypair,
                 password,
-                kdf: <_>::default(),
-                cipher: <_>::default(),
+                kdf: Kdf::Pbkdf2(Pbkdf2 {
+                    dklen: DKLEN,
+                    c: 262144,
+                    prf: Prf::default(),
+                    salt: salt.to_vec().into(),
+                }),
+                cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
                 uuid: Uuid::new_v4(),
             })
         }
     }
 
     /// Consumes `self`, returning a `Keystore`.
-    pub fn build(self) -> Keystore {
-        Keystore::new(
+    pub fn build(self) -> Result<Keystore, Error> {
+        Keystore::encrypt(
             self.keypair,
             self.password,
             self.kdf,
@@ -89,29 +96,73 @@ impl<'a> KeystoreBuilder<'a> {
 /// Use `KeystoreBuilder` to create a new keystore.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Keystore {
-    crypto: Crypto,
-    uuid: Uuid,
-    path: String,
-    pubkey: String,
-    version: Version,
+    json: JsonKeystore,
 }
 
 impl Keystore {
     /// Generate `Keystore` object for a BLS12-381 secret key from a
     /// keypair and password.
-    fn new(keypair: &Keypair, password: Password, kdf: Kdf, cipher: Cipher, uuid: Uuid) -> Self {
-        let crypto = Crypto::encrypt(password, &keypair.sk.as_raw().as_bytes(), kdf, cipher);
+    fn encrypt(
+        keypair: &Keypair,
+        password: Password,
+        kdf: Kdf,
+        cipher: Cipher,
+        uuid: Uuid,
+    ) -> Result<Self, Error> {
+        // Generate derived key
+        let derived_key = derive_key(&password, &kdf);
 
-        Keystore {
-            crypto,
-            uuid,
-            // TODO: Implement `path` according to
-            // https://github.com/CarlBeek/EIPs/blob/bls_path/EIPS/eip-2334.md
-            // For now, `path` is set to en empty string.
-            path: String::new(),
-            pubkey: keypair.pk.as_hex_string()[2..].to_string(),
-            version: Version::default(),
-        }
+        // TODO: the keypair secret isn't zeroized.
+        let secret = keypair.sk.as_raw().as_bytes();
+
+        // Encrypt secret
+        let cipher_message: Vec<u8> = match &cipher {
+            Cipher::Aes128Ctr(params) => {
+                // TODO: sanity checks
+                // TODO: check IV size
+                // cipher.encrypt(derived_key.aes_key(), &keypair.sk.as_raw().as_bytes())
+                let mut cipher_text = vec![0; secret.len()];
+
+                crypto::aes::ctr(
+                    crypto::aes::KeySize::KeySize128,
+                    derived_key.aes_key(),
+                    &get_iv(params.iv.as_bytes())?,
+                )
+                .process(&secret, &mut cipher_text);
+                cipher_text
+            }
+        };
+
+        let crypto = Crypto {
+            kdf: KdfModule {
+                function: kdf.function(),
+                params: kdf.clone(),
+                message: HexBytes::empty(),
+            },
+            checksum: ChecksumModule {
+                function: Sha256Checksum::function(),
+                params: EmptyMap,
+                message: generate_checksum(&derived_key, &cipher_message),
+            },
+            cipher: CipherModule {
+                function: cipher.function(),
+                params: cipher.clone(),
+                message: cipher_message.into(),
+            },
+        };
+
+        Ok(Keystore {
+            json: JsonKeystore {
+                crypto,
+                uuid,
+                // TODO: Implement `path` according to
+                // https://github.com/CarlBeek/EIPs/blob/bls_path/EIPS/eip-2334.md
+                // For now, `path` is set to en empty string.
+                path: String::new(),
+                pubkey: keypair.pk.as_hex_string()[2..].to_string(),
+                version: Version::four(),
+            },
+        })
     }
 
     /// Regenerate a BLS12-381 `Keypair` from `self` and the correct password.
@@ -121,8 +172,31 @@ impl Keystore {
     /// - The provided password is incorrect.
     /// - The keystore is badly formed.
     pub fn decrypt_keypair(&self, password: Password) -> Result<Keypair, Error> {
-        // Decrypt cipher-text into plain-text.
-        let sk_bytes = self.crypto.decrypt(password)?;
+        let cipher_message = &self.json.crypto.cipher.message;
+
+        // Generate derived key
+        let derived_key = derive_key(&password, &self.json.crypto.kdf.params);
+
+        // Mismatching checksum indicates an invalid password.
+        if generate_checksum(&derived_key, cipher_message.as_bytes())
+            != self.json.crypto.checksum.message
+        {
+            return Err(Error::InvalidPassword);
+        }
+
+        let sk_bytes = match &self.json.crypto.cipher.params {
+            Cipher::Aes128Ctr(params) => {
+                // cipher.decrypt(&derived_key.aes_key(), &cipher_message)
+                let mut pt = PlainText::zero(cipher_message.len());
+                crypto::aes::ctr(
+                    crypto::aes::KeySize::KeySize128,
+                    derived_key.aes_key(),
+                    &get_iv(&params.iv.as_bytes())?,
+                )
+                .process(cipher_message.as_bytes(), pt.as_mut_bytes());
+                pt
+            }
+        };
 
         // Verify that secret key material is correct length.
         if sk_bytes.len() != SECRET_KEY_LEN {
@@ -140,7 +214,7 @@ impl Keystore {
         let pk = PublicKey::from_secret_key(&sk);
 
         // Verify that the derived `PublicKey` matches `self`.
-        if pk.as_hex_string()[2..].to_string() != self.pubkey {
+        if pk.as_hex_string()[2..].to_string() != self.json.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
 
@@ -149,7 +223,7 @@ impl Keystore {
 
     /// Returns the UUID for the keystore.
     pub fn uuid(&self) -> &Uuid {
-        &self.uuid
+        &self.json.uuid
     }
 
     /// Returns `self` encoded as a JSON object.
@@ -163,6 +237,71 @@ impl Keystore {
     }
 }
 
+fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> HexBytes {
+    let mut hasher = Sha256::new();
+    hasher.input(derived_key.checksum_slice());
+    hasher.input(cipher_message);
+
+    let mut digest = vec![0; HASH_SIZE];
+    hasher.result(&mut digest);
+
+    digest.into()
+}
+
+fn derive_key(password: &Password, kdf: &Kdf) -> DerivedKey {
+    // Generate derived key
+    match &kdf {
+        Kdf::Pbkdf2(params) => {
+            let mut dk = DerivedKey::zero();
+            let mut mac = params.prf.mac(password.as_bytes());
+            crypto::pbkdf2::pbkdf2(
+                &mut mac,
+                params.salt.as_bytes(),
+                params.c,
+                dk.as_mut_bytes(),
+            );
+            dk
+        }
+        Kdf::Scrypt(params) => {
+            let mut dk = DerivedKey::zero();
+
+            // Assert that `n` is power of 2
+            debug_assert_eq!(params.n, 2u32.pow(log2_int(params.n)));
+
+            crypto::scrypt::scrypt(
+                password.as_bytes(),
+                params.salt.as_bytes(),
+                &crypto::scrypt::ScryptParams::new(log2_int(params.n) as u8, params.r, params.p),
+                dk.as_mut_bytes(),
+            );
+            dk
+        }
+    }
+}
+
+// TODO: what says IV _must_ be 4 bytes?
+fn get_iv(bytes: &[u8]) -> Result<[u8; IV_SIZE], Error> {
+    if bytes.len() == IV_SIZE {
+        let mut iv = [0; IV_SIZE];
+        iv.copy_from_slice(bytes);
+        Ok(iv)
+    } else {
+        Err(Error::IncorrectIvSize {
+            expected: IV_SIZE,
+            len: bytes.len(),
+        })
+    }
+}
+
+/// Compute floor of log2 of a u32.
+fn log2_int(x: u32) -> u32 {
+    if x == 0 {
+        return 0;
+    }
+    31 - x.leading_zeros()
+}
+
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -837,3 +976,4 @@ mod tests {
         }
     }
 }
+*/
