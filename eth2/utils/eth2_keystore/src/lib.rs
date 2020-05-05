@@ -4,6 +4,7 @@
 mod derived_key;
 mod keystore;
 mod password;
+mod path;
 mod plain_text;
 
 pub mod json_keystore;
