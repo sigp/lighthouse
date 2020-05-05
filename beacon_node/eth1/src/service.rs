@@ -644,7 +644,7 @@ impl Service {
                 .unwrap_or_else(|| "n/a".into());
 
             if blocks_imported > 0 {
-                info!(
+                debug!(
                     service_1.log,
                     "Imported eth1 block(s)";
                     "latest_block_age" => latest_block_mins,
