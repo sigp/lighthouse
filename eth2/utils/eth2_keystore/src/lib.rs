@@ -40,7 +40,7 @@ pub enum Error {
     PublicKeyMismatch,
     EmptyPassword,
     UnableToSerialize,
-    InvalidJson,
+    InvalidJson(String),
 }
 
 /// Constructs a `Keystore`.
@@ -159,7 +159,7 @@ impl Keystore {
 
     /// Returns `self` encoded as a JSON object.
     pub fn from_json_str(json_string: &str) -> Result<Self, Error> {
-        serde_json::from_str(json_string).map_err(|_| Error::InvalidJson)
+        serde_json::from_str(json_string).map_err(|e| Error::InvalidJson(format!("{}", e)))
     }
 }
 
@@ -325,10 +325,10 @@ mod tests {
         }
         "#;
 
-        assert_eq!(
-            Keystore::from_json_str(&vector).err().unwrap(),
-            Error::InvalidJson
-        );
+        match Keystore::from_json_str(&vector) {
+            Err(Error::InvalidJson(_)) => {}
+            _ => panic!("expected invalid json error"),
+        }
     }
 
     #[test]
@@ -375,5 +375,174 @@ mod tests {
                 .unwrap(),
             Error::InvalidPassword
         );
+    }
+
+    #[test]
+    fn json_invalid_kdf_function() {
+        let vector = r#"
+            {
+            "crypto": {
+                "kdf": {
+                    "function": "not-scrypt",
+                    "params": {
+                        "dklen": 32,
+                        "n": 262144,
+                        "p": 1,
+                        "r": 8,
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "sha256",
+                    "params": {},
+                    "message": "149aafa27b041f3523c53d7acba1905fa6b1c90f9fef137568101f44b531a3cb"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "54ecc8863c0550351eee5720f3be6a5d4a016025aa91cd6436cfec938d6a8d30"
+                }
+            },
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "uuid": "1d85ae20-35c5-4611-98e8-aa14a633906f",
+            "path": "",
+            "version": 4
+        }
+        "#;
+
+        match Keystore::from_json_str(&vector) {
+            Err(Error::InvalidJson(_)) => {}
+            _ => panic!("expected invalid json error"),
+        }
+    }
+
+    #[test]
+    fn json_invalid_missing_scrypt_param() {
+        let vector = r#"
+            {
+            "crypto": {
+                "kdf": {
+                    "function": "scrypt",
+                    "params": {
+                        "dklen": 32,
+                        "n": 262144,
+                        "p": 1,
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "sha256",
+                    "params": {},
+                    "message": "149aafa27b041f3523c53d7acba1905fa6b1c90f9fef137568101f44b531a3cb"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "54ecc8863c0550351eee5720f3be6a5d4a016025aa91cd6436cfec938d6a8d30"
+                }
+            },
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "uuid": "1d85ae20-35c5-4611-98e8-aa14a633906f",
+            "path": "",
+            "version": 4
+        }
+        "#;
+
+        match Keystore::from_json_str(&vector) {
+            Err(Error::InvalidJson(_)) => {}
+            _ => panic!("expected invalid json error"),
+        }
+    }
+
+    #[test]
+    fn json_invalid_checksum_function() {
+        let vector = r#"
+            {
+            "crypto": {
+                "kdf": {
+                    "function": "scrypt",
+                    "params": {
+                        "dklen": 32,
+                        "n": 262144,
+                        "p": 1,
+                        "r": 8,
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "not-sha256",
+                    "params": {},
+                    "message": "149aafa27b041f3523c53d7acba1905fa6b1c90f9fef137568101f44b531a3cb"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "54ecc8863c0550351eee5720f3be6a5d4a016025aa91cd6436cfec938d6a8d30"
+                }
+            },
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "uuid": "1d85ae20-35c5-4611-98e8-aa14a633906f",
+            "path": "",
+            "version": 4
+        }
+        "#;
+
+        match Keystore::from_json_str(&vector) {
+            Err(Error::InvalidJson(_)) => {}
+            _ => panic!("expected invalid json error"),
+        }
+    }
+
+    #[test]
+    fn json_invalid_checksum_params() {
+        let vector = r#"
+            {
+            "crypto": {
+                "kdf": {
+                    "function": "scrypt",
+                    "params": {
+                        "dklen": 32,
+                        "n": 262144,
+                        "p": 1,
+                        "r": 8,
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "sha256",
+                    "params": {
+                        "cats": "lol"
+                    },
+                    "message": "149aafa27b041f3523c53d7acba1905fa6b1c90f9fef137568101f44b531a3cb"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "54ecc8863c0550351eee5720f3be6a5d4a016025aa91cd6436cfec938d6a8d30"
+                }
+            },
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "uuid": "1d85ae20-35c5-4611-98e8-aa14a633906f",
+            "path": "",
+            "version": 4
+        }
+        "#;
+
+        match Keystore::from_json_str(&vector) {
+            Err(Error::InvalidJson(_)) => {}
+            _ => panic!("expected invalid json error"),
+        }
     }
 }

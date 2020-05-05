@@ -1,4 +1,4 @@
-use crate::checksum::{ChecksumModule, Sha256Checksum};
+use crate::checksum::{ChecksumModule, EmptyMap, Sha256Checksum};
 use crate::cipher::{Cipher, CipherModule, PlainText};
 use crate::kdf::{Kdf, KdfModule};
 use crate::Error;
@@ -65,7 +65,7 @@ impl Crypto {
             },
             checksum: ChecksumModule {
                 function: Sha256Checksum::function(),
-                params: serde_json::Value::Object(serde_json::Map::default()),
+                params: EmptyMap,
                 message: Sha256Checksum::generate(&derived_key, &cipher_message),
             },
             cipher: CipherModule {

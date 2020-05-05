@@ -2,6 +2,7 @@ use crypto::sha2::Sha256;
 use crypto::{hmac::Hmac, mac::Mac, pbkdf2, scrypt};
 use rand::prelude::*;
 use serde::{de, Deserialize, Serialize, Serializer};
+use std::convert::TryFrom;
 use std::default::Default;
 use zeroize::Zeroize;
 
@@ -165,10 +166,39 @@ impl Default for Kdf {
 }
 
 impl Kdf {
-    pub fn function(&self) -> String {
+    pub fn function(&self) -> KdfFunction {
         match &self {
-            Kdf::Pbkdf2(_) => "pbkdf2".to_string(),
-            Kdf::Scrypt(_) => "scrypt".to_string(),
+            Kdf::Pbkdf2(_) => KdfFunction::Pbkdf2,
+            Kdf::Scrypt(_) => KdfFunction::Scrypt,
+        }
+    }
+}
+
+/// Used for ensuring that serde only decodes valid KDF functions.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum KdfFunction {
+    Scrypt,
+    Pbkdf2,
+}
+
+impl Into<String> for KdfFunction {
+    fn into(self) -> String {
+        match self {
+            KdfFunction::Scrypt => "scrypt".into(),
+            KdfFunction::Pbkdf2 => "pbkdf2".into(),
+        }
+    }
+}
+
+impl TryFrom<String> for KdfFunction {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.as_ref() {
+            "scrypt" => Ok(KdfFunction::Scrypt),
+            "pbkdf2" => Ok(KdfFunction::Pbkdf2),
+            other => Err(format!("Unsupported kdf function: {}", other)),
         }
     }
 }
@@ -176,7 +206,7 @@ impl Kdf {
 /// KDF module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct KdfModule {
-    pub function: String,
+    pub function: KdfFunction,
     pub params: Kdf,
     pub message: String,
 }
