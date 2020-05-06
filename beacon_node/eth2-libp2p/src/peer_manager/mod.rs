@@ -6,7 +6,7 @@ use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{NetworkGlobals, PeerId};
 use futures::prelude::*;
 use futures::Stream;
-use hashmap_delay::HashSetDelay;
+use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
