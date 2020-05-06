@@ -8,8 +8,8 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33.0"
-hex = "0.3"
-dirs = "2.0"
+hex = "0.4.2"
+dirs = "2.0.2"
 types = { path = "../../types" }
 eth2_testnet_config = { path = "../eth2_testnet_config" }
-eth2_ssz = { path = "../ssz" }
+eth2_ssz = "0.1.2"

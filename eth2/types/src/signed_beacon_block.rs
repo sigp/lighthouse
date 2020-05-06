@@ -3,14 +3,13 @@ use crate::{
     SignedRoot, SigningRoot, Slot,
 };
 use bls::Signature;
-
-use std::fmt;
-
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::fmt;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SignedBeaconBlockHash(Hash256);
 
@@ -41,6 +40,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 /// A `BeaconBlock` and a signature from its proposer.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBeaconBlock<E: EthSpec> {

@@ -1,4 +1,5 @@
 use crate::*;
+
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
@@ -131,6 +132,7 @@ macro_rules! params_from_eth_spec {
 /// Ethereum Foundation specifications.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
@@ -164,6 +166,7 @@ pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
@@ -198,6 +201,7 @@ impl EthSpec for MinimalEthSpec {
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 
 /// Interop testnet spec
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct InteropEthSpec;
 

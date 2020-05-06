@@ -179,6 +179,15 @@ impl<'de> Deserialize<'de> for AggregateSignature {
     }
 }
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary for AggregateSignature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; BLS_AGG_SIG_BYTE_SIZE];
+        u.fill_buffer(&mut bytes)?;
+        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{Keypair, Signature};

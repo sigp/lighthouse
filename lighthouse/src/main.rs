@@ -6,6 +6,7 @@ use clap::{App, Arg, ArgMatches};
 use clap_utils;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
+use eth2_testnet_config::HARDCODED_TESTNET;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
@@ -155,6 +156,14 @@ fn run<E: EthSpec>(
         log,
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
+
+    if !matches.is_present("testnet-dir") {
+        info!(
+            log,
+            "Using default testnet";
+            "default" => HARDCODED_TESTNET
+        )
+    }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.

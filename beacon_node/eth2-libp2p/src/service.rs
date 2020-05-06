@@ -2,6 +2,7 @@ use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
 use crate::types::{error, GossipKind};
+use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals};
 use futures::prelude::*;
 use futures::Stream;
@@ -9,23 +10,20 @@ use libp2p::core::{
     identity::Keypair,
     multiaddr::Multiaddr,
     muxing::StreamMuxerBox,
-    nodes::Substream,
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
-    ConnectedPoint,
 };
 use libp2p::{core, noise, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
 use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::timer::DelayQueue;
+use tokio::time::DelayQueue;
 use types::{EnrForkId, EthSpec};
-
-type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour<TSpec> = Behaviour<Substream<StreamMuxerBox>, TSpec>;
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
@@ -36,7 +34,7 @@ const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
 pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
     //TODO: Make this private
-    pub swarm: Swarm<Libp2pStream, Libp2pBehaviour<TSpec>>,
+    pub swarm: Swarm<Behaviour<TSpec>>,
 
     /// This node's PeerId.
     pub local_peer_id: PeerId,
@@ -84,7 +82,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
         let mut swarm = {
             // Set up the transport - tcp/ws with noise/secio and mplex/yamux
-            let transport = build_transport(local_keypair.clone());
+            let transport = build_transport(local_keypair.clone())
+                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
             Swarm::new(transport, behaviour, local_peer_id.clone())
@@ -179,42 +178,35 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 }
 
+// TODO: Convert to an async function via building a stored stream from libp2p swarm
 impl<TSpec: EthSpec> Stream for Service<TSpec> {
-    type Item = BehaviourEvent<TSpec>;
-    type Error = error::Error;
+    type Item = Result<BehaviourEvent<TSpec>, error::Error>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            match self.swarm.poll() {
-                Ok(Async::Ready(Some(event))) => {
-                    return Ok(Async::Ready(Some(event)));
+            match self.swarm.poll_next_unpin(cx) {
+                Poll::Ready(Some(event)) => {
+                    return Poll::Ready(Some(Ok(event)));
                 }
-                Ok(Async::Ready(None)) => unreachable!("Swarm stream shouldn't end"),
-                Ok(Async::NotReady) => break,
-                _ => break,
+                Poll::Ready(None) => unreachable!("Swarm stream shouldn't end"),
+                Poll::Pending => break,
             }
         }
 
         // check if peers need to be banned
         loop {
-            match self.peers_to_ban.poll() {
-                Ok(Async::Ready(Some(peer_id))) => {
+            match self.peers_to_ban.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
                     let peer_id = peer_id.into_inner();
                     Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
                     // TODO: Correctly notify protocols of the disconnect
                     // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
-                    let dummy_connected_point = ConnectedPoint::Dialer {
-                        address: "/ip4/0.0.0.0"
-                            .parse::<Multiaddr>()
-                            .expect("valid multiaddr"),
-                    };
-                    self.swarm
-                        .inject_disconnected(&peer_id, dummy_connected_point);
+                    self.swarm.inject_disconnected(&peer_id);
                     // inform the behaviour that the peer has been banned
                     self.swarm.peer_banned(peer_id);
                 }
-                Ok(Async::NotReady) | Ok(Async::Ready(None)) => break,
-                Err(e) => {
+                Poll::Pending | Poll::Ready(None) => break,
+                Poll::Ready(Some(Err(e))) => {
                     warn!(self.log, "Peer banning queue failed"; "error" => format!("{:?}", e));
                 }
             }
@@ -222,31 +214,33 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
 
         // un-ban peer if it's timeout has expired
         loop {
-            match self.peer_ban_timeout.poll() {
-                Ok(Async::Ready(Some(peer_id))) => {
+            match self.peer_ban_timeout.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
                     let peer_id = peer_id.into_inner();
                     debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_id));
                     self.swarm.peer_unbanned(&peer_id);
                     Swarm::unban_peer_id(&mut self.swarm, peer_id);
                 }
-                Ok(Async::NotReady) | Ok(Async::Ready(None)) => break,
-                Err(e) => {
+                Poll::Pending | Poll::Ready(None) => break,
+                Poll::Ready(Some(Err(e))) => {
                     warn!(self.log, "Peer banning timeout queue failed"; "error" => format!("{:?}", e));
                 }
             }
         }
 
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption layer, and
 /// mplex or yamux as the multiplexing layer.
-fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
+fn build_transport(
+    local_private_key: Keypair,
+) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
     let transport = libp2p::tcp::TcpConfig::new().nodelay(true);
-    let transport = libp2p::dns::DnsConfig::new(transport);
+    let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
         let trans_clone = transport.clone();
@@ -260,7 +254,7 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
                 secio::SecioConfig::new(local_private_key),
             );
             core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1).and_then(
-                move |out| {
+                |out| async move {
                     match out {
                         // Noise was negotiated
                         core::either::EitherOutput::First((remote_id, out)) => {
@@ -288,12 +282,12 @@ fn build_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox)
             .map_outbound(move |muxer| (peer_id2, muxer));
 
             core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1)
-                .map(|(id, muxer)| (id, core::muxing::StreamMuxerBox::new(muxer)))
+                .map_ok(|(id, muxer)| (id, core::muxing::StreamMuxerBox::new(muxer)))
         })
         .timeout(Duration::from_secs(20))
         .map_err(|err| Error::new(ErrorKind::Other, err))
         .boxed();
-    transport
+    Ok(transport)
 }
 
 fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {

@@ -6,6 +6,7 @@ use std::cmp;
 use std::convert::TryInto;
 use tree_hash::TreeHash;
 
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone)]
 pub struct SelectionProof(Signature);
 

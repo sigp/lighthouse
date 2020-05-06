@@ -1,17 +1,10 @@
-use hex::ToHex;
 use serde::de::{self, Visitor};
 use std::fmt;
 
 pub fn encode<T: AsRef<[u8]>>(data: T) -> String {
-    let mut hex = String::with_capacity(data.as_ref().len() * 2);
-
-    // Writing to a string never errors, so we can unwrap here.
-    data.write_hex(&mut hex).unwrap();
-
+    let hex = hex::encode(data);
     let mut s = "0x".to_string();
-
     s.push_str(hex.as_str());
-
     s
 }
 

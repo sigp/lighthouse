@@ -11,6 +11,7 @@ use tree_hash_derive::TreeHash;
 /// A Validators aggregate attestation and selection proof.
 ///
 /// Spec v0.10.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "T: EthSpec")]
 pub struct AggregateAndProof<T: EthSpec> {

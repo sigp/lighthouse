@@ -9,11 +9,13 @@ name = "benches"
 harness = false
 
 [dev-dependencies]
-criterion = "0.3.0"
+criterion = "0.3.2"
 yaml-rust = "0.4.3"
-hex = "0.3"
-ethereum-types = "0.8.0"
+hex = "0.4.2"
 
 [dependencies]
 eth2_hashing = "0.1.0"
-ethereum-types = "0.8.0"
+ethereum-types = "0.9.1"
+
+[features]
+arbitrary = ["ethereum-types/arbitrary"]

@@ -6,12 +6,14 @@ use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{NetworkGlobals, PeerId};
 use futures::prelude::*;
 use futures::Stream;
-use hashmap_delay::HashSetDelay;
+use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
 use std::convert::TryInto;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use types::EthSpec;
 
@@ -392,8 +394,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     // For disconnected peers, lower their reputation by 1 for every hour they
                     // stay disconnected. This helps us slowly forget disconnected peers.
                     // In the same way, slowly allow banned peers back again.
-                    let dc_hours = (now - since).as_secs() / 3600;
-                    let last_dc_hours = (self.last_updated - since).as_secs() / 3600;
+                    let dc_hours = now
+                        .checked_duration_since(since)
+                        .unwrap_or_else(|| Duration::from_secs(0))
+                        .as_secs()
+                        / 3600;
+                    let last_dc_hours = self
+                        .last_updated
+                        .checked_duration_since(since)
+                        .unwrap_or_else(|| Duration::from_secs(0))
+                        .as_secs()
+                        / 3600;
                     if dc_hours > last_dc_hours {
                         // this should be 1 most of the time
                         let rep_dif = (dc_hours - last_dc_hours)
@@ -441,51 +452,41 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
 impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
     type Item = PeerManagerEvent;
-    type Error = ();
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // poll the timeouts for pings and status'
-        // TODO: Remove task notifies and temporary vecs for stable futures
-        // These exist to handle a bug in delayqueue
-        let mut peers_to_add = Vec::new();
-        while let Async::Ready(Some(peer_id)) = self.ping_peers.poll().map_err(|e| {
-            error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string());
-        })? {
-            debug!(self.log, "Pinging peer"; "peer_id" => peer_id.to_string());
-            // add the ping timer back
-            peers_to_add.push(peer_id.clone());
-            self.events.push(PeerManagerEvent::Ping(peer_id));
+        loop {
+            match self.ping_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
+                    self.ping_peers.insert(peer_id.clone());
+                    self.events.push(PeerManagerEvent::Ping(peer_id));
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e))
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
         }
 
-        if !peers_to_add.is_empty() {
-            futures::task::current().notify();
-        }
-        while let Some(peer) = peers_to_add.pop() {
-            self.ping_peers.insert(peer);
-        }
-
-        while let Async::Ready(Some(peer_id)) = self.status_peers.poll().map_err(|e| {
-            error!(self.log, "Failed to check for peers to status"; "error" => e.to_string());
-        })? {
-            debug!(self.log, "Sending Status to peer"; "peer_id" => peer_id.to_string());
-            // add the status timer back
-            peers_to_add.push(peer_id.clone());
-            self.events.push(PeerManagerEvent::Status(peer_id));
-        }
-
-        if !peers_to_add.is_empty() {
-            futures::task::current().notify();
-        }
-        while let Some(peer) = peers_to_add.pop() {
-            self.status_peers.insert(peer);
+        loop {
+            match self.status_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
+                    self.status_peers.insert(peer_id.clone());
+                    self.events.push(PeerManagerEvent::Status(peer_id))
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e))
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
         }
 
         if !self.events.is_empty() {
-            return Ok(Async::Ready(Some(self.events.remove(0))));
+            return Poll::Ready(Some(self.events.remove(0)));
         } else {
             self.events.shrink_to_fit();
         }
 
-        Ok(Async::NotReady)
+        Poll::Pending
     }
 }
