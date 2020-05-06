@@ -4,29 +4,53 @@ use num_bigint::BigUint;
 
 /// The byte size of a SHA256 hash.
 pub const HASH_SIZE: usize = 32;
+
 /// The size of the lamport array.
+///
+/// Indirectly defined in EIP-2333.
 pub const LAMPORT_ARRAY_SIZE: u8 = 255;
 
+/// The order of the BLS 12-381 curve.
+///
+/// Defined in EIP-2333.
 pub const R: &str = "52435875175126190479447740508185965837690552500527637822603658699938581184513";
 
-pub const BLS_KEY_LEN: usize = 48;
+/// The `L` value used in the `hdkf_mod_r` function.
+///
+/// In EIP-2333 this value is defined as:
+///
+/// `ceil((1.5 * ceil(log2(r))) / 8)`
+pub const MOD_R_L: usize = 48;
 
+/// Derives the "master" BLS secret key from some `seed` bytes.
+///
+/// Equivalent to `derive_master_SK` in EIP-2333.
 fn derive_master_sk(seed: &[u8]) -> [u8; HASH_SIZE] {
     hkdf_mod_r(seed)
 }
 
+/// From the given `parent_sk`, derives a child key at index`.
+///
+/// Equivalent to `derive_child_SK` in EIP-2333.
 fn derive_child_sk(parent_sk: &[u8], index: u32) -> [u8; HASH_SIZE] {
     let compressed_lamport_pk = parent_sk_to_lamport_pk(parent_sk, index);
     hkdf_mod_r(&compressed_lamport_pk)
 }
 
+/// From the `ikm` (initial key material), performs a HKDF_Extract and HKDF_Expand and generates a
+/// BLS private key within the order of the BLS-381 curve.
+///
+/// Equivalent to `HKDF_mod_r` in EIP-2333.
 fn hkdf_mod_r(ikm: &[u8]) -> [u8; HASH_SIZE] {
     let prk = hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm);
-    // TODO: justify 48.
-    let okm = &hkdf_expand(&prk, BLS_KEY_LEN);
+    let okm = &hkdf_expand(&prk, MOD_R_L);
     mod_r(&okm)
 }
 
+/// Interprets `bytes` as a big-endian integer and returns that integer modulo the order of the
+/// BLS-381 curve.
+///
+/// This function is a part of the `HKDF_mod_r` function in EIP-2333.
 fn mod_r(bytes: &[u8]) -> [u8; HASH_SIZE] {
     let n = BigUint::from_bytes_be(bytes);
     let r = BigUint::parse_bytes(R.as_bytes(), 10).expect("must be able to parse R");
@@ -39,6 +63,9 @@ fn mod_r(bytes: &[u8]) -> [u8; HASH_SIZE] {
     output
 }
 
+/// Generates a Lamport public key from the given `ikm` (which is assumed to be a BLS secret key).
+///
+/// Equivalent to `parent_SK_to_lamport_PK` in EIP-2333.
 fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
     let salt = index.to_be_bytes();
     let not_ikm = flip_bits(ikm);
@@ -73,48 +100,42 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
     compressed_lamport_pk
 }
 
+/// Generates a Lamport secret key from the `ikm` (initial key material).
+///
+/// Equivalent to `IKM_to_lamport_SK` in EIP-2333.
 fn ikm_to_lamport_sk(salt: &[u8], ikm: &[u8]) -> LamportSecretKey {
     let prk = hkdf_extract(salt, ikm);
     let okm = hkdf_expand(&prk, HASH_SIZE * LAMPORT_ARRAY_SIZE as usize);
     LamportSecretKey::from_bytes(&okm)
 }
 
+/// Peforms a `HKDF-Extract` on the `ikm` (initial key material) based up on the `salt`.
+///
+/// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
 fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; HASH_SIZE] {
     let mut prk = [0; HASH_SIZE];
     crypto::hkdf::hkdf_extract(Sha256::new(), salt, ikm, &mut prk);
     prk
 }
 
+/// Peforms a `HKDF-Expand` on the `pkr` (pseudo-random key), returning `l` bytes.
+///
+/// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
 fn hkdf_expand(prk: &[u8], l: usize) -> Vec<u8> {
     let mut okm = vec![0; l];
     crypto::hkdf::hkdf_expand(Sha256::new(), prk, &[], &mut okm);
     okm
 }
 
-/*
-fn hkdf_expand(prk: &[u8]) -> LamportSecretKey {
-    let mut okm = LamportSecretKey::zero();
-
-    for i in 0..LAMPORT_ARRAY_SIZE {
-        let mut hasher = Sha256::new();
-
-        hasher.input(prk);
-
-        if let Some(prev) = i.checked_sub(1) {
-            hasher.input(okm.get_chunk(prev))
-        }
-
-        hasher.input(&[i + 1]);
-
-        hasher.result(okm.get_mut_chunk(i));
-    }
-
-    okm
-}
-*/
-
+/// Flips each bit in the `input`.
+///
+/// Equivalent to `flip_bits` in EIP-2333.
+///
+/// ## Panics
+///
+/// If `input` is not32-bytes.
 fn flip_bits(input: &[u8]) -> [u8; HASH_SIZE] {
-    debug_assert_eq!(input.len(), HASH_SIZE);
+    assert_eq!(input.len(), HASH_SIZE);
 
     let mut output = [0; HASH_SIZE];
 
@@ -129,6 +150,7 @@ fn flip_bits(input: &[u8]) -> [u8; HASH_SIZE] {
 mod test {
     use super::*;
 
+    /// Contains the test vectors in a format that's easy for us to test against.
     struct TestVector {
         seed: Vec<u8>,
         master_sk: Vec<u8>,
@@ -139,6 +161,9 @@ mod test {
         child_sk: Vec<u8>,
     }
 
+    /// "Test Vector with Intermediate values" from:
+    ///
+    /// https://eips.ethereum.org/EIPS/eip-2333
     #[test]
     fn eip2333_intermediate_vector() {
         let vectors = TestVector::from(get_raw_vector());
@@ -188,6 +213,7 @@ mod test {
         );
     }
 
+    /// Struct to deal with easy copy-paste from specification test vectors.
     struct RawTestVector {
         seed: &'static str,
         master_sk: &'static str,
@@ -198,16 +224,20 @@ mod test {
         child_sk: &'static str,
     }
 
+    /// Converts 0x-prefixed hex to bytes.
     fn hex_to_vec(hex: &str) -> Vec<u8> {
         hex::decode(&hex[2..]).expect("should decode hex as vec")
     }
 
+    /// Converts an integer represented as a string to a big-endian byte array.
     fn int_to_vec(int_str: &str) -> Vec<u8> {
         BigUint::parse_bytes(int_str.as_bytes(), 10)
             .expect("must be able to parse int")
             .to_bytes_be()
     }
 
+    /// Converts from a format that's easy to copy-paste from the spec into a format that's easy to
+    /// test with.
     impl From<RawTestVector> for TestVector {
         fn from(raw: RawTestVector) -> TestVector {
             TestVector {
@@ -222,6 +252,7 @@ mod test {
         }
     }
 
+    /// Returns the copy-paste values from the spec.
     fn get_raw_vector() -> RawTestVector {
         RawTestVector {
         seed: "0xc55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04",
