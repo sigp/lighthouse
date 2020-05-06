@@ -12,4 +12,5 @@ pub mod json_keystore;
 
 pub use keystore::{Error, Keystore, KeystoreBuilder};
 pub use password::Password;
+pub use path::MasterKey;
 pub use uuid::Uuid;
