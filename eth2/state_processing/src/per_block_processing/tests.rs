@@ -1039,7 +1039,12 @@ fn invalid_proposer_slashing_duplicate_slashing() {
 
     let slashing = block.message.body.proposer_slashings[0].clone();
     let slashed_proposer = slashing.signed_header_1.message.proposer_index;
-    block.message.body.proposer_slashings.push(slashing);
+    block
+        .message
+        .body
+        .proposer_slashings
+        .push(slashing)
+        .expect("should push slashing");
 
     let result = per_block_processing(
         &mut state,
