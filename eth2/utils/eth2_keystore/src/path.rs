@@ -19,22 +19,15 @@ fn derive_child_sk(parent_sk: &[u8], index: u32) -> [u8; HASH_SIZE] {
 }
 
 fn hkdf_mod_r(ikm: &[u8]) -> [u8; HASH_SIZE] {
-    let lamport = &hkdf_expand(hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm).as_bytes());
-
-    // TODO: don't do all this extra work with extraction.
-    let lamport_bytes = lamport
-        .iter_chunks()
-        .map(|a| a.to_vec())
-        .flatten()
-        .collect::<Vec<u8>>();
-
     // TODO: justify 48.
-    mod_r(&lamport_bytes[0..48])
+    let okm = &hkdf_expand_basic(
+        hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm).as_bytes(),
+        48,
+    );
+    mod_r(&okm)
 }
 
 fn mod_r(bytes: &[u8]) -> [u8; HASH_SIZE] {
-    debug_assert_eq!(bytes.len(), HASH_SIZE);
-
     let n = BigUint::from_bytes_be(bytes);
     let r = BigUint::parse_bytes(R.as_bytes(), 10).expect("must be able to parse R");
     let x = (n % r).to_bytes_be();
@@ -42,7 +35,7 @@ fn mod_r(bytes: &[u8]) -> [u8; HASH_SIZE] {
     debug_assert!(x.len() <= HASH_SIZE);
 
     let mut output = [0; HASH_SIZE];
-    output[HASH_SIZE - bytes.len()..].copy_from_slice(&x);
+    output[HASH_SIZE - x.len()..].copy_from_slice(&x);
     output
 }
 
@@ -115,6 +108,37 @@ fn hkdf_expand(prk: &[u8]) -> LamportSecretKey {
     okm
 }
 
+// TODO: zeroize.
+fn hkdf_expand_basic(prk: &[u8], l: usize) -> Vec<u8> {
+    let mut okm = vec![0; HASH_SIZE];
+
+    let mut hasher = Sha256::new();
+    hasher.input(prk);
+    hasher.input(&[]); // TODO: remove this?
+    hasher.input(&[1]);
+    hasher.result(&mut okm[..]);
+
+    let mut i = 0;
+    while okm.len() < l {
+        i += 1;
+
+        let mut hasher = Sha256::new();
+        hasher.input(prk);
+        if i == 1 {
+            hasher.input(&[]); // TODO: remove this line?
+        } else {
+            hasher.input(&okm[okm.len() - 32..]); // TODO: remove this line?
+        }
+        hasher.input(&[i]);
+
+        let mut digest = [0; HASH_SIZE];
+        hasher.result(&mut digest);
+        okm.extend_from_slice(&mut digest);
+    }
+
+    okm[0..l].to_vec()
+}
+
 fn flip_bits(input: &[u8]) -> [u8; HASH_SIZE] {
     debug_assert_eq!(input.len(), HASH_SIZE);
 
@@ -131,29 +155,58 @@ fn flip_bits(input: &[u8]) -> [u8; HASH_SIZE] {
 mod test {
     use super::*;
 
+    struct TestVector {
+        seed: Vec<u8>,
+        master_sk: Vec<u8>,
+        child_index: u32,
+        lamport_0: Vec<Vec<u8>>,
+        lamport_1: Vec<Vec<u8>>,
+        compressed_lamport_pk: Vec<u8>,
+        child_sk: Vec<u8>,
+    }
+
+    #[test]
+    fn eip2333_intermediate_vector() {
+        let vectors = TestVector::from(get_raw_vector());
+        let master_sk = derive_master_sk(&vectors.seed);
+        assert_eq!(
+            &master_sk[..],
+            &vectors.master_sk[..],
+            "master_sk should match"
+        );
+    }
+
     struct RawTestVector {
         seed: &'static str,
         master_sk: &'static str,
         child_index: u32,
         lamport_0: Vec<&'static str>,
         lamport_1: Vec<&'static str>,
-        compressed_lamport_sk: &'static str,
+        compressed_lamport_pk: &'static str,
         child_sk: &'static str,
     }
 
-    struct TestVector {
-        seed: Vec<u8>,
-        master_sk: Vec<u8>,
-        child_index: u32,
-        lamport_0: Vec<[u8; HASH_SIZE]>,
-        lamport_1: Vec<[u8; HASH_SIZE]>,
-        compressed_lamport_pk: Vec<u8>,
-        child_sk: Vec<u8>,
+    fn hex_to_vec(hex: &str) -> Vec<u8> {
+        hex::decode(&hex[2..]).expect("should decode hex as vec")
+    }
+
+    fn int_to_vec(int_str: &str) -> Vec<u8> {
+        BigUint::parse_bytes(int_str.as_bytes(), 10)
+            .expect("must be able to parse int")
+            .to_bytes_be()
     }
 
     impl From<RawTestVector> for TestVector {
         fn from(raw: RawTestVector) -> TestVector {
-            todo!()
+            TestVector {
+                seed: hex_to_vec(raw.seed),
+                master_sk: int_to_vec(raw.master_sk),
+                child_index: raw.child_index,
+                lamport_0: raw.lamport_0.into_iter().map(hex_to_vec).collect(),
+                lamport_1: raw.lamport_1.into_iter().map(hex_to_vec).collect(),
+                compressed_lamport_pk: hex_to_vec(raw.compressed_lamport_pk),
+                child_sk: int_to_vec(raw.child_sk),
+            }
         }
     }
 
@@ -677,7 +730,7 @@ mod test {
             "0x17b42e81bae19591e22aa2510be06803bcb5c39946c928c977d78f346d3ca86b",
             "0x30a10c07dc9646b7cbb3e1ab722a94d2c53e04c0c19efaaea7dccba1b00f2a20",
         ],
-        compressed_lamport_sk:
+        compressed_lamport_pk:
             "0x672ba456d0257fe01910d3a799c068550e84881c8d441f8f5f833cbd6c1a9356",
         child_sk:
             "7419543105316279183937430842449358701327973165530407166294956473095303972104"
