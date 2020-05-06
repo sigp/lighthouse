@@ -386,7 +386,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
             // port is removed, which is assumed to be associated with the discv5 protocol (and
             // therefore irrelevant for other libp2p components).
-            let out_list = enr.multiaddr();
+            let mut out_list = enr.multiaddr();
             out_list.retain(|addr| {
                 addr.iter()
                     .find(|v| match v {

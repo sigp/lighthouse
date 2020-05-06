@@ -203,7 +203,7 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
             match self.inner.decode(src).map_err(RPCError::from) {
                 Ok(Some(mut packet)) => {
                     // take the bytes from the buffer
-                    let raw_bytes = packet.take();
+                    let raw_bytes = packet.split();
 
                     match self.protocol.message_name {
                         Protocol::Status => match self.protocol.version {

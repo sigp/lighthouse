@@ -182,7 +182,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 impl<TSpec: EthSpec> Stream for Service<TSpec> {
     type Item = Result<BehaviourEvent<TSpec>, error::Error>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match self.swarm.poll_next_unpin(cx) {
                 Poll::Ready(Some(event)) => {
@@ -190,7 +190,6 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
                 }
                 Poll::Ready(None) => unreachable!("Swarm stream shouldn't end"),
                 Poll::Pending => break,
-                _ => break,
             }
         }
 

@@ -466,6 +466,13 @@ where
                                 };
                                 error!(self.log, "Attempted sending multiple responses to a single response request");
                             }
+                            InboundSubstreamState::ResponsePendingFlush { substream, .. } => {
+                                *substream_state = InboundSubstreamState::ResponsePendingFlush {
+                                    substream,
+                                    closing: true,
+                                };
+                                error!(self.log, "Attempted sending multiple responses to a single response request");
+                            }
                             InboundSubstreamState::Poisoned => {
                                 crit!(self.log, "Poisoned inbound substream");
                                 unreachable!("Coding error: Poisoned substream");
@@ -510,7 +517,7 @@ where
             ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Select(
                 NegotiationError::ProtocolError(e),
             )) => match e {
-                ProtocolError::IoError(io_err) => RPCError::IoError(io_err),
+                ProtocolError::IoError(io_err) => RPCError::IoError(io_err.to_string()),
                 ProtocolError::InvalidProtocol => {
                     RPCError::InternalError("Protocol was deemed invalid")
                 }
@@ -578,7 +585,7 @@ where
                         "Could not poll inbound stream timer",
                     )));
                 }
-                Poll::Pending => break,
+                Poll::Pending | Poll::Ready(None) => break,
             }
         }
 
@@ -605,7 +612,7 @@ where
                         "Could not poll outbound stream timer",
                     )));
                 }
-                Poll::Pending => break,
+                Poll::Pending | Poll::Ready(None) => break,
             }
         }
 
@@ -641,7 +648,7 @@ where
                                             }
                                             Err(e) => {
                                                 // error with sending in the codec
-                                                error!(self.log, "Error sending RPC message"; "message" => message.to_string());
+                                                error!(self.log, "Error sending RPC message"; "error" => e.to_string());
                                                 // keep connection with the peer and return the
                                                 // stream to awaiting response if this message
                                                 // wasn't closing the stream
@@ -701,7 +708,7 @@ where
                                     }
                                     Poll::Ready(Err(e)) => {
                                         // error during flush
-                                        error!(self.log, "Error sending flushing RPC message");
+                                        error!(self.log, "Error sending flushing RPC message"; "error" => e.to_string());
                                         // close the stream if required
                                         // TODO: Duplicate code
                                         if closing {

@@ -10,19 +10,18 @@ use crate::rpc::{
     },
     methods::ResponseTermination,
 };
-use futures::future::*;
+use futures::future::Ready;
 use futures::prelude::*;
 use futures::prelude::{AsyncRead, AsyncWrite};
-use libp2p::core::{upgrade, InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
+use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use std::io;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
-    compat::{Compat, FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt},
+    compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::EthSpec;
 
@@ -375,8 +374,10 @@ where
             }
         };
 
-        let socket = Framed::new(socket, codec);
-        Box::pin(future::join(socket.send(self), future::ok(socket)).map(|(_, socket)| socket))
+        let mut socket = Framed::new(socket, codec);
+
+        let future = async { socket.send(self).await.map(|_| socket) };
+        Box::pin(future)
     }
 }
 
@@ -411,7 +412,7 @@ impl From<ssz::DecodeError> for RPCError {
     }
 }
 impl From<tokio::time::Elapsed> for RPCError {
-    fn from(err: tokio::time::Elapsed) -> Self {
+    fn from(_: tokio::time::Elapsed) -> Self {
         RPCError::StreamTimeout
     }
 }
@@ -444,7 +445,7 @@ impl std::error::Error for RPCError {
         match *self {
             // NOTE: this does have a source
             RPCError::SSZDecodeError(_) => None,
-            RPCError::IoError(ref err) => Some(err),
+            RPCError::IoError(_) => None,
             RPCError::StreamTimeout => None,
             RPCError::UnsupportedProtocol => None,
             RPCError::IncompleteStream => None,
@@ -469,6 +470,7 @@ impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
     }
 }
 
+/*
 /// Converts a futures AsyncRead + AsyncWrite object to a tokio::AsyncRead + tokio::AsyncWrite
 /// object.
 struct TokioNegotiatedStream<T: AsyncRead + AsyncWrite + Unpin>(T);
@@ -498,3 +500,4 @@ impl<T: AsyncRead + AsyncWrite + Unpin> tokio::io::AsyncWrite for TokioNegotiate
         Pin::new(&mut self.0).poll_close(cx)
     }
 }
+*/

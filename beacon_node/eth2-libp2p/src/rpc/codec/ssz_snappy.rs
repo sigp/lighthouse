@@ -119,7 +119,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
                 self.len = None;
-                src.split_to(n as usize);
+                let _read_bytes = src.split_to(n as usize);
                 match self.protocol.message_name {
                     Protocol::Status => match self.protocol.version {
                         Version::V1 => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
@@ -264,7 +264,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
                 self.len = None;
-                src.split_to(n as usize);
+                let _read_byts = src.split_to(n as usize);
                 match self.protocol.message_name {
                     Protocol::Status => match self.protocol.version {
                         Version::V1 => Ok(Some(RPCResponse::Status(
@@ -336,7 +336,7 @@ impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
                 self.len = None;
-                src.split_to(n as usize);
+                let _read_bytes = src.split_to(n as usize);
                 Ok(Some(ErrorMessage::from_ssz_bytes(&decoded_buffer)?))
             }
             Err(e) => match e.kind() {

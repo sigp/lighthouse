@@ -20,7 +20,7 @@ futures = "0.3.4"
 error-chain = "0.12.2"
 dirs = "2.0.2"
 fnv = "1.0.6"
-unsigned-varint = "0.3.3"
+unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 smallvec = "1.4.0"

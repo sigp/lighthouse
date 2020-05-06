@@ -4,6 +4,7 @@ use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use discv5::Discv5Event;
+use futures::prelude::*;
 use libp2p::{
     core::{identity::Keypair, ConnectedPoint},
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},

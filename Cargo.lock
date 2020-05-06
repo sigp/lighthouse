@@ -1341,7 +1341,7 @@ dependencies = [
  "tokio-io-timeout",
  "tokio-util",
  "types",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (git+https://github.com/sigp/unsigned-varint?branch=latest-codecs)",
  "version",
  "void",
 ]
@@ -2379,7 +2379,7 @@ dependencies = [
  "sha2",
  "smallvec 1.4.0",
  "thiserror",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "void",
  "zeroize",
 ]
@@ -2454,7 +2454,7 @@ dependencies = [
  "rand 0.7.3",
  "sha2",
  "smallvec 1.4.0",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasm-timer",
 ]
 
@@ -2496,7 +2496,7 @@ dependencies = [
  "sha2",
  "smallvec 1.4.0",
  "uint",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "void",
  "wasm-timer",
 ]
@@ -2536,7 +2536,7 @@ dependencies = [
  "libp2p-core",
  "log 0.4.8",
  "parking_lot 0.10.2",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2589,7 +2589,7 @@ dependencies = [
  "prost",
  "prost-build",
  "rw-stream-sink",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "void",
 ]
 
@@ -3019,7 +3019,7 @@ dependencies = [
  "sha-1",
  "sha2",
  "sha3",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3039,7 +3039,7 @@ dependencies = [
  "log 0.4.8",
  "pin-project",
  "smallvec 1.4.0",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3272,7 +3272,7 @@ dependencies = [
  "percent-encoding 2.1.0",
  "serde",
  "static_assertions",
- "unsigned-varint",
+ "unsigned-varint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 2.1.1",
 ]
 
@@ -5512,6 +5512,15 @@ name = "unicode-xid"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
+
+[[package]]
+name = "unsigned-varint"
+version = "0.3.3"
+source = "git+https://github.com/sigp/unsigned-varint?branch=latest-codecs#76fc423494e59f1ec4c8948bd0d3ae3c09851909"
+dependencies = [
+ "bytes 0.5.4",
+ "tokio-util",
+]
 
 [[package]]
 name = "unsigned-varint"
