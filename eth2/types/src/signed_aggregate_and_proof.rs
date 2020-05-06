@@ -12,6 +12,7 @@ use tree_hash_derive::TreeHash;
 /// gossipsub topic.
 ///
 /// Spec v0.10.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "T: EthSpec")]
 pub struct SignedAggregateAndProof<T: EthSpec> {

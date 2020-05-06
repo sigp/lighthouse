@@ -88,3 +88,12 @@ impl<'de> Deserialize<'de> for AggregatePublicKey {
         Ok(agg_sig)
     }
 }
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary for AggregatePublicKey {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];
+        u.fill_buffer(&mut bytes)?;
+        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}

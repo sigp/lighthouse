@@ -9,6 +9,7 @@ use tree_hash_derive::TreeHash;
 /// Contains data obtained from the Eth1 chain.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug,
     PartialEq,

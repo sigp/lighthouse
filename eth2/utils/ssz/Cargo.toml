@@ -13,5 +13,8 @@ name = "ssz"
 eth2_ssz_derive = "0.1.0"
 
 [dependencies]
-ethereum-types = "0.8.0"
+ethereum-types = "0.9.1"
 smallvec = "1.2.0"
+
+[features]
+arbitrary = ["ethereum-types/arbitrary"]
