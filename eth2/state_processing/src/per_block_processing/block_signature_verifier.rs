@@ -22,6 +22,10 @@ pub enum Error {
     /// There was an error attempting to read from a `BeaconState`. Block
     /// validity was not determined.
     BeaconStateError(BeaconStateError),
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// Failed to load a signature set. The block may be invalid or we failed to process it.
     SignatureSetError(SignatureSetError),
 }
@@ -34,7 +38,18 @@ impl From<BeaconStateError> for Error {
 
 impl From<SignatureSetError> for Error {
     fn from(e: SignatureSetError) -> Error {
-        Error::SignatureSetError(e)
+        match e {
+            // Make a special distinction for `IncorrectBlockProposer` since it indicates an
+            // invalid block, not an internal error.
+            SignatureSetError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            } => Error::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            },
+            e => Error::SignatureSetError(e),
+        }
     }
 }
 

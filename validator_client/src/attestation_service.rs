@@ -1,12 +1,11 @@
 use crate::{
-    duties_service::{DutiesService, DutyAndState},
+    duties_service::{DutiesService, DutyAndProof},
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{future, Future, Stream};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use rest_types::ValidatorSubscription;
 use slog::{crit, debug, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -198,31 +197,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let epoch = slot.epoch(E::slots_per_epoch());
-        // Check if any attestation subscriptions are required. If there a new attestation duties for
-        // this epoch or the next, send them to the beacon node
-        let mut duties_to_subscribe = service.duties_service.unsubscribed_epoch_duties(&epoch);
-        duties_to_subscribe.append(
-            &mut service
-                .duties_service
-                .unsubscribed_epoch_duties(&(epoch + 1)),
-        );
-
-        // spawn a task to subscribe all the duties
-        service
-            .context
-            .executor
-            .spawn(self.clone().send_subscriptions(duties_to_subscribe));
-
-        let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndState>> = service
+        let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = service
             .duties_service
             .attesters(slot)
             .into_iter()
-            .fold(HashMap::new(), |mut map, duty_and_state| {
-                if let Some(committee_index) = duty_and_state.duty.attestation_committee_index {
+            .fold(HashMap::new(), |mut map, duty_and_proof| {
+                if let Some(committee_index) = duty_and_proof.duty.attestation_committee_index {
                     let validator_duties = map.entry(committee_index).or_insert_with(|| vec![]);
 
-                    validator_duties.push(duty_and_state);
+                    validator_duties.push(duty_and_proof);
                 }
 
                 map
@@ -250,81 +233,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         Ok(())
     }
 
-    /// Subscribes any required validators to the beacon node for a particular slot.
-    ///
-    /// This informs the beacon node that the validator has a duty on a particular
-    /// slot allowing the beacon node to connect to the required subnet and determine
-    /// if attestations need to be aggregated.
-    fn send_subscriptions(&self, duties: Vec<DutyAndState>) -> impl Future<Item = (), Error = ()> {
-        let service_1 = self.clone();
-        let num_duties = duties.len();
-
-        let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
-
-        let (validator_subscriptions, successful_duties): (Vec<_>, Vec<_>) = duties
-            .into_iter()
-            .filter_map(|duty| {
-                let (slot, attestation_committee_index, _, validator_index) =
-                    duty.attestation_duties()?;
-                let selection_proof = self
-                    .validator_store
-                    .produce_selection_proof(duty.validator_pubkey(), slot)?;
-                let modulo = duty.duty.aggregator_modulo?;
-                let subscription = ValidatorSubscription {
-                    validator_index,
-                    attestation_committee_index,
-                    slot,
-                    is_aggregator: selection_proof
-                        .is_aggregator(modulo)
-                        .map_err(|e| crit!(log_1, "Unable to determine aggregator: {:?}", e))
-                        .ok()?,
-                };
-
-                Some((subscription, (duty, selection_proof)))
-            })
-            .unzip();
-
-        let num_failed_duties = num_duties - successful_duties.len();
-
-        self.beacon_node
-            .http
-            .validator()
-            .subscribe(validator_subscriptions)
-            .map_err(|e| format!("Failed to subscribe validators: {:?}", e))
-            .map(move |publish_status| match publish_status {
-                PublishStatus::Valid => info!(
-                    log_1,
-                    "Successfully subscribed validators";
-                    "validators" => num_duties,
-                    "failed_validators" => num_failed_duties,
-                ),
-                PublishStatus::Invalid(msg) => crit!(
-                    log_1,
-                    "Validator Subscription was invalid";
-                    "message" => msg,
-                ),
-                PublishStatus::Unknown => {
-                    crit!(log_1, "Unknown condition when publishing attestation")
-                }
-            })
-            .and_then(move |_| {
-                for (duty, selection_proof) in successful_duties {
-                    service_1
-                        .duties_service
-                        .subscribe_duty(&duty.duty, selection_proof);
-                }
-                Ok(())
-            })
-            .map_err(move |e| {
-                crit!(
-                    log_2,
-                    "Error during attestation production";
-                    "error" => e
-                )
-            })
-    }
-
     /// Performs the first step of the attesting process: downloading `Attestation` objects,
     /// signing them and returning them to the validator.
     ///
@@ -338,7 +246,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
-        validator_duties: Vec<DutyAndState>,
+        validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
     ) -> Box<dyn Future<Item = (), Error = ()> + Send> {
         // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
@@ -421,7 +329,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
-        validator_duties: Arc<Vec<DutyAndState>>,
+        validator_duties: Arc<Vec<DutyAndProof>>,
     ) -> Box<dyn Future<Item = Option<Attestation<E>>, Error = String> + Send> {
         if validator_duties.is_empty() {
             return Box::new(future::ok(None));
@@ -522,6 +430,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         "head_block" => format!("{:?}", beacon_block_root),
                                         "committee_index" => committee_index,
                                         "slot" => slot.as_u64(),
+                                        "type" => "unaggregated",
                                     ),
                                     PublishStatus::Invalid(msg) => crit!(
                                         log,
@@ -529,10 +438,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                         "message" => msg,
                                         "committee_index" => committee_index,
                                         "slot" => slot.as_u64(),
+                                        "type" => "unaggregated",
                                     ),
-                                    PublishStatus::Unknown => {
-                                        crit!(log, "Unknown condition when publishing attestation")
-                                    }
+                                    PublishStatus::Unknown => crit!(
+                                        log,
+                                        "Unknown condition when publishing unagg. attestation"
+                                    ),
                                 })
                                 .map(|()| Some(attestation)),
                         )
@@ -565,7 +476,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     fn produce_and_publish_aggregates(
         &self,
         attestation: Attestation<E>,
-        validator_duties: Arc<Vec<DutyAndState>>,
+        validator_duties: Arc<Vec<DutyAndProof>>,
     ) -> impl Future<Item = (), Error = String> {
         let service_1 = self.clone();
         let log_1 = self.context.log.clone();
@@ -581,23 +492,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     // a `SignedAggregateAndProof`
                     let signed_aggregate_and_proofs = validator_duties
                         .iter()
-                        .filter_map(|duty_and_state| {
+                        .filter_map(|duty_and_proof| {
                             // Do not produce a signed aggregator for validators that are not
                             // subscribed aggregators.
-                            //
-                            // Note: this function returns `false` if the validator is required to
-                            // be an aggregator but has not yet subscribed.
-                            if !duty_and_state.is_aggregator() {
-                                return None;
-                            }
+                            let selection_proof = duty_and_proof.selection_proof.as_ref()?.clone();
 
                             let (duty_slot, duty_committee_index, _, validator_index) =
-                                duty_and_state.attestation_duties().or_else(|| {
+                                duty_and_proof.attestation_duties().or_else(|| {
                                     crit!(log_1, "Missing duties when signing aggregate");
                                     None
                                 })?;
 
-                            let pubkey = &duty_and_state.duty.validator_pubkey;
+                            let pubkey = &duty_and_proof.duty.validator_pubkey;
                             let slot = attestation.data.slot;
                             let committee_index = attestation.data.index;
 
@@ -612,6 +518,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                     pubkey,
                                     validator_index,
                                     aggregated_attestation.clone(),
+                                    selection_proof,
                                 )
                             {
                                 Some(signed_aggregate_and_proof)
@@ -637,11 +544,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         .map(move |(attestation, publish_status)| match publish_status {
                             PublishStatus::Valid => info!(
                                 log_1,
-                                "Successfully published aggregate attestations";
+                                "Successfully published attestations";
                                 "signatures" => attestation.aggregation_bits.num_set_bits(),
-                                "head_block" => format!("{}", attestation.data.beacon_block_root),
+                                "head_block" => format!("{:?}", attestation.data.beacon_block_root),
                                 "committee_index" => attestation.data.index,
                                 "slot" => attestation.data.slot.as_u64(),
+                                "type" => "aggregated",
                             ),
                             PublishStatus::Invalid(msg) => crit!(
                                 log_1,
@@ -649,9 +557,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 "message" => msg,
                                 "committee_index" => attestation.data.index,
                                 "slot" => attestation.data.slot.as_u64(),
+                                "type" => "aggregated",
                             ),
                             PublishStatus::Unknown => {
-                                crit!(log_1, "Unknown condition when publishing attestation")
+                                crit!(log_1, "Unknown condition when publishing agg. attestation")
                             }
                         }))
                     } else {

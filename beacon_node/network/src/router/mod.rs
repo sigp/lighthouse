@@ -8,7 +8,7 @@ pub mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;
-use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
     rpc::{
         RPCCodedResponse, RPCError, RPCRequest, RPCResponse, RPCResponseErrorCode, RequestId,
@@ -252,30 +252,28 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
-                if self
-                    .processor
-                    .should_forward_aggregate_attestation(&aggregate_and_proof)
+                if let Some(gossip_verified) =
+                    self.processor.verify_aggregated_attestation_for_gossip(
+                        peer_id.clone(),
+                        *aggregate_and_proof.clone(),
+                    )
                 {
                     self.propagate_message(id, peer_id.clone());
+                    self.processor
+                        .import_aggregated_attestation(peer_id, gossip_verified);
                 }
-                self.processor.process_attestation_gossip(
-                    peer_id,
-                    aggregate_and_proof.message.aggregate,
-                    AttestationType::Aggregated,
-                );
             }
             PubsubMessage::Attestation(subnet_attestation) => {
-                if self
-                    .processor
-                    .should_forward_attestation(&subnet_attestation.1)
+                if let Some(gossip_verified) =
+                    self.processor.verify_unaggregated_attestation_for_gossip(
+                        peer_id.clone(),
+                        subnet_attestation.1.clone(),
+                    )
                 {
                     self.propagate_message(id, peer_id.clone());
+                    self.processor
+                        .import_unaggregated_attestation(peer_id, gossip_verified);
                 }
-                self.processor.process_attestation_gossip(
-                    peer_id,
-                    subnet_attestation.1,
-                    AttestationType::Unaggregated { should_store: true },
-                );
             }
             PubsubMessage::BeaconBlock(block) => {
                 match self.processor.should_forward_block(&peer_id, block) {

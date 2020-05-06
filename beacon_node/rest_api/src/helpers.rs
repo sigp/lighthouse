@@ -9,8 +9,7 @@ use network::NetworkMessage;
 use ssz::Decode;
 use store::{iter::AncestorIter, Store};
 use types::{
-    Attestation, BeaconState, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot,
+    BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 /// Parse a slot.
@@ -240,59 +239,6 @@ pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
     if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
-            e
-        )));
-    }
-
-    Ok(())
-}
-
-/// Publishes a raw un-aggregated attestation to the network.
-pub fn publish_raw_attestations_to_network<T: BeaconChainTypes + 'static>(
-    mut chan: NetworkChannel<T::EthSpec>,
-    attestations: Vec<Attestation<T::EthSpec>>,
-    spec: &ChainSpec,
-) -> Result<(), ApiError> {
-    let messages = attestations
-        .into_iter()
-        .map(|attestation| {
-            // create the gossip message to send to the network
-            let subnet_id = attestation
-                .subnet_id(spec)
-                .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?;
-
-            Ok(PubsubMessage::Attestation(Box::new((
-                subnet_id,
-                attestation,
-            ))))
-        })
-        .collect::<Result<Vec<_>, ApiError>>()?;
-
-    // Publish the attestations to the p2p network via gossipsub.
-    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
-        return Err(ApiError::ServerError(format!(
-            "Unable to send new attestation to network: {:?}",
-            e
-        )));
-    }
-
-    Ok(())
-}
-
-/// Publishes an aggregated attestation to the network.
-pub fn publish_aggregate_attestations_to_network<T: BeaconChainTypes + 'static>(
-    mut chan: NetworkChannel<T::EthSpec>,
-    signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>,
-) -> Result<(), ApiError> {
-    let messages = signed_proofs
-        .into_iter()
-        .map(|signed_proof| PubsubMessage::AggregateAndProofAttestation(Box::new(signed_proof)))
-        .collect::<Vec<_>>();
-
-    // Publish the attestations to the p2p network via gossipsub.
-    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
-        return Err(ApiError::ServerError(format!(
-            "Unable to send new attestation to network: {:?}",
             e
         )));
     }

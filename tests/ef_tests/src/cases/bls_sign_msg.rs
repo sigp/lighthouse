@@ -21,7 +21,7 @@ impl BlsCase for BlsSign {}
 impl Case for BlsSign {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
         // Convert private_key and message to required types
-        let mut sk = hex::decode(&self.input.privkey[2..])
+        let sk = hex::decode(&self.input.privkey[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
         let sk = SecretKey::from_bytes(&sk).unwrap();
         let msg = hex::decode(&self.input.message[2..])

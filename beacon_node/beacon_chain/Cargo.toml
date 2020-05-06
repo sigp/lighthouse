@@ -41,6 +41,8 @@ rand = "0.7.2"
 proto_array_fork_choice = { path = "../../eth2/proto_array_fork_choice" }
 lru = "0.4.3"
 tempfile = "3.1.0"
+bitvec = "0.17.4"
+bls = { path = "../../eth2/utils/bls" }
 safe_arith = { path = "../../eth2/utils/safe_arith" }
 
 [dev-dependencies]
