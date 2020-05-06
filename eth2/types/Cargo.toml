@@ -15,7 +15,7 @@ compare_fields_derive = { path = "../utils/compare_fields_derive" }
 dirs = "2.0.2"
 derivative = "1.0.3"
 eth2_interop_keypairs = { path = "../utils/eth2_interop_keypairs" }
-ethereum-types = "0.8.0"
+ethereum-types = "0.9.1"
 eth2_hashing = "0.1.0"
 hex = "0.3"
 int_to_bytes = { path = "../utils/int_to_bytes" }
@@ -38,8 +38,21 @@ rand_xorshift = "0.2.0"
 cached_tree_hash = { path = "../utils/cached_tree_hash" }
 serde_yaml = "0.8.11"
 tempfile = "3.1.0"
+arbitrary = { version = "0.4", features = ["derive"], optional = true }
 
 [dev-dependencies]
 env_logger = "0.7.1"
 serde_json = "1.0.41"
 criterion = "0.3.0"
+
+[features]
+arbitrary-fuzz = [
+  "arbitrary",
+  "ethereum-types/arbitrary",
+  "bls/arbitrary",
+  "eth2_ssz/arbitrary",
+  "eth2_ssz_types/arbitrary",
+  "merkle_proof/arbitrary",
+  "swap_or_not_shuffle/arbitrary",
+  "tree_hash/arbitrary",
+]

@@ -256,6 +256,20 @@ where
     }
 }
 
+#[cfg(feature = "arbitrary")]
+impl<T: arbitrary::Arbitrary, N: 'static + Unsigned> arbitrary::Arbitrary for VariableList<T, N> {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let max_size = N::to_usize();
+        let rand = usize::arbitrary(u)?;
+        let size = std::cmp::min(rand, max_size);
+        let mut vec: Vec<T> = Vec::with_capacity(size);
+        for _ in 0..size {
+            vec.push(<T>::arbitrary(u)?);
+        }
+        Ok(Self::new(vec).map_err(|_| arbitrary::Error::IncorrectFormat)?)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

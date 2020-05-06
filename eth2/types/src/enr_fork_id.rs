@@ -11,6 +11,7 @@ use tree_hash_derive::TreeHash;
 /// a nodes local ENR.
 ///
 /// Spec v0.11
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]

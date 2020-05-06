@@ -34,6 +34,16 @@ types = { path = "../types" }
 rayon = "1.2.0"
 eth2_hashing = { path = "../utils/eth2_hashing" }
 int_to_bytes = { path = "../utils/int_to_bytes" }
+arbitrary = { version = "0.4.3", features = ["derive"], optional = true }
 
 [features]
 fake_crypto = ["bls/fake_crypto"]
+arbitrary-fuzz = [
+  "arbitrary",
+  "types/arbitrary-fuzz",
+  "bls/arbitrary",
+  "merkle_proof/arbitrary",
+  "eth2_ssz/arbitrary",
+  "eth2_ssz_types/arbitrary",
+  "tree_hash/arbitrary",
+]
