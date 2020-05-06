@@ -1,6 +1,6 @@
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{Future, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{info, trace};
@@ -120,11 +120,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let (exit_signal, exit_fut) = exit_future::signal();
 
         // Run an immediate update before starting the updater service.
-        tokio::task::spawn(self.do_update());
+        let service_1 = self.clone();
+        let service_2 = self.clone();
+        tokio::task::spawn(service_1.do_update());
 
-        let service = self.clone();
         let interval_fut = interval.for_each(move |_| {
-            let _ = service.clone().do_update();
+            let _ = service_2.clone().do_update();
             futures::future::ready(())
         });
 
@@ -138,31 +139,27 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     }
 
     /// Attempts to download the `Fork` from the server.
-    /// TODO: how to return a 'static lifetime future without the self.clone()
-    fn do_update(&self) -> impl Future<Output = Result<(), ()>> + 'static {
-        let service = self.clone();
+    async fn do_update(self) -> Result<(), ()> {
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
-        async move {
-            let _ = service
-                .inner
-                .beacon_node
-                .http
-                .beacon()
-                .get_fork()
-                .await
-                .map(move |fork| *(service.fork.write()) = Some(fork))
-                .map(move |_| trace!(log_1, "Fork update success"))
-                .map_err(move |e| {
-                    trace!(
-                        log_2,
-                        "Fork update failed";
-                        "error" => format!("Error retrieving fork: {:?}", e)
-                    )
-                });
-            // Returning an error will stop the interval. This is not desired, a single failure
-            // should not stop all future attempts.
-            Ok(())
-        }
+        let _ = self
+            .inner
+            .beacon_node
+            .http
+            .beacon()
+            .get_fork()
+            .await
+            .map(move |fork| *(self.fork.write()) = Some(fork))
+            .map(move |_| trace!(log_1, "Fork update success"))
+            .map_err(move |e| {
+                trace!(
+                    log_2,
+                    "Fork update failed";
+                    "error" => format!("Error retrieving fork: {:?}", e)
+                )
+            });
+        // Returning an error will stop the interval. This is not desired, a single failure
+        // should not stop all future attempts.
+        Ok(())
     }
 }

@@ -439,6 +439,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         let interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
+            // Note: `interval_at` panics if `slot_duration` is 0
             interval_at(
                 Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,
                 slot_duration,
@@ -518,7 +519,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         "error" => format!("{:?}", e)
                 )
             })?;
-        
 
         if beacon_head_epoch + 1 < current_epoch && !service_3.allow_unsynced_beacon_node {
             error!(
@@ -537,7 +537,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 );
             }
 
-            service_5.clone().update_epoch(current_epoch + 1)
+            service_5
+                .clone()
+                .update_epoch(current_epoch + 1)
                 .await
                 .map_err(move |e| {
                     error!(

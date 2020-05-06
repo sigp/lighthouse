@@ -129,6 +129,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
 
         let interval = {
+            // Note: `interval_at` panics if `slot_duration` is 0
             interval_at(
                 Instant::now() + duration_to_next_slot + slot_duration / 3,
                 slot_duration,
@@ -170,11 +171,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
         let service = self.clone();
 
-        let slot = service
+        let slot = self
             .slot_clock
             .now()
             .ok_or_else(|| "Failed to read slot clock".to_string())?;
-        let duration_to_next_slot = service
+        let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
             .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
@@ -186,7 +187,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = service
+        let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
             .duties_service
             .attesters(slot)
             .into_iter()
@@ -199,8 +200,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 map
             });
-        
-        let service_1 = self.clone();
+
         // For each committee index for this slot:
         //
         // - Create and publish an `Attestation` for all required validators.
@@ -209,7 +209,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                tokio::task::spawn(service_1.clone().publish_attestations_and_aggregates(
+                tokio::task::spawn(service.clone().publish_attestations_and_aggregates(
                     slot,
                     committee_index,
                     validator_duties,
@@ -242,7 +242,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             return Ok(());
         }
 
-        let service_1 = self.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
         let validator_duties_1 = Arc::new(validator_duties);
@@ -251,7 +250,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         // Step 1.
         //
         // Download, sign and publish an `Attestation` for each validator.
-        let attestation_opt = service_1
+        let attestation_opt = self
             .produce_and_publish_attestations(slot, committee_index, validator_duties_1)
             .await
             .map_err(move |e| {
@@ -275,7 +274,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // validator that is elected to aggregate for this `slot` and
             // `committee_index`.
             delay_until(aggregate_production_instant).await;
-            service_1.produce_and_publish_aggregates(attestation, validator_duties_2)
+            self.produce_and_publish_aggregates(attestation, validator_duties_2)
                 .await
         } else {
             // If `produce_and_publish_attestations` did not download any
@@ -316,8 +315,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             return Ok(None);
         }
 
-        let service = self.clone();
-
         let attestation = self
             .beacon_node
             .http
@@ -325,7 +322,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .produce_attestation(slot, committee_index)
             .await
             .map_err(|e| format!("Failed to produce attestation: {:?}", e))?;
-        let log = service.context.log.clone();
+
+        let log = self.context.log.clone();
 
         // For each validator in `validator_duties`, clone the `attestation` and add
         // their signature.
@@ -334,8 +332,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let signed_attestations = validator_duties
             .iter()
             .filter_map(|duty| {
-                let log = service.context.log.clone();
-
+                let log = self.context.log.clone();
                 // Ensure that all required fields are present in the validator duty.
                 let (duty_slot, duty_committee_index, validator_committee_position, _) =
                     if let Some(tuple) = duty.attestation_duties() {
@@ -367,7 +364,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 let mut attestation = attestation.clone();
 
-                if service
+                if self
                     .validator_store
                     .sign_attestation(
                         duty.validator_pubkey(),
@@ -396,8 +393,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let num_attestations = signed_attestations.len();
             let beacon_block_root = attestation.data.beacon_block_root;
 
-            service
-                .beacon_node
+            self.beacon_node
                 .http
                 .validator()
                 .publish_attestations(signed_attestations)
@@ -455,7 +451,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         attestation: Attestation<E>,
         validator_duties: Arc<Vec<DutyAndProof>>,
     ) -> Result<(), String> {
-        let service_1 = self.clone();
         let log_1 = self.context.log.clone();
 
         let aggregated_attestation = self
@@ -490,9 +485,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     return None;
                 }
 
-                if let Some(signed_aggregate_and_proof) = service_1
-                    .validator_store
-                    .produce_signed_aggregate_and_proof(
+                if let Some(signed_aggregate_and_proof) =
+                    self.validator_store.produce_signed_aggregate_and_proof(
                         pubkey,
                         validator_index,
                         aggregated_attestation.clone(),

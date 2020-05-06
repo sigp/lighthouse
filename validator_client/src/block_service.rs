@@ -148,14 +148,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     fn do_update(&self) -> Result<(), ()> {
-        let service = self.clone();
         let log_1 = self.context.log.clone();
         let log_2 = self.context.log.clone();
 
         let slot = self.slot_clock.now().ok_or_else(move || {
             crit!(log_1, "Duties manager failed to read slot clock");
         })?;
-        let iter = service.duties_service.block_producers(slot).into_iter();
+        let iter = self.duties_service.block_producers(slot).into_iter();
 
         if iter.len() == 0 {
             trace!(
