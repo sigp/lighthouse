@@ -392,8 +392,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     // For disconnected peers, lower their reputation by 1 for every hour they
                     // stay disconnected. This helps us slowly forget disconnected peers.
                     // In the same way, slowly allow banned peers back again.
-                    let dc_hours = (now - since).as_secs() / 3600;
-                    let last_dc_hours = (self.last_updated - since).as_secs() / 3600;
+                    let dc_hours = now
+                        .checked_duration_since(since)
+                        .unwrap_or_else(|| Duration::from_secs(0))
+                        .as_secs()
+                        / 3600;
+                    let last_dc_hours = self
+                        .last_updated
+                        .checked_duration_since(since)
+                        .unwrap_or_else(|| Duration::from_secs(0))
+                        .as_secs()
+                        / 3600;
                     if dc_hours > last_dc_hours {
                         // this should be 1 most of the time
                         let rep_dif = (dc_hours - last_dc_hours)
