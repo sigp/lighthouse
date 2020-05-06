@@ -1,5 +1,5 @@
 use crate::{lamport_secret_key::LamportSecretKey, plain_text::PlainText};
-use crypto::{digest::Digest, sha2::Sha256};
+use crypto::{digest::Digest, hmac::Hmac, mac::Mac, sha2::Sha256};
 use num_bigint::BigUint;
 
 /// The byte size of a SHA256 hash.
@@ -8,6 +8,8 @@ pub const HASH_SIZE: usize = 32;
 pub const LAMPORT_ARRAY_SIZE: u8 = 255;
 
 pub const R: &str = "52435875175126190479447740508185965837690552500527637822603658699938581184513";
+
+pub const BLS_KEY_LEN: usize = 48;
 
 fn derive_master_sk(seed: &[u8]) -> [u8; HASH_SIZE] {
     hkdf_mod_r(seed)
@@ -19,11 +21,9 @@ fn derive_child_sk(parent_sk: &[u8], index: u32) -> [u8; HASH_SIZE] {
 }
 
 fn hkdf_mod_r(ikm: &[u8]) -> [u8; HASH_SIZE] {
+    let prk = hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm);
     // TODO: justify 48.
-    let okm = &hkdf_expand_basic(
-        hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm).as_bytes(),
-        48,
-    );
+    let okm = &hkdf_expand(&prk, BLS_KEY_LEN);
     mod_r(&okm)
 }
 
@@ -44,8 +44,8 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
     let not_ikm = flip_bits(ikm);
 
     let lamports = [
-        ikm_to_lamport_sk(ikm, &salt),
-        ikm_to_lamport_sk(&not_ikm, &salt),
+        ikm_to_lamport_sk(&salt, ikm),
+        ikm_to_lamport_sk(&salt, &not_ikm),
     ];
 
     let mut lamport_pk = vec![0; HASH_SIZE * LAMPORT_ARRAY_SIZE as usize * 2];
@@ -74,20 +74,24 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
 }
 
 fn ikm_to_lamport_sk(salt: &[u8], ikm: &[u8]) -> LamportSecretKey {
-    hkdf_expand(hkdf_extract(salt, ikm).as_bytes())
+    let prk = hkdf_extract(salt, ikm);
+    let okm = hkdf_expand(&prk, HASH_SIZE * LAMPORT_ARRAY_SIZE as usize);
+    LamportSecretKey::from_bytes(&okm)
 }
 
-fn hkdf_extract(ikm: &[u8], salt: &[u8]) -> PlainText {
-    let mut hasher = Sha256::new();
-    hasher.input(salt);
-    hasher.input(ikm);
-
-    let mut digest = vec![0; HASH_SIZE];
-    hasher.result(&mut digest);
-
-    digest.into()
+fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; HASH_SIZE] {
+    let mut prk = [0; HASH_SIZE];
+    crypto::hkdf::hkdf_extract(Sha256::new(), salt, ikm, &mut prk);
+    prk
 }
 
+fn hkdf_expand(prk: &[u8], l: usize) -> Vec<u8> {
+    let mut okm = vec![0; l];
+    crypto::hkdf::hkdf_expand(Sha256::new(), prk, &[], &mut okm);
+    okm
+}
+
+/*
 fn hkdf_expand(prk: &[u8]) -> LamportSecretKey {
     let mut okm = LamportSecretKey::zero();
 
@@ -107,37 +111,7 @@ fn hkdf_expand(prk: &[u8]) -> LamportSecretKey {
 
     okm
 }
-
-// TODO: zeroize.
-fn hkdf_expand_basic(prk: &[u8], l: usize) -> Vec<u8> {
-    let mut okm = vec![0; HASH_SIZE];
-
-    let mut hasher = Sha256::new();
-    hasher.input(prk);
-    hasher.input(&[]); // TODO: remove this?
-    hasher.input(&[1]);
-    hasher.result(&mut okm[..]);
-
-    let mut i = 0;
-    while okm.len() < l {
-        i += 1;
-
-        let mut hasher = Sha256::new();
-        hasher.input(prk);
-        if i == 1 {
-            hasher.input(&[]); // TODO: remove this line?
-        } else {
-            hasher.input(&okm[okm.len() - 32..]); // TODO: remove this line?
-        }
-        hasher.input(&[i]);
-
-        let mut digest = [0; HASH_SIZE];
-        hasher.result(&mut digest);
-        okm.extend_from_slice(&mut digest);
-    }
-
-    okm[0..l].to_vec()
-}
+*/
 
 fn flip_bits(input: &[u8]) -> [u8; HASH_SIZE] {
     debug_assert_eq!(input.len(), HASH_SIZE);
@@ -168,11 +142,49 @@ mod test {
     #[test]
     fn eip2333_intermediate_vector() {
         let vectors = TestVector::from(get_raw_vector());
+
         let master_sk = derive_master_sk(&vectors.seed);
         assert_eq!(
             &master_sk[..],
             &vectors.master_sk[..],
             "master_sk should match"
+        );
+
+        let lamport_0 = ikm_to_lamport_sk(&vectors.child_index.to_be_bytes()[..], &master_sk);
+        assert_eq!(
+            lamport_0
+                .iter_chunks()
+                .map(|c| c.to_vec())
+                .collect::<Vec<_>>(),
+            vectors.lamport_0,
+            "lamport_0 should match"
+        );
+
+        let lamport_1 = ikm_to_lamport_sk(
+            &vectors.child_index.to_be_bytes()[..],
+            &flip_bits(&master_sk),
+        );
+        assert_eq!(
+            lamport_1
+                .iter_chunks()
+                .map(|c| c.to_vec())
+                .collect::<Vec<_>>(),
+            vectors.lamport_1,
+            "lamport_1 should match"
+        );
+
+        let compressed_lamport_pk = parent_sk_to_lamport_pk(&master_sk, vectors.child_index);
+        assert_eq!(
+            &compressed_lamport_pk[..],
+            &vectors.compressed_lamport_pk[..],
+            "compressed_lamport_pk should match"
+        );
+
+        let child_sk = derive_child_sk(&master_sk, vectors.child_index);
+        assert_eq!(
+            &child_sk[..],
+            &vectors.child_sk[..],
+            "child_sk should match"
         );
     }
 
