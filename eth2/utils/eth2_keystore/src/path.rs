@@ -1,5 +1,5 @@
-use crate::{lamport_secret_key::LamportSecretKey, plain_text::PlainText};
-use crypto::{digest::Digest, hmac::Hmac, mac::Mac, sha2::Sha256};
+use crate::lamport_secret_key::LamportSecretKey;
+use crypto::{digest::Digest, sha2::Sha256};
 use num_bigint::BigUint;
 
 /// The byte size of a SHA256 hash.
@@ -21,6 +21,27 @@ pub const R: &str = "52435875175126190479447740508185965837690552500527637822603
 ///
 /// `ceil((1.5 * ceil(log2(r))) / 8)`
 pub const MOD_R_L: usize = 48;
+
+/// A BLS secret key that is derived from some `seed`, or generated as a child from some other
+/// `DerivedKey`.
+pub struct DerivedKey([u8; HASH_SIZE]);
+
+impl DerivedKey {
+    /// Instantiates `Self` from some seed of any length.
+    pub fn from_seed(seed: &[u8]) -> Self {
+        Self(derive_master_sk(seed))
+    }
+
+    /// Derives a child key from the secret `Self` at some `index`.
+    pub fn derive_child(&self, index: u32) -> DerivedKey {
+        Self(derive_child_sk(&self.0, index))
+    }
+
+    /// Returns the secret BLS key in `self`.
+    pub fn secret(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 /// Derives the "master" BLS secret key from some `seed` bytes.
 ///
