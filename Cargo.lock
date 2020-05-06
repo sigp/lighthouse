@@ -1202,6 +1202,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth2_key_derivation"
+version = "0.1.0"
+dependencies = [
+ "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num-bigint 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rust-crypto 0.2.36 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zeroize 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "eth2_keystore"
 version = "0.1.0"
 dependencies = [
