@@ -36,8 +36,41 @@ impl TryFrom<String> for HexBytes {
     type Error = String;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
+        // Left-pad with a zero if there is not an even number of hex digits to ensure
+        // `hex::decode` doesn't return an error.
+        let s = if s.len() % 2 != 0 {
+            format!("0{}", s)
+        } else {
+            s
+        };
+
         hex::decode(s)
             .map(Self)
             .map_err(|e| format!("Invalid hex: {}", e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode(json: &str) -> Vec<u8> {
+        serde_json::from_str::<HexBytes>(&format!("\"{}\"", json))
+            .expect("should decode json")
+            .as_bytes()
+            .to_vec()
+    }
+
+    #[test]
+    fn odd_hex_bytes() {
+        let empty: Vec<u8> = vec![];
+
+        assert_eq!(decode(""), empty, "should decode nothing");
+        assert_eq!(decode("00"), vec![0], "should decode 00");
+        assert_eq!(decode("0"), vec![0], "should decode 0");
+        assert_eq!(decode("01"), vec![1], "should decode 01");
+        assert_eq!(decode("1"), vec![1], "should decode 1");
+        assert_eq!(decode("0101"), vec![1, 1], "should decode 0101");
+        assert_eq!(decode("101"), vec![1, 1], "should decode 101");
     }
 }
