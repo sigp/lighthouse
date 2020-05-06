@@ -35,10 +35,6 @@ impl LamportSecretKey {
         this
     }
 
-    pub fn get_chunk(&self, i: u8) -> &[u8] {
-        &self.0[i as usize]
-    }
-
     pub fn get_mut_chunk(&mut self, i: u8) -> &mut [u8] {
         &mut self.0[i as usize]
     }
