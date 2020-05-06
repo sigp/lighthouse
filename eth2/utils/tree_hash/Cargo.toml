@@ -11,16 +11,16 @@ name = "benches"
 harness = false
 
 [dev-dependencies]
-criterion = "0.3.0"
-rand = "0.7.2"
-tree_hash_derive = "0.2"
+criterion = "0.3.2"
+rand = "0.7.3"
+tree_hash_derive = "0.2.0"
 types = { path = "../../types" }
 lazy_static = "1.4.0"
 
 [dependencies]
-ethereum-types = "0.9"
+ethereum-types = "0.9.1"
 eth2_hashing = "0.1.0"
-smallvec = "1.2.0"
+smallvec = "1.4.0"
 
 [features]
 arbitrary = ["ethereum-types/arbitrary"]

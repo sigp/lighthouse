@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 hex = "0.4.2"
 types = { path =  "../../eth2/types" }
-hashmap_delay = { path = "../../eth2/utils/hashmap_delay" }
+hashset_delay = { path = "../../eth2/utils/hashset_delay" }
 eth2_ssz_types = { path =  "../../eth2/utils/ssz_types" }
 serde = { version = "1.0.106", features = ["derive"] }
 serde_derive = "1.0.106"
@@ -20,7 +20,7 @@ futures = "0.3.4"
 error-chain = "0.12.2"
 dirs = "2.0.2"
 fnv = "1.0.6"
-unsigned-varint = "0.3.3"
+unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
 smallvec = "1.4.0"

@@ -118,6 +118,7 @@ impl CombinedKeyExt for CombinedKey {
 fn peer_id_to_node_id(peer_id: &PeerId) -> Option<discv5::enr::NodeId> {
     let bytes = peer_id.as_bytes();
     // must be the identity hash
+    /* To be updated
     if bytes.len() == 34 && bytes[0] == 0x00 {
         // left over is potentially secp256k1 key
 
@@ -130,9 +131,11 @@ fn peer_id_to_node_id(peer_id: &PeerId) -> Option<discv5::enr::NodeId> {
             return Some(discv5::enr::NodeId::parse(&output).expect("Must be correct length"));
         }
     }
+    */
     None
 }
 
+/*
 mod tests {
     use super::*;
     use std::convert::TryInto;
@@ -161,3 +164,4 @@ mod tests {
         assert_eq!(enr.node_id(), node_id);
     }
 }
+*/

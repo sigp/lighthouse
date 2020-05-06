@@ -6,7 +6,7 @@ use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{NetworkGlobals, PeerId};
 use futures::prelude::*;
 use futures::Stream;
-use hashmap_delay::HashSetDelay;
+use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
@@ -453,7 +453,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
     type Item = PeerManagerEvent;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // poll the timeouts for pings and status'
         loop {
             match self.ping_peers.poll_next_unpin(cx) {

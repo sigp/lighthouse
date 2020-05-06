@@ -54,7 +54,8 @@ fn get_serializable_field_types<'a>(struct_data: &'a syn::DataStruct) -> Vec<&'a
 /// The field attribute is: `#[ssz(skip_serializing)]`
 fn should_skip_serializing(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
-        attr.path.is_ident("ssz") && attr.tts.to_string().replace(" ", "") == "(skip_serializing)"
+        attr.path.is_ident("ssz")
+            && attr.tokens.to_string().replace(" ", "") == "(skip_serializing)"
     })
 }
 
@@ -148,7 +149,8 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
 /// The field attribute is: `#[ssz(skip_deserializing)]`
 fn should_skip_deserializing(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
-        attr.path.is_ident("ssz") && attr.tts.to_string().replace(" ", "") == "(skip_deserializing)"
+        attr.path.is_ident("ssz")
+            && attr.tokens.to_string().replace(" ", "") == "(skip_deserializing)"
     })
 }
 

@@ -51,7 +51,7 @@ fn get_cache_field_for(field: &syn::Field) -> Option<syn::Ident> {
     let parsed_attrs = cached_tree_hash_attr_metas(&field.attrs);
     if let [Meta::List(MetaList { nested, .. })] = &parsed_attrs[..] {
         nested.iter().find_map(|x| match x {
-            NestedMeta::Meta(Meta::Word(cache_field_ident)) => Some(cache_field_ident.clone()),
+            NestedMeta::Meta(Meta::Path(path)) => path.get_ident().cloned(),
             _ => None,
         })
     } else {
@@ -73,7 +73,8 @@ fn cached_tree_hash_attr_metas(attrs: &[Attribute]) -> Vec<Meta> {
 /// The field attribute is: `#[tree_hash(skip_hashing)]`
 fn should_skip_hashing(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
-        attr.path.is_ident("tree_hash") && attr.tts.to_string().replace(" ", "") == "(skip_hashing)"
+        attr.path.is_ident("tree_hash")
+            && attr.tokens.to_string().replace(" ", "") == "(skip_hashing)"
     })
 }
 
