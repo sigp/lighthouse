@@ -2304,6 +2304,7 @@ dependencies = [
  "clap_utils 0.1.0",
  "env_logger 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "environment 0.2.0",
+ "eth2_testnet_config 0.2.0",
  "futures 0.1.29 (registry+https://github.com/rust-lang/crates.io-index)",
  "logging 0.2.0",
  "slog 2.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
