@@ -1,7 +1,7 @@
 //! ENR extension trait to support libp2p integration.
 use crate::{Enr, Multiaddr, PeerId};
 use discv5::enr::{CombinedKey, CombinedPublicKey};
-use libp2p::core::{identity::Keypair, multiaddr::Protocol};
+use libp2p::core::{identity::Keypair, identity::PublicKey, multiaddr::Protocol};
 use tiny_keccak::{Hasher, Keccak};
 
 /// Extend ENR for libp2p types.
@@ -113,50 +113,75 @@ impl CombinedKeyExt for CombinedKey {
     }
 }
 
-// helper function to convert a peer_id to a node_id. This is only possible for secp256k1 libp2p
+// helper function to convert a peer_id to a node_id. This is only possible for secp256k1/ed25519 libp2p
 // peer_ids
-fn peer_id_to_node_id(peer_id: &PeerId) -> Option<discv5::enr::NodeId> {
-    let bytes = peer_id.as_bytes();
-    // must be the identity hash
-    if bytes.len() == 34 && bytes[0] == 0x00 {
-        // left over is potentially secp256k1 key
+fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, String> {
+    // A libp2p peer id byte representation should be 2 length bytes + 4 protobuf bytes + compressed pk bytes
+    // if generated from a PublicKey with Identity multihash.
+    let pk_bytes = &peer_id.as_bytes()[2..];
 
-        if let Ok(key) = discv5::enr::secp256k1::PublicKey::parse(&bytes[1..]) {
-            let uncompressed_key_bytes = key.serialize();
+    match PublicKey::from_protobuf_encoding(pk_bytes).map_err(|e| {
+        format!(
+            " Cannot parse libp2p public key public key from peer id: {}",
+            e
+        )
+    })? {
+        PublicKey::Secp256k1(pk) => {
+            let uncompressed_key_bytes = &pk.encode_uncompressed()[1..];
             let mut output = [0_u8; 32];
             let mut hasher = Keccak::v256();
             hasher.update(&uncompressed_key_bytes);
             hasher.finalize(&mut output);
-            return Some(discv5::enr::NodeId::parse(&output).expect("Must be correct length"));
+            return Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"));
         }
+        PublicKey::Ed25519(pk) => {
+            let uncompressed_key_bytes = pk.encode();
+            let mut output = [0_u8; 32];
+            let mut hasher = Keccak::v256();
+            hasher.update(&uncompressed_key_bytes);
+            hasher.finalize(&mut output);
+            return Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"));
+        }
+        _ => return Err("Unsupported public key".into()),
     }
-    None
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryInto;
 
     #[test]
-    fn test_peer_id_conversion() {
-        let key = discv5::enr::secp256k1::SecretKey::parse_slice(
-            &hex::decode("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-                .unwrap(),
-        )
-        .unwrap();
+    fn test_secp256k1_peer_id_conversion() {
+        let sk_hex = "df94a73d528434ce2309abb19c16aedb535322797dbd59c157b1e04095900f48";
+        let sk_bytes = hex::decode(sk_hex).unwrap();
+        let secret_key = discv5::enr::secp256k1::SecretKey::parse_slice(&sk_bytes).unwrap();
 
-        let peer_id: PeerId =
-            hex::decode("1220dd86cd1b9414f4b9b42a1b1258390ee9097298126df92a61789483ac90801ed6")
-                .unwrap()
-                .try_into()
-                .unwrap();
+        let libp2p_sk = libp2p::identity::secp256k1::SecretKey::from_bytes(sk_bytes).unwrap();
+        let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();
+        let libp2p_kp = Keypair::Secp256k1(secp256k1_kp);
+        let peer_id = libp2p_kp.public().into_peer_id();
 
+        let enr = discv5::enr::EnrBuilder::new("v4").build(&secret_key).unwrap();
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
-        let enr = {
-            let mut builder = discv5::enr::EnrBuilder::new("v4");
-            builder.build(&key).unwrap()
-        };
+        assert_eq!(enr.node_id(), node_id);
+    }
+
+    #[test]
+    fn test_ed25519_peer_conversion() {
+        let sk_hex = "4dea8a5072119927e9d243a7d953f2f4bc95b70f110978e2f9bc7a9000e4b261";
+        let sk_bytes = hex::decode(sk_hex).unwrap();
+        let secret = discv5::enr::ed25519_dalek::SecretKey::from_bytes(&sk_bytes).unwrap();
+        let public = discv5::enr::ed25519_dalek::PublicKey::from(&secret);
+        let keypair = discv5::enr::ed25519_dalek::Keypair { public, secret };
+
+        let libp2p_sk = libp2p::identity::ed25519::SecretKey::from_bytes(sk_bytes).unwrap();
+        let ed25519_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();
+        let libp2p_kp = Keypair::Ed25519(ed25519_kp);
+        let peer_id = libp2p_kp.public().into_peer_id();
+
+        let enr = discv5::enr::EnrBuilder::new("v4").build(&keypair).unwrap();
+        let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
         assert_eq!(enr.node_id(), node_id);
     }
