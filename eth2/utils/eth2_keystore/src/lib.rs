@@ -3,6 +3,7 @@
 
 mod derived_key;
 mod keystore;
+mod lamport_secret_key;
 mod password;
 mod path;
 mod plain_text;
