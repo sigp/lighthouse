@@ -7,7 +7,7 @@ const PASSWORD: &str = "testpassword";
 fn decrypt_error(vector: &str) -> Error {
     Keystore::from_json_str(&vector)
         .unwrap()
-        .decrypt_keypair(PASSWORD.into())
+        .decrypt_keypair(PASSWORD.as_bytes())
         .err()
         .unwrap()
 }
@@ -15,7 +15,7 @@ fn decrypt_error(vector: &str) -> Error {
 fn assert_decrypts(vector: &str) {
     Keystore::from_json_str(&vector)
         .unwrap()
-        .decrypt_keypair(PASSWORD.into())
+        .decrypt_keypair(PASSWORD.as_bytes())
         .unwrap();
 }
 

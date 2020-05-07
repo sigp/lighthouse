@@ -12,7 +12,7 @@ const PASSWORD: &str = "testpassword";
 pub fn decode_and_check_sk(json: &str) -> Keystore {
     let keystore = Keystore::from_json_str(json).expect("should decode keystore json");
     let expected_sk = hex::decode(EXPECTED_SECRET).unwrap();
-    let keypair = keystore.decrypt_keypair(PASSWORD.into()).unwrap();
+    let keypair = keystore.decrypt_keypair(PASSWORD.as_bytes()).unwrap();
     assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk);
     keystore
 }

@@ -3,12 +3,12 @@
 
 mod derived_key;
 mod keystore;
-mod password;
 mod plain_text;
 
 pub mod json_keystore;
 
-pub use keystore::{decrypt, encrypt, Error, Keystore, KeystoreBuilder};
-pub use password::Password;
+pub use keystore::{
+    decrypt, default_kdf, encrypt, Error, Keystore, KeystoreBuilder, DKLEN, HASH_SIZE, IV_SIZE,
+};
 pub use plain_text::PlainText;
 pub use uuid::Uuid;
