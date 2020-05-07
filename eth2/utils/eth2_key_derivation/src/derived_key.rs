@@ -3,6 +3,7 @@ use crate::{
 };
 use crypto::{digest::Digest, sha2::Sha256};
 use num_bigint::BigUint;
+use zeroize::Zeroize;
 
 /// The byte size of a SHA256 hash.
 pub const HASH_SIZE: usize = 32;
@@ -26,6 +27,12 @@ pub const MOD_R_L: usize = 48;
 
 /// A BLS secret key that is derived from some `seed`, or generated as a child from some other
 /// `DerivedKey`.
+///
+/// Implements `Zeroize` on `Drop`.
+// It's not strictly necessary that `DerivedKey` implements `Zeroize`, but it seems prudent to be a
+// little over-cautious here; we don't require high-speed key generation at this stage.
+#[derive(Zeroize)]
+#[zeroize(drop)]
 pub struct DerivedKey(SecretHash);
 
 impl DerivedKey {
