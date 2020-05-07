@@ -1,4 +1,6 @@
-use crate::lamport_secret_key::LamportSecretKey;
+use crate::{
+    lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, secret_hash::SecretHash,
+};
 use crypto::{digest::Digest, sha2::Sha256};
 use num_bigint::BigUint;
 
@@ -24,7 +26,7 @@ pub const MOD_R_L: usize = 48;
 
 /// A BLS secret key that is derived from some `seed`, or generated as a child from some other
 /// `DerivedKey`.
-pub struct DerivedKey([u8; HASH_SIZE]);
+pub struct DerivedKey(SecretHash);
 
 impl DerivedKey {
     /// Instantiates `Self` from some seed of any length.
@@ -34,69 +36,70 @@ impl DerivedKey {
 
     /// Derives a child key from the secret `Self` at some `index`.
     pub fn derive_child(&self, index: u32) -> DerivedKey {
-        Self(derive_child_sk(&self.0, index))
+        Self(derive_child_sk(self.0.as_bytes(), index))
     }
 
     /// Returns the secret BLS key in `self`.
     pub fn secret(&self) -> &[u8] {
-        &self.0
+        self.0.as_bytes()
     }
 }
 
 /// Derives the "master" BLS secret key from some `seed` bytes.
 ///
 /// Equivalent to `derive_master_SK` in EIP-2333.
-fn derive_master_sk(seed: &[u8]) -> [u8; HASH_SIZE] {
+fn derive_master_sk(seed: &[u8]) -> SecretHash {
     hkdf_mod_r(seed)
 }
 
 /// From the given `parent_sk`, derives a child key at index`.
 ///
 /// Equivalent to `derive_child_SK` in EIP-2333.
-fn derive_child_sk(parent_sk: &[u8], index: u32) -> [u8; HASH_SIZE] {
+fn derive_child_sk(parent_sk: &[u8], index: u32) -> SecretHash {
     let compressed_lamport_pk = parent_sk_to_lamport_pk(parent_sk, index);
-    hkdf_mod_r(&compressed_lamport_pk)
+    hkdf_mod_r(compressed_lamport_pk.as_bytes())
 }
 
-/// From the `ikm` (initial key material), performs a HKDF_Extract and HKDF_Expand and generates a
+/// From the `ikm` (initial key material), performs a HKDF-Extract and HKDF-Expand to generate a
 /// BLS private key within the order of the BLS-381 curve.
 ///
 /// Equivalent to `HKDF_mod_r` in EIP-2333.
-fn hkdf_mod_r(ikm: &[u8]) -> [u8; HASH_SIZE] {
+fn hkdf_mod_r(ikm: &[u8]) -> SecretHash {
     let prk = hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm);
-    let okm = &hkdf_expand(&prk, MOD_R_L);
-    mod_r(&okm)
+    let okm = &hkdf_expand(prk.as_bytes(), MOD_R_L);
+    mod_r(okm.as_bytes())
 }
 
 /// Interprets `bytes` as a big-endian integer and returns that integer modulo the order of the
 /// BLS-381 curve.
 ///
 /// This function is a part of the `HKDF_mod_r` function in EIP-2333.
-fn mod_r(bytes: &[u8]) -> [u8; HASH_SIZE] {
+fn mod_r(bytes: &[u8]) -> SecretHash {
     let n = BigUint::from_bytes_be(bytes);
     let r = BigUint::parse_bytes(R.as_bytes(), 10).expect("must be able to parse R");
     let x = (n % r).to_bytes_be();
 
     debug_assert!(x.len() <= HASH_SIZE);
 
-    let mut output = [0; HASH_SIZE];
-    output[HASH_SIZE - x.len()..].copy_from_slice(&x);
+    let mut output = SecretHash::zero();
+    output.as_mut_bytes()[HASH_SIZE - x.len()..].copy_from_slice(&x);
     output
 }
 
 /// Generates a Lamport public key from the given `ikm` (which is assumed to be a BLS secret key).
 ///
 /// Equivalent to `parent_SK_to_lamport_PK` in EIP-2333.
-fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
+fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> SecretHash {
     let salt = index.to_be_bytes();
     let not_ikm = flip_bits(ikm);
 
     let lamports = [
         ikm_to_lamport_sk(&salt, ikm),
-        ikm_to_lamport_sk(&salt, &not_ikm),
+        ikm_to_lamport_sk(&salt, not_ikm.as_bytes()),
     ];
 
-    let mut lamport_pk = vec![0; HASH_SIZE * LAMPORT_ARRAY_SIZE as usize * 2];
+    let mut lamport_pk = SecretBytes::zero(HASH_SIZE * LAMPORT_ARRAY_SIZE as usize * 2);
+    let pk_bytes = lamport_pk.as_mut_bytes();
 
     lamports
         .iter()
@@ -104,19 +107,15 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
         .flatten()
         .enumerate()
         .for_each(|(i, chunk)| {
-            let output_slice = lamport_pk
-                .get_mut(i * HASH_SIZE..(i + 1) * HASH_SIZE)
-                .expect("lamport_pk must have adequate capacity");
-
             let mut hasher = Sha256::new();
             hasher.input(chunk);
-            hasher.result(output_slice);
+            hasher.result(&mut pk_bytes[i * HASH_SIZE..(i + 1) * HASH_SIZE]);
         });
 
-    let mut compressed_lamport_pk = [0; HASH_SIZE];
+    let mut compressed_lamport_pk = SecretHash::zero();
     let mut hasher = Sha256::new();
-    hasher.input(&lamport_pk);
-    hasher.result(&mut compressed_lamport_pk);
+    hasher.input(lamport_pk.as_bytes());
+    hasher.result(compressed_lamport_pk.as_mut_bytes());
 
     compressed_lamport_pk
 }
@@ -126,25 +125,25 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
 /// Equivalent to `IKM_to_lamport_SK` in EIP-2333.
 fn ikm_to_lamport_sk(salt: &[u8], ikm: &[u8]) -> LamportSecretKey {
     let prk = hkdf_extract(salt, ikm);
-    let okm = hkdf_expand(&prk, HASH_SIZE * LAMPORT_ARRAY_SIZE as usize);
-    LamportSecretKey::from_bytes(&okm)
+    let okm = hkdf_expand(prk.as_bytes(), HASH_SIZE * LAMPORT_ARRAY_SIZE as usize);
+    LamportSecretKey::from_bytes(okm.as_bytes())
 }
 
 /// Peforms a `HKDF-Extract` on the `ikm` (initial key material) based up on the `salt`.
 ///
 /// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
-fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> [u8; HASH_SIZE] {
-    let mut prk = [0; HASH_SIZE];
-    crypto::hkdf::hkdf_extract(Sha256::new(), salt, ikm, &mut prk);
+fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> SecretHash {
+    let mut prk = SecretHash::zero();
+    crypto::hkdf::hkdf_extract(Sha256::new(), salt, ikm, prk.as_mut_bytes());
     prk
 }
 
 /// Peforms a `HKDF-Expand` on the `pkr` (pseudo-random key), returning `l` bytes.
 ///
 /// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
-fn hkdf_expand(prk: &[u8], l: usize) -> Vec<u8> {
-    let mut okm = vec![0; l];
-    crypto::hkdf::hkdf_expand(Sha256::new(), prk, &[], &mut okm);
+fn hkdf_expand(prk: &[u8], l: usize) -> SecretBytes {
+    let mut okm = SecretBytes::zero(l);
+    crypto::hkdf::hkdf_expand(Sha256::new(), prk, &[], okm.as_mut_bytes());
     okm
 }
 
@@ -154,14 +153,15 @@ fn hkdf_expand(prk: &[u8], l: usize) -> Vec<u8> {
 ///
 /// ## Panics
 ///
-/// If `input` is not32-bytes.
-fn flip_bits(input: &[u8]) -> [u8; HASH_SIZE] {
+/// If `input` is not 32-bytes.
+fn flip_bits(input: &[u8]) -> SecretHash {
     assert_eq!(input.len(), HASH_SIZE);
 
-    let mut output = [0; HASH_SIZE];
+    let mut output = SecretHash::zero();
+    let output_bytes = output.as_mut_bytes();
 
     for (i, byte) in input.iter().enumerate() {
-        output[i] = !byte
+        output_bytes[i] = !byte
     }
 
     output
@@ -191,12 +191,13 @@ mod test {
 
         let master_sk = derive_master_sk(&vectors.seed);
         assert_eq!(
-            &master_sk[..],
+            master_sk.as_bytes(),
             &vectors.master_sk[..],
             "master_sk should match"
         );
 
-        let lamport_0 = ikm_to_lamport_sk(&vectors.child_index.to_be_bytes()[..], &master_sk);
+        let lamport_0 =
+            ikm_to_lamport_sk(&vectors.child_index.to_be_bytes()[..], master_sk.as_bytes());
         assert_eq!(
             lamport_0
                 .iter_chunks()
@@ -208,7 +209,7 @@ mod test {
 
         let lamport_1 = ikm_to_lamport_sk(
             &vectors.child_index.to_be_bytes()[..],
-            &flip_bits(&master_sk),
+            flip_bits(master_sk.as_bytes()).as_bytes(),
         );
         assert_eq!(
             lamport_1
@@ -219,16 +220,17 @@ mod test {
             "lamport_1 should match"
         );
 
-        let compressed_lamport_pk = parent_sk_to_lamport_pk(&master_sk, vectors.child_index);
+        let compressed_lamport_pk =
+            parent_sk_to_lamport_pk(master_sk.as_bytes(), vectors.child_index);
         assert_eq!(
-            &compressed_lamport_pk[..],
+            compressed_lamport_pk.as_bytes(),
             &vectors.compressed_lamport_pk[..],
             "compressed_lamport_pk should match"
         );
 
-        let child_sk = derive_child_sk(&master_sk, vectors.child_index);
+        let child_sk = derive_child_sk(master_sk.as_bytes(), vectors.child_index);
         assert_eq!(
-            &child_sk[..],
+            child_sk.as_bytes(),
             &vectors.child_sk[..],
             "child_sk should match"
         );
