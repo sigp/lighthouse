@@ -1,21 +1,20 @@
-use crate::json_wallet::JsonWallet;
-use eth2_keystore::{
-    encrypt,
-    json_keystore::{Cipher, Kdf},
-    Password,
+use crate::json_wallet::{
+    ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet, Kdf,
+    KdfModule, Sha256Checksum, Version,
 };
+use eth2_keystore::encrypt;
 use uuid::Uuid;
 
-pub use eth2_keystore::Error;
+pub use eth2_keystore::{Error, Password, PlainText};
 
 pub struct Wallet {
     json: JsonWallet,
 }
 
 impl Wallet {
-    pub fn encrypt(
+    fn encrypt(
         seed: &[u8],
-        password: Password,
+        password: &[u8],
         kdf: Kdf,
         cipher: Cipher,
         uuid: Uuid,
@@ -45,8 +44,10 @@ impl Wallet {
                 uuid,
                 nextaccount: 0,
                 version: Version::one(),
-                title,
+                name,
             },
         })
     }
+
+    pub fn decrypt_seed(&self, password: &[u8]) -> Result<>
 }

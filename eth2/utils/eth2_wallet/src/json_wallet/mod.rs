@@ -1,17 +1,20 @@
-use eth2_keystore::json_keystore::Crypto;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 
+pub use eth2_keystore::json_keystore::{
+    ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, Kdf, KdfModule,
+    Sha256Checksum,
+};
 pub use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JsonWallet {
-    crypto: Crypto,
-    name: String,
-    nextaccount: u32,
-    uuid: Uuid,
-    version: Version,
+    pub crypto: Crypto,
+    pub name: String,
+    pub nextaccount: u32,
+    pub uuid: Uuid,
+    pub version: Version,
 }
 
 /// Version for `JsonWallet`.
