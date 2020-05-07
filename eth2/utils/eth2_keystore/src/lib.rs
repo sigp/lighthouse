@@ -9,6 +9,7 @@ pub mod json_keystore;
 
 pub use keystore::{
     decrypt, default_kdf, encrypt, Error, Keystore, KeystoreBuilder, DKLEN, HASH_SIZE, IV_SIZE,
+    SALT_SIZE,
 };
 pub use plain_text::PlainText;
 pub use uuid::Uuid;
