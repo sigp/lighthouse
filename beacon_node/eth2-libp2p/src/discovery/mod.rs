@@ -4,7 +4,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, CombinedKey, Keypair};
-use enr_ext::{CombinedKeyExt, EnrExt};
+pub use enr_ext::{CombinedKeyExt, EnrExt};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
@@ -196,15 +196,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             return Some(enr.clone());
         }
         // not in the local cache, look in the routing table
-        /* TODO: Correct this function
-        if let Some(node_id) =  peer_id_to_node_id(peer_id) {
-          // TODO: Need to update discv5
-          //  self.discovery.find_enr(&node_id)
+        if let Ok(_node_id) = enr_ext::peer_id_to_node_id(peer_id) {
+            // TODO: Need to update discv5
+            //  self.discovery.find_enr(&node_id)
+            return None;
         } else {
-            None
+            return None;
         }
-        */
-        None
     }
 
     /// Adds/Removes a subnet from the ENR Bitfield

@@ -2,14 +2,14 @@ use clap::{App, Arg, ArgMatches};
 use clap_utils;
 use environment::Environment;
 use futures::{
-    future::{self, loop_fn, Loop},
+    future::{self, Loop},
     Future,
 };
 use slog::{info, Logger};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use tokio::timer::Delay;
+use tokio::time::Delay;
 use types::EthSpec;
 use validator_client::validator_directory::ValidatorDirectoryBuilder;
 use web3::{
