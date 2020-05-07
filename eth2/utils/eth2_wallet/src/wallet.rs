@@ -2,7 +2,7 @@ use crate::json_wallet::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet,
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
-use eth2_keystore::{decrypt, encrypt};
+use eth2_keystore::{decrypt, encrypt, IV_SIZE, SALT_SIZE};
 use rand::prelude::*;
 use uuid::Uuid;
 
