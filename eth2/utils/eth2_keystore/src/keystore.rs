@@ -3,8 +3,8 @@
 
 use crate::derived_key::DerivedKey;
 use crate::json_keystore::{
-    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, HexBytes,
-    JsonKeystore, Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
+    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonKeystore,
+    Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::plain_text::PlainText;
 use crate::Password;
@@ -138,22 +138,9 @@ impl Keystore {
         uuid: Uuid,
         path: String,
     ) -> Result<Self, Error> {
-        let derived_key = derive_key(&password, &kdf)?;
-
         let secret = PlainText::from(keypair.sk.as_raw().as_bytes());
 
-        // Encrypt secret.
-        let mut cipher_text = vec![0; secret.len()];
-        match &cipher {
-            Cipher::Aes128Ctr(params) => {
-                crypto::aes::ctr(
-                    crypto::aes::KeySize::KeySize128,
-                    &derived_key.as_bytes()[0..16],
-                    params.iv.as_bytes(),
-                )
-                .process(secret.as_bytes(), &mut cipher_text);
-            }
-        };
+        let (cipher_text, checksum) = encrypt(&secret, &password, &kdf, &cipher)?;
 
         Ok(Keystore {
             json: JsonKeystore {
@@ -166,7 +153,7 @@ impl Keystore {
                     checksum: ChecksumModule {
                         function: Sha256Checksum::function(),
                         params: EmptyMap,
-                        message: generate_checksum(&derived_key, &cipher_text),
+                        message: checksum.to_vec().into(),
                     },
                     cipher: CipherModule {
                         function: cipher.function(),
@@ -189,35 +176,7 @@ impl Keystore {
     /// - The provided password is incorrect.
     /// - The keystore is badly formed.
     pub fn decrypt_keypair(&self, password: Password) -> Result<Keypair, Error> {
-        let cipher_message = &self.json.crypto.cipher.message;
-
-        // Generate derived key
-        let derived_key = derive_key(&password, &self.json.crypto.kdf.params)?;
-
-        // Mismatching checksum indicates an invalid password.
-        if generate_checksum(&derived_key, cipher_message.as_bytes())
-            != self.json.crypto.checksum.message
-        {
-            return Err(Error::InvalidPassword);
-        }
-
-        let mut plain_text = PlainText::zero(cipher_message.len());
-        match &self.json.crypto.cipher.params {
-            Cipher::Aes128Ctr(params) => {
-                crypto::aes::ctr(
-                    crypto::aes::KeySize::KeySize128,
-                    &derived_key.as_bytes()[0..16],
-                    // NOTE: we do not check the size of the `iv` as there is no guidance about
-                    // this on EIP-2335.
-                    //
-                    // Reference:
-                    //
-                    // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
-                    params.iv.as_bytes(),
-                )
-                .process(cipher_message.as_bytes(), plain_text.as_mut_bytes());
-            }
-        };
+        let plain_text = decrypt(&password, &self.json.crypto)?;
 
         // Verify that secret key material is correct length.
         if plain_text.len() != SECRET_KEY_LEN {
@@ -275,17 +234,87 @@ impl Keystore {
     }
 }
 
+/// Returns `(cipher_text, checksum)` for the given `plain_text` encrypted with `Cipher` using a
+/// key derived from `password` via the `Kdf` (key derivation function).
+///
+/// ## Errors
+///
+/// - The `kdf` is badly formed (e.g., has some values set to zero).
+pub fn encrypt(
+    plain_text: &PlainText,
+    password: &Password,
+    kdf: &Kdf,
+    cipher: &Cipher,
+) -> Result<(Vec<u8>, [u8; HASH_SIZE]), Error> {
+    let derived_key = derive_key(&password, &kdf)?;
+
+    // Encrypt secret.
+    let mut cipher_text = vec![0; plain_text.len()];
+    match &cipher {
+        Cipher::Aes128Ctr(params) => {
+            crypto::aes::ctr(
+                crypto::aes::KeySize::KeySize128,
+                &derived_key.as_bytes()[0..16],
+                params.iv.as_bytes(),
+            )
+            .process(plain_text.as_bytes(), &mut cipher_text);
+        }
+    };
+
+    let checksum = generate_checksum(&derived_key, &cipher_text);
+
+    Ok((cipher_text, checksum))
+}
+
+/// Regenerate some `plain_text` from the given `password` and `crypto`.
+///
+/// ## Errors
+///
+/// - The provided password is incorrect.
+/// - The `crypto.kdf` is badly formed (e.g., has some values set to zero).
+pub fn decrypt(password: &Password, crypto: &Crypto) -> Result<PlainText, Error> {
+    let cipher_message = &crypto.cipher.message;
+
+    // Generate derived key
+    let derived_key = derive_key(&password, &crypto.kdf.params)?;
+
+    // Mismatching checksum indicates an invalid password.
+    if &generate_checksum(&derived_key, cipher_message.as_bytes())[..]
+        != crypto.checksum.message.as_bytes()
+    {
+        return Err(Error::InvalidPassword);
+    }
+
+    let mut plain_text = PlainText::zero(cipher_message.len());
+    match &crypto.cipher.params {
+        Cipher::Aes128Ctr(params) => {
+            crypto::aes::ctr(
+                crypto::aes::KeySize::KeySize128,
+                &derived_key.as_bytes()[0..16],
+                // NOTE: we do not check the size of the `iv` as there is no guidance about
+                // this on EIP-2335.
+                //
+                // Reference:
+                //
+                // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
+                params.iv.as_bytes(),
+            )
+            .process(cipher_message.as_bytes(), plain_text.as_mut_bytes());
+        }
+    };
+    Ok(plain_text)
+}
+
 /// Generates a checksum to indicate that the `derived_key` is associated with the
 /// `cipher_message`.
-fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> HexBytes {
+fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> [u8; HASH_SIZE] {
     let mut hasher = Sha256::new();
     hasher.input(&derived_key.as_bytes()[16..32]);
     hasher.input(cipher_message);
 
-    let mut digest = vec![0; HASH_SIZE];
+    let mut digest = [0; HASH_SIZE];
     hasher.result(&mut digest);
-
-    digest.into()
+    digest
 }
 
 /// Derive a private key from the given `password` using the given `kdf` (key derivation function).

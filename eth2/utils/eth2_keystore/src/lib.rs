@@ -8,6 +8,6 @@ mod plain_text;
 
 pub mod json_keystore;
 
-pub use keystore::{Error, Keystore, KeystoreBuilder};
+pub use keystore::{decrypt, encrypt, Error, Keystore, KeystoreBuilder};
 pub use password::Password;
 pub use uuid::Uuid;
