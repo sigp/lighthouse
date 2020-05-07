@@ -12,7 +12,7 @@ mod kdf_module;
 pub use checksum_module::{ChecksumModule, EmptyMap, Sha256Checksum};
 pub use cipher_module::{Aes128Ctr, Cipher, CipherModule};
 pub use hex_bytes::HexBytes;
-pub use kdf_module::{Kdf, KdfModule, Pbkdf2, Prf, Scrypt};
+pub use kdf_module::{EmptyString, Kdf, KdfModule, Pbkdf2, Prf, Scrypt};
 pub use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};

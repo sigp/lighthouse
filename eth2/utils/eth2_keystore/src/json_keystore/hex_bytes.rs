@@ -7,10 +7,6 @@ use std::convert::TryFrom;
 pub struct HexBytes(Vec<u8>);
 
 impl HexBytes {
-    pub fn empty() -> Self {
-        Self(vec![])
-    }
-
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }

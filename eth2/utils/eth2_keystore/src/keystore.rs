@@ -3,8 +3,8 @@
 
 use crate::derived_key::DerivedKey;
 use crate::json_keystore::{
-    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, HexBytes, JsonKeystore, Kdf,
-    KdfModule, Scrypt, Sha256Checksum, Version,
+    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, HexBytes,
+    JsonKeystore, Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::plain_text::PlainText;
 use crate::Password;
@@ -161,7 +161,7 @@ impl Keystore {
                     kdf: KdfModule {
                         function: kdf.function(),
                         params: kdf,
-                        message: HexBytes::empty(),
+                        message: EmptyString,
                     },
                     checksum: ChecksumModule {
                         function: Sha256Checksum::function(),

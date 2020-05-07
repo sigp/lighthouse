@@ -15,7 +15,29 @@ use std::convert::TryFrom;
 pub struct KdfModule {
     pub function: KdfFunction,
     pub params: Kdf,
-    pub message: HexBytes,
+    pub message: EmptyString,
+}
+
+/// Used for ensuring serde only decodes an empty string.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct EmptyString;
+
+impl Into<String> for EmptyString {
+    fn into(self) -> String {
+        "".into()
+    }
+}
+
+impl TryFrom<String> for EmptyString {
+    type Error = &'static str;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.as_ref() {
+            "" => Ok(Self),
+            _ => Err("kdf message must be empty"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
