@@ -23,7 +23,7 @@ const SECRET_KEY_LEN: usize = 32;
 /// NOTE: there is no clear guidance in EIP-2335 regarding the size of this salt. Neither
 /// [pbkdf2](https://www.ietf.org/rfc/rfc2898.txt) or [scrypt](https://tools.ietf.org/html/rfc7914)
 /// make a clear statement about what size it should be, however 32-bytes certainly seems
-/// reasonable and larger than their examples.
+/// reasonable and larger than the EITF examples.
 const SALT_SIZE: usize = 32;
 /// The length of the derived key.
 pub const DKLEN: u32 = 32;
@@ -34,7 +34,14 @@ pub const DKLEN: u32 = 32;
 /// - https://tools.ietf.org/html/rfc3686
 /// - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
 ///
-/// I (Paul H) have raised with this Carl B., the author of EIP2335 and await a response.
+/// Comment from Carl B, author of EIP-2335:
+///
+/// AES CTR IV's should be the same length as the internal blocks in my understanding. (The IV is
+/// the first block input.)
+///
+/// As far as I know, AES-128-CTR is not defined by the IETF, but by NIST in SP800-38A.
+/// (https://csrc.nist.gov/publications/detail/sp/800-38a/final) The test vectors in this standard
+/// are 16 bytes.
 const IV_SIZE: usize = 16;
 /// The byte size of a SHA256 hash.
 const HASH_SIZE: usize = 32;
@@ -65,6 +72,8 @@ pub struct KeystoreBuilder<'a> {
 
 impl<'a> KeystoreBuilder<'a> {
     /// Creates a new builder.
+    ///
+    /// Generates the KDF `salt` and AES `IV` using `rand::thread_rng()`.
     ///
     /// ## Errors
     ///
@@ -241,7 +250,7 @@ impl Keystore {
         serde_json::to_string(self).map_err(|e| Error::UnableToSerialize(format!("{}", e)))
     }
 
-    /// Returns `self` encoded as a JSON object.
+    /// Returns `self` from an encoded JSON object.
     pub fn from_json_str(json_string: &str) -> Result<Self, Error> {
         serde_json::from_str(json_string).map_err(|e| Error::InvalidJson(format!("{}", e)))
     }

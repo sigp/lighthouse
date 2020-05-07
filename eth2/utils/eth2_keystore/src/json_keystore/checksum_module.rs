@@ -34,7 +34,7 @@ impl TryFrom<String> for ChecksumFunction {
     }
 }
 
-/// Used for ensuring serde only decode an empty map
+/// Used for ensuring serde only decodes an empty map.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(try_from = "Value", into = "Value")]
 pub struct EmptyMap;
