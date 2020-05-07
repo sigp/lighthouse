@@ -1,6 +1,6 @@
 //! Test cases taken from:
 //!
-//! https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
+//! https://eips.ethereum.org/EIPS/eip-2335
 
 #![cfg(test)]
 
