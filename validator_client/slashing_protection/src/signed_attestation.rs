@@ -1,15 +1,12 @@
-use crate::validator_history::ValidatorHistory;
-use crate::{NotSafe, Safe, ValidityReason};
-use rusqlite::params;
 use std::convert::From;
 use tree_hash::TreeHash;
 use types::{AttestationData, Epoch, Hash256};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignedAttestation {
-    source_epoch: Epoch,
+    pub source_epoch: Epoch,
     pub target_epoch: Epoch,
-    signing_root: Hash256,
+    pub signing_root: Hash256,
 }
 
 impl SignedAttestation {
@@ -39,128 +36,7 @@ pub enum InvalidAttestation {
     PrevSurroundsNew { prev: SignedAttestation },
 }
 
-/// Checks if the attestation is valid, invalid, or slashable, and returns accordingly.
-impl ValidatorHistory<SignedAttestation> {
-    pub fn check_for_attester_slashing(
-        &self,
-        attestation_data: &AttestationData,
-    ) -> Result<Safe, NotSafe> {
-        let att_source_epoch = attestation_data.source.epoch;
-        let att_target_epoch = attestation_data.target.epoch;
-        let conn = self.conn_pool.get()?;
-
-        // Checking if history is empty
-        let mut empty_select = conn.prepare("SELECT 1 FROM signed_attestations LIMIT 1")?;
-        if !empty_select.exists(params![])? {
-            return Ok(Safe {
-                reason: ValidityReason::EmptyHistory,
-            });
-        }
-
-        // Checking if the attestation_data signing_root is already present in the db
-        let mut same_hash_select =
-            conn.prepare("SELECT signing_root FROM signed_attestations WHERE target_epoch = ?")?;
-        let same_hash_select = same_hash_select.query_row(params![att_target_epoch], |row| {
-            let root: Vec<u8> = row.get(0)?;
-            let signing_root = Hash256::from_slice(&root[..]);
-            Ok(signing_root)
-        });
-        // FIXME(slashing): think about selecting more than 1 row here (DB shouldn't contain
-        // data that's already slashable, right?)
-        if let Ok(same_hash) = same_hash_select {
-            if same_hash == attestation_data.tree_hash_root() {
-                return Ok(Safe {
-                    reason: ValidityReason::SameData,
-                });
-            } else {
-                let mut double_vote_select = conn.prepare(
-                    "SELECT target_epoch, source_epoch
-                     FROM signed_attestations WHERE target_epoch = ?",
-                )?;
-
-                let conflicting_attest =
-                    double_vote_select.query_row(params![att_target_epoch], |row| {
-                        let target_epoch = row.get(0)?;
-                        let source_epoch = row.get(1)?;
-                        Ok(SignedAttestation::new(
-                            source_epoch,
-                            target_epoch,
-                            same_hash,
-                        ))
-                    })?;
-                return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                    conflicting_attest,
-                )));
-            }
-        }
-
-        // Checking for PruningError (where attestation_data's target is smaller than the minimum
-        // target epoch in db)
-        let mut min_select = conn.prepare("SELECT MIN(target_epoch) FROM signed_attestations")?;
-        let min_target_epoch: Epoch = min_select.query_row(params![], |row| row.get(0))?;
-        if att_target_epoch < min_target_epoch {
-            return Err(NotSafe::PruningError);
-        }
-
-        // Check that no previous votes are surrounding `attestation_data`.
-        let surrounding_attestations = conn
-            .prepare(
-                "SELECT source_epoch, target_epoch, signing_root
-                 FROM signed_attestations
-                 WHERE source_epoch < ?1 AND target_epoch > ?2
-                 ORDER BY target_epoch DESC",
-            )?
-            .query_map(params![att_source_epoch, att_target_epoch], |row| {
-                let source = row.get(0)?;
-                let target = row.get(1)?;
-                let signing_root: Vec<u8> = row.get(2)?;
-                Ok(SignedAttestation::new(
-                    source,
-                    target,
-                    Hash256::from_slice(&signing_root[..]),
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if let Some(prev) = surrounding_attestations.first().cloned() {
-            return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::PrevSurroundsNew { prev },
-            ));
-        }
-
-        // Check that no previous votes are surrounded by `attestation_data`.
-        let surrounded_attestations = conn
-            .prepare(
-                "SELECT source_epoch, target_epoch, signing_root
-                 FROM signed_attestations
-                 WHERE source_epoch > ?1 and target_epoch < ?2
-                 ORDER BY target_epoch DESC",
-            )?
-            .query_map(params![att_source_epoch, att_target_epoch], |row| {
-                let source = row.get(0)?;
-                let target = row.get(1)?;
-                let signing_root: Vec<u8> = row.get(2)?;
-                Ok(SignedAttestation::new(
-                    source,
-                    target,
-                    Hash256::from_slice(&signing_root[..]),
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if let Some(prev) = surrounded_attestations.first().cloned() {
-            return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::NewSurroundsPrev { prev },
-            ));
-        }
-
-        // Everything has been checked, return Valid
-        Ok(Safe {
-            reason: ValidityReason::Valid,
-        })
-    }
-}
-
+// FIXME(slashing): fix these tests
 #[cfg(test)]
 mod attestation_tests {
     use super::*;

@@ -1,6 +1,3 @@
-use crate::validator_history::ValidatorHistory;
-use crate::{NotSafe, Safe, ValidityReason};
-use rusqlite::params;
 use types::{BeaconBlockHeader, Hash256, Slot};
 
 #[derive(PartialEq, Debug)]
@@ -11,7 +8,7 @@ pub enum InvalidBlock {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignedBlock {
     pub slot: Slot,
-    signing_root: Hash256,
+    pub signing_root: Hash256,
 }
 
 impl SignedBlock {
@@ -28,79 +25,7 @@ impl SignedBlock {
     }
 }
 
-impl ValidatorHistory<SignedBlock> {
-    pub fn check_for_proposer_slashing(
-        &self,
-        block_header: &BeaconBlockHeader,
-    ) -> Result<Safe, NotSafe> {
-        let conn = self.conn_pool.get()?;
-
-        // Checking if history is empty
-        let mut empty_select = conn.prepare("SELECT 1 FROM signed_blocks LIMIT 1")?;
-        if !empty_select.exists(params![])? {
-            return Ok(Safe {
-                reason: ValidityReason::EmptyHistory,
-            });
-        }
-
-        // Short-circuit: checking if the incoming block has a higher slot than the maximum slot
-        // in the DB.
-        let mut latest_block_select =
-            conn.prepare("SELECT MAX(slot), signing_root FROM signed_blocks")?;
-        let latest_block = latest_block_select.query_row(params![], |row| {
-            let slot = row.get(0)?;
-            let signing_bytes: Vec<u8> = row.get(1)?;
-            let signing_root = Hash256::from_slice(&signing_bytes);
-            Ok(SignedBlock::new(slot, signing_root))
-        })?;
-
-        if block_header.slot > latest_block.slot {
-            return Ok(Safe {
-                reason: ValidityReason::Valid,
-            });
-        }
-
-        // Checking for Pruning Error i.e the incoming block slot is smaller than the minimum slot
-        // signed in the DB.
-        let mut min_select = conn.prepare("SELECT MIN(slot) FROM signed_blocks")?;
-        let oldest_slot: Slot = min_select.query_row(params![], |row| row.get(0))?;
-        if block_header.slot < oldest_slot {
-            // FIXME(slashing): consider renaming
-            return Err(NotSafe::PruningError);
-        }
-
-        // Checking if there's an existing entry in the db that has a slot equal to the
-        // block_header's slot.
-        let mut same_slot_select =
-            conn.prepare("SELECT slot, signing_root FROM signed_blocks WHERE slot = ?")?;
-        let same_slot_query = same_slot_select.query_row(params![block_header.slot], |row| {
-            let slot = row.get(0)?;
-            let signing_bytes: Vec<u8> = row.get(1)?;
-            let signing_root = Hash256::from_slice(&signing_bytes);
-            Ok(SignedBlock::new(slot, signing_root))
-        });
-
-        // FIXME(slashing): differentiate DB error and empty result
-        if let Ok(same_slot_attest) = same_slot_query {
-            if same_slot_attest.signing_root == block_header.canonical_root() {
-                // Same slot and same hash -> we're re-broadcasting a previously signed block
-                Ok(Safe {
-                    reason: ValidityReason::SameData,
-                })
-            } else {
-                // Same epoch but not the same hash -> it's a DoubleBlockProposal
-                Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
-                    same_slot_attest,
-                )))
-            }
-        } else {
-            Ok(Safe {
-                reason: ValidityReason::Valid,
-            })
-        }
-    }
-}
-
+// FIXME(slashing): fix these tests
 #[cfg(test)]
 mod block_tests {
     use super::*;

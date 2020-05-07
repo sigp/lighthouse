@@ -1,16 +1,12 @@
+use crate::config::SLASHING_PROTECTION_FILENAME;
 use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use rayon::prelude::*;
-use slashing_protection::{
-    signed_attestation::SignedAttestation,
-    signed_block::SignedBlock,
-    validator_history::{SlashingProtection as SlashingProtectionTrait, ValidatorHistory},
-};
+use slashing_protection::SlashingDatabase;
 use slog::{error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fs::read_dir;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
@@ -18,65 +14,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, PublicKey,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 
-struct VotingValidator {
-    voting_keypair: Keypair,
-    attestation_slashing_protection: Option<Arc<Mutex<ValidatorHistory<SignedAttestation>>>>,
-    block_slashing_protection: Option<Arc<Mutex<ValidatorHistory<SignedBlock>>>>,
-}
-
-impl TryFrom<ValidatorDirectory> for VotingValidator {
-    type Error = String;
-
-    fn try_from(dir: ValidatorDirectory) -> Result<Self, Self::Error> {
-        let slots_per_epoch = dir.slots_per_epoch;
-        let attestation_slashing_protection = dir
-            .attestation_slashing_protection
-            .map(|path| {
-                ValidatorHistory::open(&path, None).map_err(|e| {
-                    format!(
-                        "Error loading attester slashing protection from {:?}: {:?}",
-                        path, e
-                    )
-                })
-            })
-            .transpose()?;
-        let block_slashing_protection = dir
-            .block_slashing_protection
-            .map(|path| {
-                ValidatorHistory::open(&path, slots_per_epoch).map_err(|e| {
-                    format!(
-                        "Error loading proposer slashing protection from {:?}: {:?}",
-                        path, e
-                    )
-                })
-            })
-            .transpose()?;
-
-        if attestation_slashing_protection.is_none() || block_slashing_protection.is_none() {
-            return Err(
-                "Validator cannot vote without attestation or block slashing protection"
-                    .to_string(),
-            );
-        }
-
-        Ok(Self {
-            voting_keypair: dir
-                .voting_keypair
-                .ok_or_else(|| "Validator without voting keypair cannot vote".to_string())?,
-            attestation_slashing_protection: attestation_slashing_protection
-                .map(|v| Arc::new(Mutex::new(v))),
-            block_slashing_protection: block_slashing_protection.map(|v| Arc::new(Mutex::new(v))),
-        })
-    }
-}
-
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
-    validators: Arc<RwLock<HashMap<PublicKey, VotingValidator>>>,
+    validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
+    slashing_protection: SlashingDatabase,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
     log: Logger,
@@ -93,7 +38,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        println!("Loading validator store from disk, WTF");
+        // FIXME(slashing): work out where to do validator registration
+        let slashing_db_path = base_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection =
+            SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
+                format!(
+                    "Failed to open or create slashing protection database: {:?}",
+                    e
+                )
+            })?;
+
         let validator_key_values = read_dir(&base_dir)
             .map_err(|e| format!("Failed to read base directory {:?}: {:?}", base_dir, e))?
             .collect::<Vec<_>>()
@@ -102,7 +56,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let path = validator_dir.ok()?.path();
 
                 if path.is_dir() {
-                    match ValidatorDirectory::load_for_signing(path.clone(), E::slots_per_epoch()) {
+                    match ValidatorDirectory::load_for_signing(path.clone()) {
                         Ok(validator_directory) => Some(validator_directory),
                         Err(e) => {
                             error!(
@@ -119,24 +73,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 }
             })
             .filter_map(|validator_directory| {
-                match VotingValidator::try_from(validator_directory.clone()) {
-                    Ok(voting_validator) => Some(voting_validator),
-                    Err(e) => {
-                        error!(
-
-                            log,
-                            "Unable to load validator from disk";
-                            "error" => e,
-                            "path" => format!("{:?}", validator_directory.directory)
-                        );
-                        None
-                    }
-                }
-            })
-            .map(|voting_validator| (voting_validator.voting_keypair.pk.clone(), voting_validator));
+                validator_directory
+                    .voting_keypair
+                    .clone()
+                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
+            });
 
         Ok(Self {
             validators: Arc::new(RwLock::new(HashMap::from_par_iter(validator_key_values))),
+            slashing_protection,
             genesis_validators_root,
             spec: Arc::new(spec),
             log,
@@ -153,45 +98,53 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        println!("Loading vals from insecure keys");
         let temp_dir = TempDir::new("insecure_validator")
             .map_err(|e| format!("Unable to create temp dir: {:?}", e))?;
         let data_dir = PathBuf::from(temp_dir.path());
+
+        let slashing_db_path = data_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection = SlashingDatabase::create(&slashing_db_path)
+            .map_err(|e| format!("Failed to create slashing protection database: {:?}", e))?;
 
         let validators = validator_indices
             .par_iter()
             .map(|index| {
                 ValidatorDirectoryBuilder::default()
                     .spec(spec.clone())
-                    .slots_per_epoch(E::slots_per_epoch())
                     .full_deposit_amount()?
                     .insecure_keypairs(*index)
                     .create_directory(data_dir.clone())?
                     .write_keypair_files()?
                     .write_eth1_data_file()?
-                    .create_sqlite_slashing_dbs()?
                     .build()
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .filter_map(|validator_directory| {
-                match VotingValidator::try_from(validator_directory.clone()) {
-                    Ok(voting_validator) => Some(voting_validator),
-                    Err(e) => {
-                        error!(
-                            log,
-                            "Unable to load insecure validator from disk";
-                            "error" => e,
-                            "path" => format!("{:?}", validator_directory.directory)
-                        );
-                        None
-                    }
-                }
+                validator_directory
+                    .voting_keypair
+                    .clone()
+                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
             })
-            .map(|voting_validator| (voting_validator.voting_keypair.pk.clone(), voting_validator));
+            .collect::<Vec<_>>();
+
+        // Register all validators with the slashing protection agency.
+        for (validator_pubkey, _) in validators.iter() {
+            slashing_protection
+                .register_validator(validator_pubkey)
+                .unwrap_or_else(|e| {
+                    warn!(
+                        log,
+                        "Failed to register validator for slashing protection";
+                        "pubkey" => format!("{:?}", validator_pubkey),
+                        "error" => format!("{:?}", e),
+                    );
+                });
+        }
 
         Ok(Self {
             validators: Arc::new(RwLock::new(HashMap::from_iter(validators))),
+            slashing_protection,
             genesis_validators_root,
             spec: Arc::new(spec),
             log,
@@ -229,7 +182,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .read()
             .get(validator_pubkey)
             .and_then(|validator_dir| {
-                let voting_keypair = &validator_dir.voting_keypair;
+                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
@@ -248,22 +201,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         block: BeaconBlock<E>,
         current_slot: Slot,
     ) -> Option<SignedBeaconBlock<E>> {
-        let validators = self.validators.read();
-
-        // Retrieving the corresponding ValidatorDir
-        let validator = validators.get(validator_pubkey)?;
-
-        if validator.block_slashing_protection.is_none() {
-            error!(
-                self.log,
-                "Validator does not have block slashing protection";
-                "action" => "refused to produce block",
-                "pubkey" => format!("{:?}", &validator.voting_keypair.pk),
-            );
-            return None;
-        }
-
-        // Making sure the block slot is not higher than the current slot to avoid potential attacks.
+        // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot > current_slot {
             warn!(
                 self.log,
@@ -274,17 +212,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             return None;
         }
 
-        // Checking for slashing conditions
-        let slashing_status = validator
-            .block_slashing_protection
-            .as_ref()?
-            .try_lock()?
-            .update_if_valid(&block.block_header());
+        // Check for slashing conditions.
+        let slashing_status = self
+            .slashing_protection
+            .check_and_insert_block_proposal(validator_pubkey, &block.block_header());
 
         match slashing_status {
+            // We can safely sign this block.
             Ok(_) => {
-                // We can safely sign this block
-                let voting_keypair = &validator.voting_keypair;
+                let validators = self.validators.read();
+                let validator = validators.get(validator_pubkey)?;
+                let voting_keypair = validator.voting_keypair.as_ref()?;
+
                 Some(block.sign(
                     &voting_keypair.sk,
                     &self.fork()?,
@@ -303,6 +242,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
+    // FIXME(slashing): consider returning Result
     pub fn sign_attestation(
         &self,
         validator_pubkey: &PublicKey,
@@ -310,37 +250,22 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         attestation: &mut Attestation<E>,
         current_epoch: Epoch,
     ) -> Option<()> {
-        let validators = self.validators.read();
-
-        // Retrieving the corresponding ValidatorDir
-        let validator = validators.get(validator_pubkey)?;
-
-        if validator.attestation_slashing_protection.is_none() {
-            error!(
-                self.log,
-                "Validator does not have attestation slashing protection";
-                "action" => "refused to produce attestation",
-                "pubkey" => format!("{:?}", &validator.voting_keypair.pk),
-            );
-            return None;
-        }
-
-        // Making sure the target epoch is not higher than the current epoch to avoid potential attacks.
+        // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
         if attestation.data.target.epoch > current_epoch {
             return None;
         }
 
-        // Checking for slashing conditions
-        let slashing_status = validator
-            .attestation_slashing_protection
-            .as_ref()?
-            .try_lock()?
-            .update_if_valid(&attestation.data);
+        // Checking for slashing conditions.
+        let slashing_status = self
+            .slashing_protection
+            .check_and_insert_attestation(validator_pubkey, &attestation.data);
 
         match slashing_status {
+            // We can safely sign this attestation.
             Ok(_) => {
-                // We can safely sign this attestation
-                let voting_keypair = &validator.voting_keypair;
+                let validators = self.validators.read();
+                let validator = validators.get(validator_pubkey)?;
+                let voting_keypair = validator.voting_keypair.as_ref()?;
 
                 attestation
                     .sign(
@@ -365,6 +290,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 warn!(
                     self.log,
                     "Not signing slashable attestation";
+                    "attestation" => format!("{:?}", attestation.data),
                     "error" => format!("{:?}", e)
                 );
                 None
@@ -383,7 +309,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         aggregate: Attestation<E>,
     ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
-        let voting_keypair = &validators.get(validator_pubkey)?.voting_keypair;
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
 
         Some(SignedAggregateAndProof::from_aggregate(
             validator_index,
@@ -403,7 +329,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot: Slot,
     ) -> Option<SelectionProof> {
         let validators = self.validators.read();
-        let voting_keypair = &validators.get(validator_pubkey)?.voting_keypair;
+        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
 
         Some(SelectionProof::new::<E>(
             slot,

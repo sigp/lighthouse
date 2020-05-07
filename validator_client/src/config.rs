@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
+/// Path to the slashing protection database within the datadir.
+pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
 /// Specifies a method for obtaining validator keypairs.
 #[derive(Clone)]

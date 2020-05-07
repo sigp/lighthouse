@@ -364,6 +364,7 @@ impl SlashingProtection<SignedAttestation> for ValidatorHistory<SignedAttestatio
     }
 }
 
+// FIXME(slashing): revive these tests
 #[cfg(test)]
 mod single_threaded_tests {
     use super::*;

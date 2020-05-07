@@ -1,12 +1,14 @@
-pub mod signed_attestation;
-pub mod signed_block;
-pub mod validator_history;
+mod signed_attestation;
+mod signed_block;
+mod slashing_database;
 
-use crate::signed_attestation::InvalidAttestation;
-use crate::signed_block::InvalidBlock;
+pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
+pub use crate::signed_block::{InvalidBlock, SignedBlock};
+pub use crate::slashing_database::SlashingDatabase;
 use rusqlite::Error as SQLError;
 use std::io::{Error as IOError, ErrorKind};
 use std::string::ToString;
+use types::PublicKey;
 
 impl From<IOError> for NotSafe {
     fn from(error: IOError) -> NotSafe {
@@ -42,6 +44,7 @@ pub enum NotSafe {
     // slots_per_epoch was provided whilst using the signed attestation database
     UnnecessarySlotsPerEpoch,
     IOError(ErrorKind),
+    UnregisteredValidator(PublicKey),
     SQLError(String),
     SQLPoolError(String),
 }
