@@ -23,11 +23,10 @@ serde_json = "1.0.52"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
 slog-term = "2.5.0"
-tokio = "0.2.20"
-tokio-timer = "0.2.13"
+tokio = {version = "0.2.20", features = ["time"]}
 error-chain = "0.12.2"
 bincode = "1.2.1"
-futures = "0.3.4"
+futures = {version ="0.3.4", features = ["compat"]}
 dirs = "2.0.2"
 logging = { path = "../eth2/utils/logging" }
 environment = { path = "../lighthouse/environment" }

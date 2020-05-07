@@ -5253,7 +5253,6 @@ dependencies = [
  "slot_clock",
  "tempdir",
  "tokio 0.2.20",
- "tokio-timer 0.2.13",
  "tree_hash",
  "types",
  "web3",
