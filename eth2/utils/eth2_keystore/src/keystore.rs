@@ -109,7 +109,7 @@ impl<'a> KeystoreBuilder<'a> {
     pub fn build(self) -> Result<Keystore, Error> {
         Keystore::encrypt(
             self.keypair,
-            self.password,
+            self.password.as_bytes(),
             self.kdf,
             self.cipher,
             self.uuid,
@@ -132,7 +132,7 @@ impl Keystore {
     /// keypair and password.
     fn encrypt(
         keypair: &Keypair,
-        password: Password,
+        password: &[u8],
         kdf: Kdf,
         cipher: Cipher,
         uuid: Uuid,
@@ -140,7 +140,7 @@ impl Keystore {
     ) -> Result<Self, Error> {
         let secret = PlainText::from(keypair.sk.as_raw().as_bytes());
 
-        let (cipher_text, checksum) = encrypt(&secret, &password, &kdf, &cipher)?;
+        let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
 
         Ok(Keystore {
             json: JsonKeystore {
@@ -176,7 +176,7 @@ impl Keystore {
     /// - The provided password is incorrect.
     /// - The keystore is badly formed.
     pub fn decrypt_keypair(&self, password: Password) -> Result<Keypair, Error> {
-        let plain_text = decrypt(&password, &self.json.crypto)?;
+        let plain_text = decrypt(password.as_bytes(), &self.json.crypto)?;
 
         // Verify that secret key material is correct length.
         if plain_text.len() != SECRET_KEY_LEN {
@@ -241,8 +241,8 @@ impl Keystore {
 ///
 /// - The `kdf` is badly formed (e.g., has some values set to zero).
 pub fn encrypt(
-    plain_text: &PlainText,
-    password: &Password,
+    plain_text: &[u8],
+    password: &[u8],
     kdf: &Kdf,
     cipher: &Cipher,
 ) -> Result<(Vec<u8>, [u8; HASH_SIZE]), Error> {
@@ -257,7 +257,7 @@ pub fn encrypt(
                 &derived_key.as_bytes()[0..16],
                 params.iv.as_bytes(),
             )
-            .process(plain_text.as_bytes(), &mut cipher_text);
+            .process(plain_text, &mut cipher_text);
         }
     };
 
@@ -272,11 +272,11 @@ pub fn encrypt(
 ///
 /// - The provided password is incorrect.
 /// - The `crypto.kdf` is badly formed (e.g., has some values set to zero).
-pub fn decrypt(password: &Password, crypto: &Crypto) -> Result<PlainText, Error> {
+pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     let cipher_message = &crypto.cipher.message;
 
     // Generate derived key
-    let derived_key = derive_key(&password, &crypto.kdf.params)?;
+    let derived_key = derive_key(password, &crypto.kdf.params)?;
 
     // Mismatching checksum indicates an invalid password.
     if &generate_checksum(&derived_key, cipher_message.as_bytes())[..]
@@ -318,12 +318,12 @@ fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> [u8; HA
 }
 
 /// Derive a private key from the given `password` using the given `kdf` (key derivation function).
-fn derive_key(password: &Password, kdf: &Kdf) -> Result<DerivedKey, Error> {
+fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
     let mut dk = DerivedKey::zero();
 
     match &kdf {
         Kdf::Pbkdf2(params) => {
-            let mut mac = params.prf.mac(password.as_bytes());
+            let mut mac = params.prf.mac(password);
 
             // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
             // if it is `0`.
@@ -362,7 +362,7 @@ fn derive_key(password: &Password, kdf: &Kdf) -> Result<DerivedKey, Error> {
             }
 
             crypto::scrypt::scrypt(
-                password.as_bytes(),
+                password,
                 params.salt.as_bytes(),
                 &crypto::scrypt::ScryptParams::new(log2_int(params.n) as u8, params.r, params.p),
                 dk.as_mut_bytes(),
