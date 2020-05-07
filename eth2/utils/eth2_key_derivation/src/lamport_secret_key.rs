@@ -1,4 +1,4 @@
-use crate::path::{HASH_SIZE, LAMPORT_ARRAY_SIZE};
+use crate::derived_key::{HASH_SIZE, LAMPORT_ARRAY_SIZE};
 use std::iter::Iterator;
 use zeroize::Zeroize;
 
