@@ -4,7 +4,7 @@
 use crate::derived_key::DerivedKey;
 use crate::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, HexBytes, JsonKeystore, Kdf,
-    KdfModule, Pbkdf2, Prf, Sha256Checksum, Version,
+    KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::plain_text::PlainText;
 use crate::Password;
@@ -79,10 +79,12 @@ impl<'a> KeystoreBuilder<'a> {
             Ok(Self {
                 keypair,
                 password,
-                kdf: Kdf::Pbkdf2(Pbkdf2 {
+                // Using scrypt as the default algorithm due to its memory hardness properties.
+                kdf: Kdf::Scrypt(Scrypt {
                     dklen: DKLEN,
-                    c: 262144,
-                    prf: Prf::default(),
+                    n: 262144,
+                    p: 1,
+                    r: 8,
                     salt: salt.to_vec().into(),
                 }),
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
