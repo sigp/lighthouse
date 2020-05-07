@@ -10,4 +10,5 @@ pub mod json_keystore;
 
 pub use keystore::{decrypt, encrypt, Error, Keystore, KeystoreBuilder};
 pub use password::Password;
+pub use plain_text::PlainText;
 pub use uuid::Uuid;
