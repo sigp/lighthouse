@@ -350,9 +350,6 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             );
         }
         Kdf::Scrypt(params) => {
-            // Assert that `n` is power of 2.
-            debug_assert_eq!(params.n, 2u32.pow(log2_int(params.n)));
-
             // RFC7914 declares that all these parameters must be greater than 1:
             //
             // - `N`: costParameter.
@@ -365,6 +362,9 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             if params.n == 0 || params.r == 0 || params.p == 0 {
                 return Err(Error::InvalidScryptParam);
             }
+
+            // Assert that `n` is power of 2.
+            debug_assert_eq!(params.n, 2u32.pow(log2_int(params.n)));
 
             crypto::scrypt::scrypt(
                 password,
