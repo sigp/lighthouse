@@ -1,15 +1,25 @@
+//! Test cases taken from:
+//!
+//! https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
+
 #![cfg(test)]
 
-use eth2_keystore::{Keystore, Password};
+use eth2_keystore::{Keystore, Uuid};
 
-// Test cases taken from:
-//
-// https://github.com/CarlBeek/EIPs/blob/bls_keystore/EIPS/eip-2335.md#test-cases
+const EXPECTED_SECRET: &str = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
+const PASSWORD: &str = "testpassword";
+
+pub fn decode_and_check_sk(json: &str) -> Keystore {
+    let keystore = Keystore::from_json_str(json).expect("should decode keystore json");
+    let expected_sk = hex::decode(EXPECTED_SECRET).unwrap();
+    let keypair = keystore.decrypt_keypair(PASSWORD.into()).unwrap();
+    assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk);
+    keystore
+}
+
 #[test]
-fn eip2335_test_vectors() {
-    let expected_secret = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
-    let password: Password = "testpassword".into();
-    let scrypt_test_vector = r#"
+fn eip2335_test_vector_scrypt() {
+    let vector = r#"
             {
             "crypto": {
                 "kdf": {
@@ -43,7 +53,18 @@ fn eip2335_test_vectors() {
         }
         "#;
 
-    let pbkdf2_test_vector = r#"
+    let keystore = decode_and_check_sk(&vector);
+    assert_eq!(
+        *keystore.uuid(),
+        Uuid::parse_str("1d85ae20-35c5-4611-98e8-aa14a633906f").unwrap(),
+        "uuid"
+    );
+    assert_eq!(keystore.path(), "", "path");
+}
+
+#[test]
+fn eip2335_test_vector_pbkdf() {
+    let vector = r#"
             {
             "crypto": {
                 "kdf": {
@@ -76,11 +97,11 @@ fn eip2335_test_vectors() {
         }
         "#;
 
-    let test_vectors = vec![scrypt_test_vector, pbkdf2_test_vector];
-    for test in test_vectors {
-        let keystore: Keystore = serde_json::from_str(test).unwrap();
-        let keypair = keystore.decrypt_keypair(password.clone()).unwrap();
-        let expected_sk = hex::decode(expected_secret).unwrap();
-        assert_eq!(keypair.sk.as_raw().as_bytes(), expected_sk)
-    }
+    let keystore = decode_and_check_sk(&vector);
+    assert_eq!(
+        *keystore.uuid(),
+        Uuid::parse_str("64625def-3331-4eea-ab6f-782f3ed16a83").unwrap(),
+        "uuid"
+    );
+    assert_eq!(keystore.path(), "m/12381/60/0/0", "path");
 }

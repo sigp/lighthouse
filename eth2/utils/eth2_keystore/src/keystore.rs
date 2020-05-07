@@ -245,6 +245,13 @@ impl Keystore {
         &self.json.uuid
     }
 
+    /// Returns the path for the keystore.
+    ///
+    /// Note: the path is not validated, it is simply whatever string the keystore provided.
+    pub fn path(&self) -> &str {
+        &self.json.path
+    }
+
     /// Encodes `self` as a JSON object.
     pub fn to_json_string(&self) -> Result<String, Error> {
         serde_json::to_string(self).map_err(|e| Error::UnableToSerialize(format!("{}", e)))
