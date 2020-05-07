@@ -20,6 +20,7 @@ use serde_repr::*;
 
 /// JSON representation of [EIP-2335](https://eips.ethereum.org/EIPS/eip-2335) keystore.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JsonKeystore {
     pub crypto: Crypto,
     pub uuid: Uuid,
@@ -43,6 +44,7 @@ impl Version {
 
 /// Crypto module for keystore.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Crypto {
     pub kdf: KdfModule,
     pub checksum: ChecksumModule,

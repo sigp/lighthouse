@@ -35,6 +35,7 @@ impl TryFrom<String> for CipherFunction {
 
 /// Cipher module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CipherModule {
     pub function: CipherFunction,
     pub params: Cipher,

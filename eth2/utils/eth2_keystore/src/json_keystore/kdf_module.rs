@@ -11,6 +11,7 @@ use std::convert::TryFrom;
 
 /// KDF module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KdfModule {
     pub function: KdfFunction,
     pub params: Kdf,

@@ -58,6 +58,7 @@ impl TryFrom<Value> for EmptyMap {
 
 /// Checksum module for `Keystore`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChecksumModule {
     pub function: ChecksumFunction,
     pub params: EmptyMap,
