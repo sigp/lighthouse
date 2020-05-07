@@ -1,0 +1,15 @@
+[package]
+name = "eth2_wallet"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = "1.0.102"
+serde_json = "1.0.41"
+serde_repr = "0.1"
+uuid = { version = "0.8", features = ["serde", "v4"] }
+eth2_keystore = { path = "../eth2_keystore" }
+eth2_key_derivation = { path = "../eth2_key_derivation" }
