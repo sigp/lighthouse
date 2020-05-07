@@ -1,12 +1,12 @@
 use crate::json_wallet::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet,
-    Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
+    Kdf, KdfModule, Sha256Checksum, Version,
 };
-use eth2_keystore::{decrypt, encrypt, IV_SIZE, SALT_SIZE};
+use eth2_keystore::{decrypt, default_kdf, encrypt, IV_SIZE, SALT_SIZE};
 use rand::prelude::*;
 use uuid::Uuid;
 
-pub use eth2_keystore::{Error, Password, PlainText};
+pub use eth2_keystore::{Error, PlainText};
 
 /// Constructs a `Keystore`.
 pub struct WalletBuilder<'a> {
@@ -27,7 +27,7 @@ impl<'a> WalletBuilder<'a> {
     /// ## Errors
     ///
     /// Returns `Error::EmptyPassword` if `password == ""`.
-    pub fn from_seed(seed: &'a [u8], password: &[u8], name: String) -> Result<Self, Error> {
+    pub fn from_seed(seed: &'a [u8], password: &'a [u8], name: String) -> Result<Self, Error> {
         if password.is_empty() {
             Err(Error::EmptyPassword)
         } else {
@@ -37,16 +37,10 @@ impl<'a> WalletBuilder<'a> {
             Ok(Self {
                 seed,
                 password,
-                // Using scrypt as the default algorithm due to its memory hardness properties.
-                kdf: Kdf::Scrypt(Scrypt {
-                    dklen: DKLEN,
-                    n: 262144,
-                    p: 1,
-                    r: 8,
-                    salt: salt.to_vec().into(),
-                }),
+                kdf: default_kdf(salt.to_vec()),
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
                 uuid: Uuid::new_v4(),
+                nextaccount: 0,
                 name,
             })
         }
@@ -78,7 +72,7 @@ impl Wallet {
         cipher: Cipher,
         uuid: Uuid,
         name: String,
-        next_account: u32,
+        nextaccount: u32,
     ) -> Result<Self, Error> {
         let (cipher_text, checksum) = encrypt(&seed, &password, &kdf, &cipher)?;
 
