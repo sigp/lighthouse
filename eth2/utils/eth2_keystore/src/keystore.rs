@@ -57,6 +57,8 @@ pub enum Error {
     InvalidJson(String),
     WriteError(String),
     ReadError(String),
+    InvalidPbkdf2Param,
+    InvalidScryptParam,
     IncorrectIvSize { expected: usize, len: usize },
 }
 
@@ -136,7 +138,7 @@ impl Keystore {
         uuid: Uuid,
         path: String,
     ) -> Result<Self, Error> {
-        let derived_key = derive_key(&password, &kdf);
+        let derived_key = derive_key(&password, &kdf)?;
 
         let secret = PlainText::from(keypair.sk.as_raw().as_bytes());
 
@@ -190,7 +192,7 @@ impl Keystore {
         let cipher_message = &self.json.crypto.cipher.message;
 
         // Generate derived key
-        let derived_key = derive_key(&password, &self.json.crypto.kdf.params);
+        let derived_key = derive_key(&password, &self.json.crypto.kdf.params)?;
 
         // Mismatching checksum indicates an invalid password.
         if generate_checksum(&derived_key, cipher_message.as_bytes())
@@ -287,12 +289,24 @@ fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> HexByte
 }
 
 /// Derive a private key from the given `password` using the given `kdf` (key derivation function).
-fn derive_key(password: &Password, kdf: &Kdf) -> DerivedKey {
+fn derive_key(password: &Password, kdf: &Kdf) -> Result<DerivedKey, Error> {
     let mut dk = DerivedKey::zero();
 
     match &kdf {
         Kdf::Pbkdf2(params) => {
             let mut mac = params.prf.mac(password.as_bytes());
+
+            // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
+            // if it is `0`.
+            //
+            // Both of these seem fairly convincing that it shouldn't be 0.
+            //
+            // Reference:
+            //
+            // https://www.ietf.org/rfc/rfc2898.txt
+            if params.c == 0 {
+                return Err(Error::InvalidPbkdf2Param);
+            }
 
             crypto::pbkdf2::pbkdf2(
                 &mut mac,
@@ -302,8 +316,21 @@ fn derive_key(password: &Password, kdf: &Kdf) -> DerivedKey {
             );
         }
         Kdf::Scrypt(params) => {
-            // Assert that `n` is power of 2
+            // Assert that `n` is power of 2.
             debug_assert_eq!(params.n, 2u32.pow(log2_int(params.n)));
+
+            // RFC7914 declares that all these parameters must be greater than 1:
+            //
+            // - `N`: costParameter.
+            // - `r`: blockSize.
+            // - `p`: parallelizationParameter
+            //
+            // Reference:
+            //
+            // https://tools.ietf.org/html/rfc7914
+            if params.n == 0 || params.r == 0 || params.p == 0 {
+                return Err(Error::InvalidScryptParam);
+            }
 
             crypto::scrypt::scrypt(
                 password.as_bytes(),
@@ -314,7 +341,7 @@ fn derive_key(password: &Password, kdf: &Kdf) -> DerivedKey {
         }
     }
 
-    dk
+    Ok(dk)
 }
 
 /// Compute floor of log2 of a u32.

@@ -6,7 +6,7 @@ use eth2_keystore::{Error, Keystore};
 ///
 /// If this test doesn't pass then it all previous tests are unreliable.
 #[test]
-fn reference_scrypt() {
+fn scrypt_reference() {
     let vector = r#"
             {
             "crypto": {
@@ -42,6 +42,47 @@ fn reference_scrypt() {
         "#;
 
     assert!(Keystore::from_json_str(&vector).is_ok());
+}
+
+#[test]
+fn pbkdf2_reference() {
+    let vector = r#"
+            {
+            "crypto": {
+                "kdf": {
+                    "function": "pbkdf2",
+                    "params": {
+                        "dklen": 32,
+                        "c": 262144,
+                        "prf": "hmac-sha256",
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3",
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "sha256",
+                    "params": {},
+                    "message": "18b148af8e52920318084560fd766f9d09587b4915258dec0676cba5b0da09d8"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "a9249e0ca7315836356e4c7440361ff22b9fe71e2e2ed34fc1eb03976924ed48"
+                }
+            },
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "path": "m/12381/60/0/0",
+            "uuid": "64625def-3331-4eea-ab6f-782f3ed16a83",
+            "version": 4
+        }
+        "#;
+
+    match Keystore::from_json_str(&vector) {
+        Err(Error::InvalidJson(_)) => {}
+        _ => panic!("expected invalid json error"),
+    }
 }
 
 #[test]

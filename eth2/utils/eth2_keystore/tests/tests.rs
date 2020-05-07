@@ -86,3 +86,28 @@ fn file() {
         "should decrypt with good password"
     );
 }
+
+#[test]
+fn scrypt_params() {
+    let keypair = Keypair::random();
+
+    let keystore = KeystoreBuilder::new(&keypair, good_password(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let json = keystore.to_json_string().unwrap();
+    let decoded = Keystore::from_json_str(&json).unwrap();
+
+    assert_eq!(
+        decoded.decrypt_keypair(bad_password()).err().unwrap(),
+        Error::InvalidPassword,
+        "should not decrypt with bad password"
+    );
+
+    assert_eq!(
+        decoded.decrypt_keypair(good_password()).unwrap(),
+        keypair,
+        "should decrypt with good password"
+    );
+}
