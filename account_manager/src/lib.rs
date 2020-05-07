@@ -24,7 +24,7 @@ use web3::{
 pub use cli::cli_app;
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub async fn run<T: EthSpec>(
+pub fn run<T: EthSpec>(
     matches: &ArgMatches<'_>,
     mut env: Environment<T>,
 ) -> Result<(), String> {
@@ -53,7 +53,7 @@ pub async fn run<T: EthSpec>(
 
     match matches.subcommand() {
         ("validator", Some(matches)) => match matches.subcommand() {
-            ("deposited", Some(matches)) => deposits::cli_run(matches, env).await?,
+            ("deposited", Some(matches)) => deposits::cli_run(matches, env)?,
             ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, env)?,
             _ => {
                 return Err("Invalid 'validator new' command. See --help.".to_string());

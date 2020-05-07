@@ -76,7 +76,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub async fn cli_run<T: EthSpec>(
+pub fn cli_run<T: EthSpec>(
     matches: &ArgMatches<'_>,
     mut env: Environment<T>,
 ) -> Result<(), String> {
@@ -130,25 +130,29 @@ pub async fn cli_run<T: EthSpec>(
         Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
     let web3 = Web3::new(transport);
 
-    poll_until_synced(web3.clone(), log.clone()).await?;
+    env.runtime()
+        .block_on(poll_until_synced(web3.clone(), log.clone()))?;
 
     for i in 0..n {
         let tx_hash_log = log.clone();
 
-        ValidatorDirectoryBuilder::default()
-            .spec(spec.clone())
-            .custom_deposit_amount(deposit_gwei)
-            .thread_random_keypairs()
-            .submit_eth1_deposit(web3.clone(), from_address, deposit_contract)
-            .await
-            .map(move |(builder, tx_hash)| {
-                info!(
-                    tx_hash_log,
-                    "Validator deposited";
-                    "eth1_tx_hash" => format!("{:?}", tx_hash),
-                    "index" => format!("{}/{}", i + 1, n),
-                );
-                builder
+        env.runtime()
+            .block_on(async {
+                ValidatorDirectoryBuilder::default()
+                    .spec(spec.clone())
+                    .custom_deposit_amount(deposit_gwei)
+                    .thread_random_keypairs()
+                    .submit_eth1_deposit(web3.clone(), from_address, deposit_contract)
+                    .await
+                    .map(move |(builder, tx_hash)| {
+                        info!(
+                            tx_hash_log,
+                            "Validator deposited";
+                            "eth1_tx_hash" => format!("{:?}", tx_hash),
+                            "index" => format!("{}/{}", i + 1, n),
+                        );
+                        builder
+                    })
             })?
             .create_directory(validator_dir.clone())?
             .write_keypair_files()?
