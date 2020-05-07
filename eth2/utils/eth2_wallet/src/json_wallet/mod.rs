@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_repr::*;
 
 pub use eth2_keystore::json_keystore::{
-    ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, Kdf, KdfModule,
-    Sha256Checksum,
+    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, Kdf, KdfModule,
+    Scrypt, Sha256Checksum,
 };
 pub use uuid::Uuid;
 

@@ -1,11 +1,70 @@
 use crate::json_wallet::{
-    ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet, Kdf,
-    KdfModule, Sha256Checksum, Version,
+    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet,
+    Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
-use eth2_keystore::encrypt;
+use eth2_keystore::{decrypt, encrypt};
+use rand::prelude::*;
 use uuid::Uuid;
 
 pub use eth2_keystore::{Error, Password, PlainText};
+
+/// Constructs a `Keystore`.
+pub struct WalletBuilder<'a> {
+    seed: &'a [u8],
+    password: &'a [u8],
+    kdf: Kdf,
+    cipher: Cipher,
+    uuid: Uuid,
+    name: String,
+    nextaccount: u32,
+}
+
+impl<'a> WalletBuilder<'a> {
+    /// Creates a new builder.
+    ///
+    /// Generates the KDF `salt` and AES `IV` using `rand::thread_rng()`.
+    ///
+    /// ## Errors
+    ///
+    /// Returns `Error::EmptyPassword` if `password == ""`.
+    pub fn from_seed(seed: &'a [u8], password: &[u8], name: String) -> Result<Self, Error> {
+        if password.is_empty() {
+            Err(Error::EmptyPassword)
+        } else {
+            let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
+            let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
+
+            Ok(Self {
+                seed,
+                password,
+                // Using scrypt as the default algorithm due to its memory hardness properties.
+                kdf: Kdf::Scrypt(Scrypt {
+                    dklen: DKLEN,
+                    n: 262144,
+                    p: 1,
+                    r: 8,
+                    salt: salt.to_vec().into(),
+                }),
+                cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
+                uuid: Uuid::new_v4(),
+                name,
+            })
+        }
+    }
+
+    /// Consumes `self`, returning a `Wallet`.
+    pub fn build(self) -> Result<Wallet, Error> {
+        Wallet::encrypt(
+            self.seed,
+            self.password,
+            self.kdf,
+            self.cipher,
+            self.uuid,
+            self.name,
+            self.nextaccount,
+        )
+    }
+}
 
 pub struct Wallet {
     json: JsonWallet,
@@ -19,6 +78,7 @@ impl Wallet {
         cipher: Cipher,
         uuid: Uuid,
         name: String,
+        next_account: u32,
     ) -> Result<Self, Error> {
         let (cipher_text, checksum) = encrypt(&seed, &password, &kdf, &cipher)?;
 
@@ -42,12 +102,14 @@ impl Wallet {
                     },
                 },
                 uuid,
-                nextaccount: 0,
+                nextaccount,
                 version: Version::one(),
                 name,
             },
         })
     }
 
-    pub fn decrypt_seed(&self, password: &[u8]) -> Result<>
+    pub fn decrypt_seed(&self, password: &[u8]) -> Result<PlainText, Error> {
+        decrypt(password, &self.json.crypto)
+    }
 }
