@@ -1,25 +1,23 @@
-use crate::helpers::{
-    check_content_type_for_json, publish_aggregate_attestations_to_network,
-    publish_beacon_block_to_network, publish_raw_attestations_to_network,
-};
+use crate::helpers::{check_content_type_for_json, publish_beacon_block_to_network};
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, BoxFut, NetworkChannel, UrlQuery};
 use beacon_chain::{
-    AttestationProcessingOutcome, AttestationType, BeaconChain, BeaconChainTypes, BlockError,
+    attestation_verification::Error as AttnError, BeaconChain, BeaconChainTypes, BlockError,
     StateSkipConfig,
 };
 use bls::PublicKeyBytes;
+use eth2_libp2p::PubsubMessage;
 use futures::{Future, Stream};
 use hyper::{Body, Request};
 use network::NetworkMessage;
 use rayon::prelude::*;
 use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscription};
-use slog::{error, info, warn, Logger};
+use slog::{error, info, trace, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{
-    Attestation, BeaconState, Epoch, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    Slot,
+    Attestation, AttestationData, BeaconState, Epoch, RelativeEpoch, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot,
 };
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -226,14 +224,12 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                // Obtain the aggregator modulo
-                let aggregator_modulo = duties.map(|d| {
-                    std::cmp::max(
-                        1,
-                        d.committee_len as u64
-                            / &beacon_chain.spec.target_aggregators_per_committee,
-                    )
-                });
+                let aggregator_modulo = duties
+                    .map(|duties| SelectionProof::modulo(duties.committee_len, &beacon_chain.spec))
+                    .transpose()
+                    .map_err(|e| {
+                        ApiError::ServerError(format!("Unable to find modulo: {:?}", e))
+                    })?;
 
                 let block_proposal_slots = validator_proposers
                     .iter()
@@ -400,7 +396,7 @@ pub fn get_new_attestation<T: BeaconChainTypes>(
     let index = query.committee_index()?;
 
     let attestation = beacon_chain
-        .produce_attestation(slot, index)
+        .produce_unaggregated_attestation(slot, index)
         .map_err(|e| ApiError::BadRequest(format!("Unable to produce attestation: {:?}", e)))?;
 
     ResponseBuilder::new(&req)?.body(&attestation)
@@ -450,71 +446,99 @@ pub fn publish_attestations<T: BeaconChainTypes>(
                     ))
                 })
             })
-            .and_then(move |attestations: Vec<Attestation<T::EthSpec>>| {
-                // Note: This is a new attestation from a validator. We want to process this and
-                // inform the validator whether the attestation was valid. In doing so, we store
-                // this un-aggregated raw attestation in the op_pool by default. This is
-                // sub-optimal as if we have no validators needing to aggregate, these don't need
-                // to be stored in the op-pool. This is minimal however as the op_pool gets pruned
-                // every slot
-            attestations.par_iter().try_for_each(|attestation| {
-                // In accordance with the naive aggregation strategy, the validator client should
-                // only publish attestations to this endpoint with a single signature.
-                if attestation.aggregation_bits.num_set_bits() != 1 {
-                    return Err(ApiError::BadRequest(format!("Attestation should have exactly one aggregation bit set")))
-                }
-
-                // TODO: we only need to store these attestations if we're aggregating for the
-                // given subnet.
-                let attestation_type = AttestationType::Unaggregated { should_store: true };
-
-                match beacon_chain.process_attestation(attestation.clone(), attestation_type) {
-                    Ok(AttestationProcessingOutcome::Processed) => {
-                        // Block was processed, publish via gossipsub
-                        info!(
-                            log,
-                            "Attestation from local validator";
-                            "target" => attestation.data.source.epoch,
-                            "source" => attestation.data.source.epoch,
-                            "index" => attestation.data.index,
-                            "slot" => attestation.data.slot,
-                        );
-                        Ok(())
-                    }
-                    Ok(outcome) => {
-                        warn!(
-                            log,
-                            "Invalid attestation from local validator";
-                            "outcome" => format!("{:?}", outcome)
-                        );
-
-                        Err(ApiError::ProcessingError(format!(
-                            "An Attestation could not be processed and has not been published: {:?}",
-                            outcome
-                        )))
-                    }
-                    Err(e) => {
-                        error!(
-                            log,
-                            "Error whilst processing attestation";
-                            "error" => format!("{:?}", e)
-                        );
-
-                        Err(ApiError::ServerError(format!(
-                            "Error while processing attestation: {:?}",
-                            e
-                        )))
-                    }
-                }
-            })?;
-
-            Ok((attestations, beacon_chain))
+            // Process all of the aggregates _without_ exiting early if one fails.
+            .map(move |attestations: Vec<Attestation<T::EthSpec>>| {
+                attestations
+                    .into_par_iter()
+                    .enumerate()
+                    .map(|(i, attestation)| {
+                        process_unaggregated_attestation(
+                            &beacon_chain,
+                            network_chan.clone(),
+                            attestation,
+                            i,
+                            &log,
+                        )
+                    })
+                    .collect::<Vec<Result<_, _>>>()
             })
-            .and_then(|(attestations, beacon_chain)| {
-                   publish_raw_attestations_to_network::<T>(network_chan, attestations, &beacon_chain.spec)
+            // Iterate through all the results and return on the first `Err`.
+            //
+            // Note: this will only provide info about the _first_ failure, not all failures.
+            .and_then(|processing_results| {
+                processing_results.into_iter().try_for_each(|result| result)
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )
+}
+
+/// Processes an unaggregrated attestation that was included in a list of attestations with the
+/// index `i`.
+fn process_unaggregated_attestation<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+    mut network_chan: NetworkChannel<T::EthSpec>,
+    attestation: Attestation<T::EthSpec>,
+    i: usize,
+    log: &Logger,
+) -> Result<(), ApiError> {
+    let data = &attestation.data.clone();
+
+    // Verify that the attestation is valid to included on the gossip network.
+    let verified_attestation = beacon_chain
+        .verify_unaggregated_attestation_for_gossip(attestation.clone())
+        .map_err(|e| {
+            handle_attestation_error(
+                e,
+                &format!("unaggregated attestation {} failed gossip verification", i),
+                data,
+                log,
+            )
+        })?;
+
+    // Publish the attestation to the network
+    if let Err(e) = network_chan.try_send(NetworkMessage::Publish {
+        messages: vec![PubsubMessage::Attestation(Box::new((
+            attestation
+                .subnet_id(&beacon_chain.spec)
+                .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?,
+            attestation,
+        )))],
+    }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send unaggregated attestation {} to network: {:?}",
+            i, e
+        )));
+    }
+
+    beacon_chain
+        .apply_attestation_to_fork_choice(&verified_attestation)
+        .map_err(|e| {
+            handle_attestation_error(
+                e,
+                &format!(
+                    "unaggregated attestation {} was unable to be added to fork choice",
+                    i
+                ),
+                data,
+                log,
+            )
+        })?;
+
+    beacon_chain
+        .add_to_naive_aggregation_pool(verified_attestation)
+        .map_err(|e| {
+            handle_attestation_error(
+                e,
+                &format!(
+                    "unaggregated attestation {} was unable to be added to aggregation pool",
+                    i
+                ),
+                data,
+                log,
+            )
+        })?;
+
+    Ok(())
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
@@ -540,90 +564,168 @@ pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                     ))
                 })
             })
-            .and_then(move |signed_proofs: Vec<SignedAggregateAndProof<T::EthSpec>>| {
-                // Verify the signatures for the aggregate and proof and if valid process the
-                // aggregate
-                // TODO: Double check speed and logic consistency of handling current fork vs
-                // validator fork for signatures.
-                // TODO: More efficient way of getting a fork?
-                let fork = &beacon_chain.head()?.beacon_state.fork;
-
-                // TODO: Update to shift this task to dedicated task using await
-                signed_proofs.par_iter().try_for_each(|signed_proof| {
-                    let agg_proof = &signed_proof.message;
-                    let validator_pubkey = &beacon_chain.validator_pubkey(agg_proof.aggregator_index as usize)?.ok_or_else(|| {
-                        warn!(
-                            log,
-                            "Unknown validator from local validator client";
-                        );
-
-                        ApiError::ProcessingError(format!("The validator is known"))
-                    })?;
-
-                    /*
-                     * TODO: checking that `signed_proof.is_valid()` is not sufficient. It
-                     * is also necessary to check that the validator is actually designated as an
-                     * aggregator for this attestation.
-                     *
-                     * I (Paul H) will pick this up in a future PR.
-                     */
-
-                    if signed_proof.is_valid(validator_pubkey, fork, beacon_chain.genesis_validators_root, &beacon_chain.spec) {
-                        let attestation = &agg_proof.aggregate;
-
-                        match beacon_chain.process_attestation(attestation.clone(), AttestationType::Aggregated) {
-                            Ok(AttestationProcessingOutcome::Processed) => {
-                                // Block was processed, publish via gossipsub
-                                info!(
-                                    log,
-                                    "Attestation from local validator";
-                                    "target" => attestation.data.source.epoch,
-                                    "source" => attestation.data.source.epoch,
-                                    "index" => attestation.data.index,
-                                    "slot" => attestation.data.slot,
-                                );
-                                Ok(())
-                            }
-                            Ok(outcome) => {
-                                warn!(
-                                    log,
-                                    "Invalid attestation from local validator";
-                                    "outcome" => format!("{:?}", outcome)
-                                );
-
-                                Err(ApiError::ProcessingError(format!(
-                                    "The Attestation could not be processed and has not been published: {:?}",
-                                    outcome
-                                )))
-                            }
-                            Err(e) => {
-                                error!(
-                                    log,
-                                    "Error whilst processing attestation";
-                                    "error" => format!("{:?}", e)
-                                );
-
-                                Err(ApiError::ServerError(format!(
-                                    "Error while processing attestation: {:?}",
-                                    e
-                                )))
-                            }
-                        }
-                    } else {
-                        error!(
-                            log,
-                            "Invalid AggregateAndProof Signature"
-                        );
-                        Err(ApiError::ServerError(format!(
-                            "Invalid AggregateAndProof Signature"
-                        )))
-                    }
-                })?;
-                Ok(signed_proofs)
-            })
-            .and_then(move |signed_proofs| {
-                publish_aggregate_attestations_to_network::<T>(network_chan, signed_proofs)
+            // Process all of the aggregates _without_ exiting early if one fails.
+            .map(
+                move |signed_aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>| {
+                    signed_aggregates
+                        .into_par_iter()
+                        .enumerate()
+                        .map(|(i, signed_aggregate)| {
+                            process_aggregated_attestation(
+                                &beacon_chain,
+                                network_chan.clone(),
+                                signed_aggregate,
+                                i,
+                                &log,
+                            )
+                        })
+                        .collect::<Vec<Result<_, _>>>()
+                },
+            )
+            // Iterate through all the results and return on the first `Err`.
+            //
+            // Note: this will only provide info about the _first_ failure, not all failures.
+            .and_then(|processing_results| {
+                processing_results.into_iter().try_for_each(|result| result)
             })
             .and_then(|_| response_builder?.body_no_ssz(&())),
     )
+}
+
+/// Processes an aggregrated attestation that was included in a list of attestations with the index
+/// `i`.
+fn process_aggregated_attestation<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+    mut network_chan: NetworkChannel<T::EthSpec>,
+    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+    i: usize,
+    log: &Logger,
+) -> Result<(), ApiError> {
+    let data = &signed_aggregate.message.aggregate.data.clone();
+
+    // Verify that the attestation is valid to be included on the gossip network.
+    //
+    // Using this gossip check for local validators is not necessarily ideal, there will be some
+    // attestations that we reject that could possibly be included in a block (e.g., attestations
+    // that late by more than 1 epoch but less than 2). We can come pick this back up if we notice
+    // that it's materially affecting validator profits. Until then, I'm hesitant to introduce yet
+    // _another_ attestation verification path.
+    let verified_attestation =
+        match beacon_chain.verify_aggregated_attestation_for_gossip(signed_aggregate.clone()) {
+            Ok(verified_attestation) => verified_attestation,
+            Err(AttnError::AttestationAlreadyKnown(attestation_root)) => {
+                trace!(
+                    log,
+                    "Ignored known attn from local validator";
+                    "attn_root" => format!("{}", attestation_root)
+                );
+
+                // Exit early with success for a known attestation, there's no need to re-process
+                // an aggregate we already know.
+                return Ok(());
+            }
+            /*
+             * It's worth noting that we don't check for `Error::AggregatorAlreadyKnown` since (at
+             * the time of writing) we check for `AttestationAlreadyKnown` first.
+             *
+             * Given this, it's impossible to hit `Error::AggregatorAlreadyKnown` without that
+             * aggregator having already produced a conflicting aggregation. This is not slashable
+             * but I think it's still the sort of condition we should error on, at least for now.
+             */
+            Err(e) => {
+                return Err(handle_attestation_error(
+                    e,
+                    &format!("aggregated attestation {} failed gossip verification", i),
+                    data,
+                    log,
+                ))
+            }
+        };
+
+    // Publish the attestation to the network
+    if let Err(e) = network_chan.try_send(NetworkMessage::Publish {
+        messages: vec![PubsubMessage::AggregateAndProofAttestation(Box::new(
+            signed_aggregate,
+        ))],
+    }) {
+        return Err(ApiError::ServerError(format!(
+            "Unable to send aggregated attestation {} to network: {:?}",
+            i, e
+        )));
+    }
+
+    beacon_chain
+        .apply_attestation_to_fork_choice(&verified_attestation)
+        .map_err(|e| {
+            handle_attestation_error(
+                e,
+                &format!(
+                    "aggregated attestation {} was unable to be added to fork choice",
+                    i
+                ),
+                data,
+                log,
+            )
+        })?;
+
+    beacon_chain
+        .add_to_block_inclusion_pool(verified_attestation)
+        .map_err(|e| {
+            handle_attestation_error(
+                e,
+                &format!(
+                    "aggregated attestation {} was unable to be added to op pool",
+                    i
+                ),
+                data,
+                log,
+            )
+        })?;
+
+    Ok(())
+}
+
+/// Common handler for `AttnError` during attestation verification.
+fn handle_attestation_error(
+    e: AttnError,
+    detail: &str,
+    data: &AttestationData,
+    log: &Logger,
+) -> ApiError {
+    match e {
+        AttnError::BeaconChainError(e) => {
+            error!(
+                log,
+                "Internal error verifying local attestation";
+                "detail" => detail,
+                "error" => format!("{:?}", e),
+                "target" => data.target.epoch,
+                "source" => data.source.epoch,
+                "index" => data.index,
+                "slot" => data.slot,
+            );
+
+            ApiError::ServerError(format!(
+                "Internal error verifying local attestation. Error: {:?}. Detail: {}",
+                e, detail
+            ))
+        }
+        e => {
+            error!(
+                log,
+                "Invalid local attestation";
+                "detail" => detail,
+                "reason" => format!("{:?}", e),
+                "target" => data.target.epoch,
+                "source" => data.source.epoch,
+                "index" => data.index,
+                "slot" => data.slot,
+            );
+
+            ApiError::ProcessingError(format!(
+                "Invalid local attestation. Error: {:?} Detail: {}",
+                e, detail
+            ))
+        }
+    }
 }

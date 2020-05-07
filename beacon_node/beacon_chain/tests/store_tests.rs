@@ -1,13 +1,14 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 #[macro_use]
 extern crate lazy_static;
 
+use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::BeaconSnapshot;
-use beacon_chain::{AttestationProcessingOutcome, AttestationType, StateSkipConfig};
+use beacon_chain::StateSkipConfig;
 use rand::Rng;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::collections::HashMap;
@@ -272,7 +273,7 @@ fn epoch_boundary_state_attestation_processing() {
         );
 
         let head = harness.chain.head().expect("head ok");
-        late_attestations.extend(harness.get_free_attestations(
+        late_attestations.extend(harness.get_unaggregated_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_block_root,
@@ -289,7 +290,7 @@ fn epoch_boundary_state_attestation_processing() {
 
     let mut checked_pre_fin = false;
 
-    for attestation in late_attestations {
+    for attestation in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
         let block = store.get_block(&block_root).unwrap().expect("block exists");
@@ -310,26 +311,29 @@ fn epoch_boundary_state_attestation_processing() {
             .expect("head ok")
             .finalized_checkpoint
             .epoch;
+
         let res = harness
             .chain
-            .process_attestation_internal(attestation.clone(), AttestationType::Aggregated);
+            .verify_unaggregated_attestation_for_gossip(attestation.clone());
 
-        let current_epoch = harness.chain.epoch().expect("should get epoch");
-        let attestation_epoch = attestation.data.target.epoch;
+        let current_slot = harness.chain.slot().expect("should get slot");
+        let attestation_slot = attestation.data.slot;
+        // Extra -1 to handle gossip clock disparity.
+        let earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
-        if attestation.data.slot <= finalized_epoch.start_slot(E::slots_per_epoch())
-            || attestation_epoch + 1 < current_epoch
+        if attestation_slot <= finalized_epoch.start_slot(E::slots_per_epoch())
+            || attestation_slot < earliest_permissible_slot
         {
             checked_pre_fin = true;
             assert_eq!(
-                res,
-                Ok(AttestationProcessingOutcome::PastEpoch {
-                    attestation_epoch,
-                    current_epoch,
-                })
+                res.err().unwrap(),
+                AttnError::PastSlot {
+                    attestation_slot,
+                    earliest_permissible_slot,
+                }
             );
         } else {
-            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed));
+            res.expect("should have verified attetation");
         }
     }
     assert!(checked_pre_fin);
@@ -1069,8 +1073,19 @@ fn prunes_fork_running_past_finalized_checkpoint() {
     let (canonical_blocks_second_epoch, _, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
-        slots_per_epoch * 4,
+        slots_per_epoch * 6,
         &honest_validators,
+    );
+    assert_ne!(
+        harness
+            .chain
+            .head()
+            .unwrap()
+            .beacon_state
+            .finalized_checkpoint
+            .epoch,
+        0,
+        "chain should have finalized"
     );
 
     // Postconditions
@@ -1087,8 +1102,8 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         finalized_blocks,
         vec![
             Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64)],
-            canonical_blocks[&Slot::new((slots_per_epoch * 2) as u64)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 3)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 4)],
         ]
         .into_iter()
         .collect()
@@ -1203,8 +1218,19 @@ fn prunes_skipped_slots_states() {
     let (canonical_blocks_post_finalization, _, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
-        slots_per_epoch * 5,
+        slots_per_epoch * 6,
         &honest_validators,
+    );
+    assert_eq!(
+        harness
+            .chain
+            .head()
+            .unwrap()
+            .beacon_state
+            .finalized_checkpoint
+            .epoch,
+        2,
+        "chain should have finalized"
     );
 
     // Postconditions
@@ -1218,7 +1244,7 @@ fn prunes_skipped_slots_states() {
         finalized_blocks,
         vec![
             Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 2)],
         ]
         .into_iter()
         .collect()
@@ -1240,10 +1266,12 @@ fn prunes_skipped_slots_states() {
         assert!(
             harness
                 .chain
-                .get_state(&state_hash, Some(slot))
+                .get_state(&state_hash, None)
                 .unwrap()
                 .is_none(),
-            "skipped slot states should have been pruned"
+            "skipped slot {} state {} should have been pruned",
+            slot,
+            state_hash
         );
     }
 }

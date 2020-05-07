@@ -224,6 +224,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKey,
         validator_index: u64,
         aggregate: Attestation<E>,
+        selection_proof: SelectionProof,
     ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
         let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
@@ -231,6 +232,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Some(SignedAggregateAndProof::from_aggregate(
             validator_index,
             aggregate,
+            Some(selection_proof),
             &voting_keypair.sk,
             &self.fork()?,
             self.genesis_validators_root,

@@ -4,6 +4,7 @@
 use super::{AttestationData, Signature};
 use serde_derive::Serialize;
 
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FreeAttestation {
     pub data: AttestationData,
