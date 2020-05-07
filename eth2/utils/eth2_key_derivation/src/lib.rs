@@ -1,7 +1,9 @@
-//! Provides a JSON keystore for a BLS keypair, as specified by
-//! [EIP-2335](https://eips.ethereum.org/EIPS/eip-2335).
+//! Provides path-based hierarchical BLS key derivation, as specified by
+//! [EIP-2333](https://eips.ethereum.org/EIPS/eip-2333).
 
+mod derived_key;
 mod lamport_secret_key;
-mod path;
+mod secret_bytes;
+mod secret_hash;
 
-pub use path::DerivedKey;
+pub use derived_key::DerivedKey;
