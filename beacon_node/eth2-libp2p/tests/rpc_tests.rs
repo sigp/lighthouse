@@ -25,7 +25,7 @@ fn test_status_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log, 10500);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // Dummy STATUS RPC message
     let rpc_request = RPCRequest::Status(StatusMessage {
@@ -62,12 +62,12 @@ fn test_status_rpc() {
                 }
                 Async::Ready(Some(BehaviourEvent::RPC(_, event))) => match event {
                     // Should receive the RPC response
-                    RPCEvent::Response(id, response @ RPCErrorResponse::Success(_)) => {
+                    RPCEvent::Response(id, response @ RPCCodedResponse::Success(_)) => {
                         if id == 1 {
                             warn!(sender_log, "Sender Received");
                             let response = {
                                 match response {
-                                    RPCErrorResponse::Success(r) => r,
+                                    RPCCodedResponse::Success(r) => r,
                                     _ => unreachable!(),
                                 }
                             };
@@ -99,7 +99,7 @@ fn test_status_rpc() {
                                 peer_id,
                                 RPCEvent::Response(
                                     id,
-                                    RPCErrorResponse::Success(rpc_response.clone()),
+                                    RPCCodedResponse::Success(rpc_response.clone()),
                                 ),
                             );
                         }
@@ -140,7 +140,7 @@ fn test_blocks_by_range_chunked_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log, 10505);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
@@ -181,12 +181,12 @@ fn test_blocks_by_range_chunked_rpc() {
                         if id == 1 {
                             warn!(sender_log, "Sender received a response");
                             match response {
-                                RPCErrorResponse::Success(res) => {
+                                RPCCodedResponse::Success(res) => {
                                     assert_eq!(res, sender_response.clone());
                                     *messages_received.lock().unwrap() += 1;
                                     warn!(sender_log, "Chunk received");
                                 }
-                                RPCErrorResponse::StreamTermination(
+                                RPCCodedResponse::StreamTermination(
                                     ResponseTermination::BlocksByRange,
                                 ) => {
                                     // should be exactly 10 messages before terminating
@@ -225,7 +225,7 @@ fn test_blocks_by_range_chunked_rpc() {
                                     peer_id.clone(),
                                     RPCEvent::Response(
                                         id,
-                                        RPCErrorResponse::Success(rpc_response.clone()),
+                                        RPCCodedResponse::Success(rpc_response.clone()),
                                     ),
                                 );
                             }
@@ -234,7 +234,7 @@ fn test_blocks_by_range_chunked_rpc() {
                                 peer_id,
                                 RPCEvent::Response(
                                     id,
-                                    RPCErrorResponse::StreamTermination(
+                                    RPCCodedResponse::StreamTermination(
                                         ResponseTermination::BlocksByRange,
                                     ),
                                 ),
@@ -275,7 +275,7 @@ fn test_blocks_by_range_single_empty_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log, 10510);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
@@ -316,12 +316,12 @@ fn test_blocks_by_range_single_empty_rpc() {
                         if id == 1 {
                             warn!(sender_log, "Sender received a response");
                             match response {
-                                RPCErrorResponse::Success(res) => {
+                                RPCCodedResponse::Success(res) => {
                                     assert_eq!(res, sender_response.clone());
                                     *messages_received.lock().unwrap() += 1;
                                     warn!(sender_log, "Chunk received");
                                 }
-                                RPCErrorResponse::StreamTermination(
+                                RPCCodedResponse::StreamTermination(
                                     ResponseTermination::BlocksByRange,
                                 ) => {
                                     // should be exactly 1 messages before terminating
@@ -356,7 +356,7 @@ fn test_blocks_by_range_single_empty_rpc() {
                                 peer_id.clone(),
                                 RPCEvent::Response(
                                     id,
-                                    RPCErrorResponse::Success(rpc_response.clone()),
+                                    RPCCodedResponse::Success(rpc_response.clone()),
                                 ),
                             );
                             // send the stream termination
@@ -364,7 +364,7 @@ fn test_blocks_by_range_single_empty_rpc() {
                                 peer_id,
                                 RPCEvent::Response(
                                     id,
-                                    RPCErrorResponse::StreamTermination(
+                                    RPCCodedResponse::StreamTermination(
                                         ResponseTermination::BlocksByRange,
                                     ),
                                 ),
@@ -411,7 +411,7 @@ fn test_blocks_by_root_chunked_rpc() {
     let spec = E::default_spec();
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log, 10515);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // BlocksByRoot Request
     let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
@@ -449,12 +449,12 @@ fn test_blocks_by_root_chunked_rpc() {
                         warn!(sender_log, "Sender received a response");
                         assert_eq!(id, 1);
                         match response {
-                            RPCErrorResponse::Success(res) => {
+                            RPCCodedResponse::Success(res) => {
                                 assert_eq!(res, sender_response.clone());
                                 *messages_received.lock().unwrap() += 1;
                                 warn!(sender_log, "Chunk received");
                             }
-                            RPCErrorResponse::StreamTermination(
+                            RPCCodedResponse::StreamTermination(
                                 ResponseTermination::BlocksByRoot,
                             ) => {
                                 // should be exactly 10 messages before terminating
@@ -489,7 +489,7 @@ fn test_blocks_by_root_chunked_rpc() {
                                     peer_id.clone(),
                                     RPCEvent::Response(
                                         id,
-                                        RPCErrorResponse::Success(rpc_response.clone()),
+                                        RPCCodedResponse::Success(rpc_response.clone()),
                                     ),
                                 );
                             }
@@ -498,7 +498,7 @@ fn test_blocks_by_root_chunked_rpc() {
                                 peer_id,
                                 RPCEvent::Response(
                                     id,
-                                    RPCErrorResponse::StreamTermination(
+                                    RPCCodedResponse::StreamTermination(
                                         ResponseTermination::BlocksByRange,
                                     ),
                                 ),
@@ -539,7 +539,7 @@ fn test_goodbye_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log, 10520);
+    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
     // Goodbye Request
     let rpc_request = RPCRequest::Goodbye(GoodbyeReason::ClientShutdown);

@@ -50,7 +50,7 @@ impl TestingProposerSlashingBuilder {
             message: BeaconBlockHeader {
                 parent_root: hash_2,
                 slot: slot_2,
-                ..signed_header_1.message.clone()
+                ..signed_header_1.message
             },
             signature: Signature::empty_signature(),
         };

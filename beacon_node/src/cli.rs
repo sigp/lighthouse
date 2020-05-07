@@ -94,10 +94,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")
-                .help("The IP address to broadcast to other peers on how to reach this node. \
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach this node. \
+                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
+                does not auto-update based on PONG responses in discovery. \
                 Set this only if you are sure other nodes can connect to your local node on this address. \
-                Discovery will automatically find your external address,if possible.
-           ")
+                Discovery will automatically find your external address,if possible.")
+                .requires("enr-udp-port")
                 .takes_value(true),
         )
         .arg(
@@ -109,7 +111,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("disable-enr-auto-update")
-                .short("s")
+                .short("x")
                 .long("disable-enr-auto-update")
                 .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot.")
@@ -234,5 +236,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SIZE")
                 .help("Specifies how many states the database should cache in memory [default: 5]")
                 .takes_value(true)
+        )
+        /*
+         * Purge.
+         */
+        .arg(
+            Arg::with_name("purge-db")
+                .long("purge-db")
+                .help("If present, the chain database will be deleted. Use with caution.")
         )
 }

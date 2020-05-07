@@ -1,10 +1,9 @@
 use crate::ProductionValidatorClient;
 use exit_future::Signal;
-use futures::{Future, Stream};
+use futures::{FutureExt, StreamExt};
 use slog::{error, info};
 use slot_clock::SlotClock;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::time::{interval_at, Duration, Instant};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
@@ -26,66 +25,63 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
 
     let duties_service = client.duties_service.clone();
     let log_1 = context.log.clone();
-    let log_2 = context.log.clone();
 
-    let interval_future = Interval::new(start_instant, interval_duration)
-        .map_err(
-            move |e| error!(log_1, "Slot notifier timer failed"; "error" => format!("{:?}", e)),
-        )
-        .for_each(move |_| {
-            let log = log_2.clone();
+    // Note: interval_at panics if `interval_duration` is 0
+    let interval_fut = interval_at(start_instant, interval_duration).for_each(move |_| {
+        let log = log_1.clone();
 
-            if let Some(slot) = duties_service.slot_clock.now() {
-                let epoch = slot.epoch(T::slots_per_epoch());
+        if let Some(slot) = duties_service.slot_clock.now() {
+            let epoch = slot.epoch(T::slots_per_epoch());
 
-                let total_validators = duties_service.total_validator_count();
-                let proposing_validators = duties_service.proposer_count(epoch);
-                let attesting_validators = duties_service.attester_count(epoch);
+            let total_validators = duties_service.total_validator_count();
+            let proposing_validators = duties_service.proposer_count(epoch);
+            let attesting_validators = duties_service.attester_count(epoch);
 
-                if total_validators == 0 {
-                    error!(log, "No validators present")
-                } else if total_validators == attesting_validators {
-                    info!(
-                        log_2,
-                        "All validators active";
-                        "proposers" => proposing_validators,
-                        "active_validators" => attesting_validators,
-                        "total_validators" => total_validators,
-                        "epoch" => format!("{}", epoch),
-                        "slot" => format!("{}", slot),
-                    );
-                } else if attesting_validators > 0 {
-                    info!(
-                        log_2,
-                        "Some validators active";
-                        "proposers" => proposing_validators,
-                        "active_validators" => attesting_validators,
-                        "total_validators" => total_validators,
-                        "epoch" => format!("{}", epoch),
-                        "slot" => format!("{}", slot),
-                    );
-                } else {
-                    info!(
-                        log_2,
-                        "Awaiting activation";
-                        "validators" => total_validators,
-                        "epoch" => format!("{}", epoch),
-                        "slot" => format!("{}", slot),
-                    );
-                }
+            if total_validators == 0 {
+                error!(log, "No validators present")
+            } else if total_validators == attesting_validators {
+                info!(
+                    log_1,
+                    "All validators active";
+                    "proposers" => proposing_validators,
+                    "active_validators" => attesting_validators,
+                    "total_validators" => total_validators,
+                    "epoch" => format!("{}", epoch),
+                    "slot" => format!("{}", slot),
+                );
+            } else if attesting_validators > 0 {
+                info!(
+                    log_1,
+                    "Some validators active";
+                    "proposers" => proposing_validators,
+                    "active_validators" => attesting_validators,
+                    "total_validators" => total_validators,
+                    "epoch" => format!("{}", epoch),
+                    "slot" => format!("{}", slot),
+                );
             } else {
-                error!(log, "Unable to read slot clock");
+                info!(
+                    log_1,
+                    "Awaiting activation";
+                    "validators" => total_validators,
+                    "epoch" => format!("{}", epoch),
+                    "slot" => format!("{}", slot),
+                );
             }
+        } else {
+            error!(log, "Unable to read slot clock");
+        }
 
-            Ok(())
-        });
+        futures::future::ready(())
+    });
 
     let (exit_signal, exit) = exit_future::signal();
     let log = context.log.clone();
-    client.context.executor.spawn(
-        exit.until(interval_future)
-            .map(move |_| info!(log, "Shutdown complete")),
+    let future = futures::future::select(
+        interval_fut,
+        exit.map(move |_| info!(log, "Shutdown complete")),
     );
+    tokio::task::spawn(future);
 
     Ok(exit_signal)
 }

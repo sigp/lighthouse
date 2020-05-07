@@ -104,7 +104,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         // ignore the error if the channel send fails
         let _ = self.send_rpc_request(peer_id.clone(), RPCRequest::Goodbye(reason));
         self.network_send
-            .try_send(NetworkMessage::Disconnect { peer_id })
+            .send(NetworkMessage::Disconnect { peer_id })
             .unwrap_or_else(|_| {
                 warn!(
                     self.log,
@@ -130,7 +130,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         rpc_event: RPCEvent<T>,
     ) -> Result<(), &'static str> {
         self.network_send
-            .try_send(NetworkMessage::RPC(peer_id, rpc_event))
+            .send(NetworkMessage::RPC(peer_id, rpc_event))
             .map_err(|_| {
                 debug!(
                     self.log,

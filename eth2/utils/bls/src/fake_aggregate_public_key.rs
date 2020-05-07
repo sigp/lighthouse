@@ -67,6 +67,17 @@ impl FakeAggregatePublicKey {
         // No nothing.
     }
 
+    pub fn aggregate(_pks: &[&PublicKey]) -> Self {
+        Self::new()
+    }
+
+    pub fn from_public_key(public_key: &PublicKey) -> Self {
+        Self {
+            bytes: public_key.as_bytes(),
+            point: public_key.point.clone(),
+        }
+    }
+
     pub fn as_raw(&self) -> &Self {
         &self
     }
@@ -106,5 +117,14 @@ impl<'de> Deserialize<'de> for FakeAggregatePublicKey {
         let pubkey = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(pubkey)
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary for FakeAggregatePublicKey {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];
+        u.fill_buffer(&mut bytes)?;
+        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }

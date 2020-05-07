@@ -98,10 +98,14 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Get a list of attestations for inclusion in a block.
     ///
-    /// NOTE: Assumes that all attestations in the operation_pool are valid.
+    /// The `validity_filter` is a closure that provides extra filtering of the attestations
+    /// before an approximately optimal bundle is constructed. We use it to provide access
+    /// to the fork choice data from the `BeaconChain` struct that doesn't logically belong
+    /// in the operation pool.
     pub fn get_attestations(
         &self,
         state: &BeaconState<T>,
+        validity_filter: impl FnMut(&&Attestation<T>) -> bool,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
@@ -143,6 +147,7 @@ impl<T: EthSpec> OperationPool<T> {
                 )
                 .is_ok()
             })
+            .filter(validity_filter)
             .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
 
         Ok(maximum_cover(
@@ -480,7 +485,7 @@ mod release_tests {
         state_builder.teleport_to_slot(slot);
         state_builder.build_caches(&spec).unwrap();
         let (state, keypairs) = state_builder.build();
-        (state, keypairs, MainnetEthSpec::default_spec())
+        (state, keypairs, spec)
     }
 
     #[test]
@@ -584,7 +589,7 @@ mod release_tests {
         state.slot -= 1;
         assert_eq!(
             op_pool
-                .get_attestations(state, spec)
+                .get_attestations(state, |_| true, spec)
                 .expect("should have attestations")
                 .len(),
             0
@@ -594,7 +599,7 @@ mod release_tests {
         state.slot += spec.min_attestation_inclusion_delay;
 
         let block_attestations = op_pool
-            .get_attestations(state, spec)
+            .get_attestations(state, |_| true, spec)
             .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
@@ -764,7 +769,7 @@ mod release_tests {
 
         state.slot += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, spec)
+            .get_attestations(state, |_| true, spec)
             .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -839,7 +844,7 @@ mod release_tests {
 
         state.slot += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, spec)
+            .get_attestations(state, |_| true, spec)
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -884,5 +889,45 @@ mod release_tests {
             prev_reward = rewards;
             seen_indices.extend(fresh_indices);
         }
+    }
+
+    /// Insert two slashings for the same proposer and ensure only one is returned.
+    #[test]
+    fn duplicate_proposer_slashing() {
+        let spec = MainnetEthSpec::default_spec();
+        let num_validators = 32;
+        let mut state_builder =
+            TestingBeaconStateBuilder::<MainnetEthSpec>::from_default_keypairs_file_if_exists(
+                num_validators,
+                &spec,
+            );
+        state_builder.build_caches(&spec).unwrap();
+        let (state, keypairs) = state_builder.build();
+        let op_pool = OperationPool::new();
+
+        let proposer_index = 0;
+        let slashing1 = TestingProposerSlashingBuilder::double_vote::<MainnetEthSpec>(
+            ProposerSlashingTestTask::Valid,
+            proposer_index,
+            &keypairs[proposer_index as usize].sk,
+            &state.fork,
+            state.genesis_validators_root,
+            &spec,
+        );
+        let slashing2 = ProposerSlashing {
+            signed_header_1: slashing1.signed_header_2.clone(),
+            signed_header_2: slashing1.signed_header_1.clone(),
+        };
+
+        // Both slashings should be accepted by the pool.
+        op_pool
+            .insert_proposer_slashing(slashing1.clone(), &state, &spec)
+            .unwrap();
+        op_pool
+            .insert_proposer_slashing(slashing2.clone(), &state, &spec)
+            .unwrap();
+
+        // Should only get the second slashing back.
+        assert_eq!(op_pool.get_slashings(&state, &spec).0, vec![slashing2]);
     }
 }

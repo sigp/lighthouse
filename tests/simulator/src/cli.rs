@@ -78,27 +78,31 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .short("s")
                         .long("speedup")
                         .takes_value(true)
-                        .help("Speed up factor for eth1 blocks and slot production (default 15)"),
+                        .default_value("15")
+                        .help("Speed up factor for eth1 blocks and slot production"),
                 )
                 .arg(
                     Arg::with_name("initial_delay")
                         .short("i")
                         .long("initial_delay")
                         .takes_value(true)
-                        .help("Epoch delay for new beacon node to start syncing (default 50)"),
+                        .default_value("5")
+                        .help("Epoch delay for new beacon node to start syncing"),
                 )
                 .arg(
                     Arg::with_name("sync_timeout")
                         .long("sync_timeout")
                         .takes_value(true)
-                        .help("Number of epochs after which newly added beacon nodes must be synced (default 10)"),
+                        .default_value("10")
+                        .help("Number of epochs after which newly added beacon nodes must be synced"),
                 )
                 .arg(
                     Arg::with_name("strategy")
                         .long("strategy")
                         .takes_value(true)
+                        .default_value("all")
                         .possible_values(&["one-node", "two-nodes", "mixed", "all"])
-                        .help("Sync verification strategy to run. (default all)"),
+                        .help("Sync verification strategy to run."),
                 ),
         )
 }

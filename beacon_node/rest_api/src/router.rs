@@ -163,6 +163,13 @@ pub async fn route<T: BeaconChainTypes>(
             lighthouse::syncing::<T::EthSpec>(req, network_globals)
         }
 
+        (&Method::GET, "/lighthouse/peers") => {
+            lighthouse::peers::<T::EthSpec>(req, network_globals)
+        }
+
+        (&Method::GET, "/lighthouse/connected_peers") => {
+            lighthouse::connected_peers::<T::EthSpec>(req, network_globals)
+        }
         _ => Err(ApiError::NotFound(
             "Request path and/or method not found.".to_owned(),
         )),

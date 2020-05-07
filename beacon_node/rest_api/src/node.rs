@@ -41,10 +41,3 @@ pub fn syncing<T: EthSpec>(
         sync_status,
     })
 }
-
-pub fn lighthouse_syncing<T: EthSpec>(
-    req: Request<Body>,
-    network: Arc<NetworkGlobals<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body_no_ssz(&network.sync_state())
-}

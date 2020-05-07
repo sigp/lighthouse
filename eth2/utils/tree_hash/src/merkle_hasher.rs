@@ -274,22 +274,20 @@ impl MerkleHasher {
         loop {
             if let Some(root) = self.root {
                 break Ok(root);
+            } else if let Some(node) = self.half_nodes.last() {
+                let right_child = node.id * 2 + 1;
+                self.process_right_node(right_child, self.zero_hash(right_child));
+            } else if self.next_leaf == 1 {
+                // The next_leaf can only be 1 if the tree has a depth of one. If have been no
+                // leaves supplied, assume a root of zero.
+                break Ok(Hash256::zero());
             } else {
-                if let Some(node) = self.half_nodes.last() {
-                    let right_child = node.id * 2 + 1;
-                    self.process_right_node(right_child, self.zero_hash(right_child));
-                } else if self.next_leaf == 1 {
-                    // The next_leaf can only be 1 if the tree has a depth of one. If have been no
-                    // leaves supplied, assume a root of zero.
-                    break Ok(Hash256::zero());
-                } else {
-                    // The only scenario where there are (a) no half nodes and (b) a tree of depth
-                    // two or more is where no leaves have been supplied at all.
-                    //
-                    // Once we supply this first zero-hash leaf then all future operations will be
-                    // triggered via the `process_right_node` branch.
-                    self.process_left_node(self.next_leaf, self.zero_hash(self.next_leaf))
-                }
+                // The only scenario where there are (a) no half nodes and (b) a tree of depth
+                // two or more is where no leaves have been supplied at all.
+                //
+                // Once we supply this first zero-hash leaf then all future operations will be
+                // triggered via the `process_right_node` branch.
+                self.process_left_node(self.next_leaf, self.zero_hash(self.next_leaf))
             }
         }
     }

@@ -1,4 +1,5 @@
 use super::{BeaconStateError, ChainSpec, Epoch, Validator};
+use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -50,7 +51,10 @@ impl ExitCache {
     /// Must only be called once per exiting validator.
     pub fn record_validator_exit(&mut self, exit_epoch: Epoch) -> Result<(), BeaconStateError> {
         self.check_initialized()?;
-        *self.exits_per_epoch.entry(exit_epoch).or_insert(0) += 1;
+        self.exits_per_epoch
+            .entry(exit_epoch)
+            .or_insert(0)
+            .increment()?;
         Ok(())
     }
 
@@ -64,5 +68,12 @@ impl ExitCache {
     pub fn get_churn_at(&self, epoch: Epoch) -> Result<u64, BeaconStateError> {
         self.check_initialized()?;
         Ok(self.exits_per_epoch.get(&epoch).cloned().unwrap_or(0))
+    }
+}
+
+#[cfg(feature = "arbitrary-fuzz")]
+impl arbitrary::Arbitrary for ExitCache {
+    fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self::default())
     }
 }

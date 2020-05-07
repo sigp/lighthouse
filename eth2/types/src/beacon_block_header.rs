@@ -10,6 +10,7 @@ use tree_hash_derive::TreeHash;
 /// A header of a `BeaconBlock`.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlockHeader {
     pub slot: Slot,

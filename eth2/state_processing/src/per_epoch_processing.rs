@@ -1,4 +1,5 @@
 use errors::EpochProcessingError as Error;
+use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -90,7 +91,11 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     state.previous_justified_checkpoint = state.current_justified_checkpoint.clone();
     state.justification_bits.shift_up(1)?;
 
-    if total_balances.previous_epoch_target_attesters() * 3 >= total_balances.current_epoch() * 2 {
+    if total_balances
+        .previous_epoch_target_attesters()
+        .safe_mul(3)?
+        >= total_balances.current_epoch().safe_mul(2)?
+    {
         state.current_justified_checkpoint = Checkpoint {
             epoch: previous_epoch,
             root: *state.get_block_root_at_epoch(previous_epoch)?,
@@ -98,7 +103,11 @@ pub fn process_justification_and_finalization<T: EthSpec>(
         state.justification_bits.set(1, true)?;
     }
     // If the current epoch gets justified, fill the last bit.
-    if total_balances.current_epoch_target_attesters() * 3 >= total_balances.current_epoch() * 2 {
+    if total_balances
+        .current_epoch_target_attesters()
+        .safe_mul(3)?
+        >= total_balances.current_epoch().safe_mul(2)?
+    {
         state.current_justified_checkpoint = Checkpoint {
             epoch: current_epoch,
             root: *state.get_block_root_at_epoch(current_epoch)?,
@@ -152,17 +161,19 @@ pub fn process_final_updates<T: EthSpec>(
     }
 
     // Update effective balances with hysteresis (lag).
-    let hysteresis_increment = spec.effective_balance_increment / spec.hysteresis_quotient;
-    let downward_threshold = hysteresis_increment * spec.hysteresis_downward_multiplier;
-    let upward_threshold = hysteresis_increment * spec.hysteresis_upward_multiplier;
+    let hysteresis_increment = spec
+        .effective_balance_increment
+        .safe_div(spec.hysteresis_quotient)?;
+    let downward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_downward_multiplier)?;
+    let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
     for (index, validator) in state.validators.iter_mut().enumerate() {
         let balance = state.balances[index];
 
-        if balance + downward_threshold < validator.effective_balance
-            || validator.effective_balance + upward_threshold < balance
+        if balance.safe_add(downward_threshold)? < validator.effective_balance
+            || validator.effective_balance.safe_add(upward_threshold)? < balance
         {
             validator.effective_balance = std::cmp::min(
-                balance - balance % spec.effective_balance_increment,
+                balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
                 spec.max_effective_balance,
             );
         }
@@ -175,7 +186,11 @@ pub fn process_final_updates<T: EthSpec>(
     state.set_randao_mix(next_epoch, *state.get_randao_mix(current_epoch)?)?;
 
     // Set historical root accumulator
-    if next_epoch.as_u64() % (T::SlotsPerHistoricalRoot::to_u64() / T::slots_per_epoch()) == 0 {
+    if next_epoch
+        .as_u64()
+        .safe_rem(T::SlotsPerHistoricalRoot::to_u64().safe_div(T::slots_per_epoch())?)?
+        == 0
+    {
         let historical_batch = state.historical_batch();
         state
             .historical_roots

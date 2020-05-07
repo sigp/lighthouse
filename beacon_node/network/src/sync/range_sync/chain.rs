@@ -10,14 +10,15 @@ use slog::{crit, debug, warn};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Hash256, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-/// Blocks are downloaded in batches from peers. This constant specifies how many blocks per batch
-/// is requested. There is a timeout for each batch request. If this value is too high, we will
-/// downvote peers with poor bandwidth. This can be set arbitrarily high, in which case the
+/// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
+/// blocks per batch are requested _at most_. A batch may request less blocks to account for
+/// already requested slots. There is a timeout for each batch request. If this value is too high,
+/// we will downvote peers with poor bandwidth. This can be set arbitrarily high, in which case the
 /// responder will fill the response up to the max request size, assuming they have the bandwidth
 /// to do so.
-pub const BLOCKS_PER_BATCH: u64 = 64;
+pub const EPOCHS_PER_BATCH: u64 = 2;
 
 /// The number of times to retry a batch before the chain is considered failed and removed.
 const MAX_BATCH_RETRIES: u8 = 5;
@@ -38,12 +39,18 @@ pub enum ProcessingResult {
     RemoveChain,
 }
 
+/// A chain identifier
+pub type ChainId = u64;
+
 /// A chain of blocks that need to be downloaded. Peers who claim to contain the target head
 /// root are grouped into the peer pool and queried for batches when downloading the
 /// chain.
 pub struct SyncingChain<T: BeaconChainTypes> {
+    /// A random id used to identify this chain.
+    id: ChainId,
+
     /// The original start slot when this chain was initialised.
-    pub start_slot: Slot,
+    pub start_epoch: Epoch,
 
     /// The target head slot.
     pub target_head_slot: Slot,
@@ -74,8 +81,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The current state of the chain.
     pub state: ChainSyncingState,
 
-    /// A random id given to a batch process request. This is None if there is no ongoing batch
-    /// process.
+    /// The current processing batch, if any.
     current_processing_batch: Option<Batch<T::EthSpec>>,
 
     /// A send channel to the sync manager. This is given to the batch processor thread to report
@@ -99,7 +105,8 @@ pub enum ChainSyncingState {
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn new(
-        start_slot: Slot,
+        id: u64,
+        start_epoch: Epoch,
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
@@ -111,7 +118,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer_pool.insert(peer_id);
 
         SyncingChain {
-            start_slot,
+            id,
+            start_epoch,
             target_head_slot,
             target_head_root,
             pending_batches: PendingBatches::new(),
@@ -130,8 +138,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Returns the latest slot number that has been processed.
     fn current_processed_slot(&self) -> Slot {
-        self.start_slot
-            .saturating_add(self.to_be_processed_id.saturating_sub(1u64) * BLOCKS_PER_BATCH)
+        self.start_epoch
+            .start_slot(T::EthSpec::slots_per_epoch())
+            .saturating_add(
+                self.to_be_processed_id.saturating_sub(1u64)
+                    * T::EthSpec::slots_per_epoch()
+                    * EPOCHS_PER_BATCH,
+            )
     }
 
     /// A batch of blocks has been received. This function gets run on all chains and should
@@ -242,11 +255,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Sends a batch to the batch processor.
     fn process_batch(&mut self, mut batch: Batch<T::EthSpec>) {
         let downloaded_blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
-        let batch_id = ProcessId::RangeBatchId(batch.id.clone());
+        let process_id = ProcessId::RangeBatchId(self.id.clone(), batch.id.clone());
         self.current_processing_batch = Some(batch);
         spawn_block_processor(
             Arc::downgrade(&self.chain.clone()),
-            batch_id,
+            process_id,
             downloaded_blocks,
             self.sync_send.clone(),
             self.log.clone(),
@@ -258,26 +271,36 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn on_batch_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
+        chain_id: ChainId,
         batch_id: BatchId,
         downloaded_blocks: &mut Option<Vec<SignedBeaconBlock<T::EthSpec>>>,
         result: &BatchProcessResult,
     ) -> Option<ProcessingResult> {
-        if let Some(current_batch) = &self.current_processing_batch {
-            if current_batch.id != batch_id {
-                // batch process does not belong to this chain
+        if chain_id != self.id {
+            // the result does not belong to this chain
+            return None;
+        }
+        match &self.current_processing_batch {
+            Some(current_batch) if current_batch.id != batch_id => {
+                debug!(self.log, "Unexpected batch result";
+                    "chain_id" => self.id, "batch_id" => *batch_id, "expected_batch_id" => *current_batch.id);
                 return None;
             }
-        // Continue. This is our processing request
-        } else {
-            // not waiting on a processing result
-            return None;
+            None => {
+                debug!(self.log, "Chain was not expecting a batch result";
+                    "chain_id" => self.id, "batch_id" => *batch_id);
+                return None;
+            }
+            _ => {
+                // chain_id and batch_id match, continue
+            }
         }
 
         // claim the result by consuming the option
         let downloaded_blocks = downloaded_blocks.take().or_else(|| {
             // if taken by another chain, we are no longer waiting on a result.
             self.current_processing_batch = None;
-            crit!(self.log, "Processed batch taken by another chain");
+            crit!(self.log, "Processed batch taken by another chain"; "chain_id" => self.id);
             None
         })?;
 
@@ -289,6 +312,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // double check batches are processed in order TODO: Remove for prod
         if batch.id != self.to_be_processed_id {
             crit!(self.log, "Batch processed out of order";
+                "chain_id" => self.id,
                 "processed_batch_id" => *batch.id,
                 "expected_id" => *self.to_be_processed_id);
         }
@@ -330,7 +354,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             BatchProcessResult::Partial => {
                 warn!(self.log, "Batch processing failed but at least one block was imported";
-                    "id" => *batch.id, "peer" => format!("{}", batch.current_peer)
+                    "chain_id" => self.id, "id" => *batch.id, "peer" => format!("{}", batch.current_peer)
                 );
                 // At least one block was successfully verified and imported, so we can be sure all
                 // previous batches are valid and we only need to download the current failed
@@ -343,7 +367,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // that it is likely all peers in this chain are are sending invalid batches
                     // repeatedly and are either malicious or faulty. We drop the chain and
                     // downvote all peers.
-                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers"; "id"=> *batch.id);
+                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers";
+                        "chain_id" => self.id, "id"=> *batch.id);
                     for peer_id in self.peer_pool.drain() {
                         network.downvote_peer(peer_id);
                     }
@@ -355,7 +380,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
             BatchProcessResult::Failed => {
-                warn!(self.log, "Batch processing failed"; "id" => *batch.id, "peer" => format!("{}", batch.current_peer));
+                warn!(self.log, "Batch processing failed";
+                    "chain_id" => self.id,"id" => *batch.id, "peer" => format!("{}", batch.current_peer));
                 // The batch processing failed
                 // This could be because this batch is invalid, or a previous invalidated batch
                 // is invalid. We need to find out which and downvote the peer that has sent us
@@ -367,7 +393,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // that it is likely all peers in this chain are are sending invalid batches
                     // repeatedly and are either malicious or faulty. We drop the chain and
                     // downvote all peers.
-                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers"; "id"=> *batch.id);
+                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers";
+                        "chain_id" => self.id, "id"=> *batch.id);
                     for peer_id in self.peer_pool.drain() {
                         network.downvote_peer(peer_id);
                     }
@@ -399,8 +426,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let processed_batch = self.processed_batches.remove(0);
             if *processed_batch.id >= *last_batch.id {
                 crit!(self.log, "A processed batch had a greater id than the current process id";
-                                "processed_id" => *processed_batch.id,
-                                "current_id" => *last_batch.id);
+                    "chain_id" => self.id,
+                    "processed_id" => *processed_batch.id,
+                    "current_id" => *last_batch.id);
             }
 
             if let Some(prev_hash) = processed_batch.original_hash {
@@ -415,9 +443,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // now.
                         debug!(
                             self.log, "Re-processed batch validated. Downvoting original peer";
-                            "batch_id" => *processed_batch.id,
-                            "original_peer" => format!("{}",processed_batch.original_peer),
-                            "new_peer" => format!("{}", processed_batch.current_peer)
+                                "chain_id" => self.id,
+                                "batch_id" => *processed_batch.id,
+                                "original_peer" => format!("{}",processed_batch.original_peer),
+                                "new_peer" => format!("{}", processed_batch.current_peer)
                         );
                         network.downvote_peer(processed_batch.original_peer);
                     }
@@ -494,6 +523,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch.current_peer = new_peer.clone();
 
         debug!(self.log, "Re-requesting batch";
+            "chain_id" => self.id,
             "start_slot" => batch.start_slot,
             "end_slot" => batch.end_slot,
             "id" => *batch.id,
@@ -514,7 +544,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn start_syncing(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
-        local_finalized_slot: Slot,
+        local_finalized_epoch: Epoch,
     ) {
         // A local finalized slot is provided as other chains may have made
         // progress whilst this chain was Stopped or paused. If so, update the `processed_batch_id` to
@@ -525,10 +555,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // to start from this point and re-index all subsequent batches starting from one
         // (effectively creating a new chain).
 
-        if local_finalized_slot > self.current_processed_slot() {
+        let local_finalized_slot = local_finalized_epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let current_processed_slot = self.current_processed_slot();
+
+        if local_finalized_slot > current_processed_slot {
+            // Advance the chain to account for already downloaded blocks.
+            self.start_epoch = local_finalized_epoch;
+
             debug!(self.log, "Updating chain's progress";
-                "prev_completed_slot" => self.current_processed_slot(),
-                "new_completed_slot" => local_finalized_slot.as_u64());
+                "chain_id" => self.id,
+                "prev_completed_slot" => current_processed_slot,
+                "new_completed_slot" => self.current_processed_slot());
             // Re-index batches
             *self.to_be_downloaded_id = 1;
             *self.to_be_processed_id = 1;
@@ -554,7 +591,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.peer_pool.insert(peer_id.clone());
         // do not request blocks if the chain is not syncing
         if let ChainSyncingState::Stopped = self.state {
-            debug!(self.log, "Peer added to a non-syncing chain"; "peer_id" => format!("{}", peer_id));
+            debug!(self.log, "Peer added to a non-syncing chain";
+                "chain_id" => self.id, "peer_id" => format!("{}", peer_id));
             return;
         }
 
@@ -583,6 +621,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> Option<ProcessingResult> {
         if let Some(batch) = self.pending_batches.remove(request_id) {
             warn!(self.log, "Batch failed. RPC Error";
+                "chain_id" => self.id,
                 "id" => *batch.id,
                 "retries" => batch.retries,
                 "peer" => format!("{:?}", peer_id));
@@ -606,10 +645,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         batch.retries += 1;
 
-        // TODO: Handle partially downloaded batches. Update this when building a new batch
-        // processor thread.
-
-        if batch.retries > MAX_BATCH_RETRIES {
+        if batch.retries > MAX_BATCH_RETRIES || self.peer_pool.is_empty() {
             // chain is unrecoverable, remove it
             ProcessingResult::RemoveChain
         } else {
@@ -623,6 +659,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
             batch.current_peer = new_peer.clone();
             debug!(self.log, "Re-Requesting batch";
+                "chain_id" => self.id,
                 "start_slot" => batch.start_slot,
                 "end_slot" => batch.end_slot,
                 "id" => *batch.id,
@@ -647,6 +684,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(peer_id) = self.get_next_peer() {
             if let Some(batch) = self.get_next_batch(peer_id) {
                 debug!(self.log, "Requesting batch";
+                    "chain_id" => self.id,
                     "start_slot" => batch.start_slot,
                     "end_slot" => batch.end_slot,
                     "id" => *batch.id,
@@ -679,6 +717,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Returns the next required batch from the chain if it exists. If there are no more batches
     /// required, `None` is returned.
     fn get_next_batch(&mut self, peer_id: PeerId) -> Option<Batch<T::EthSpec>> {
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let blocks_per_batch = slots_per_epoch * EPOCHS_PER_BATCH;
+
         // only request batches up to the buffer size limit
         if self
             .completed_batches
@@ -689,16 +730,23 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
+        let batch_start_slot = self.start_epoch.start_slot(slots_per_epoch)
+            + self.to_be_downloaded_id.saturating_sub(1) * blocks_per_batch;
+
         // don't request batches beyond the target head slot
-        let batch_start_slot =
-            self.start_slot + self.to_be_downloaded_id.saturating_sub(1) * BLOCKS_PER_BATCH;
         if batch_start_slot > self.target_head_slot {
             return None;
         }
-        // truncate the batch to the target head of the chain
+
+        // truncate the batch to the epoch containing the target head of the chain
         let batch_end_slot = std::cmp::min(
-            batch_start_slot + BLOCKS_PER_BATCH,
-            self.target_head_slot.saturating_add(1u64),
+            // request either a batch containing the max number of blocks per batch
+            batch_start_slot + blocks_per_batch,
+            // or a batch of one epoch of blocks, which contains the `target_head_slot`
+            self.target_head_slot
+                .saturating_add(slots_per_epoch)
+                .epoch(slots_per_epoch)
+                .start_slot(slots_per_epoch),
         );
 
         let batch_id = self.to_be_downloaded_id;

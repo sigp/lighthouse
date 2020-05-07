@@ -10,7 +10,7 @@ use syn::{parse_macro_input, DeriveInput};
 /// The field attribute is: `#[test_random(default)]`
 fn should_use_default(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
-        attr.path.is_ident("test_random") && attr.tts.to_string().replace(" ", "") == "(default)"
+        attr.path.is_ident("test_random") && attr.tokens.to_string().replace(" ", "") == "(default)"
     })
 }
 

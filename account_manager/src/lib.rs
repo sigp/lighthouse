@@ -1,4 +1,5 @@
 mod cli;
+mod deposits;
 
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
@@ -6,7 +7,7 @@ use environment::{Environment, RuntimeContext};
 use eth2_testnet_config::Eth2TestnetConfig;
 use futures::{future, Future, IntoFuture, Stream};
 use rayon::prelude::*;
-use slog::{crit, error, info, Logger};
+use slog::{error, info, Logger};
 use std::fs;
 use std::fs::File;
 use std::io::Read;
@@ -21,20 +22,8 @@ use web3::{
 
 pub use cli::cli_app;
 
-/// Run the account manager, logging an error if the operation did not succeed.
-pub fn run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) {
-    let log = env.core_context().log.clone();
-    match run_account_manager(matches, env) {
-        Ok(()) => (),
-        Err(e) => crit!(log, "Account manager failed"; "error" => e),
-    }
-}
-
 /// Run the account manager, returning an error if the operation did not succeed.
-fn run_account_manager<T: EthSpec>(
-    matches: &ArgMatches,
-    mut env: Environment<T>,
-) -> Result<(), String> {
+pub fn run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Result<(), String> {
     let context = env.core_context();
     let log = context.log.clone();
 
@@ -60,6 +49,7 @@ fn run_account_manager<T: EthSpec>(
 
     match matches.subcommand() {
         ("validator", Some(matches)) => match matches.subcommand() {
+            ("deposited", Some(matches)) => deposits::cli_run(matches, env)?,
             ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, env)?,
             _ => {
                 return Err("Invalid 'validator new' command. See --help.".to_string());

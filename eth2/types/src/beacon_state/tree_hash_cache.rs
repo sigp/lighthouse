@@ -1,3 +1,5 @@
+#![allow(clippy::integer_arithmetic)]
+
 use super::Error;
 use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
@@ -195,7 +197,7 @@ impl ValidatorsListTreeHashCache {
     /// This function makes assumptions that the `validators` list will only change in accordance
     /// with valid per-block/per-slot state transitions.
     fn recalculate_tree_hash_root(&mut self, validators: &[Validator]) -> Result<Hash256, Error> {
-        let mut list_arena = std::mem::replace(&mut self.list_arena, CacheArena::default());
+        let mut list_arena = std::mem::take(&mut self.list_arena);
 
         let leaves = self
             .values

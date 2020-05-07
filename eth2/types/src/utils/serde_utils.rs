@@ -1,4 +1,3 @@
-use hex;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serializer};
 

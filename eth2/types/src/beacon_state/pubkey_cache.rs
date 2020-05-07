@@ -23,6 +23,7 @@ impl PubkeyCache {
     ///
     /// The added index must equal the number of validators already added to the map. This ensures
     /// that an index is never skipped.
+    #[allow(clippy::integer_arithmetic)]
     pub fn insert(&mut self, pubkey: PublicKeyBytes, index: ValidatorIndex) -> bool {
         if index == self.len {
             self.map.insert(pubkey, index);
@@ -36,5 +37,12 @@ impl PubkeyCache {
     /// Looks up a validator index's by their public key.
     pub fn get(&self, pubkey: &PublicKeyBytes) -> Option<ValidatorIndex> {
         self.map.get(pubkey).copied()
+    }
+}
+
+#[cfg(feature = "arbitrary-fuzz")]
+impl arbitrary::Arbitrary for PubkeyCache {
+    fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self::default())
     }
 }

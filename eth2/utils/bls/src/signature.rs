@@ -111,6 +111,15 @@ impl<'de> Deserialize<'de> for Signature {
     }
 }
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary for Signature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; BLS_SIG_BYTE_SIZE];
+        u.fill_buffer(&mut bytes)?;
+        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::Keypair;

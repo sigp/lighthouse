@@ -8,13 +8,15 @@ pub mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;
-use beacon_chain::{AttestationType, BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
-    rpc::{RPCError, RPCErrorResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
+    rpc::{
+        RPCCodedResponse, RPCError, RPCRequest, RPCResponse, RPCResponseErrorCode, RequestId,
+        ResponseTermination,
+    },
     MessageId, NetworkGlobals, PeerId, PubsubMessage, RPCEvent,
 };
-use futures::future::Future;
-use futures::stream::Stream;
+use futures::prelude::*;
 use processor::Processor;
 use slog::{debug, o, trace, warn};
 use std::sync::Arc;
@@ -57,17 +59,17 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        executor: &tokio::runtime::TaskExecutor,
+        runtime_handle: &tokio::runtime::Handle,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
-        let message_handler_log = log.new(o!("service"=> "msg_handler"));
+        let message_handler_log = log.new(o!("service"=> "router"));
         trace!(message_handler_log, "Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         // Initialise a message instance, which itself spawns the syncing thread.
         let processor = Processor::new(
-            executor,
+            runtime_handle,
             beacon_chain,
             network_globals,
             network_send.clone(),
@@ -82,13 +84,12 @@ impl<T: BeaconChainTypes> Router<T> {
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
-        executor.spawn(
+        runtime_handle.spawn(async move {
             handler_recv
-                .for_each(move |msg| Ok(handler.handle_message(msg)))
-                .map_err(move |_| {
-                    debug!(log, "Network message handler terminated.");
-                }),
-        );
+                .for_each(move |msg| future::ready(handler.handle_message(msg)))
+                .await;
+            debug!(log, "Network message handler terminated.");
+        });
 
         Ok(handler_send)
     }
@@ -123,7 +124,7 @@ impl<T: BeaconChainTypes> Router<T> {
         match rpc_message {
             RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
             RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
-            RPCEvent::Error(id, error) => self.handle_rpc_error(peer_id, id, error),
+            RPCEvent::Error(id, _protocol, error) => self.handle_rpc_error(peer_id, id, error),
         }
     }
 
@@ -164,23 +165,35 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        error_response: RPCErrorResponse<T::EthSpec>,
+        error_response: RPCCodedResponse<T::EthSpec>,
     ) {
         // an error could have occurred.
         match error_response {
-            RPCErrorResponse::InvalidRequest(error) => {
-                warn!(self.log, "Peer indicated invalid request";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
-                self.handle_rpc_error(peer_id, request_id, RPCError::RPCErrorResponse);
+            RPCCodedResponse::InvalidRequest(error) => {
+                warn!(self.log, "Peer indicated invalid request"; "peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
+                self.handle_rpc_error(
+                    peer_id,
+                    request_id,
+                    RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest),
+                );
             }
-            RPCErrorResponse::ServerError(error) => {
-                warn!(self.log, "Peer internal server error";"peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
-                self.handle_rpc_error(peer_id, request_id, RPCError::RPCErrorResponse);
+            RPCCodedResponse::ServerError(error) => {
+                warn!(self.log, "Peer internal server error"; "peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
+                self.handle_rpc_error(
+                    peer_id,
+                    request_id,
+                    RPCError::ErrorResponse(RPCResponseErrorCode::ServerError),
+                );
             }
-            RPCErrorResponse::Unknown(error) => {
-                warn!(self.log, "Unknown peer error";"peer" => format!("{:?}", peer_id), "error" => error.as_string());
-                self.handle_rpc_error(peer_id, request_id, RPCError::RPCErrorResponse);
+            RPCCodedResponse::Unknown(error) => {
+                warn!(self.log, "Unknown peer error"; "peer" => format!("{:?}", peer_id), "error" => error.as_string());
+                self.handle_rpc_error(
+                    peer_id,
+                    request_id,
+                    RPCError::ErrorResponse(RPCResponseErrorCode::Unknown),
+                );
             }
-            RPCErrorResponse::Success(response) => match response {
+            RPCCodedResponse::Success(response) => match response {
                 RPCResponse::Status(status_message) => {
                     self.processor.on_status_response(peer_id, status_message);
                 }
@@ -205,7 +218,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     unreachable!("Meta data must be handled in the behaviour");
                 }
             },
-            RPCErrorResponse::StreamTermination(response_type) => {
+            RPCCodedResponse::StreamTermination(response_type) => {
                 // have received a stream termination, notify the processing functions
                 match response_type {
                     ResponseTermination::BlocksByRange => {
@@ -237,41 +250,43 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
-                if self
-                    .processor
-                    .should_forward_aggregate_attestation(&aggregate_and_proof)
+                if let Some(gossip_verified) =
+                    self.processor.verify_aggregated_attestation_for_gossip(
+                        peer_id.clone(),
+                        *aggregate_and_proof.clone(),
+                    )
                 {
                     self.propagate_message(id, peer_id.clone());
+                    self.processor
+                        .import_aggregated_attestation(peer_id, gossip_verified);
                 }
-                self.processor.process_attestation_gossip(
-                    peer_id,
-                    aggregate_and_proof.message.aggregate,
-                    AttestationType::Aggregated,
-                );
             }
             PubsubMessage::Attestation(subnet_attestation) => {
-                if self
-                    .processor
-                    .should_forward_attestation(&subnet_attestation.1)
+                if let Some(gossip_verified) =
+                    self.processor.verify_unaggregated_attestation_for_gossip(
+                        peer_id.clone(),
+                        subnet_attestation.1.clone(),
+                    )
                 {
                     self.propagate_message(id, peer_id.clone());
+                    self.processor
+                        .import_unaggregated_attestation(peer_id, gossip_verified);
                 }
-                self.processor.process_attestation_gossip(
-                    peer_id,
-                    subnet_attestation.1,
-                    AttestationType::Unaggregated { should_store: true },
-                );
             }
-            PubsubMessage::BeaconBlock(block) => match self.processor.should_forward_block(block) {
-                Ok(verified_block) => {
-                    self.propagate_message(id, peer_id.clone());
-                    self.processor.on_block_gossip(peer_id, verified_block);
-                }
-                Err(e) => {
-                    warn!(self.log, "Could not verify block for gossip";
+            PubsubMessage::BeaconBlock(block) => {
+                match self.processor.should_forward_block(&peer_id, block) {
+                    Ok(verified_block) => {
+                        self.propagate_message(id, peer_id.clone());
+                        self.processor.on_block_gossip(peer_id, verified_block);
+                    }
+                    Err(BlockError::ParentUnknown { .. }) => {} // performing a parent lookup
+                    Err(e) => {
+                        // performing a parent lookup
+                        warn!(self.log, "Could not verify block for gossip";
                             "error" => format!("{:?}", e));
+                    }
                 }
-            },
+            }
             PubsubMessage::VoluntaryExit(_exit) => {
                 // TODO: Apply more sophisticated validation
                 self.propagate_message(id, peer_id.clone());
@@ -296,7 +311,7 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Informs the network service that the message should be forwarded to other peers.
     fn propagate_message(&mut self, message_id: MessageId, propagation_source: PeerId) {
         self.network_send
-            .try_send(NetworkMessage::Propagate {
+            .send(NetworkMessage::Propagate {
                 propagation_source,
                 message_id,
             })

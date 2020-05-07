@@ -1,4 +1,4 @@
-use super::chain::BLOCKS_PER_BATCH;
+use super::chain::EPOCHS_PER_BATCH;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
@@ -76,7 +76,10 @@ impl<T: EthSpec> Batch<T> {
     pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
         BlocksByRangeRequest {
             start_slot: self.start_slot.into(),
-            count: std::cmp::min(BLOCKS_PER_BATCH, self.end_slot.sub(self.start_slot).into()),
+            count: std::cmp::min(
+                T::slots_per_epoch() * EPOCHS_PER_BATCH,
+                self.end_slot.sub(self.start_slot).into(),
+            ),
             step: 1,
         }
     }

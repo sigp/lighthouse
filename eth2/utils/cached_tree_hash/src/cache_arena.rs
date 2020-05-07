@@ -89,6 +89,7 @@ impl<T: Encode + Decode> CacheArena<T> {
     /// To reiterate, the given `range` should be relative to the given `alloc_id`, not
     /// `self.backing`. E.g., if the allocation has an offset of `20` and the range is `0..1`, then
     /// the splice will translate to `self.backing[20..21]`.
+    #[allow(clippy::comparison_chain)]
     fn splice_forgetful<I: IntoIterator<Item = T>>(
         &mut self,
         alloc_id: usize,

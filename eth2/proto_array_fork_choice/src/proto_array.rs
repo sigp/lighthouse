@@ -407,4 +407,41 @@ impl ProtoArray {
             && (node.finalized_epoch == self.finalized_epoch
                 || self.finalized_epoch == Epoch::new(0))
     }
+
+    /// Return a reverse iterator over the nodes which comprise the chain ending at `block_root`.
+    pub fn iter_nodes<'a>(&'a self, block_root: &Hash256) -> Iter<'a> {
+        let next_node_index = self.indices.get(block_root).copied();
+        Iter {
+            next_node_index,
+            proto_array: self,
+        }
+    }
+
+    /// Return a reverse iterator over the block roots of the chain ending at `block_root`.
+    ///
+    /// Note that unlike many other iterators, this one WILL NOT yield anything at skipped slots.
+    pub fn iter_block_roots<'a>(
+        &'a self,
+        block_root: &Hash256,
+    ) -> impl Iterator<Item = (Hash256, Slot)> + 'a {
+        self.iter_nodes(block_root)
+            .map(|node| (node.root, node.slot))
+    }
+}
+
+/// Reverse iterator over one path through a `ProtoArray`.
+pub struct Iter<'a> {
+    next_node_index: Option<usize>,
+    proto_array: &'a ProtoArray,
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a ProtoNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_node_index = self.next_node_index?;
+        let node = self.proto_array.nodes.get(next_node_index)?;
+        self.next_node_index = node.parent;
+        Some(node)
+    }
 }

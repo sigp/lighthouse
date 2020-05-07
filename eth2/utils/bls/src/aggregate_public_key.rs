@@ -1,5 +1,5 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use milagro_bls::{AggregatePublicKey as RawAggregatePublicKey, G1Point};
+use milagro_bls::AggregatePublicKey as RawAggregatePublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -19,9 +19,7 @@ impl AggregatePublicKey {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let pubkey = RawAggregatePublicKey::from_bytes(&bytes).map_err(|_| {
-            DecodeError::BytesInvalid(
-                format!("Invalid AggregatePublicKey bytes: {:?}", bytes).to_string(),
-            )
+            DecodeError::BytesInvalid(format!("Invalid AggregatePublicKey bytes: {:?}", bytes))
         })?;
 
         Ok(AggregatePublicKey(pubkey))
@@ -37,10 +35,6 @@ impl AggregatePublicKey {
 
     pub fn add(&mut self, public_key: &PublicKey) {
         self.0.add(public_key.as_raw())
-    }
-
-    pub fn add_point(&mut self, point: &G1Point) {
-        self.0.point.add(point)
     }
 
     /// Returns the underlying public key.
@@ -92,5 +86,14 @@ impl<'de> Deserialize<'de> for AggregatePublicKey {
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
 
         Ok(agg_sig)
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary for AggregatePublicKey {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];
+        u.fill_buffer(&mut bytes)?;
+        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }

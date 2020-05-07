@@ -21,8 +21,70 @@ pub enum DecodeError {
     /// length items (i.e., `length[0] < BYTES_PER_LENGTH_OFFSET`).
     /// - When decoding variable-length items, the `n`'th offset was less than the `n-1`'th offset.
     OutOfBoundsByte { i: usize },
+    /// An offset points “backwards” into the fixed-bytes portion of the message, essentially
+    /// double-decoding bytes that will also be decoded as fixed-length.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#1-Offset-into-fixed-portion
+    OffsetIntoFixedPortion(usize),
+    /// The first offset does not point to the byte that follows the fixed byte portion,
+    /// essentially skipping a variable-length byte.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#2-Skip-first-variable-byte
+    OffsetSkipsVariableBytes(usize),
+    /// An offset points to bytes prior to the previous offset. Depending on how you look at it,
+    /// this either double-decodes bytes or makes the first offset a negative-length.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#3-Offsets-are-decreasing
+    OffsetsAreDecreasing(usize),
+    /// An offset references byte indices that do not exist in the source bytes.
+    ///
+    /// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view#4-Offsets-are-out-of-bounds
+    OffsetOutOfBounds(usize),
+    /// A variable-length list does not have a fixed portion that is cleanly divisible by
+    /// `BYTES_PER_LENGTH_OFFSET`.
+    InvalidListFixedBytesLen(usize),
+    /// Some item has a `ssz_fixed_len` of zero. This is illegal.
+    ZeroLengthItem,
     /// The given bytes were invalid for some application-level reason.
     BytesInvalid(String),
+}
+
+/// Performs checks on the `offset` based upon the other parameters provided.
+///
+/// ## Detail
+///
+/// - `offset`: the offset bytes (e.g., result of `read_offset(..)`).
+/// - `previous_offset`: unless this is the first offset in the SSZ object, the value of the
+/// previously-read offset. Used to ensure offsets are not decreasing.
+/// - `num_bytes`: the total number of bytes in the SSZ object. Used to ensure the offset is not
+/// out of bounds.
+/// - `num_fixed_bytes`: the number of fixed-bytes in the struct, if it is known. Used to ensure
+/// that the first offset doesn't skip any variable bytes.
+///
+/// ## References
+///
+/// The checks here are derived from this document:
+///
+/// https://notes.ethereum.org/ruKvDXl6QOW3gnqVYb8ezA?view
+pub fn sanitize_offset(
+    offset: usize,
+    previous_offset: Option<usize>,
+    num_bytes: usize,
+    num_fixed_bytes: Option<usize>,
+) -> Result<usize, DecodeError> {
+    if num_fixed_bytes.map_or(false, |fixed_bytes| offset < fixed_bytes) {
+        Err(DecodeError::OffsetIntoFixedPortion(offset))
+    } else if previous_offset.is_none()
+        && num_fixed_bytes.map_or(false, |fixed_bytes| offset != fixed_bytes)
+    {
+        Err(DecodeError::OffsetSkipsVariableBytes(offset))
+    } else if offset > num_bytes {
+        Err(DecodeError::OffsetOutOfBounds(offset))
+    } else if previous_offset.map_or(false, |prev| prev > offset) {
+        Err(DecodeError::OffsetsAreDecreasing(offset))
+    } else {
+        Ok(offset)
+    }
 }
 
 /// Provides SSZ decoding (de-serialization) via the `from_ssz_bytes(&bytes)` method.
@@ -97,21 +159,14 @@ impl<'a> SszDecoderBuilder<'a> {
 
             self.items.push(slice);
         } else {
-            let offset = read_offset(&self.bytes[self.items_index..])?;
-
-            let previous_offset = self
-                .offsets
-                .last()
-                .map(|o| o.offset)
-                .unwrap_or_else(|| BYTES_PER_LENGTH_OFFSET);
-
-            if (previous_offset > offset) || (offset > self.bytes.len()) {
-                return Err(DecodeError::OutOfBoundsByte { i: offset });
-            }
-
             self.offsets.push(Offset {
                 position: self.items.len(),
-                offset,
+                offset: sanitize_offset(
+                    read_offset(&self.bytes[self.items_index..])?,
+                    self.offsets.last().map(|o| o.offset),
+                    self.bytes.len(),
+                    None,
+                )?,
             });
 
             // Push an empty slice into items; it will be replaced later.
@@ -124,13 +179,13 @@ impl<'a> SszDecoderBuilder<'a> {
     }
 
     fn finalize(&mut self) -> Result<(), DecodeError> {
-        if !self.offsets.is_empty() {
+        if let Some(first_offset) = self.offsets.first().map(|o| o.offset) {
             // Check to ensure the first offset points to the byte immediately following the
             // fixed-length bytes.
-            if self.offsets[0].offset != self.items_index {
-                return Err(DecodeError::OutOfBoundsByte {
-                    i: self.offsets[0].offset,
-                });
+            if first_offset < self.items_index {
+                return Err(DecodeError::OffsetIntoFixedPortion(first_offset));
+            } else if first_offset > self.items_index {
+                return Err(DecodeError::OffsetSkipsVariableBytes(first_offset));
             }
 
             // Iterate through each pair of offsets, grabbing the slice between each of the offsets.

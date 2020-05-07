@@ -32,12 +32,10 @@ impl CachedTreeHash<TreeHashCache> for Validator {
                 // Fields pubkey and withdrawal_credentials are constant
                 if (i == 0 || i == 1) && cache.initialized {
                     None
+                } else if process_field_by_index(self, i, leaf, !cache.initialized) {
+                    Some(i)
                 } else {
-                    if process_field_by_index(self, i, leaf, !cache.initialized) {
-                        Some(i)
-                    } else {
-                        None
-                    }
+                    None
                 }
             })
             .collect();

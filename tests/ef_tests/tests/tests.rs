@@ -13,7 +13,9 @@ fn config_test<E: EthSpec + TypeName>() {
         .join("config.yaml");
     let yaml_config = YamlConfig::from_file(&config_path).expect("config file loads OK");
     let spec = E::default_spec();
+    let yaml_from_spec = YamlConfig::from_spec::<E>(&spec);
     assert_eq!(yaml_config.apply_to_chain_spec::<E>(&spec), Some(spec));
+    assert_eq!(yaml_from_spec, yaml_config);
 }
 
 #[test]

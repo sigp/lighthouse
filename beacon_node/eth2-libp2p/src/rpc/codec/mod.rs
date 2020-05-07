@@ -6,9 +6,9 @@ use self::base::{BaseInboundCodec, BaseOutboundCodec};
 use self::ssz::{SSZInboundCodec, SSZOutboundCodec};
 use self::ssz_snappy::{SSZSnappyInboundCodec, SSZSnappyOutboundCodec};
 use crate::rpc::protocol::RPCError;
-use crate::rpc::{RPCErrorResponse, RPCRequest};
+use crate::rpc::{RPCCodedResponse, RPCRequest};
 use libp2p::bytes::BytesMut;
-use tokio::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 use types::EthSpec;
 
 // Known types of codecs
@@ -22,11 +22,10 @@ pub enum OutboundCodec<TSpec: EthSpec> {
     SSZ(BaseOutboundCodec<SSZOutboundCodec<TSpec>, TSpec>),
 }
 
-impl<T: EthSpec> Encoder for InboundCodec<T> {
-    type Item = RPCErrorResponse<T>;
+impl<T: EthSpec> Encoder<RPCCodedResponse<T>> for InboundCodec<T> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCCodedResponse<T>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match self {
             InboundCodec::SSZ(codec) => codec.encode(item, dst),
             InboundCodec::SSZSnappy(codec) => codec.encode(item, dst),
@@ -46,11 +45,10 @@ impl<TSpec: EthSpec> Decoder for InboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> Encoder for OutboundCodec<TSpec> {
-    type Item = RPCRequest<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for OutboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match self {
             OutboundCodec::SSZ(codec) => codec.encode(item, dst),
             OutboundCodec::SSZSnappy(codec) => codec.encode(item, dst),
@@ -59,7 +57,7 @@ impl<TSpec: EthSpec> Encoder for OutboundCodec<TSpec> {
 }
 
 impl<T: EthSpec> Decoder for OutboundCodec<T> {
-    type Item = RPCErrorResponse<T>;
+    type Item = RPCCodedResponse<T>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {

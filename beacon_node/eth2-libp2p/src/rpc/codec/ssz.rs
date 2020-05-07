@@ -1,16 +1,13 @@
 use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
-    protocol::{
-        ProtocolId, RPCError, RPC_BLOCKS_BY_RANGE, RPC_BLOCKS_BY_ROOT, RPC_GOODBYE, RPC_META_DATA,
-        RPC_PING, RPC_STATUS,
-    },
+    protocol::{Encoding, Protocol, ProtocolId, RPCError, Version},
 };
-use crate::rpc::{ErrorMessage, RPCErrorResponse, RPCRequest, RPCResponse};
+use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
-use tokio::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::UviBytes;
 
@@ -22,13 +19,13 @@ pub struct SSZInboundCodec<TSpec: EthSpec> {
     phantom: PhantomData<TSpec>,
 }
 
-impl<T: EthSpec> SSZInboundCodec<T> {
+impl<TSpec: EthSpec> SSZInboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let mut uvi_codec = UviBytes::default();
         uvi_codec.set_max_len(max_packet_size);
 
         // this encoding only applies to ssz.
-        debug_assert!(protocol.encoding.as_str() == "ssz");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZ);
 
         SSZInboundCodec {
             inner: uvi_codec,
@@ -39,23 +36,26 @@ impl<T: EthSpec> SSZInboundCodec<T> {
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<TSpec: EthSpec> Encoder for SSZInboundCodec<TSpec> {
-    type Item = RPCErrorResponse<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZInboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: RPCCodedResponse<TSpec>,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         let bytes = match item {
-            RPCErrorResponse::Success(resp) => match resp {
+            RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) => res.as_ssz_bytes(),
             },
-            RPCErrorResponse::InvalidRequest(err) => err.as_ssz_bytes(),
-            RPCErrorResponse::ServerError(err) => err.as_ssz_bytes(),
-            RPCErrorResponse::Unknown(err) => err.as_ssz_bytes(),
-            RPCErrorResponse::StreamTermination(_) => {
+            RPCCodedResponse::InvalidRequest(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::ServerError(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::Unknown(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
         };
@@ -81,50 +81,41 @@ impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.inner.decode(src).map_err(RPCError::from) {
-            Ok(Some(packet)) => match self.protocol.message_name.as_str() {
-                RPC_STATUS => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
+            Ok(Some(packet)) => match self.protocol.message_name {
+                Protocol::Status => match self.protocol.version {
+                    Version::V1 => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
                         &packet,
                     )?))),
-                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                RPC_GOODBYE => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
+                Protocol::Goodbye => match self.protocol.version {
+                    Version::V1 => Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
                         &packet,
                     )?))),
-                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::BlocksByRange(
+                Protocol::BlocksByRange => match self.protocol.version {
+                    Version::V1 => Ok(Some(RPCRequest::BlocksByRange(
                         BlocksByRangeRequest::from_ssz_bytes(&packet)?,
                     ))),
-                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                Protocol::BlocksByRoot => match self.protocol.version {
+                    Version::V1 => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
                         block_roots: Vec::from_ssz_bytes(&packet)?,
                     }))),
-                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                RPC_PING => match self.protocol.version.as_str() {
-                    "1" => Ok(Some(RPCRequest::Ping(Ping {
+                Protocol::Ping => match self.protocol.version {
+                    Version::V1 => Ok(Some(RPCRequest::Ping(Ping {
                         data: u64::from_ssz_bytes(&packet)?,
                     }))),
-                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                RPC_META_DATA => match self.protocol.version.as_str() {
-                    "1" => {
+                Protocol::MetaData => match self.protocol.version {
+                    Version::V1 => {
                         if packet.len() > 0 {
-                            Err(RPCError::Custom(
-                                "Get metadata request should be empty".into(),
-                            ))
+                            Err(RPCError::InvalidData)
                         } else {
                             Ok(Some(RPCRequest::MetaData(PhantomData)))
                         }
                     }
-                    _ => unreachable!("Cannot negotiate an unknown version"),
                 },
-                _ => unreachable!("Cannot negotiate an unknown protocol"),
             },
             Ok(None) => Ok(None),
             Err(e) => Err(e),
@@ -146,7 +137,7 @@ impl<TSpec: EthSpec> SSZOutboundCodec<TSpec> {
         uvi_codec.set_max_len(max_packet_size);
 
         // this encoding only applies to ssz.
-        debug_assert!(protocol.encoding.as_str() == "ssz");
+        debug_assert_eq!(protocol.encoding, Encoding::SSZ);
 
         SSZOutboundCodec {
             inner: uvi_codec,
@@ -157,11 +148,10 @@ impl<TSpec: EthSpec> SSZOutboundCodec<TSpec> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<TSpec: EthSpec> Encoder for SSZOutboundCodec<TSpec> {
-    type Item = RPCRequest<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
@@ -191,81 +181,57 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
             // the object is empty. We return the empty object if this is the case
             // clear the buffer and return an empty object
             src.clear();
-            match self.protocol.message_name.as_str() {
-                RPC_STATUS => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "Status stream terminated unexpectedly".into(),
-                    )), // cannot have an empty HELLO message. The stream has terminated unexpectedly
-                    _ => unreachable!("Cannot negotiate an unknown version"),
+            match self.protocol.message_name {
+                Protocol::Status => match self.protocol.version {
+                    Version::V1 => Err(RPCError::IncompleteStream), // cannot have an empty HELLO message. The stream has terminated unexpectedly
                 },
-                RPC_GOODBYE => Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response")),
-                RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "Status stream terminated unexpectedly, empty block".into(),
-                    )), // cannot have an empty block message.
-                    _ => unreachable!("Cannot negotiate an unknown version"),
+                Protocol::Goodbye => Err(RPCError::InvalidData),
+                Protocol::BlocksByRange => match self.protocol.version {
+                    Version::V1 => Err(RPCError::IncompleteStream), // cannot have an empty block message.
                 },
-                RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "Status stream terminated unexpectedly, empty block".into(),
-                    )), // cannot have an empty block message.
-                    _ => unreachable!("Cannot negotiate an unknown version"),
+                Protocol::BlocksByRoot => match self.protocol.version {
+                    Version::V1 => Err(RPCError::IncompleteStream), // cannot have an empty block message.
                 },
-                RPC_PING => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "PING stream terminated unexpectedly".into(),
-                    )), // cannot have an empty block message.
-                    _ => unreachable!("Cannot negotiate an unknown version"),
+                Protocol::Ping => match self.protocol.version {
+                    Version::V1 => Err(RPCError::IncompleteStream), // cannot have an empty block message.
                 },
-                RPC_META_DATA => match self.protocol.version.as_str() {
-                    "1" => Err(RPCError::Custom(
-                        "Metadata stream terminated unexpectedly".into(),
-                    )), // cannot have an empty block message.
-                    _ => unreachable!("Cannot negotiate an unknown version"),
+                Protocol::MetaData => match self.protocol.version {
+                    Version::V1 => Err(RPCError::IncompleteStream), // cannot have an empty block message.
                 },
-                _ => unreachable!("Cannot negotiate an unknown protocol"),
             }
         } else {
             match self.inner.decode(src).map_err(RPCError::from) {
                 Ok(Some(mut packet)) => {
                     // take the bytes from the buffer
-                    let raw_bytes = packet.take();
+                    let raw_bytes = packet.split();
 
-                    match self.protocol.message_name.as_str() {
-                        RPC_STATUS => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
-                                &raw_bytes,
-                            )?))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
+                    match self.protocol.message_name {
+                        Protocol::Status => match self.protocol.version {
+                            Version::V1 => Ok(Some(RPCResponse::Status(
+                                StatusMessage::from_ssz_bytes(&raw_bytes)?,
+                            ))),
                         },
-                        RPC_GOODBYE => {
-                            Err(RPCError::InvalidProtocol("GOODBYE doesn't have a response"))
-                        }
-                        RPC_BLOCKS_BY_RANGE => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                        Protocol::Goodbye => Err(RPCError::InvalidData),
+                        Protocol::BlocksByRange => match self.protocol.version {
+                            Version::V1 => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                                 SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
                             )))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
                         },
-                        RPC_BLOCKS_BY_ROOT => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                        Protocol::BlocksByRoot => match self.protocol.version {
+                            Version::V1 => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                                 SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
                             )))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
                         },
-                        RPC_PING => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::Pong(Ping {
+                        Protocol::Ping => match self.protocol.version {
+                            Version::V1 => Ok(Some(RPCResponse::Pong(Ping {
                                 data: u64::from_ssz_bytes(&raw_bytes)?,
                             }))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
                         },
-                        RPC_META_DATA => match self.protocol.version.as_str() {
-                            "1" => Ok(Some(RPCResponse::MetaData(MetaData::from_ssz_bytes(
-                                &raw_bytes,
-                            )?))),
-                            _ => unreachable!("Cannot negotiate an unknown version"),
+                        Protocol::MetaData => match self.protocol.version {
+                            Version::V1 => Ok(Some(RPCResponse::MetaData(
+                                MetaData::from_ssz_bytes(&raw_bytes)?,
+                            ))),
                         },
-                        _ => unreachable!("Cannot negotiate an unknown protocol"),
                     }
                 }
                 Ok(None) => Ok(None), // waiting for more bytes
@@ -275,7 +241,7 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> OutboundCodec for SSZOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
     type ErrorType = ErrorMessage;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {

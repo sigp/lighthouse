@@ -8,4 +8,4 @@ edition = "2018"
 
 [dependencies]
 lazy_static = "1.4.0"
-prometheus = "0.7.0"
+prometheus = "0.8.0"

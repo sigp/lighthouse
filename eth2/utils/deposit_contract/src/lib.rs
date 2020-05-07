@@ -22,7 +22,7 @@ impl From<ethabi::Error> for DecodeError {
 }
 
 pub const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
-pub const DEPOSIT_GAS: usize = 4_000_000;
+pub const DEPOSIT_GAS: usize = 400_000;
 pub const ABI: &[u8] = include_bytes!("../contracts/v0.11.1_validator_registration.json");
 pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.11.1_validator_registration.bytecode");
 pub const DEPOSIT_DATA_LEN: usize = 420; // lol

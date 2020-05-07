@@ -164,8 +164,8 @@ impl TreeHashCache {
 fn lift_dirty(dirty_indices: &[usize]) -> SmallVec8<usize> {
     let mut new_dirty = SmallVec8::with_capacity(dirty_indices.len());
 
-    for i in 0..dirty_indices.len() {
-        new_dirty.push(dirty_indices[i] / 2)
+    for index in dirty_indices {
+        new_dirty.push(index / 2)
     }
 
     new_dirty.dedup();

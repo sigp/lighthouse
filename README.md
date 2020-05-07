@@ -49,10 +49,10 @@ Current development overview:
 
 - ~~**April 2019**: Inital single-client testnets.~~
 - ~~**September 2019**: Inter-operability with other Ethereum 2.0 clients.~~
-- ~~ **Q1 2020**: `lighthouse-0.1.0` release: All major phase 0 features implemented.~~
-- **Q1 2020**: Public, multi-client testnet with user-facing functionality.
+- ~~**Q1 2020**: `lighthouse-0.1.0` release: All major phase 0 features implemented.~~
+- **Q2 2020**: Public, multi-client testnet with user-facing functionality.
 - **Q2 2020**: Third-party security review.
-- **Q3 2020**: Production Beacon Chain testnet (tentative).
+- **Q4 2020**: Production Beacon Chain testnet (tentative).
 
 
 ## Documentation

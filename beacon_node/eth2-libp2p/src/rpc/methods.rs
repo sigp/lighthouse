@@ -1,6 +1,7 @@
 //! Available RPC methods types and ids.
 
 use crate::types::EnrBitfield;
+use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -37,7 +38,8 @@ pub struct Ping {
 }
 
 /// The METADATA response structure.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Serialize)]
+#[serde(bound = "T: EthSpec")]
 pub struct MetaData<T: EthSpec> {
     /// A sequential counter indicating when data gets modified.
     pub seq_number: u64,
@@ -162,7 +164,7 @@ pub enum RPCResponse<T: EthSpec> {
 }
 
 /// Indicates which response is being terminated by a stream termination response.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ResponseTermination {
     /// Blocks by range stream termination.
     BlocksByRange,
@@ -171,8 +173,10 @@ pub enum ResponseTermination {
     BlocksByRoot,
 }
 
-#[derive(Debug)]
-pub enum RPCErrorResponse<T: EthSpec> {
+/// The structured response containing a result/code indicating success or failure
+/// and the contents of the response
+#[derive(Debug, Clone)]
+pub enum RPCCodedResponse<T: EthSpec> {
     /// The response is a successful.
     Success(RPCResponse<T>),
 
@@ -189,15 +193,23 @@ pub enum RPCErrorResponse<T: EthSpec> {
     StreamTermination(ResponseTermination),
 }
 
-impl<T: EthSpec> RPCErrorResponse<T> {
+/// The code assigned to an erroneous `RPCResponse`.
+#[derive(Debug, Clone)]
+pub enum RPCResponseErrorCode {
+    InvalidRequest,
+    ServerError,
+    Unknown,
+}
+
+impl<T: EthSpec> RPCCodedResponse<T> {
     /// Used to encode the response in the codec.
     pub fn as_u8(&self) -> Option<u8> {
         match self {
-            RPCErrorResponse::Success(_) => Some(0),
-            RPCErrorResponse::InvalidRequest(_) => Some(1),
-            RPCErrorResponse::ServerError(_) => Some(2),
-            RPCErrorResponse::Unknown(_) => Some(255),
-            RPCErrorResponse::StreamTermination(_) => None,
+            RPCCodedResponse::Success(_) => Some(0),
+            RPCCodedResponse::InvalidRequest(_) => Some(1),
+            RPCCodedResponse::ServerError(_) => Some(2),
+            RPCCodedResponse::Unknown(_) => Some(255),
+            RPCCodedResponse::StreamTermination(_) => None,
         }
     }
 
@@ -209,30 +221,30 @@ impl<T: EthSpec> RPCErrorResponse<T> {
         }
     }
 
-    /// Builds an RPCErrorResponse from a response code and an ErrorMessage
+    /// Builds an RPCCodedResponse from a response code and an ErrorMessage
     pub fn from_error(response_code: u8, err: ErrorMessage) -> Self {
         match response_code {
-            1 => RPCErrorResponse::InvalidRequest(err),
-            2 => RPCErrorResponse::ServerError(err),
-            _ => RPCErrorResponse::Unknown(err),
+            1 => RPCCodedResponse::InvalidRequest(err),
+            2 => RPCCodedResponse::ServerError(err),
+            _ => RPCCodedResponse::Unknown(err),
         }
     }
 
     /// Specifies which response allows for multiple chunks for the stream handler.
     pub fn multiple_responses(&self) -> bool {
         match self {
-            RPCErrorResponse::Success(resp) => match resp {
+            RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
             },
-            RPCErrorResponse::InvalidRequest(_) => true,
-            RPCErrorResponse::ServerError(_) => true,
-            RPCErrorResponse::Unknown(_) => true,
+            RPCCodedResponse::InvalidRequest(_) => true,
+            RPCCodedResponse::ServerError(_) => true,
+            RPCCodedResponse::Unknown(_) => true,
             // Stream terminations are part of responses that have chunks
-            RPCErrorResponse::StreamTermination(_) => true,
+            RPCCodedResponse::StreamTermination(_) => true,
         }
     }
 
@@ -240,13 +252,23 @@ impl<T: EthSpec> RPCErrorResponse<T> {
     /// sent.
     pub fn is_error(&self) -> bool {
         match self {
-            RPCErrorResponse::Success(_) => false,
+            RPCCodedResponse::Success(_) => false,
             _ => true,
+        }
+    }
+
+    pub fn error_code(&self) -> Option<RPCResponseErrorCode> {
+        match self {
+            RPCCodedResponse::Success(_) => None,
+            RPCCodedResponse::StreamTermination(_) => None,
+            RPCCodedResponse::InvalidRequest(_) => Some(RPCResponseErrorCode::InvalidRequest),
+            RPCCodedResponse::ServerError(_) => Some(RPCResponseErrorCode::ServerError),
+            RPCCodedResponse::Unknown(_) => Some(RPCResponseErrorCode::Unknown),
         }
     }
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Debug, Clone)]
 pub struct ErrorMessage {
     /// The UTF-8 encoded Error message string.
     pub error_message: Vec<u8>,
@@ -255,6 +277,17 @@ pub struct ErrorMessage {
 impl ErrorMessage {
     pub fn as_string(&self) -> String {
         String::from_utf8(self.error_message.clone()).unwrap_or_else(|_| "".into())
+    }
+}
+
+impl std::fmt::Display for RPCResponseErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let repr = match self {
+            RPCResponseErrorCode::InvalidRequest => "The request was invalid",
+            RPCResponseErrorCode::ServerError => "Server error occurred",
+            RPCResponseErrorCode::Unknown => "Unknown error occurred",
+        };
+        f.write_str(repr)
     }
 }
 
@@ -280,14 +313,14 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for RPCErrorResponse<T> {
+impl<T: EthSpec> std::fmt::Display for RPCCodedResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCErrorResponse::Success(res) => write!(f, "{}", res),
-            RPCErrorResponse::InvalidRequest(err) => write!(f, "Invalid Request: {:?}", err),
-            RPCErrorResponse::ServerError(err) => write!(f, "Server Error: {:?}", err),
-            RPCErrorResponse::Unknown(err) => write!(f, "Unknown Error: {:?}", err),
-            RPCErrorResponse::StreamTermination(_) => write!(f, "Stream Termination"),
+            RPCCodedResponse::Success(res) => write!(f, "{}", res),
+            RPCCodedResponse::InvalidRequest(err) => write!(f, "Invalid Request: {:?}", err),
+            RPCCodedResponse::ServerError(err) => write!(f, "Server Error: {:?}", err),
+            RPCCodedResponse::Unknown(err) => write!(f, "Unknown Error: {:?}", err),
+            RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }
 }

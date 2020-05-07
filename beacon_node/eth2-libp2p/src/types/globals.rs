@@ -2,6 +2,7 @@
 use crate::peer_manager::PeerDB;
 use crate::rpc::methods::MetaData;
 use crate::types::SyncState;
+use crate::EnrExt;
 use crate::{discovery::enr::Eth2Enr, Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
@@ -80,7 +81,12 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
 
     /// Returns the number of libp2p connected peers.
     pub fn connected_peers(&self) -> usize {
-        self.peers.read().connected_peers().count()
+        self.peers.read().connected_peer_ids().count()
+    }
+
+    /// Returns the number of libp2p peers that are either connected or being dialed.
+    pub fn connected_or_dialing_peers(&self) -> usize {
+        self.peers.read().connected_or_dialing_peers().count()
     }
 
     /// Returns in the node is syncing.

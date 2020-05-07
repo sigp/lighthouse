@@ -49,19 +49,22 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
 };
 use parking_lot::RwLockReadGuard;
+use slog::{error, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use state_processing::{
-    block_signature_verifier::{
-        BlockSignatureVerifier, Error as BlockSignatureVerifierError, G1Point,
-    },
+    block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
     SlotProcessingError,
 };
 use std::borrow::Cow;
+use std::fs;
+use std::io::Write;
 use store::{Error as DBError, StateBatch};
+use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    PublicKey, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 mod block_processing_outcome;
@@ -70,6 +73,12 @@ pub use block_processing_outcome::BlockProcessingOutcome;
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
+
+/// If true, everytime a block is processed the pre-state, post-state and block are written to SSZ
+/// files in the temp directory.
+///
+/// Only useful for testing.
+const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
 /// Returned when a block was not verified. A block is not verified for two reasons:
 ///
@@ -95,10 +104,18 @@ pub enum BlockError {
     },
     /// Block is already known, no need to re-import.
     BlockIsAlreadyKnown,
+    /// A block for this proposer and slot has already been observed.
+    RepeatProposal { proposer: u64, slot: Slot },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     BlockSlotLimitReached,
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The proposal signature in invalid.
     ProposalSignatureInvalid,
+    /// The `block.proposal_index` is not known.
+    UnknownValidator(u64),
     /// A signature in the block is invalid (exactly which is unknown).
     InvalidSignature,
     /// The provided block is from an earlier slot than its parent.
@@ -117,7 +134,18 @@ pub enum BlockError {
 
 impl From<BlockSignatureVerifierError> for BlockError {
     fn from(e: BlockSignatureVerifierError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e))
+        match e {
+            // Make a special distinction for `IncorrectBlockProposer` since it indicates an
+            // invalid block, not an internal error.
+            BlockSignatureVerifierError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            } => BlockError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            },
+            e => BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e)),
+        }
     }
 }
 
@@ -277,7 +305,17 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(&block.message, chain)?;
 
-        // TODO: add check for the `(block.proposer_index, block.slot)` tuple once we have v0.11.0
+        // Check that we have not already received a block with a valid signature for this slot.
+        if chain
+            .observed_block_producers
+            .proposer_has_been_observed(&block.message)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        {
+            return Err(BlockError::RepeatProposal {
+                proposer: block.message.proposer_index,
+                slot: block.message.slot,
+            });
+        }
 
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = get_block_root(&block);
@@ -288,21 +326,58 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let signature_is_valid = {
+            let pubkey_cache = get_validator_pubkey_cache(chain)?;
+            let pubkey = pubkey_cache
+                .get(block.message.proposer_index as usize)
+                .ok_or_else(|| BlockError::UnknownValidator(block.message.proposer_index))?;
+            block.verify_signature(
+                Some(block_root),
+                pubkey,
+                &state.fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            )
+        };
 
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-
-        signature_verifier.include_block_proposal(&block, Some(block_root))?;
-
-        if signature_verifier.verify().is_ok() {
-            Ok(Self {
-                block,
-                block_root,
-                parent,
-            })
-        } else {
-            Err(BlockError::ProposalSignatureInvalid)
+        if !signature_is_valid {
+            return Err(BlockError::ProposalSignatureInvalid);
         }
+
+        // Now the signature is valid, store the proposal so we don't accept another from this
+        // validator and slot.
+        //
+        // It's important to double-check that the proposer still hasn't been observed so we don't
+        // have a race-condition when verifying two blocks simultaneously.
+        if chain
+            .observed_block_producers
+            .observe_proposer(&block.message)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        {
+            return Err(BlockError::RepeatProposal {
+                proposer: block.message.proposer_index,
+                slot: block.message.slot,
+            });
+        }
+
+        let expected_proposer =
+            state.get_beacon_proposer_index(block.message.slot, &chain.spec)? as u64;
+        if block.message.proposer_index != expected_proposer {
+            return Err(BlockError::IncorrectBlockProposer {
+                block: block.message.proposer_index,
+                local_shuffling: expected_proposer,
+            });
+        }
+
+        Ok(Self {
+            block,
+            block_root,
+            parent,
+        })
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
     }
 }
 
@@ -517,6 +592,13 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
          * invalid.
          */
 
+        write_state(
+            &format!("state_pre_block_{}", block_root),
+            &state,
+            &chain.log,
+        );
+        write_block(&block, block_root, &chain.log);
+
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
         if let Err(err) = per_block_processing(
@@ -546,6 +628,12 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
         let state_root = state.update_tree_hash_cache()?;
 
         metrics::stop_timer(state_root_timer);
+
+        write_state(
+            &format!("state_post_block_{}", block_root),
+            &state,
+            &chain.log,
+        );
 
         /*
          * Check to ensure the state root on the block matches the one we have calculated.
@@ -785,7 +873,7 @@ fn get_signature_verifier<'a, E: EthSpec>(
     state: &'a BeaconState<E>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache,
     spec: &'a ChainSpec,
-) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone> {
+) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone> {
     BlockSignatureVerifier::new(
         state,
         move |validator_index| {
@@ -794,11 +882,54 @@ fn get_signature_verifier<'a, E: EthSpec>(
             if validator_index < state.validators.len() {
                 validator_pubkey_cache
                     .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
+                    .map(|pk| Cow::Borrowed(pk))
             } else {
                 None
             }
         },
         spec,
     )
+}
+
+fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let root = state.tree_hash_root();
+        let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
+
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&state.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log state";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
+        }
+    }
+}
+
+fn write_block<T: EthSpec>(block: &SignedBeaconBlock<T>, root: Hash256, log: &Logger) {
+    if WRITE_BLOCK_PROCESSING_SSZ {
+        let filename = format!("block_slot_{}_root{}.ssz", block.message.slot, root);
+        let mut path = std::env::temp_dir().join("lighthouse");
+        let _ = fs::create_dir_all(path.clone());
+        path = path.join(filename);
+
+        match fs::File::create(path.clone()) {
+            Ok(mut file) => {
+                let _ = file.write_all(&block.as_ssz_bytes());
+            }
+            Err(e) => error!(
+                log,
+                "Failed to log block";
+                "path" => format!("{:?}", path),
+                "error" => format!("{:?}", e)
+            ),
+        }
+    }
 }

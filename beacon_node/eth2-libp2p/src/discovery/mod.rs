@@ -1,28 +1,35 @@
 ///! This manages the discovery and management of peers.
 pub(crate) mod enr;
+pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-pub use enr::build_enr;
+pub use enr::{build_enr, CombinedKey, Keypair};
+pub use enr_ext::{CombinedKeyExt, EnrExt};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
+use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
-use libp2p::core::{identity::Keypair, ConnectedPoint, Multiaddr, PeerId};
-use libp2p::discv5::enr::NodeId;
-use libp2p::discv5::{Discv5, Discv5Event};
+use libp2p::core::{connection::ConnectionId, Multiaddr, PeerId};
 use libp2p::multiaddr::Protocol;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler};
-use slog::{crit, debug, info, trace, warn};
+use libp2p::swarm::{
+    protocols_handler::DummyProtocolsHandler, DialPeerCondition, NetworkBehaviour,
+    NetworkBehaviourAction, PollParameters, ProtocolsHandler,
+};
+use lru::LruCache;
+use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
-use std::collections::HashSet;
-use std::net::SocketAddr;
-use std::path::Path;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::timer::Delay;
+use std::{
+    collections::{HashSet, VecDeque},
+    net::SocketAddr,
+    path::Path,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
+use tokio::time::{delay_until, Delay, Instant};
 use types::{EnrForkId, EthSpec, SubnetId};
 
 /// Maximum seconds before searching for extra peers.
@@ -30,13 +37,19 @@ const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
 /// Initial delay between peer searches.
 const INITIAL_SEARCH_DELAY: u64 = 5;
 /// Local ENR storage filename.
-const ENR_FILENAME: &str = "enr.dat";
+pub const ENR_FILENAME: &str = "enr.dat";
 /// Number of peers we'd like to have connected to a given long-lived subnet.
 const TARGET_SUBNET_PEERS: u64 = 3;
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
 /// libp2p protocol.
-pub struct Discovery<TSubstream, TSpec: EthSpec> {
+pub struct Discovery<TSpec: EthSpec> {
+    /// Events to be processed by the behaviour.
+    events: VecDeque<NetworkBehaviourAction<void::Void, Discv5Event>>,
+
+    /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
+    cached_enrs: LruCache<PeerId, Enr>,
+
     /// The currently banned peers.
     banned_peers: HashSet<PeerId>,
 
@@ -59,7 +72,7 @@ pub struct Discovery<TSubstream, TSpec: EthSpec> {
     tcp_port: u16,
 
     /// The discovery behaviour used to discover new peers.
-    discovery: Discv5<TSubstream>,
+    discovery: Discv5,
 
     /// A collection of network constants that can be read from other threads.
     network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -68,7 +81,7 @@ pub struct Discovery<TSubstream, TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
+impl<TSpec: EthSpec> Discovery<TSpec> {
     pub fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
@@ -88,9 +101,12 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
 
+        // convert the keypair into an ENR key
+        let enr_key: CombinedKey = CombinedKey::from_libp2p(&local_key)?;
+
         let mut discovery = Discv5::new(
             local_enr,
-            local_key.clone(),
+            enr_key,
             config.discv5_config.clone(),
             listen_socket,
         )
@@ -105,7 +121,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
                 "peer_id" => format!("{}", bootnode_enr.peer_id()),
                 "ip" => format!("{:?}", bootnode_enr.ip()),
                 "udp" => format!("{:?}", bootnode_enr.udp()),
-                "tcp" => format!("{:?}", bootnode_enr.udp())
+                "tcp" => format!("{:?}", bootnode_enr.tcp())
             );
             let _ = discovery.add_enr(bootnode_enr).map_err(|e| {
                 warn!(
@@ -117,9 +133,11 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
         }
 
         Ok(Self {
+            events: VecDeque::with_capacity(16),
+            cached_enrs: LruCache::new(50),
             banned_peers: HashSet::new(),
             max_peers: config.max_peers,
-            peer_discovery_delay: Delay::new(Instant::now()),
+            peer_discovery_delay: delay_until(Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
             tcp_port: config.libp2p_port,
             discovery,
@@ -143,6 +161,9 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
     /// Add an ENR to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
+        // add the enr to seen caches
+        self.cached_enrs.put(enr.peer_id(), enr.clone());
+
         let _ = self.discovery.add_enr(enr).map_err(|e| {
             warn!(
                 self.log,
@@ -170,7 +191,18 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
 
     /// Returns the ENR of a known peer if it exists.
     pub fn enr_of_peer(&mut self, peer_id: &PeerId) -> Option<Enr> {
-        self.discovery.enr_of_peer(peer_id)
+        // first search the local cache
+        if let Some(enr) = self.cached_enrs.get(peer_id) {
+            return Some(enr.clone());
+        }
+        // not in the local cache, look in the routing table
+        if let Ok(_node_id) = enr_ext::peer_id_to_node_id(peer_id) {
+            // TODO: Need to update discv5
+            //  self.discovery.find_enr(&node_id)
+            return None;
+        } else {
+            return None;
+        }
     }
 
     /// Adds/Removes a subnet from the ENR Bitfield
@@ -254,7 +286,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             .network_globals
             .peers
             .read()
-            .peers_on_subnet(&subnet_id)
+            .peers_on_subnet(subnet_id)
             .count() as u64;
 
         if peers_on_subnet < TARGET_SUBNET_PEERS {
@@ -338,48 +370,58 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
     }
 }
 
-// Redirect all behaviour events to underlying discovery behaviour.
-impl<TSubstream, TSpec: EthSpec> NetworkBehaviour for Discovery<TSubstream, TSpec>
-where
-    TSubstream: AsyncRead + AsyncWrite,
-{
-    type ProtocolsHandler = <Discv5<TSubstream> as NetworkBehaviour>::ProtocolsHandler;
-    type OutEvent = <Discv5<TSubstream> as NetworkBehaviour>::OutEvent;
+// Build a dummy Network behaviour around the discv5 server
+impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
+    type ProtocolsHandler = DummyProtocolsHandler;
+    type OutEvent = Discv5Event;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        NetworkBehaviour::new_handler(&mut self.discovery)
+        DummyProtocolsHandler::default()
     }
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        // Let discovery track possible known peers.
-        self.discovery.addresses_of_peer(peer_id)
+        if let Some(enr) = self.enr_of_peer(peer_id) {
+            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+            // port is removed, which is assumed to be associated with the discv5 protocol (and
+            // therefore irrelevant for other libp2p components).
+            let mut out_list = enr.multiaddr();
+            out_list.retain(|addr| {
+                addr.iter()
+                    .find(|v| match v {
+                        Protocol::Udp(_) => true,
+                        _ => false,
+                    })
+                    .is_none()
+            });
+
+            out_list
+        } else {
+            // PeerId is not known
+            Vec::new()
+        }
     }
 
-    fn inject_connected(&mut self, _peer_id: PeerId, _endpoint: ConnectedPoint) {}
+    // ignore libp2p connections/streams
+    fn inject_connected(&mut self, _: &PeerId) {}
 
-    fn inject_disconnected(&mut self, _peer_id: &PeerId, _endpoint: ConnectedPoint) {}
+    // ignore libp2p connections/streams
+    fn inject_disconnected(&mut self, _: &PeerId) {}
 
-    fn inject_replaced(
+    // no libp2p discv5 events - event originate from the session_service.
+    fn inject_event(
         &mut self,
-        _peer_id: PeerId,
-        _closed: ConnectedPoint,
-        _opened: ConnectedPoint,
-    ) {
-        // discv5 doesn't implement
-    }
-
-    fn inject_node_event(
-        &mut self,
-        _peer_id: PeerId,
+        _: PeerId,
+        _: ConnectionId,
         _event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // discv5 doesn't implement
+        void::unreachable(_event)
     }
 
     fn poll(
         &mut self,
-        params: &mut impl PollParameters,
-    ) -> Async<
+        cx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<
         NetworkBehaviourAction<
             <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
             Self::OutEvent,
@@ -387,8 +429,8 @@ where
     > {
         // search for peers if it is time
         loop {
-            match self.peer_discovery_delay.poll() {
-                Ok(Async::Ready(_)) => {
+            match self.peer_discovery_delay.poll_unpin(cx) {
+                Poll::Ready(_) => {
                     if self.network_globals.connected_peers() < self.max_peers {
                         self.find_peers();
                     }
@@ -397,28 +439,27 @@ where
                         Instant::now() + Duration::from_secs(MAX_TIME_BETWEEN_PEER_SEARCHES),
                     );
                 }
-                Ok(Async::NotReady) => break,
-                Err(e) => {
-                    warn!(self.log, "Discovery peer search failed"; "error" => format!("{:?}", e));
-                }
+                Poll::Pending => break,
             }
         }
 
         // Poll discovery
         loop {
-            match self.discovery.poll(params) {
-                Async::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
+            match self.discovery.poll_next_unpin(cx) {
+                Poll::Ready(Some(event)) => {
                     match event {
-                        Discv5Event::Discovered(enr) => {
+                        Discv5Event::Discovered(_enr) => {
                             // peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
+                            /*
                             if enr.eth2() == self.local_enr().eth2() {
                                 trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             } else {
                                 // this is temporary warning for debugging the DHT
                                 warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             }
+                            */
                         }
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
@@ -428,7 +469,7 @@ where
                             let enr = self.discovery.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), enr, &self.log);
 
-                            return Async::Ready(NetworkBehaviourAction::ReportObservedAddr {
+                            return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr {
                                 address,
                             });
                         }
@@ -445,21 +486,26 @@ where
                             self.peer_discovery_delay
                                 .reset(Instant::now() + Duration::from_secs(delay));
 
-                            for peer_id in closer_peers {
-                                // if we need more peers, attempt a connection
+                            for enr in closer_peers {
+                                // cache known peers
+                                let peer_id = enr.peer_id();
+                                self.cached_enrs.put(enr.peer_id(), enr);
 
-                                if self.network_globals.connected_peers() < self.max_peers
-                                    && self
+                                // if we need more peers, attempt a connection
+                                if self.network_globals.connected_or_dialing_peers()
+                                    < self.max_peers
+                                    && !self
                                         .network_globals
                                         .peers
                                         .read()
-                                        .peer_info(&peer_id)
-                                        .is_none()
+                                        .is_connected_or_dialing(&peer_id)
                                     && !self.banned_peers.contains(&peer_id)
                                 {
-                                    debug!(self.log, "Peer discovered"; "peer_id"=> format!("{:?}", peer_id));
-                                    return Async::Ready(NetworkBehaviourAction::DialPeer {
+                                    debug!(self.log, "Connecting to discovered peer"; "peer_id"=> format!("{:?}", peer_id));
+                                    self.network_globals.peers.write().dialing_peer(&peer_id);
+                                    self.events.push_back(NetworkBehaviourAction::DialPeer {
                                         peer_id,
+                                        condition: DialPeerCondition::NotDialing, // TODO: check if this is the condition we want
                                     });
                                 }
                             }
@@ -468,10 +514,16 @@ where
                     }
                 }
                 // discv5 does not output any other NetworkBehaviourAction
-                Async::Ready(_) => {}
-                Async::NotReady => break,
+                Poll::Ready(_) => {}
+                Poll::Pending => break,
             }
         }
-        Async::NotReady
+
+        // process any queued events
+        if let Some(event) = self.events.pop_front() {
+            return Poll::Ready(event);
+        }
+
+        Poll::Pending
     }
 }

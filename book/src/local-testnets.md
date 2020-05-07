@@ -18,6 +18,7 @@ TL;DR isn't adequate.
 ##  TL;DR
 
 ```bash
+make install-lcli
 lcli new-testnet
 lcli interop-genesis 128
 lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http --enr-match
@@ -40,7 +41,7 @@ used for starting testnets and debugging.
 Install `lcli` from the root directory of this repository with:
 
 ```bash
-cargo install --path lcli --force
+make install-lcli
 ```
 
 ### 1.2 Create a testnet directory

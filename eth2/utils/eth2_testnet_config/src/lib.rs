@@ -20,11 +20,14 @@ pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const YAML_CONFIG_FILE: &str = "config.yaml";
 
-pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../testnet5/config.yaml");
-pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../testnet5/deploy_block.txt");
-pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../testnet5/deposit_contract.txt");
-pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../testnet5/genesis.ssz");
-pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../testnet5/boot_enr.yaml");
+pub const HARDCODED_TESTNET: &str = "schlesi-v0-11";
+
+pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../schlesi-v0-11/config.yaml");
+pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../schlesi-v0-11/deploy_block.txt");
+pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] =
+    include_bytes!("../schlesi-v0-11/deposit_contract.txt");
+pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../schlesi-v0-11/genesis.ssz");
+pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../schlesi-v0-11/boot_enr.yaml");
 
 /// Specifies an Eth2 testnet.
 ///
@@ -64,9 +67,11 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
         })
     }
 
-    // Write the files to the directory, only if the directory doesn't already exist.
-    pub fn write_to_file(&self, base_dir: PathBuf) -> Result<(), String> {
-        if base_dir.exists() {
+    // Write the files to the directory.
+    //
+    // Overwrites files if specified to do so.
+    pub fn write_to_file(&self, base_dir: PathBuf, overwrite: bool) -> Result<(), String> {
+        if base_dir.exists() && !overwrite {
             return Err("Testnet directory already exists".to_string());
         }
 
@@ -252,7 +257,7 @@ mod tests {
         };
 
         testnet
-            .write_to_file(base_dir.clone())
+            .write_to_file(base_dir.clone(), false)
             .expect("should write to file");
 
         let decoded = Eth2TestnetConfig::load(base_dir).expect("should load struct");

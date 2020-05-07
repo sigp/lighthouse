@@ -5,7 +5,9 @@ mod batch;
 mod chain;
 mod chain_collection;
 mod range;
+mod sync_type;
 
 pub use batch::Batch;
 pub use batch::BatchId;
+pub use chain::ChainId;
 pub use range::RangeSync;
