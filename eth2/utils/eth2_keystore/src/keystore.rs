@@ -7,7 +7,6 @@ use crate::json_keystore::{
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::plain_text::PlainText;
-use crate::Password;
 use crate::Uuid;
 use bls::{Keypair, PublicKey, SecretKey};
 use crypto::{digest::Digest, sha2::Sha256};
@@ -24,7 +23,7 @@ const SECRET_KEY_LEN: usize = 32;
 /// [pbkdf2](https://www.ietf.org/rfc/rfc2898.txt) or [scrypt](https://tools.ietf.org/html/rfc7914)
 /// make a clear statement about what size it should be, however 32-bytes certainly seems
 /// reasonable and larger than the EITF examples.
-const SALT_SIZE: usize = 32;
+pub const SALT_SIZE: usize = 32;
 /// The length of the derived key.
 pub const DKLEN: u32 = 32;
 /// Size of the IV (initialization vector) used for aes-128-ctr encryption of private key material.
@@ -42,9 +41,9 @@ pub const DKLEN: u32 = 32;
 /// As far as I know, AES-128-CTR is not defined by the IETF, but by NIST in SP800-38A.
 /// (https://csrc.nist.gov/publications/detail/sp/800-38a/final) The test vectors in this standard
 /// are 16 bytes.
-const IV_SIZE: usize = 16;
+pub const IV_SIZE: usize = 16;
 /// The byte size of a SHA256 hash.
-const HASH_SIZE: usize = 32;
+pub const HASH_SIZE: usize = 32;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -65,7 +64,7 @@ pub enum Error {
 /// Constructs a `Keystore`.
 pub struct KeystoreBuilder<'a> {
     keypair: &'a Keypair,
-    password: Password,
+    password: &'a [u8],
     kdf: Kdf,
     cipher: Cipher,
     uuid: Uuid,
@@ -80,8 +79,8 @@ impl<'a> KeystoreBuilder<'a> {
     /// ## Errors
     ///
     /// Returns `Error::EmptyPassword` if `password == ""`.
-    pub fn new(keypair: &'a Keypair, password: Password, path: String) -> Result<Self, Error> {
-        if password.as_str() == "" {
+    pub fn new(keypair: &'a Keypair, password: &'a [u8], path: String) -> Result<Self, Error> {
+        if password.is_empty() {
             Err(Error::EmptyPassword)
         } else {
             let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
@@ -90,14 +89,7 @@ impl<'a> KeystoreBuilder<'a> {
             Ok(Self {
                 keypair,
                 password,
-                // Using scrypt as the default algorithm due to its memory hardness properties.
-                kdf: Kdf::Scrypt(Scrypt {
-                    dklen: DKLEN,
-                    n: 262144,
-                    p: 1,
-                    r: 8,
-                    salt: salt.to_vec().into(),
-                }),
+                kdf: default_kdf(salt.to_vec()),
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
                 uuid: Uuid::new_v4(),
                 path,
@@ -109,7 +101,7 @@ impl<'a> KeystoreBuilder<'a> {
     pub fn build(self) -> Result<Keystore, Error> {
         Keystore::encrypt(
             self.keypair,
-            self.password.as_bytes(),
+            self.password,
             self.kdf,
             self.cipher,
             self.uuid,
@@ -175,8 +167,8 @@ impl Keystore {
     ///
     /// - The provided password is incorrect.
     /// - The keystore is badly formed.
-    pub fn decrypt_keypair(&self, password: Password) -> Result<Keypair, Error> {
-        let plain_text = decrypt(password.as_bytes(), &self.json.crypto)?;
+    pub fn decrypt_keypair(&self, password: &[u8]) -> Result<Keypair, Error> {
+        let plain_text = decrypt(password, &self.json.crypto)?;
 
         // Verify that secret key material is correct length.
         if plain_text.len() != SECRET_KEY_LEN {
@@ -232,6 +224,19 @@ impl Keystore {
     pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
         serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
     }
+}
+
+/// Returns `Kdf` used by default when creating keystores.
+///
+/// Currently this is set to scrypt due to its memory hardness properties.
+pub fn default_kdf(salt: Vec<u8>) -> Kdf {
+    Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        n: 262144,
+        p: 1,
+        r: 8,
+        salt: salt.into(),
+    })
 }
 
 /// Returns `(cipher_text, checksum)` for the given `plain_text` encrypted with `Cipher` using a
