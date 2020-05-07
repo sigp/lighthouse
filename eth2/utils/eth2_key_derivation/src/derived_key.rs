@@ -29,13 +29,23 @@ pub const MOD_R_L: usize = 48;
 pub struct DerivedKey(SecretHash);
 
 impl DerivedKey {
-    /// Instantiates `Self` from some seed of any length.
-    pub fn from_seed(seed: &[u8]) -> Self {
-        Self(derive_master_sk(seed))
+    /// Instantiates `Self` from some secret seed bytes.
+    ///
+    /// The key is generated deterministically; the same `seed` will always return the same `Self`.
+    ///
+    /// ## Errors
+    ///
+    /// Returns `Err(())` if `seed.is_empty()`, otherwise always returns `Ok(self)`.
+    pub fn from_seed(seed: &[u8]) -> Result<Self, ()> {
+        if seed.is_empty() {
+            Err(())
+        } else {
+            Ok(Self(derive_master_sk(seed)))
+        }
     }
 
     /// Derives a child key from the secret `Self` at some `index`.
-    pub fn derive_child(&self, index: u32) -> DerivedKey {
+    pub fn child(&self, index: u32) -> DerivedKey {
         Self(derive_child_sk(self.0.as_bytes(), index))
     }
 
