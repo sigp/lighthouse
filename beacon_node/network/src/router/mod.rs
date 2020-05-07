@@ -16,8 +16,7 @@ use eth2_libp2p::{
     },
     MessageId, NetworkGlobals, PeerId, PubsubMessage, RPCEvent,
 };
-use futures::future::Future;
-use futures::stream::Stream;
+use futures::prelude::*;
 use processor::Processor;
 use slog::{debug, o, trace, warn};
 use std::sync::Arc;
@@ -60,7 +59,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        executor: &tokio::runtime::TaskExecutor,
+        runtime_handle: &tokio::runtime::Handle,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -70,7 +69,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
         // Initialise a message instance, which itself spawns the syncing thread.
         let processor = Processor::new(
-            executor,
+            runtime_handle,
             beacon_chain,
             network_globals,
             network_send.clone(),
@@ -85,13 +84,12 @@ impl<T: BeaconChainTypes> Router<T> {
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
-        executor.spawn(
+        runtime_handle.spawn(async move {
             handler_recv
-                .for_each(move |msg| Ok(handler.handle_message(msg)))
-                .map_err(move |_| {
-                    debug!(log, "Network message handler terminated.");
-                }),
-        );
+                .for_each(move |msg| future::ready(handler.handle_message(msg)))
+                .await;
+            debug!(log, "Network message handler terminated.");
+        });
 
         Ok(handler_send)
     }
@@ -313,7 +311,7 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Informs the network service that the message should be forwarded to other peers.
     fn propagate_message(&mut self, message_id: MessageId, propagation_source: PeerId) {
         self.network_send
-            .try_send(NetworkMessage::Propagate {
+            .send(NetworkMessage::Propagate {
                 propagation_source,
                 message_id,
             })
