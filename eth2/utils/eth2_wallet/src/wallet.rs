@@ -1,9 +1,11 @@
 use crate::json_wallet::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet,
-    Kdf, KdfModule, Sha256Checksum, Version,
+    Kdf, KdfModule, Sha256Checksum, TypeField, Version,
 };
 use eth2_keystore::{decrypt, default_kdf, encrypt, IV_SIZE, SALT_SIZE};
 use rand::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
 use uuid::Uuid;
 
 pub use eth2_keystore::{Error, PlainText};
@@ -60,6 +62,8 @@ impl<'a> WalletBuilder<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Wallet {
     json: JsonWallet,
 }
@@ -98,6 +102,7 @@ impl Wallet {
                 uuid,
                 nextaccount,
                 version: Version::one(),
+                type_field: TypeField::Hd,
                 name,
             },
         })
@@ -105,5 +110,25 @@ impl Wallet {
 
     pub fn decrypt_seed(&self, password: &[u8]) -> Result<PlainText, Error> {
         decrypt(password, &self.json.crypto)
+    }
+
+    /// Encodes `self` as a JSON object.
+    pub fn to_json_string(&self) -> Result<String, Error> {
+        serde_json::to_string(self).map_err(|e| Error::UnableToSerialize(format!("{}", e)))
+    }
+
+    /// Returns `self` from an encoded JSON object.
+    pub fn from_json_str(json_string: &str) -> Result<Self, Error> {
+        serde_json::from_str(json_string).map_err(|e| Error::InvalidJson(format!("{}", e)))
+    }
+
+    /// Encodes self as a JSON object to the given `writer`.
+    pub fn to_json_writer<W: Write>(&self, writer: W) -> Result<(), Error> {
+        serde_json::to_writer(writer, self).map_err(|e| Error::WriteError(format!("{}", e)))
+    }
+
+    /// Instantiates `self` from a JSON `reader`.
+    pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
+        serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
     }
 }
