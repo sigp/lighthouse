@@ -1,12 +1,12 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{AggregatePublicKey, AggregateSignature};
+use bls::{AggregateSignature, PublicKey};
 use serde_derive::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsAggregatePair {
-    pub pubkey: AggregatePublicKey,
+    pub pubkey: PublicKey,
     pub message: String,
 }
 

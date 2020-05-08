@@ -39,3 +39,10 @@ impl PubkeyCache {
         self.map.get(pubkey).copied()
     }
 }
+
+#[cfg(feature = "arbitrary-fuzz")]
+impl arbitrary::Arbitrary for PubkeyCache {
+    fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self::default())
+    }
+}

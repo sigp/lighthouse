@@ -1,11 +1,12 @@
-/// Pulls down the latest Lighthouse testnet from https://github.com/eth2-clients/eth2-testnets
+//! Downloads a testnet configuration from Github.
+
 use reqwest;
 use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TESTNET_ID: &str = "testnet5";
+const TESTNET_ID: &str = "schlesi-v0-11";
 
 fn main() {
     if !base_dir().exists() {
@@ -37,16 +38,18 @@ pub fn get_all_files() -> Result<(), String> {
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/eth2-clients/eth2-testnets/master/lighthouse/{}/{}",
-        TESTNET_ID, filename
+        "https://raw.githubusercontent.com/goerli/schlesi/839866fe29a1b4df3a87bfe2ff1257c8a58671c9/light/{}",
+        filename
     );
 
     let path = base_dir().join(filename);
     let mut file =
         File::create(path).map_err(|e| format!("Failed to create {}: {:?}", filename, e))?;
 
-    let mut response =
-        reqwest::get(&url).map_err(|e| format!("Failed to download {}: {}", filename, e))?;
+    let mut response = reqwest::get(&url)
+        .map_err(|e| format!("Failed to download {}: {}", filename, e))?
+        .error_for_status()
+        .map_err(|e| format!("Error downloading {}: {}", filename, e))?;
     let mut contents: Vec<u8> = vec![];
     response
         .copy_to(&mut contents)

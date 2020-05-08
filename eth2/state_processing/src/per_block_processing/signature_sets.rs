@@ -2,7 +2,7 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::{G1Point, G1Ref, SignatureSet, SignedMessage};
+use bls::SignatureSet;
 use ssz::DecodeError;
 use std::borrow::Cow;
 use std::convert::TryInto;
@@ -10,8 +10,8 @@ use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
-    Signature, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit,
-    SigningRoot,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot,
+    SignedVoluntaryExit, SigningRoot,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -26,6 +26,10 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The public keys supplied do not match the number of objects requiring keys. Block validity
     /// was not determined.
     MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
@@ -44,7 +48,7 @@ impl From<BeaconStateError> for Error {
 pub fn get_pubkey_from_state<'a, T>(
     state: &'a BeaconState<T>,
     validator_index: usize,
-) -> Option<Cow<'a, G1Point>>
+) -> Option<Cow<'a, PublicKey>>
 where
     T: EthSpec,
 {
@@ -55,7 +59,7 @@ where
             let pk: Option<PublicKey> = (&v.pubkey).try_into().ok();
             pk
         })
-        .map(|pk| Cow::Owned(pk.into_point()))
+        .map(Cow::Owned)
 }
 
 /// A signature set that is valid if a block was signed by the expected block producer.
@@ -65,13 +69,20 @@ pub fn block_proposal_signature_set<'a, T, F>(
     signed_block: &'a SignedBeaconBlock<T>,
     block_root: Option<Hash256>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>>
+) -> Result<SignatureSet>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let block = &signed_block.message;
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+
+    if proposer_index as u64 != block.proposer_index {
+        return Err(Error::IncorrectBlockProposer {
+            block: block.proposer_index,
+            local_shuffling: proposer_index as u64,
+        });
+    }
 
     let domain = spec.get_domain(
         block.slot.epoch(T::slots_per_epoch()),
@@ -103,10 +114,10 @@ pub fn randao_signature_set<'a, T, F>(
     get_pubkey: F,
     block: &'a BeaconBlock<T>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>>
+) -> Result<SignatureSet>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
 
@@ -132,10 +143,10 @@ pub fn proposer_slashing_signature_set<'a, T, F>(
     get_pubkey: F,
     proposer_slashing: &'a ProposerSlashing,
     spec: &'a ChainSpec,
-) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
+) -> Result<(SignatureSet, SignatureSet)>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let proposer_index = proposer_slashing.signed_header_1.message.proposer_index as usize;
 
@@ -161,9 +172,9 @@ where
 fn block_header_signature_set<'a, T: EthSpec>(
     state: &'a BeaconState<T>,
     signed_header: &'a SignedBeaconBlockHeader,
-    pubkey: Cow<'a, G1Point>,
+    pubkey: Cow<'a, PublicKey>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
+) -> Result<SignatureSet> {
     let domain = spec.get_domain(
         signed_header.message.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
@@ -191,10 +202,10 @@ pub fn indexed_attestation_signature_set<'a, 'b, T, F>(
     signature: &'a AggregateSignature,
     indexed_attestation: &'b IndexedAttestation<T>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>>
+) -> Result<SignatureSet>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let pubkeys = indexed_attestation
         .attesting_indices
@@ -213,9 +224,9 @@ where
     );
 
     let message = indexed_attestation.data.signing_root(domain);
-    let signed_message = SignedMessage::new(pubkeys, message.as_bytes().to_vec());
+    let message = message.as_bytes().to_vec();
 
-    Ok(SignatureSet::new(signature, vec![signed_message]))
+    Ok(SignatureSet::new(signature, pubkeys, message))
 }
 
 /// Returns the signature set for the given `indexed_attestation` but pubkeys are supplied directly
@@ -227,10 +238,10 @@ pub fn indexed_attestation_signature_set_from_pubkeys<'a, 'b, T, F>(
     fork: &Fork,
     genesis_validators_root: Hash256,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>>
+) -> Result<SignatureSet>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let pubkeys = indexed_attestation
         .attesting_indices
@@ -249,9 +260,9 @@ where
     );
 
     let message = indexed_attestation.data.signing_root(domain);
-    let signed_message = SignedMessage::new(pubkeys, message.as_bytes().to_vec());
+    let message = message.as_bytes().to_vec();
 
-    Ok(SignatureSet::new(signature, vec![signed_message]))
+    Ok(SignatureSet::new(signature, pubkeys, message))
 }
 
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.
@@ -260,10 +271,10 @@ pub fn attester_slashing_signature_sets<'a, T, F>(
     get_pubkey: F,
     attester_slashing: &'a AttesterSlashing<T>,
     spec: &'a ChainSpec,
-) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
+) -> Result<(SignatureSet, SignatureSet)>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>> + Clone,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
 {
     Ok((
         indexed_attestation_signature_set(
@@ -305,12 +316,12 @@ pub fn deposit_pubkey_signature_message(
 /// `deposit_pubkey_signature_message`.
 pub fn deposit_signature_set<'a>(
     pubkey_signature_message: &'a (PublicKey, Signature, Vec<u8>),
-) -> SignatureSet<'a> {
+) -> SignatureSet {
     let (pubkey, signature, message) = pubkey_signature_message;
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
-    // with the fork zeroed.
-    SignatureSet::single(signature, pubkey.g1_ref(), message.clone())
+    // with the fok zeroed.
+    SignatureSet::single(&signature, Cow::Borrowed(pubkey), message.clone())
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
@@ -320,10 +331,10 @@ pub fn exit_signature_set<'a, T, F>(
     get_pubkey: F,
     signed_exit: &'a SignedVoluntaryExit,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>>
+) -> Result<SignatureSet>
 where
     T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, G1Point>>,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let exit = &signed_exit.message;
     let proposer_index = exit.validator_index as usize;
@@ -340,6 +351,77 @@ where
     Ok(SignatureSet::single(
         &signed_exit.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        message,
+    ))
+}
+
+pub fn signed_aggregate_selection_proof_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let slot = signed_aggregate_and_proof.message.aggregate.data.slot;
+
+    let domain = spec.get_domain(
+        slot.epoch(T::slots_per_epoch()),
+        Domain::SelectionProof,
+        fork,
+        genesis_validators_root,
+    );
+    let message = slot.signing_root(domain).as_bytes().to_vec();
+    let signature = &signed_aggregate_and_proof.message.selection_proof;
+    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single(
+        signature,
+        get_pubkey(validator_index as usize)
+            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
+        message,
+    ))
+}
+
+pub fn signed_aggregate_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_aggregate_and_proof: &'a SignedAggregateAndProof<T>,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let target_epoch = signed_aggregate_and_proof
+        .message
+        .aggregate
+        .data
+        .target
+        .epoch;
+
+    let domain = spec.get_domain(
+        target_epoch,
+        Domain::AggregateAndProof,
+        fork,
+        genesis_validators_root,
+    );
+    let message = signed_aggregate_and_proof
+        .message
+        .signing_root(domain)
+        .as_bytes()
+        .to_vec();
+    let signature = &signed_aggregate_and_proof.signature;
+    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single(
+        signature,
+        get_pubkey(validator_index as usize)
+            .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
         message,
     ))
 }

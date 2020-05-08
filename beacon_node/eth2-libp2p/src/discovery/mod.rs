@@ -258,7 +258,7 @@ impl<TSubstream, TSpec: EthSpec> Discovery<TSubstream, TSpec> {
             .network_globals
             .peers
             .read()
-            .peers_on_subnet(&subnet_id)
+            .peers_on_subnet(subnet_id)
             .count() as u64;
 
         if peers_on_subnet < TARGET_SUBNET_PEERS {

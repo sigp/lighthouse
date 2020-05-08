@@ -34,7 +34,7 @@ const TTFB_TIMEOUT: u64 = 5;
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Protocol names to be used.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Protocol {
     /// The Status protocol name.
     Status,
@@ -128,7 +128,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 /// Tracks the types in a protocol id.
 #[derive(Clone, Debug)]
 pub struct ProtocolId {
-    /// The rpc message type/name.
+    /// The RPC message type/name.
     pub message_name: Protocol,
 
     /// The version of the RPC.
@@ -151,7 +151,7 @@ impl ProtocolId {
 
         ProtocolId {
             message_name,
-            version: version,
+            version,
             encoding,
             protocol_id,
         }
@@ -172,11 +172,20 @@ impl ProtocolName for ProtocolId {
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
     Framed<TimeoutStream<upgrade::Negotiated<TSocket>>, InboundCodec<TSpec>>;
+
+// Auxiliary types
+
+// The type of the socket timeout in the `InboundUpgrade` type `Future`
+type TTimeout<TSocket, TSpec> =
+    timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>;
+// The type of the socket timeout error in the `InboundUpgrade` type `Future`
+type TTimeoutErr<TSocket, TSpec> = timeout::Error<(RPCError, InboundFramed<TSocket, TSpec>)>;
+// `TimeoutErr` to `RPCError` mapping function
+type FnMapErr<TSocket, TSpec> = fn(TTimeoutErr<TSocket, TSpec>) -> RPCError;
+
 type FnAndThen<TSocket, TSpec> = fn(
     (Option<RPCRequest<TSpec>>, InboundFramed<TSocket, TSpec>),
 ) -> FutureResult<InboundOutput<TSocket, TSpec>, RPCError>;
-type FnMapErr<TSocket, TSpec> =
-    fn(timeout::Error<(RPCError, InboundFramed<TSocket, TSpec>)>) -> RPCError;
 
 impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
 where
@@ -189,10 +198,7 @@ where
     type Future = future::Either<
         FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
         future::AndThen<
-            future::MapErr<
-                timeout::Timeout<stream::StreamFuture<InboundFramed<TSocket, TSpec>>>,
-                FnMapErr<TSocket, TSpec>,
-            >,
+            future::MapErr<TTimeout<TSocket, TSpec>, FnMapErr<TSocket, TSpec>>,
             FutureResult<InboundOutput<TSocket, TSpec>, RPCError>,
             FnAndThen<TSocket, TSpec>,
         >,
@@ -203,7 +209,7 @@ where
         socket: upgrade::Negotiated<TSocket>,
         protocol: ProtocolId,
     ) -> Self::Future {
-        let protocol_name = protocol.message_name.clone();
+        let protocol_name = protocol.message_name;
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec =
@@ -220,27 +226,31 @@ where
 
         let socket = Framed::new(timed_socket, codec);
 
-        // MetaData requests should be empty, return the stream
         match protocol_name {
-            Protocol::MetaData => futures::future::Either::A(futures::future::ok((
-                RPCRequest::MetaData(PhantomData),
-                socket,
-            ))),
-
-            _ => futures::future::Either::B(
+            // `MetaData` requests should be empty, return the stream
+            Protocol::MetaData => {
+                future::Either::A(future::ok((RPCRequest::MetaData(PhantomData), socket)))
+            }
+            _ => future::Either::B({
                 socket
                     .into_future()
                     .timeout(Duration::from_secs(REQUEST_TIMEOUT))
-                    .map_err(RPCError::from as FnMapErr<TSocket, TSpec>)
+                    .map_err({
+                        |err| {
+                            if err.is_elapsed() {
+                                RPCError::StreamTimeout
+                            } else {
+                                RPCError::InternalError("Stream timer failed")
+                            }
+                        }
+                    } as FnMapErr<TSocket, TSpec>)
                     .and_then({
                         |(req, stream)| match req {
-                            Some(request) => futures::future::ok((request, stream)),
-                            None => futures::future::err(RPCError::Custom(
-                                "Stream terminated early".into(),
-                            )),
+                            Some(request) => future::ok((request, stream)),
+                            None => future::err(RPCError::IncompleteStream),
                         }
-                    } as FnAndThen<TSocket, TSpec>),
-            ),
+                    } as FnAndThen<TSocket, TSpec>)
+            }),
         }
     }
 }
@@ -270,7 +280,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCRequest<TSpec> {
     }
 }
 
-/// Implements the encoding per supported protocol for RPCRequest.
+/// Implements the encoding per supported protocol for `RPCRequest`.
 impl<TSpec: EthSpec> RPCRequest<TSpec> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
@@ -330,6 +340,17 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
         }
     }
 
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            RPCRequest::Status(_) => Protocol::Status,
+            RPCRequest::Goodbye(_) => Protocol::Goodbye,
+            RPCRequest::BlocksByRange(_) => Protocol::BlocksByRange,
+            RPCRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            RPCRequest::Ping(_) => Protocol::Ping,
+            RPCRequest::MetaData(_) => Protocol::MetaData,
+        }
+    }
+
     /// Returns the `ResponseTermination` type associated with the request if a stream gets
     /// terminated.
     pub fn stream_termination(&self) -> ResponseTermination {
@@ -361,6 +382,7 @@ where
     type Output = OutboundFramed<TSocket, TSpec>;
     type Error = RPCError;
     type Future = sink::Send<OutboundFramed<TSocket, TSpec>>;
+
     fn upgrade_outbound(
         self,
         socket: upgrade::Negotiated<TSocket>,
@@ -385,50 +407,31 @@ where
 /// Error in RPC Encoding/Decoding.
 #[derive(Debug)]
 pub enum RPCError {
-    /// Error when reading the packet from the socket.
-    ReadError(upgrade::ReadOneError),
     /// Error when decoding the raw buffer from ssz.
+    // NOTE: in the future a ssz::DecodeError should map to an InvalidData error
     SSZDecodeError(ssz::DecodeError),
-    /// Snappy error
-    SnappyError(snap::Error),
-    /// Invalid Protocol ID.
-    InvalidProtocol(&'static str),
     /// IO Error.
     IoError(io::Error),
-    /// Waiting for a request/response timed out, or timer error'd.
+    /// The peer returned a valid response but the response indicated an error.
+    ErrorResponse(RPCResponseErrorCode),
+    /// Timed out waiting for a response.
     StreamTimeout,
-    /// The peer returned a valid RPCErrorResponse but the response was an error.
-    RPCErrorResponse,
-    /// Custom message.
-    Custom(String),
-}
-
-impl From<upgrade::ReadOneError> for RPCError {
-    #[inline]
-    fn from(err: upgrade::ReadOneError) -> Self {
-        RPCError::ReadError(err)
-    }
+    /// Peer does not support the protocol.
+    UnsupportedProtocol,
+    /// Stream ended unexpectedly.
+    IncompleteStream,
+    /// Peer sent invalid data.
+    InvalidData,
+    /// An error occurred due to internal reasons. Ex: timer failure.
+    InternalError(&'static str),
+    /// Negotiation with this peer timed out
+    NegotiationTimeout,
 }
 
 impl From<ssz::DecodeError> for RPCError {
     #[inline]
     fn from(err: ssz::DecodeError) -> Self {
         RPCError::SSZDecodeError(err)
-    }
-}
-impl<T> From<tokio::timer::timeout::Error<T>> for RPCError {
-    fn from(err: tokio::timer::timeout::Error<T>) -> Self {
-        if err.is_elapsed() {
-            RPCError::StreamTimeout
-        } else {
-            RPCError::Custom("Stream timer failed".into())
-        }
-    }
-}
-
-impl From<()> for RPCError {
-    fn from(_err: ()) -> Self {
-        RPCError::Custom("".into())
     }
 }
 
@@ -438,24 +441,19 @@ impl From<io::Error> for RPCError {
     }
 }
 
-impl From<snap::Error> for RPCError {
-    fn from(err: snap::Error) -> Self {
-        RPCError::SnappyError(err)
-    }
-}
-
 // Error trait is required for `ProtocolsHandler`
 impl std::fmt::Display for RPCError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            RPCError::ReadError(ref err) => write!(f, "Error while reading from socket: {}", err),
             RPCError::SSZDecodeError(ref err) => write!(f, "Error while decoding ssz: {:?}", err),
-            RPCError::InvalidProtocol(ref err) => write!(f, "Invalid Protocol: {}", err),
+            RPCError::InvalidData => write!(f, "Peer sent unexpected data"),
             RPCError::IoError(ref err) => write!(f, "IO Error: {}", err),
-            RPCError::RPCErrorResponse => write!(f, "RPC Response Error"),
+            RPCError::ErrorResponse(ref code) => write!(f, "RPC response was an error: {}", code),
             RPCError::StreamTimeout => write!(f, "Stream Timeout"),
-            RPCError::SnappyError(ref err) => write!(f, "Snappy error: {}", err),
-            RPCError::Custom(ref err) => write!(f, "{}", err),
+            RPCError::UnsupportedProtocol => write!(f, "Peer does not support the protocol"),
+            RPCError::IncompleteStream => write!(f, "Stream ended unexpectedly"),
+            RPCError::InternalError(ref err) => write!(f, "Internal error: {}", err),
+            RPCError::NegotiationTimeout => write!(f, "Negotiation timeout"),
         }
     }
 }
@@ -463,14 +461,16 @@ impl std::fmt::Display for RPCError {
 impl std::error::Error for RPCError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
-            RPCError::ReadError(ref err) => Some(err),
+            // NOTE: this does have a source
             RPCError::SSZDecodeError(_) => None,
-            RPCError::SnappyError(ref err) => Some(err),
-            RPCError::InvalidProtocol(_) => None,
             RPCError::IoError(ref err) => Some(err),
             RPCError::StreamTimeout => None,
-            RPCError::RPCErrorResponse => None,
-            RPCError::Custom(_) => None,
+            RPCError::UnsupportedProtocol => None,
+            RPCError::IncompleteStream => None,
+            RPCError::InvalidData => None,
+            RPCError::InternalError(_) => None,
+            RPCError::ErrorResponse(_) => None,
+            RPCError::NegotiationTimeout => None,
         }
     }
 }

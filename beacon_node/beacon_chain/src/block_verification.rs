@@ -53,9 +53,7 @@ use slog::{error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    block_signature_verifier::{
-        BlockSignatureVerifier, Error as BlockSignatureVerifierError, G1Point,
-    },
+    block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
     SlotProcessingError,
 };
@@ -66,7 +64,7 @@ use store::{Error as DBError, StateBatch};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    PublicKey, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 mod block_processing_outcome;
@@ -106,10 +104,18 @@ pub enum BlockError {
     },
     /// Block is already known, no need to re-import.
     BlockIsAlreadyKnown,
+    /// A block for this proposer and slot has already been observed.
+    RepeatProposal { proposer: u64, slot: Slot },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     BlockSlotLimitReached,
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// The block is invalid.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The proposal signature in invalid.
     ProposalSignatureInvalid,
+    /// The `block.proposal_index` is not known.
+    UnknownValidator(u64),
     /// A signature in the block is invalid (exactly which is unknown).
     InvalidSignature,
     /// The provided block is from an earlier slot than its parent.
@@ -128,7 +134,18 @@ pub enum BlockError {
 
 impl From<BlockSignatureVerifierError> for BlockError {
     fn from(e: BlockSignatureVerifierError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e))
+        match e {
+            // Make a special distinction for `IncorrectBlockProposer` since it indicates an
+            // invalid block, not an internal error.
+            BlockSignatureVerifierError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            } => BlockError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            },
+            e => BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e)),
+        }
     }
 }
 
@@ -288,7 +305,17 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(&block.message, chain)?;
 
-        // TODO: add check for the `(block.proposer_index, block.slot)` tuple once we have v0.11.0
+        // Check that we have not already received a block with a valid signature for this slot.
+        if chain
+            .observed_block_producers
+            .proposer_has_been_observed(&block.message)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        {
+            return Err(BlockError::RepeatProposal {
+                proposer: block.message.proposer_index,
+                slot: block.message.slot,
+            });
+        }
 
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = get_block_root(&block);
@@ -299,21 +326,54 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let signature_is_valid = {
+            let pubkey_cache = get_validator_pubkey_cache(chain)?;
+            let pubkey = pubkey_cache
+                .get(block.message.proposer_index as usize)
+                .ok_or_else(|| BlockError::UnknownValidator(block.message.proposer_index))?;
+            block.verify_signature(
+                Some(block_root),
+                pubkey,
+                &state.fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            )
+        };
 
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-
-        signature_verifier.include_block_proposal(&block, Some(block_root))?;
-
-        if signature_verifier.verify().is_ok() {
-            Ok(Self {
-                block,
-                block_root,
-                parent,
-            })
-        } else {
-            Err(BlockError::ProposalSignatureInvalid)
+        if !signature_is_valid {
+            return Err(BlockError::ProposalSignatureInvalid);
         }
+
+        // Now the signature is valid, store the proposal so we don't accept another from this
+        // validator and slot.
+        //
+        // It's important to double-check that the proposer still hasn't been observed so we don't
+        // have a race-condition when verifying two blocks simultaneously.
+        if chain
+            .observed_block_producers
+            .observe_proposer(&block.message)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        {
+            return Err(BlockError::RepeatProposal {
+                proposer: block.message.proposer_index,
+                slot: block.message.slot,
+            });
+        }
+
+        let expected_proposer =
+            state.get_beacon_proposer_index(block.message.slot, &chain.spec)? as u64;
+        if block.message.proposer_index != expected_proposer {
+            return Err(BlockError::IncorrectBlockProposer {
+                block: block.message.proposer_index,
+                local_shuffling: expected_proposer,
+            });
+        }
+
+        Ok(Self {
+            block,
+            block_root,
+            parent,
+        })
     }
 
     pub fn block_root(&self) -> Hash256 {
@@ -813,7 +873,7 @@ fn get_signature_verifier<'a, E: EthSpec>(
     state: &'a BeaconState<E>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache,
     spec: &'a ChainSpec,
-) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, G1Point>> + Clone> {
+) -> BlockSignatureVerifier<'a, E, impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone> {
     BlockSignatureVerifier::new(
         state,
         move |validator_index| {
@@ -822,7 +882,7 @@ fn get_signature_verifier<'a, E: EthSpec>(
             if validator_index < state.validators.len() {
                 validator_pubkey_cache
                     .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk.as_point()))
+                    .map(|pk| Cow::Borrowed(pk))
             } else {
                 None
             }

@@ -17,6 +17,18 @@ pub struct PendingAttestation<T: EthSpec> {
     pub proposer_index: u64,
 }
 
+#[cfg(feature = "arbitrary-fuzz")]
+impl<T: EthSpec> arbitrary::Arbitrary for PendingAttestation<T> {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self {
+            aggregation_bits: <BitList<T::MaxValidatorsPerCommittee>>::arbitrary(u)?,
+            data: AttestationData::arbitrary(u)?,
+            inclusion_delay: u64::arbitrary(u)?,
+            proposer_index: u64::arbitrary(u)?,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

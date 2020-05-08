@@ -92,7 +92,7 @@ impl Default for Config {
         let gossip_message_id = |message: &GossipsubMessage| {
             MessageId(base64::encode_config(
                 &Sha256::digest(&message.data),
-                base64::URL_SAFE,
+                base64::URL_SAFE_NO_PAD,
             ))
         };
 

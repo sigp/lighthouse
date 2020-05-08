@@ -12,8 +12,10 @@ harness = false
 criterion = "0.3.0"
 yaml-rust = "0.4.3"
 hex = "0.3"
-ethereum-types = "0.8.0"
 
 [dependencies]
 eth2_hashing = "0.1.0"
-ethereum-types = "0.8.0"
+ethereum-types = "0.9.1"
+
+[features]
+arbitrary = ["ethereum-types/arbitrary"]

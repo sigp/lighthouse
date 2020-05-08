@@ -94,10 +94,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")
-                .help("The IP address to broadcast to other peers on how to reach this node. \
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach this node. \
+                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
+                does not auto-update based on PONG responses in discovery. \
                 Set this only if you are sure other nodes can connect to your local node on this address. \
-                Discovery will automatically find your external address,if possible.
-           ")
+                Discovery will automatically find your external address,if possible.")
+                .requires("enr-udp-port")
                 .takes_value(true),
         )
         .arg(

@@ -58,6 +58,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         get_config::<E>(
             &matches,
             &context.eth2_config.spec_constants,
+            &context.eth2_config().spec,
             context.log.clone(),
         )
         .into_future()

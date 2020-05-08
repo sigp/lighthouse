@@ -7,11 +7,18 @@ use std::collections::HashMap;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
-/// A peer's reputation.
-pub type Rep = i32;
+/// A peer's reputation (perceived potential usefulness)
+pub type Rep = u8;
+
+/// Reputation change (positive or negative)
+pub struct RepChange {
+    is_good: bool,
+    diff: Rep,
+}
 
 /// Max number of disconnected nodes to remember
 const MAX_DC_PEERS: usize = 30;
+
 /// The default starting reputation for an unknown peer.
 pub const DEFAULT_REPUTATION: Rep = 50;
 
@@ -23,6 +30,27 @@ pub struct PeerDB<TSpec: EthSpec> {
     n_dc: usize,
     /// PeerDB's logger
     log: slog::Logger,
+}
+
+impl RepChange {
+    pub fn good(diff: Rep) -> Self {
+        RepChange {
+            is_good: true,
+            diff,
+        }
+    }
+    pub fn bad(diff: Rep) -> Self {
+        RepChange {
+            is_good: false,
+            diff,
+        }
+    }
+    pub const fn worst() -> Self {
+        RepChange {
+            is_good: false,
+            diff: Rep::max_value(),
+        }
+    }
 }
 
 impl<TSpec: EthSpec> PeerDB<TSpec> {
@@ -48,6 +76,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers.iter()
     }
 
+    /// Returns an iterator over all peers in the db.
+    pub(super) fn peers_mut(&mut self) -> impl Iterator<Item = (&PeerId, &mut PeerInfo<TSpec>)> {
+        self.peers.iter_mut()
+    }
+
     /// Gives the ids of all known peers.
     pub fn peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers.keys()
@@ -59,6 +92,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns a mutable reference to a peer's info if known.
+    /// TODO: make pub(super) to ensure that peer management is unified
     pub fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<TSpec>> {
         self.peers.get_mut(peer_id)
     }
@@ -111,12 +145,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives an iterator of all peers on a given subnet.
-    pub fn peers_on_subnet(&self, subnet_id: &SubnetId) -> impl Iterator<Item = &PeerId> {
-        let subnet_id_filter = subnet_id.clone();
+    pub fn peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
-                info.connection_status.is_connected() && info.on_subnet(subnet_id_filter)
+                info.connection_status.is_connected() && info.on_subnet(subnet_id)
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -192,10 +225,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// A peer is being dialed.
     pub fn dialing_peer(&mut self, peer_id: &PeerId) {
-        let info = self
-            .peers
-            .entry(peer_id.clone())
-            .or_insert_with(|| Default::default());
+        let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
             self.n_dc -= 1;
@@ -207,10 +237,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets a peer as connected with an ingoing connection.
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) {
-        let info = self
-            .peers
-            .entry(peer_id.clone())
-            .or_insert_with(|| Default::default());
+        let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
             self.n_dc -= 1;
@@ -220,10 +247,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets a peer as connected with an outgoing connection.
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) {
-        let info = self
-            .peers
-            .entry(peer_id.clone())
-            .or_insert_with(|| Default::default());
+        let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
             self.n_dc -= 1;
@@ -231,16 +255,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.connection_status.connect_outgoing();
     }
 
-    /// Sets the peer as disconnected.
+    /// Sets the peer as disconnected. A banned peer remains banned
     pub fn disconnect(&mut self, peer_id: &PeerId) {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Disconnecting unknown peer";
-                    "peer_id" => format!("{:?}",peer_id));
+                "peer_id" => peer_id.to_string());
             PeerInfo::default()
         });
 
-        if !info.connection_status.is_disconnected() {
+        if !info.connection_status.is_disconnected() && !info.connection_status.is_banned() {
             info.connection_status.disconnect();
             self.n_dc += 1;
         }
@@ -269,7 +293,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
-                    "peer_id" => format!("{:?}",peer_id));
+                    "peer_id" => peer_id.to_string());
             PeerInfo::default()
         });
         if info.connection_status.is_disconnected() {
@@ -283,16 +307,17 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if let Some(peer_info) = self.peers.get_mut(peer_id) {
             peer_info.meta_data = Some(meta_data);
         } else {
-            warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => format!("{}", peer_id));
+            warn!(self.log, "Tried to add meta data for a non-existant peer"; "peer_id" => peer_id.to_string());
         }
     }
 
     /// Sets the reputation of peer.
-    pub fn set_reputation(&mut self, peer_id: &PeerId, rep: Rep) {
+    #[allow(dead_code)]
+    pub(super) fn set_reputation(&mut self, peer_id: &PeerId, rep: Rep) {
         if let Some(peer_info) = self.peers.get_mut(peer_id) {
             peer_info.reputation = rep;
         } else {
-            crit!(self.log, "Tried to modify reputation for an unknown peer"; "peer_id" => format!("{}",peer_id));
+            crit!(self.log, "Tried to modify reputation for an unknown peer"; "peer_id" => peer_id.to_string());
         }
     }
 
@@ -301,20 +326,25 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if let Some(peer_info) = self.peers.get_mut(peer_id) {
             peer_info.sync_status = sync_status;
         } else {
-            crit!(self.log, "Tried to the sync status for an unknown peer"; "peer_id" => format!("{}",peer_id));
+            crit!(self.log, "Tried to the sync status for an unknown peer"; "peer_id" => peer_id.to_string());
         }
     }
 
     /// Adds to a peer's reputation by `change`. If the reputation exceeds Rep's
     /// upper (lower) bounds, it stays at the maximum (minimum) value.
-    pub fn add_reputation(&mut self, peer_id: &PeerId, change: Rep) {
+    pub(super) fn add_reputation(&mut self, peer_id: &PeerId, change: RepChange) {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Adding to the reputation of an unknown peer";
-                    "peer_id" => format!("{:?}",peer_id));
+                    "peer_id" => peer_id.to_string());
             PeerInfo::default()
         });
-        info.reputation = info.reputation.saturating_add(change);
+
+        info.reputation = if change.is_good {
+            info.reputation.saturating_add(change.diff)
+        } else {
+            info.reputation.saturating_sub(change.diff)
+        };
     }
 }
 
@@ -396,14 +426,20 @@ mod tests {
 
         // 0 change does not change de reputation
         let random_peer = PeerId::random();
-        let change: Rep = 0;
+        let change = RepChange::good(0);
         pdb.connect_ingoing(&random_peer);
         pdb.add_reputation(&random_peer, change);
         assert_eq!(pdb.reputation(&random_peer), DEFAULT_REPUTATION);
 
         // overflowing change is capped
         let random_peer = PeerId::random();
-        let change = Rep::max_value();
+        let change = RepChange::worst();
+        pdb.connect_ingoing(&random_peer);
+        pdb.add_reputation(&random_peer, change);
+        assert_eq!(pdb.reputation(&random_peer), Rep::min_value());
+
+        let random_peer = PeerId::random();
+        let change = RepChange::good(Rep::max_value());
         pdb.connect_ingoing(&random_peer);
         pdb.add_reputation(&random_peer, change);
         assert_eq!(pdb.reputation(&random_peer), Rep::max_value());
