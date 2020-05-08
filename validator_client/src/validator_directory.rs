@@ -304,11 +304,11 @@ impl ValidatorDirectoryBuilder {
     }
 
     pub async fn submit_eth1_deposit<T: Transport>(
-        &self,
+        self,
         web3: Web3<T>,
         from: Address,
         deposit_contract: Address,
-    ) -> Result<Hash256, String> {
+    ) -> Result<(Self, Hash256), String> {
         let (deposit_data, deposit_amount) = self.get_deposit_data()?;
         web3.eth()
             .send_transaction(TransactionRequest {
@@ -324,6 +324,7 @@ impl ValidatorDirectoryBuilder {
             .compat()
             .await
             .map_err(|e| format!("Failed to send transaction: {:?}", e))
+            .map(|tx| (self, tx))
     }
 
     pub fn build(self) -> Result<ValidatorDirectory, String> {
