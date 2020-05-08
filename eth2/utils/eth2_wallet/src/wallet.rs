@@ -1,18 +1,41 @@
-use crate::json_wallet::{
-    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet,
-    Kdf, KdfModule, Sha256Checksum, TypeField, Version,
+use crate::{
+    json_wallet::{
+        Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet,
+        Kdf, KdfModule, Sha256Checksum, TypeField, Version,
+    },
+    KeyType, ValidatorPath,
 };
-use eth2_keystore::{decrypt, default_kdf, encrypt, IV_SIZE, SALT_SIZE};
+use bip39::{Mnemonic, Seed as Bip39Seed};
+use eth2_key_derivation::DerivedKey;
+use eth2_keystore::{
+    decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, Keystore,
+    KeystoreBuilder, IV_SIZE, SALT_SIZE,
+};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use uuid::Uuid;
 
-pub use eth2_keystore::{Error, PlainText};
+pub use eth2_keystore::PlainText;
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    KeystoreError(KeystoreError),
+    PathExhausted,
+    EmptyPassword,
+}
+
+impl From<KeystoreError> for Error {
+    fn from(e: KeystoreError) -> Error {
+        Error::KeystoreError(e)
+    }
+}
 
 /// Constructs a `Keystore`.
+///
+/// Generates the KDF `salt` and AES `IV` using `rand::thread_rng()`.
 pub struct WalletBuilder<'a> {
-    seed: &'a [u8],
+    seed: PlainText,
     password: &'a [u8],
     kdf: Kdf,
     cipher: Cipher,
@@ -22,22 +45,36 @@ pub struct WalletBuilder<'a> {
 }
 
 impl<'a> WalletBuilder<'a> {
-    /// Creates a new builder.
-    ///
-    /// Generates the KDF `salt` and AES `IV` using `rand::thread_rng()`.
+    /// Creates a new builder for a seed specified as a BIP-39 `Mnemonic` (where the nmemonic itself does
+    /// not have a passphrase).
     ///
     /// ## Errors
     ///
     /// Returns `Error::EmptyPassword` if `password == ""`.
-    pub fn from_seed(seed: &'a [u8], password: &'a [u8], name: String) -> Result<Self, Error> {
+    pub fn from_mnemonic(
+        mnemonic: &Mnemonic,
+        password: &'a [u8],
+        name: String,
+    ) -> Result<Self, Error> {
+        let seed = Bip39Seed::new(mnemonic, "");
+
+        Self::from_seed_bytes(seed.as_bytes(), password, name)
+    }
+
+    /// Creates a new builder from a `seed` specified as a byte slice.
+    ///
+    /// ## Errors
+    ///
+    /// Returns `Error::EmptyPassword` if `password == ""`.
+    pub fn from_seed_bytes(seed: &[u8], password: &'a [u8], name: String) -> Result<Self, Error> {
         if password.is_empty() {
-            Err(Error::EmptyPassword)
+            Err(KeystoreError::EmptyPassword.into())
         } else {
             let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
             let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
 
             Ok(Self {
-                seed,
+                seed: seed.to_vec().into(),
                 password,
                 kdf: default_kdf(salt.to_vec()),
                 cipher: Cipher::Aes128Ctr(Aes128Ctr { iv }),
@@ -48,10 +85,22 @@ impl<'a> WalletBuilder<'a> {
         }
     }
 
-    /// Consumes `self`, returning a `Wallet`.
+    /// Specify a custom `kdf` (key derivation function) with which to encrypt the wallet.
+    pub fn kdf(mut self, kdf: Kdf) -> Self {
+        self.kdf = kdf;
+        self
+    }
+
+    /// Specify a custom `cipher` with which to encrypt the wallet.
+    pub fn cipher(mut self, cipher: Cipher) -> Self {
+        self.cipher = cipher;
+        self
+    }
+
+    /// Consumes `self`, returning an encrypted `Wallet`.
     pub fn build(self) -> Result<Wallet, Error> {
         Wallet::encrypt(
-            self.seed,
+            self.seed.as_bytes(),
             self.password,
             self.kdf,
             self.cipher,
@@ -69,6 +118,9 @@ pub struct Wallet {
 }
 
 impl Wallet {
+    /// Instantiates `Self`, encrypting the `seed` using `password` (via `kdf` and `cipher`).
+    ///
+    /// The `uuid`, `name` and `nextaccount` are carried through into the created wallet.
     fn encrypt(
         seed: &[u8],
         password: &[u8],
@@ -108,27 +160,95 @@ impl Wallet {
         })
     }
 
+    /// Produces a `Keystore` (encrypted with `keystore_password`) for the validator at
+    /// `self.nextaccount`, incrementing `self.nextaccount` if the keystore was successfully
+    /// generated.
+    ///
+    /// Uses the default encryption settings of `KeystoreBuilder`, not necessarily those that were
+    /// used to encrypt `self`.
+    ///
+    /// ## Errors
+    ///
+    /// - If `wallet_password` is unable to decrypt `self`.
+    /// - If `keystore_password.is_empty()`.
+    /// - If `self.nextaccount == u32::max_value() - 1`.
+    pub fn next_voting_keystore(
+        &mut self,
+        wallet_password: &[u8],
+        keystore_password: &[u8],
+    ) -> Result<Keystore, Error> {
+        let (secret, path) = recover_validator_secret(
+            &self,
+            wallet_password,
+            self.json.nextaccount,
+            KeyType::Voting,
+        )?;
+        let keypair = keypair_from_secret(secret.as_bytes())?;
+
+        let keystore =
+            KeystoreBuilder::new(&keypair, keystore_password, format!("{}", path))?.build()?;
+
+        self.json.nextaccount = self
+            .json
+            .nextaccount
+            .checked_add(1)
+            .ok_or_else(|| Error::PathExhausted)?;
+
+        Ok(keystore)
+    }
+
+    /// Returns the master seed of this wallet. Care should be taken not to leak this seed.
     pub fn decrypt_seed(&self, password: &[u8]) -> Result<PlainText, Error> {
-        decrypt(password, &self.json.crypto)
+        decrypt(password, &self.json.crypto).map_err(Into::into)
     }
 
     /// Encodes `self` as a JSON object.
     pub fn to_json_string(&self) -> Result<String, Error> {
-        serde_json::to_string(self).map_err(|e| Error::UnableToSerialize(format!("{}", e)))
+        serde_json::to_string(self)
+            .map_err(|e| KeystoreError::UnableToSerialize(format!("{}", e)))
+            .map_err(Into::into)
     }
 
     /// Returns `self` from an encoded JSON object.
     pub fn from_json_str(json_string: &str) -> Result<Self, Error> {
-        serde_json::from_str(json_string).map_err(|e| Error::InvalidJson(format!("{}", e)))
+        serde_json::from_str(json_string)
+            .map_err(|e| KeystoreError::InvalidJson(format!("{}", e)))
+            .map_err(Into::into)
     }
 
     /// Encodes self as a JSON object to the given `writer`.
     pub fn to_json_writer<W: Write>(&self, writer: W) -> Result<(), Error> {
-        serde_json::to_writer(writer, self).map_err(|e| Error::WriteError(format!("{}", e)))
+        serde_json::to_writer(writer, self)
+            .map_err(|e| KeystoreError::WriteError(format!("{}", e)))
+            .map_err(Into::into)
     }
 
     /// Instantiates `self` from a JSON `reader`.
     pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
-        serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
+        serde_json::from_reader(reader)
+            .map_err(|e| KeystoreError::ReadError(format!("{}", e)))
+            .map_err(Into::into)
     }
+}
+
+/// Returns `(secret, path)` for the `key_type` for the validator at `index`.
+///
+/// This function should only be used for recovering lost keys, not creating new ones because it
+/// does not update `wallet.nextaccount`. Using this function to generate new keys can easily
+/// result in the same key being unknowingly generated twice.
+///
+/// To generate consecutive keys safely, use `Wallet::next_voting_keystore`.
+pub fn recover_validator_secret(
+    wallet: &Wallet,
+    wallet_password: &[u8],
+    index: u32,
+    key_type: KeyType,
+) -> Result<(PlainText, ValidatorPath), Error> {
+    let path = ValidatorPath::new(index, key_type);
+    let secret = wallet.decrypt_seed(wallet_password)?;
+    let master = DerivedKey::from_seed(secret.as_bytes()).map_err(|()| Error::EmptyPassword)?;
+
+    let destination = path.iter_nodes().fold(master, |dk, i| dk.child(*i));
+
+    Ok((destination.secret().to_vec().into(), path))
 }
