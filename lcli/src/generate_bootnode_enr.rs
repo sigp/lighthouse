@@ -3,7 +3,6 @@ use eth2_libp2p::{
     discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
     NetworkConfig, NETWORK_KEY_FILENAME,
 };
-use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::Write;

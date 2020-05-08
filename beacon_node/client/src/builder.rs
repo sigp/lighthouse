@@ -366,13 +366,17 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let exit_channel = spawn_notifier(
-            context,
-            beacon_chain,
-            network_globals,
-            milliseconds_per_slot,
-        )
-        .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
+        let exit_channel = context
+            .runtime_handle
+            .enter(|| {
+                spawn_notifier(
+                    beacon_chain,
+                    network_globals,
+                    milliseconds_per_slot,
+                    context.log.clone(),
+                )
+            })
+            .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
         self.exit_channels.push(exit_channel);
 
