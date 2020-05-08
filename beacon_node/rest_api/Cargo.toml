@@ -25,7 +25,7 @@ state_processing = { path = "../../eth2/state_processing" }
 types = { path = "../../eth2/types" }
 http = "0.2.1"
 hyper = "0.13.5"
-tokio = "0.2.20"
+tokio = { version = "0.2", features = ["sync"] }
 url = "2.1.1"
 lazy_static = "1.4.0"
 eth2_config = { path = "../../eth2/utils/eth2_config" }

@@ -1,4 +1,3 @@
-use crate::BoxFut;
 use hyper::{Body, Response, StatusCode};
 use std::error::Error as StdError;
 
@@ -39,12 +38,6 @@ impl Into<Response<Body>> for ApiError {
             .header("content-type", "text/plain; charset=utf-8")
             .body(Body::from(desc))
             .expect("Response should always be created.")
-    }
-}
-
-impl Into<BoxFut> for ApiError {
-    fn into(self) -> BoxFut {
-        Box::new(futures::future::err(self))
     }
 }
 

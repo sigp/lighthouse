@@ -26,23 +26,22 @@ pub use config::ApiEncodingFormat;
 use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
-use hyper::rt::Future;
+use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
+use hyper::{Body, Request, Server};
 use slog::{info, warn};
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::runtime::TaskExecutor;
+use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
 pub use config::Config;
 
-pub type BoxFut = Box<dyn Future<Item = Response<Body>, Error = ApiError> + Send>;
 pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
 pub struct NetworkInfo<T: BeaconChainTypes> {
@@ -54,7 +53,7 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
 #[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
     config: &Config,
-    executor: &TaskExecutor,
+    handle: &Handle,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
@@ -75,18 +74,20 @@ pub fn start_server<T: BeaconChainTypes>(
         let db_path = db_path.clone();
         let freezer_db_path = freezer_db_path.clone();
 
-        service_fn(move |req: Request<Body>| {
-            router::route(
-                req,
-                beacon_chain.clone(),
-                network_globals.clone(),
-                network_channel.clone(),
-                eth2_config.clone(),
-                log.clone(),
-                db_path.clone(),
-                freezer_db_path.clone(),
-            )
-        })
+        async move {
+            Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
+                router::route(
+                    req,
+                    beacon_chain.clone(),
+                    network_globals.clone(),
+                    network_channel.clone(),
+                    eth2_config.clone(),
+                    log.clone(),
+                    db_path.clone(),
+                    freezer_db_path.clone(),
+                )
+            }))
+        }
     });
 
     let bind_addr = (config.listen_address, config.port).into();
@@ -99,16 +100,22 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let (exit_signal, exit) = oneshot::channel();
+    let (exit_signal, exit) = oneshot::channel::<()>();
     let inner_log = log.clone();
-    let server_exit = exit.and_then(move |_| {
-        info!(inner_log, "HTTP service shutdown");
-        Ok(())
-    });
+    let server_exit = exit
+        .and_then(move |_| {
+            info!(inner_log, "HTTP service shutdown");
+            futures::future::ok(())
+        })
+        .map_err(|_| ());
+
     // Configure the `hyper` server to gracefully shutdown when the shutdown channel is triggered.
     let inner_log = log.clone();
     let server_future = server
-        .with_graceful_shutdown(server_exit)
+        .with_graceful_shutdown(async {
+            // TODO: Copied from the docs. I think the await is ok here.
+            server_exit.await.ok();
+        })
         .map_err(move |e| {
             warn!(
             inner_log,
@@ -123,7 +130,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    executor.spawn(server_future);
+    handle.spawn(server_future);
 
     Ok((exit_signal, actual_listen_addr))
 }
