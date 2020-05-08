@@ -14,7 +14,7 @@ Whilst we don't actually need to write the vectors to disk to test them, we
 provide this functionality so we can generate corpra for the fuzzer and also so
 they can be of use to other clients.
 
-To create the files in `./vectors` (directory relative to this crate):
+To create the files in `./vectors` (directory relative to this crate), run:
 
 ```bash
 make

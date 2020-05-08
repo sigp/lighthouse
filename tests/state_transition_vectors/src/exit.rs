@@ -92,6 +92,19 @@ impl ExitTest {
 }
 
 vectors_and_tests!(
+    // Ensures we can process a valid exit,
+    valid_single_exit,
+    ExitTest::default(),
+    // Tests three exists in the same block.
+    valid_three_exists,
+    ExitTest {
+        builder_modifier: Box::new(|builder| {
+            builder
+                .insert_exit(1, STATE_EPOCH)
+                .insert_exit(2, STATE_EPOCH)
+        }),
+        ..ExitTest::default()
+    },
     // Ensures that a validator cannot be exited twice in the same block.
     invalid_duplicate,
     ExitTest {
