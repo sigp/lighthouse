@@ -1,4 +1,4 @@
-use crate::common::{initiate_validator_exit, slash_validator};
+use crate::common::{increase_balance, initiate_validator_exit, slash_validator};
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
@@ -456,7 +456,7 @@ pub fn process_deposit<T: EthSpec>(
 
     if let Some(index) = validator_index {
         // Update the existing validator balance.
-        safe_add_assign!(state.balances[index as usize], amount);
+        increase_balance(state, index as usize, amount)?;
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.

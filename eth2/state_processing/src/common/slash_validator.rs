@@ -1,4 +1,4 @@
-use crate::common::initiate_validator_exit;
+use crate::common::{decrease_balance, increase_balance, initiate_validator_exit};
 use safe_arith::SafeArith;
 use std::cmp;
 use types::{BeaconStateError as Error, *};
@@ -32,9 +32,10 @@ pub fn slash_validator<T: EthSpec>(
             .get_slashings(epoch)?
             .safe_add(validator_effective_balance)?,
     )?;
-    safe_sub_assign!(
-        state.balances[slashed_index],
-        validator_effective_balance.safe_div(spec.min_slashing_penalty_quotient)?
+    decrease_balance(
+        state,
+        slashed_index,
+        validator_effective_balance.safe_div(spec.min_slashing_penalty_quotient)?,
     );
 
     // Apply proposer and whistleblower rewards
@@ -44,11 +45,12 @@ pub fn slash_validator<T: EthSpec>(
         validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
     let proposer_reward = whistleblower_reward.safe_div(spec.proposer_reward_quotient)?;
 
-    safe_add_assign!(state.balances[proposer_index], proposer_reward);
-    safe_add_assign!(
-        state.balances[whistleblower_index],
-        whistleblower_reward.saturating_sub(proposer_reward)
-    );
+    increase_balance(state, proposer_index, proposer_reward)?;
+    increase_balance(
+        state,
+        whistleblower_index,
+        whistleblower_reward.safe_sub(proposer_reward)?,
+    )?;
 
     Ok(())
 }
