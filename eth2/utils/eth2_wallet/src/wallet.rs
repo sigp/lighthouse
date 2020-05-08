@@ -8,15 +8,15 @@ use crate::{
 use bip39::{Mnemonic, Seed as Bip39Seed};
 use eth2_key_derivation::DerivedKey;
 use eth2_keystore::{
-    decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, Keystore,
-    KeystoreBuilder, IV_SIZE, SALT_SIZE,
+    decrypt, default_kdf, encrypt, keypair_from_secret, Keystore, KeystoreBuilder, IV_SIZE,
+    SALT_SIZE,
 };
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use uuid::Uuid;
 
-pub use eth2_keystore::PlainText;
+pub use eth2_keystore::{Error as KeystoreError, PlainText};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
