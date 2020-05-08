@@ -6,14 +6,14 @@ use crate::{
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
-use futures::{future::TryFutureExt, stream, stream::TryStreamExt};
+use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::time::delay_for;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::time::{interval_at, Duration, Instant};
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
@@ -283,38 +283,38 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn auto_update(service: Self, mut exit: tokio::sync::oneshot::Receiver<()>) {
+    pub fn auto_update(service: Self, exit: tokio::sync::oneshot::Receiver<()>) {
         let update_interval = Duration::from_millis(service.config().auto_update_interval_millis);
 
-        loop {
-            let update_future = async {
-                let update_result = Service::update(service.clone()).await;
+        let interval = interval_at(Instant::now(), update_interval);
 
-                match update_result {
-                    Err(e) => error!(
-                        service.log,
-                        "Failed to update eth1 cache";
-                        "retry_millis" => update_interval.as_millis(),
-                        "error" => e,
-                    ),
-                    Ok((deposit, block)) => debug!(
-                        service.log,
-                        "Updated eth1 cache";
-                        "retry_millis" => update_interval.as_millis(),
-                        "blocks" => format!("{:?}", block),
-                        "deposits" => format!("{:?}", deposit),
-                    ),
-                };
-                // WARNING: delay_for doesn't return an error and panics on error.
-                delay_for(update_interval).await;
-            };
-            if let futures::future::Either::Right(_) =
-                futures::future::select(Box::pin(update_future), &mut exit).await
-            {
-                // the exit future returned end
-                break;
-            }
-        }
+        let update_future = interval.for_each(move |_| {
+            let _ = Service::do_update(service.clone(), update_interval);
+            futures::future::ready(())
+        });
+        let future = futures::future::select(update_future, exit);
+        tokio::task::spawn(future);
+    }
+
+    async fn do_update(service: Self, update_interval: Duration) -> Result<(), ()> {
+        let update_result = Service::update(service.clone()).await;
+        println!("Going on");
+        match update_result {
+            Err(e) => error!(
+                service.log,
+                "Failed to update eth1 cache";
+                "retry_millis" => update_interval.as_millis(),
+                "error" => e,
+            ),
+            Ok((deposit, block)) => debug!(
+                service.log,
+                "Updated eth1 cache";
+                "retry_millis" => update_interval.as_millis(),
+                "blocks" => format!("{:?}", block),
+                "deposits" => format!("{:?}", deposit),
+            ),
+        };
+        Ok(())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
