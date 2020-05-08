@@ -4,15 +4,13 @@ use super::block_processing_builder::BlockProcessingBuilder;
 use super::errors::*;
 use crate::{per_block_processing, BlockSignatureStrategy};
 use types::test_utils::{
-    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
-    ProposerSlashingTestTask,
+    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ProposerSlashingTestTask,
 };
 use types::*;
 
 pub const NUM_DEPOSITS: u64 = 1;
 pub const VALIDATOR_COUNT: usize = 64;
-pub const SLOT_OFFSET: u64 = 4;
-pub const EXIT_SLOT_OFFSET: u64 = 2048;
+pub const EPOCH_OFFSET: u64 = 4;
 pub const NUM_ATTESTATIONS: u64 = 1;
 
 type E = MainnetEthSpec;
@@ -20,8 +18,8 @@ type E = MainnetEthSpec;
 #[test]
 fn valid_block_ok() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let (block, mut state) = builder.build(None, None, &spec);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
+    let (block, mut state) = builder.build(None, None);
 
     let result = per_block_processing(
         &mut state,
@@ -37,8 +35,8 @@ fn valid_block_ok() {
 #[test]
 fn invalid_block_header_state_slot() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let (mut block, mut state) = builder.build(None, None, &spec);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
+    let (mut block, mut state) = builder.build(None, None);
 
     state.slot = Slot::new(133_713);
     block.message.slot = Slot::new(424_242);
@@ -62,9 +60,9 @@ fn invalid_block_header_state_slot() {
 #[test]
 fn invalid_parent_block_root() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let invalid_parent_root = Hash256::from([0xAA; 32]);
-    let (block, mut state) = builder.build(None, Some(invalid_parent_root), &spec);
+    let (block, mut state) = builder.build(None, Some(invalid_parent_root));
 
     let result = per_block_processing(
         &mut state,
@@ -88,8 +86,8 @@ fn invalid_parent_block_root() {
 #[test]
 fn invalid_block_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let (block, mut state) = builder.build(None, None, &spec);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
+    let (block, mut state) = builder.build(None, None);
 
     // sign the block with a keypair that is not the expected proposer
     let keypair = Keypair::random();
@@ -121,11 +119,11 @@ fn invalid_block_signature() {
 #[test]
 fn invalid_randao_reveal_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
 
     // sign randao reveal with random keypair
     let keypair = Keypair::random();
-    let (block, mut state) = builder.build(Some(keypair.sk), None, &spec);
+    let (block, mut state) = builder.build(Some(keypair.sk), None);
 
     let result = per_block_processing(
         &mut state,
@@ -142,7 +140,7 @@ fn invalid_randao_reveal_signature() {
 #[test]
 fn valid_4_deposits() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = DepositTestTask::Valid;
 
     let (block, mut state) = builder.build_with_n_deposits(4, test_task, None, None, &spec);
@@ -162,7 +160,7 @@ fn valid_4_deposits() {
 #[test]
 fn invalid_deposit_deposit_count_too_big() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = DepositTestTask::Valid;
 
     let (block, mut state) =
@@ -192,7 +190,7 @@ fn invalid_deposit_deposit_count_too_big() {
 #[test]
 fn invalid_deposit_count_too_small() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = DepositTestTask::Valid;
 
     let (block, mut state) =
@@ -222,7 +220,7 @@ fn invalid_deposit_count_too_small() {
 #[test]
 fn invalid_deposit_bad_merkle_proof() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = DepositTestTask::Valid;
 
     let (block, mut state) =
@@ -254,7 +252,7 @@ fn invalid_deposit_bad_merkle_proof() {
 #[test]
 fn invalid_deposit_wrong_pubkey() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = DepositTestTask::BadPubKey;
 
     let (block, mut state) =
@@ -275,7 +273,7 @@ fn invalid_deposit_wrong_pubkey() {
 #[test]
 fn invalid_deposit_wrong_sig() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = DepositTestTask::BadSig;
 
     let (block, mut state) =
@@ -296,7 +294,7 @@ fn invalid_deposit_wrong_sig() {
 #[test]
 fn invalid_deposit_invalid_pub_key() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = DepositTestTask::InvalidPubKey;
 
     let (block, mut state) =
@@ -315,240 +313,9 @@ fn invalid_deposit_invalid_pub_key() {
 }
 
 #[test]
-fn valid_insert_3_exits() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 3;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let test_task = ExitTestTask::Valid;
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Ok because these are valid exits.
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
-fn invalid_exit_validator_unknown() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 1;
-    let test_task = ExitTestTask::ValidatorUnknown;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Validator Unknwon because the exit index is incorrect
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ExitInvalid {
-            index: 0,
-            reason: ExitInvalid::ValidatorUnknown(4242),
-        })
-    );
-}
-
-#[test]
-fn invalid_exit_already_exited() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 1;
-    let test_task = ExitTestTask::AlreadyExited;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting AlreadyExited because we manually set the exit_epoch to be different than far_future_epoch.
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ExitInvalid {
-            index: 0,
-            reason: ExitInvalid::AlreadyExited(0),
-        })
-    );
-}
-
-/* FIXME: needs updating for v0.9
-#[test]
-fn invalid_exit_not_active() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 1;
-    let test_task = ExitTestTask::NotActive;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting NotActive because we manually set the activation_epoch to be in the future
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ExitInvalid {
-            index: 0,
-            reason: ExitInvalid::NotActive(0),
-        })
-    );
-}
-*/
-
-#[test]
-fn invalid_exit_already_initiated() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 1;
-    let test_task = ExitTestTask::AlreadyInitiated;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Ok(()) even though we inserted the same exit twice
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
-fn invalid_exit_future_epoch() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 1;
-    let test_task = ExitTestTask::FutureEpoch;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting FutureEpoch because we set the exit_epoch to be far_future_epoch
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ExitInvalid {
-            index: 0,
-            reason: ExitInvalid::FutureEpoch {
-                state: Epoch::from(2048 as u64),
-                exit: spec.far_future_epoch
-            }
-        })
-    );
-}
-
-#[test]
-fn invalid_exit_too_young() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 1;
-    let test_task = ExitTestTask::Valid;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let builder = get_builder(&spec, SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting TooYoung because validator has not been active for long enough when trying to exit
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ExitInvalid {
-            index: 0,
-            reason: ExitInvalid::TooYoungToExit {
-                current_epoch: Epoch::from(SLOT_OFFSET),
-                earliest_exit_epoch: Epoch::from(2048 as u64)
-            },
-        })
-    );
-}
-
-#[test]
-fn invalid_exit_bad_signature() {
-    use std::cmp::max;
-
-    let spec = MainnetEthSpec::default_spec();
-    let num_exits = 1;
-    let test_task = ExitTestTask::BadSignature;
-    let num_validators = max(VALIDATOR_COUNT, num_exits);
-    let builder = get_builder(&spec, EXIT_SLOT_OFFSET, num_validators);
-
-    let (block, mut state) = builder.build_with_n_exits(num_exits, test_task, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Bad Signature because we signed with a different secret key than the correct one.
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ExitInvalid {
-            index: 0,
-            reason: ExitInvalid::BadSignature,
-        })
-    );
-}
-
-#[test]
 fn valid_attestations() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::Valid;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -565,14 +332,18 @@ fn valid_attestations() {
     assert_eq!(result, Ok(()));
 }
 
-/* FIXME: needs updating for v0.9
 #[test]
-fn invalid_attestation_no_committee_for_shard() {
+fn invalid_attestation_no_committee_for_index() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::NoCommiteeForShard;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let slot = Epoch::new(EPOCH_OFFSET).start_slot(E::slots_per_epoch());
+    let builder =
+        get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT).insert_attestation(slot, 0, |_, _| true);
+    let committee_index = builder.state.get_committee_count_at_slot(slot).unwrap();
+    let (block, mut state) = builder
+        .modify(|block| {
+            block.body.attestations[0].data.index = committee_index;
+        })
+        .build(None, None);
 
     let result = per_block_processing(
         &mut state,
@@ -582,23 +353,20 @@ fn invalid_attestation_no_committee_for_shard() {
         &spec,
     );
 
-    // Expecting NoCommiteeForShard because we manually set the crosslink's shard to be invalid
+    // Expecting NoCommitee because we manually set the attestation's index to be invalid
     assert_eq!(
         result,
-        Err(BlockProcessingError::BeaconStateError(
-            BeaconStateError::NoCommittee {
-                slot: Slot::new(0),
-                index: 0
-            }
-        ))
+        Err(BlockProcessingError::AttestationInvalid {
+            index: 0,
+            reason: AttestationInvalid::BadCommitteeIndex
+        })
     );
 }
-*/
 
 #[test]
 fn invalid_attestation_wrong_justified_checkpoint() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::WrongJustifiedCheckpoint;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -635,7 +403,7 @@ fn invalid_attestation_wrong_justified_checkpoint() {
 #[test]
 fn invalid_attestation_bad_indexed_attestation_bad_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::BadIndexedAttestationBadSignature;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -663,7 +431,7 @@ fn invalid_attestation_bad_indexed_attestation_bad_signature() {
 #[test]
 fn invalid_attestation_bad_aggregation_bitfield_len() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::BadAggregationBitfieldLen;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -688,7 +456,7 @@ fn invalid_attestation_bad_aggregation_bitfield_len() {
 #[test]
 fn invalid_attestation_bad_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, 97); // minimal number of required validators for this test
+    let builder = get_builder(&spec, EPOCH_OFFSET, 97); // minimal number of required validators for this test
     let test_task = AttestationTestTask::BadSignature;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -715,7 +483,7 @@ fn invalid_attestation_bad_signature() {
 #[test]
 fn invalid_attestation_included_too_early() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::IncludedTooEarly;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -746,7 +514,7 @@ fn invalid_attestation_included_too_early() {
 fn invalid_attestation_included_too_late() {
     let spec = MainnetEthSpec::default_spec();
     // note to maintainer: might need to increase validator count if we get NoCommittee
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::IncludedTooLate;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -775,7 +543,7 @@ fn invalid_attestation_included_too_late() {
 fn invalid_attestation_target_epoch_slot_mismatch() {
     let spec = MainnetEthSpec::default_spec();
     // note to maintainer: might need to increase validator count if we get NoCommittee
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttestationTestTask::TargetEpochSlotMismatch;
     let (block, mut state) =
         builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
@@ -801,45 +569,10 @@ fn invalid_attestation_target_epoch_slot_mismatch() {
     );
 }
 
-/* FIXME: needs updating for v0.9
-#[test]
-fn invalid_attestation_bad_shard() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::BadShard;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting BadShard or NoCommittee because the shard number is higher than ShardCount
-    assert!(
-        result
-            == Err(BlockProcessingError::AttestationInvalid {
-                index: 0,
-                reason: AttestationInvalid::BadShard
-            })
-            || result
-                == Err(BlockProcessingError::BeaconStateError(
-                    BeaconStateError::NoCommittee {
-                        slot: Slot::new(0),
-                        index: 0
-                    }
-                ))
-    );
-}
-*/
-
 #[test]
 fn valid_insert_attester_slashing() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttesterSlashingTestTask::Valid;
     let num_attester_slashings = 1;
     let (block, mut state) =
@@ -860,7 +593,7 @@ fn valid_insert_attester_slashing() {
 #[test]
 fn invalid_attester_slashing_not_slashable() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttesterSlashingTestTask::NotSlashable;
     let num_attester_slashings = 1;
     let (block, mut state) =
@@ -886,7 +619,7 @@ fn invalid_attester_slashing_not_slashable() {
 #[test]
 fn invalid_attester_slashing_1_invalid() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttesterSlashingTestTask::IndexedAttestation1Invalid;
     let num_attester_slashings = 1;
     let (block, mut state) =
@@ -902,17 +635,21 @@ fn invalid_attester_slashing_1_invalid() {
 
     assert_eq!(
         result,
-        Err(BlockProcessingError::IndexedAttestationInvalid {
-            index: 0,
-            reason: IndexedAttestationInvalid::BadValidatorIndicesOrdering(0)
-        })
+        Err(
+            BlockOperationError::Invalid(AttesterSlashingInvalid::IndexedAttestation1Invalid(
+                BlockOperationError::Invalid(
+                    IndexedAttestationInvalid::BadValidatorIndicesOrdering(0)
+                )
+            ))
+            .into_with_index(0)
+        )
     );
 }
 
 #[test]
 fn invalid_attester_slashing_2_invalid() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = AttesterSlashingTestTask::IndexedAttestation2Invalid;
     let num_attester_slashings = 1;
     let (block, mut state) =
@@ -928,17 +665,21 @@ fn invalid_attester_slashing_2_invalid() {
 
     assert_eq!(
         result,
-        Err(BlockProcessingError::IndexedAttestationInvalid {
-            index: 1,
-            reason: IndexedAttestationInvalid::BadValidatorIndicesOrdering(0)
-        })
+        Err(
+            BlockOperationError::Invalid(AttesterSlashingInvalid::IndexedAttestation2Invalid(
+                BlockOperationError::Invalid(
+                    IndexedAttestationInvalid::BadValidatorIndicesOrdering(0)
+                )
+            ))
+            .into_with_index(0)
+        )
     );
 }
 
 #[test]
 fn valid_insert_proposer_slashing() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::Valid;
     let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
 
@@ -957,7 +698,7 @@ fn valid_insert_proposer_slashing() {
 #[test]
 fn invalid_proposer_slashing_proposals_identical() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::ProposalsIdentical;
     let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
 
@@ -981,7 +722,7 @@ fn invalid_proposer_slashing_proposals_identical() {
 #[test]
 fn invalid_proposer_slashing_proposer_unknown() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::ProposerUnknown;
     let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
 
@@ -1006,7 +747,7 @@ fn invalid_proposer_slashing_proposer_unknown() {
 #[test]
 fn invalid_proposer_slashing_not_slashable() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::ProposerNotSlashable;
     let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
 
@@ -1032,7 +773,7 @@ fn invalid_proposer_slashing_not_slashable() {
 #[test]
 fn invalid_proposer_slashing_duplicate_slashing() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::Valid;
     let (mut block, mut state) =
         builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
@@ -1068,7 +809,7 @@ fn invalid_proposer_slashing_duplicate_slashing() {
 #[test]
 fn invalid_bad_proposal_1_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::BadProposal1Signature;
     let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
 
@@ -1093,7 +834,7 @@ fn invalid_bad_proposal_1_signature() {
 #[test]
 fn invalid_bad_proposal_2_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::BadProposal2Signature;
     let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
 
@@ -1118,7 +859,7 @@ fn invalid_bad_proposal_2_signature() {
 #[test]
 fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, SLOT_OFFSET, VALIDATOR_COUNT);
+    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
     let test_task = ProposerSlashingTestTask::ProposalEpochMismatch;
     let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
 
@@ -1145,15 +886,11 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
 
 fn get_builder(
     spec: &ChainSpec,
-    slot_offset: u64,
+    epoch_offset: u64,
     num_validators: usize,
 ) -> BlockProcessingBuilder<MainnetEthSpec> {
-    let mut builder = BlockProcessingBuilder::new(num_validators, &spec);
-
-    // Set the state and block to be in the last slot of the `slot_offset`th epoch.
-    let last_slot_of_epoch =
-        (MainnetEthSpec::genesis_epoch() + slot_offset).end_slot(MainnetEthSpec::slots_per_epoch());
-    builder.set_slot(last_slot_of_epoch);
-    builder.build_caches(&spec);
-    builder
+    // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
+    let last_slot_of_epoch = (MainnetEthSpec::genesis_epoch() + epoch_offset)
+        .end_slot(MainnetEthSpec::slots_per_epoch());
+    BlockProcessingBuilder::new(num_validators, last_slot_of_epoch, &spec).build_caches()
 }

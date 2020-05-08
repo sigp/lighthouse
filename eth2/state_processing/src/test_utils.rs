@@ -1,9 +1,11 @@
 use log::info;
 use types::test_utils::{
-    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ExitTestTask,
-    ProposerSlashingTestTask, TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
+    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ProposerSlashingTestTask,
+    TestingBeaconBlockBuilder, TestingBeaconStateBuilder,
 };
 use types::{EthSpec, *};
+
+pub use crate::per_block_processing::block_processing_builder::BlockProcessingBuilder;
 
 pub struct BlockBuilder<T: EthSpec> {
     pub state_builder: TestingBeaconStateBuilder<T>,
@@ -155,10 +157,10 @@ impl<T: EthSpec> BlockBuilder<T> {
             let validator_index = validators_iter.next().expect("Insufficient validators.");
 
             builder.insert_exit(
-                ExitTestTask::Valid,
-                &mut state,
                 validator_index,
+                state.current_epoch(),
                 &keypairs[validator_index as usize].sk,
+                &state,
                 spec,
             );
         }

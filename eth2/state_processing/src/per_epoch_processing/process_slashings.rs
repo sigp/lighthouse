@@ -26,7 +26,8 @@ pub fn process_slashings<T: EthSpec>(
                 .safe_div(total_balance)?
                 .safe_mul(increment)?;
 
-            safe_sub_assign!(state.balances[index], penalty);
+            // Equivalent to `decrease_balance(state, index, penalty)`, but avoids borrowing `state`.
+            state.balances[index] = state.balances[index].saturating_sub(penalty);
         }
     }
 

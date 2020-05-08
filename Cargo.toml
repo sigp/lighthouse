@@ -45,6 +45,7 @@ members = [
     "tests/ef_tests",
     "tests/eth1_test_rig",
     "tests/node_test_rig",
+    "tests/state_transition_vectors",
     "lcli",
     "validator_client",
     "account_manager",

@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 #[macro_use]
 extern crate lazy_static;
