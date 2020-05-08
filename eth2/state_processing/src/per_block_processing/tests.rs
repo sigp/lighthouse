@@ -8,10 +8,6 @@ use types::test_utils::{
 };
 use types::*;
 
-// Exit tests have been revamped and live in a separate module.
-// TODO: do this for all the other tests here.
-mod exit;
-
 pub const NUM_DEPOSITS: u64 = 1;
 pub const VALIDATOR_COUNT: usize = 64;
 pub const EPOCH_OFFSET: u64 = 4;
