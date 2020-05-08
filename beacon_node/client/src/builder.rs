@@ -13,7 +13,6 @@ use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
-use futures::{future, Future, IntoFuture};
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slog::info;
@@ -109,136 +108,103 @@ where
 
     /// Initializes the `BeaconChainBuilder`. The `build_beacon_chain` method will need to be
     /// called later in order to actually instantiate the `BeaconChain`.
-    pub fn beacon_chain_builder(
+    pub async fn beacon_chain_builder(
         mut self,
         client_genesis: ClientGenesis,
         config: ClientConfig,
-    ) -> impl Future<Item = Self, Error = String> {
-        let store = self.store.clone();
-        let store_migrator = self.store_migrator.take();
-        let chain_spec = self.chain_spec.clone();
-        let runtime_context = self.runtime_context.clone();
-        let eth_spec_instance = self.eth_spec_instance.clone();
-        let data_dir = config.data_dir.clone();
-        let disabled_forks = config.disabled_forks.clone();
+    ) -> Result<Self, String> {
+        let store = self
+            .store
+            .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
+        let store_migrator = self
+            .store_migrator
+            .ok_or_else(|| "beacon_chain_start_method requires a store migrator".to_string())?;
+        let context = self
+            .runtime_context
+            .ok_or_else(|| "beacon_chain_start_method requires a runtime context".to_string())?
+            .service_context("beacon".into());
+        let spec = self
+            .chain_spec
+            .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
-        future::ok(())
-            .and_then(move |()| {
-                let store = store
-                    .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
-                let store_migrator = store_migrator.ok_or_else(|| {
-                    "beacon_chain_start_method requires a store migrator".to_string()
-                })?;
-                let context = runtime_context
-                    .ok_or_else(|| {
-                        "beacon_chain_start_method requires a runtime context".to_string()
-                    })?
-                    .service_context("beacon".into());
-                let spec = chain_spec
-                    .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
+        let builder = BeaconChainBuilder::new(self.eth_spec_instance)
+            .logger(context.log.clone())
+            .store(store)
+            .store_migrator(store_migrator)
+            .data_dir(config.data_dir)
+            .custom_spec(spec.clone())
+            .disabled_forks(config.disabled_forks);
 
-                let builder = BeaconChainBuilder::new(eth_spec_instance)
-                    .logger(context.log.clone())
-                    .store(store)
-                    .store_migrator(store_migrator)
-                    .data_dir(data_dir)
-                    .custom_spec(spec.clone())
-                    .disabled_forks(disabled_forks);
+        let chain_exists = builder
+            .store_contains_beacon_chain()
+            .unwrap_or_else(|_| false);
 
-                Ok((builder, spec, context))
-            })
-            .and_then(move |(builder, spec, context)| {
-                let chain_exists = builder
-                    .store_contains_beacon_chain()
-                    .unwrap_or_else(|_| false);
+        // If the client is expect to resume but there's no beacon chain in the database,
+        // use the `DepositContract` method. This scenario is quite common when the client
+        // is shutdown before finding genesis via eth1.
+        //
+        // Alternatively, if there's a beacon chain in the database then always resume
+        // using it.
+        let client_genesis = if client_genesis == ClientGenesis::FromStore && !chain_exists {
+            info!(context.log, "Defaulting to deposit contract genesis");
 
-                // If the client is expect to resume but there's no beacon chain in the database,
-                // use the `DepositContract` method. This scenario is quite common when the client
-                // is shutdown before finding genesis via eth1.
-                //
-                // Alternatively, if there's a beacon chain in the database then always resume
-                // using it.
-                let client_genesis = if client_genesis == ClientGenesis::FromStore && !chain_exists
-                {
-                    info!(context.log, "Defaulting to deposit contract genesis");
+            ClientGenesis::DepositContract
+        } else if chain_exists {
+            ClientGenesis::FromStore
+        } else {
+            client_genesis
+        };
 
-                    ClientGenesis::DepositContract
-                } else if chain_exists {
-                    ClientGenesis::FromStore
-                } else {
-                    client_genesis
-                };
+        let (beacon_chain_builder, eth1_service_option) = match client_genesis {
+            ClientGenesis::Interop {
+                validator_count,
+                genesis_time,
+            } => {
+                let keypairs = generate_deterministic_keypairs(validator_count);
+                let genesis_state = interop_genesis_state(&keypairs, genesis_time, &spec)?;
+                builder.genesis_state(genesis_state).map(|v| (v, None))?
+            }
+            ClientGenesis::SszBytes {
+                genesis_state_bytes,
+            } => {
+                info!(
+                    context.log,
+                    "Starting from known genesis state";
+                );
 
-                let genesis_state_future: Box<dyn Future<Item = _, Error = _> + Send> =
-                    match client_genesis {
-                        ClientGenesis::Interop {
-                            validator_count,
-                            genesis_time,
-                        } => {
-                            let keypairs = generate_deterministic_keypairs(validator_count);
-                            let result = interop_genesis_state(&keypairs, genesis_time, &spec);
+                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
-                            let future = result
-                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
-                                .into_future()
-                                .map(|v| (v, None));
+                builder.genesis_state(genesis_state).map(|v| (v, None))?
+            }
+            ClientGenesis::DepositContract => {
+                info!(
+                    context.log,
+                    "Waiting for eth2 genesis from eth1";
+                    "eth1_endpoint" => &config.eth1.endpoint,
+                    "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
+                    "deposit_contract" => &config.eth1.deposit_contract_address
+                );
 
-                            Box::new(future)
-                        }
-                        ClientGenesis::SszBytes {
-                            genesis_state_bytes,
-                        } => {
-                            info!(
-                                context.log,
-                                "Starting from known genesis state";
-                            );
+                let genesis_service = Eth1GenesisService::new(config.eth1, context.log.clone());
 
-                            let result = BeaconState::from_ssz_bytes(&genesis_state_bytes)
-                                .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e));
+                let genesis_state = genesis_service
+                    .wait_for_genesis_state(
+                        Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
+                        context.eth2_config().spec.clone(),
+                    )
+                    .await?;
 
-                            let future = result
-                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
-                                .into_future()
-                                .map(|v| (v, None));
+                builder
+                    .genesis_state(genesis_state)
+                    .map(|v| (v, Some(genesis_service.into_core_service())))?
+            }
+            ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
+        };
 
-                            Box::new(future)
-                        }
-                        ClientGenesis::DepositContract => {
-                            info!(
-                                context.log,
-                                "Waiting for eth2 genesis from eth1";
-                                "eth1_endpoint" => &config.eth1.endpoint,
-                                "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
-                                "deposit_contract" => &config.eth1.deposit_contract_address
-                            );
-
-                            let genesis_service =
-                                Eth1GenesisService::new(config.eth1, context.log.clone());
-
-                            let future = genesis_service
-                                .wait_for_genesis_state(
-                                    Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
-                                    context.eth2_config().spec.clone(),
-                                )
-                                .and_then(move |genesis_state| builder.genesis_state(genesis_state))
-                                .map(|v| (v, Some(genesis_service.into_core_service())));
-
-                            Box::new(future)
-                        }
-                        ClientGenesis::FromStore => {
-                            let future = builder.resume_from_db().into_future().map(|v| (v, None));
-
-                            Box::new(future)
-                        }
-                    };
-
-                genesis_state_future
-            })
-            .map(move |(beacon_chain_builder, eth1_service_option)| {
-                self.eth1_service = eth1_service_option;
-                self.beacon_chain_builder = Some(beacon_chain_builder);
-                self
-            })
+        self.eth1_service = eth1_service_option;
+        self.beacon_chain_builder = Some(beacon_chain_builder);
+        Ok(self)
     }
 
     /// Immediately starts the networking stack.
@@ -254,7 +220,7 @@ where
             .service_context("network".into());
 
         let (network_globals, network_send, network_exit) =
-            NetworkService::start(beacon_chain, config, &context.executor, context.log)
+            NetworkService::start(beacon_chain, config, &context.runtime_handle, context.log)
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
@@ -281,13 +247,10 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let timer_exit = timer::spawn(
-            &context.executor,
-            beacon_chain,
-            milliseconds_per_slot,
-            context.log,
-        )
-        .map_err(|e| format!("Unable to start node timer: {}", e))?;
+        let timer_exit = context
+            .runtime_handle
+            .enter(|| timer::spawn(beacon_chain, milliseconds_per_slot))
+            .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         self.exit_channels.push(timer_exit);
 
@@ -323,21 +286,22 @@ where
             network_chan: network_send,
         };
 
-        let (exit_channel, listening_addr) = rest_api::start_server(
-            &client_config.rest_api,
-            &context.executor,
-            beacon_chain,
-            network_info,
-            client_config
-                .create_db_path()
-                .map_err(|_| "unable to read data dir")?,
-            client_config
-                .create_freezer_db_path()
-                .map_err(|_| "unable to read freezer DB dir")?,
-            eth2_config.clone(),
-            context.log,
-        )
-        .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
+        let (exit_channel, listening_addr) = context.runtime_handle.enter(|| {
+            rest_api::start_server(
+                &client_config.rest_api,
+                beacon_chain,
+                network_info,
+                client_config
+                    .create_db_path()
+                    .map_err(|_| "unable to read data dir")?,
+                client_config
+                    .create_freezer_db_path()
+                    .map_err(|_| "unable to read freezer DB dir")?,
+                eth2_config.clone(),
+                context.log,
+            )
+            .map_err(|e| format!("Failed to start HTTP API: {:?}", e))
+        })?;
 
         self.exit_channels.push(exit_channel);
         self.http_listen_addr = Some(listening_addr);
@@ -472,8 +436,9 @@ where
             Option<_>,
             Option<_>,
         ) = if config.enabled {
-            let (sender, exit, listening_addr) =
-                websocket_server::start_server(&config, &context.executor, &context.log)?;
+            let (sender, exit, listening_addr) = context
+                .runtime_handle
+                .enter(|| websocket_server::start_server(&config, &context.log))?;
             (sender, Some(exit), Some(listening_addr))
         } else {
             (WebSocketSender::dummy(), None, None)
@@ -692,7 +657,7 @@ where
         };
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
-        context.executor.spawn(backend.start(exit));
+        context.runtime_handle.spawn(backend.start(exit));
 
         self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
 

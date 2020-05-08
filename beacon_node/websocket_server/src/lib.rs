@@ -2,7 +2,6 @@ use futures::future::TryFutureExt;
 use slog::{debug, error, info, warn, Logger};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
-use tokio::runtime::Handle;
 use types::EthSpec;
 use ws::{Sender, WebSocket};
 
@@ -37,7 +36,6 @@ impl<T: EthSpec> WebSocketSender<T> {
 
 pub fn start_server<T: EthSpec>(
     config: &Config,
-    handle: &Handle,
     log: &Logger,
 ) -> Result<
     (
@@ -92,15 +90,12 @@ pub fn start_server<T: EthSpec>(
 
         // Place a future on the handle that will shutdown the websocket server when the
         // application exits.
-        // TODO: check if we should spawn using a `Handle` or using `task::spawn`
-        handle.spawn(exit_future);
+        tokio::spawn(exit_future);
 
         exit_channel
     };
 
     let log_inner = log.clone();
-    // TODO: using tokio `spawn_blocking` instead of `thread::spawn`
-    // Check which is more apt.
     let _handle = tokio::task::spawn_blocking(move || match server.run() {
         Ok(_) => {
             debug!(

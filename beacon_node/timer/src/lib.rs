@@ -3,12 +3,11 @@
 //! This service allows task execution on the beacon node for various functionality.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use futures::future;
 use futures::stream::StreamExt;
-use futures::{future, prelude::*};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
@@ -16,7 +15,6 @@ use tokio::time::{interval_at, Instant};
 /// called from the context of a runtime and we can simply spawn using task::spawn.
 /// Check for issues without the Handle.
 pub fn spawn<T: BeaconChainTypes>(
-    handle: &Handle,
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,
 ) -> Result<tokio::sync::oneshot::Sender<()>, &'static str> {
@@ -35,8 +33,8 @@ pub fn spawn<T: BeaconChainTypes>(
             future::ready(())
         });
 
-    let future = futures::future::select(timer_future, exit.map_err(|_| ()).map(|_| ()));
-    handle.spawn(future);
+    let future = futures::future::select(timer_future, exit);
+    tokio::spawn(future);
 
     Ok(exit_signal)
 }

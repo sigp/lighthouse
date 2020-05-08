@@ -246,54 +246,39 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
-        let deposit_future = self
-            .update_deposit_cache()
-            .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-            .then(|result| async move{
-                match &result {
-                    Ok(DepositCacheUpdateOutcome { logs_imported }) => trace!(
-                        self.log,
-                        "Updated eth1 deposit cache";
-                        "cached_deposits" => self.inner.deposit_cache.read().cache.len(),
-                        "logs_imported" => logs_imported,
-                        "last_processed_eth1_block" => self.inner.deposit_cache.read().last_processed_block,
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Failed to update eth1 deposit cache";
-                        "error" => e
-                    ),
-                };
+        let update_deposit_cache = async {
+            let outcome = self
+                .update_deposit_cache()
+                .await
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
-                result
-            });
+            trace!(
+                self.log,
+                "Updated eth1 deposit cache";
+                "cached_deposits" => self.inner.deposit_cache.read().cache.len(),
+                "logs_imported" => outcome.logs_imported,
+                "last_processed_eth1_block" => self.inner.deposit_cache.read().last_processed_block,
+            );
+            Ok(outcome)
+        };
 
-        let block_future = self
-            .update_block_cache()
-            .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-            .then(|result| async move {
-                match &result {
-                    Ok(BlockCacheUpdateOutcome {
-                        blocks_imported,
-                        head_block_number,
-                    }) => trace!(
-                        self.log,
-                        "Updated eth1 block cache";
-                        "cached_blocks" => self.inner.block_cache.read().len(),
-                        "blocks_imported" => blocks_imported,
-                        "head_block" => head_block_number,
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Failed to update eth1 block cache";
-                        "error" => e
-                    ),
-                };
+        let update_block_cache = async {
+            let outcome = self
+                .update_block_cache()
+                .await
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
-                result
-            });
+            trace!(
+                self.log,
+                "Updated eth1 block cache";
+                "cached_blocks" => self.inner.block_cache.read().len(),
+                "blocks_imported" => outcome.blocks_imported,
+                "head_block" => outcome.head_block_number,
+            );
+            Ok(outcome)
+        };
 
-        futures::try_join!(deposit_future, block_future)
+        futures::try_join!(update_deposit_cache, update_block_cache)
     }
 
     /// A looping future that updates the cache, then waits `config.auto_update_interval` before
@@ -305,40 +290,40 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn auto_update(
-        &self,
-        mut exit: tokio::sync::oneshot::Receiver<()>,
-    ) -> Result<(), ()> {
+    pub async fn auto_update(&self, exit: tokio::sync::oneshot::Receiver<()>) {
         let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
 
         loop {
-            let update_result = self.update().await;
+            let update_future = async move {
+                /*
+                let update_result = self.update().await;
 
-            match update_result {
-                Err(e) => error!(
-                    self.log,
-                    "Failed to update eth1 cache";
-                    "retry_millis" => update_interval.as_millis(),
-                    "error" => e,
-                ),
-                Ok((deposit, block)) => debug!(
-                    self.log,
-                    "Updated eth1 cache";
-                    "retry_millis" => update_interval.as_millis(),
-                    "blocks" => format!("{:?}", block),
-                    "deposits" => format!("{:?}", deposit),
-                ),
+                match update_result {
+                    Err(e) => error!(
+                        self.log,
+                        "Failed to update eth1 cache";
+                        "retry_millis" => update_interval.as_millis(),
+                        "error" => e,
+                    ),
+                    Ok((deposit, block)) => debug!(
+                        self.log,
+                        "Updated eth1 cache";
+                        "retry_millis" => update_interval.as_millis(),
+                        "blocks" => format!("{:?}", block),
+                        "deposits" => format!("{:?}", deposit),
+                    ),
+                };
+                */
+                // WARNING: delay_for doesn't return an error and panics on error.
+                delay_for(update_interval).await;
             };
-
-            // WARNING: delay_for doesn't return an error and panics on error.
-            delay_for(update_interval).await;
-            match exit.try_recv() {
-                Ok(_) | Err(TryRecvError::Closed) => break,
-                Err(TryRecvError::Empty) => {}
+            if let futures::future::Either::Right(_) =
+                futures::future::select(Box::pin(update_future), futures::future::ready(())).await
+            {
+                // the exit future returned end
+                break;
             }
         }
-
-        Ok(())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
