@@ -5,6 +5,8 @@ use types::test_utils::{
 };
 use types::{EthSpec, *};
 
+pub use crate::per_block_processing::block_processing_builder::BlockProcessingBuilder;
+
 pub struct BlockBuilder<T: EthSpec> {
     pub state_builder: TestingBeaconStateBuilder<T>,
     pub block_builder: TestingBeaconBlockBuilder<T>,
