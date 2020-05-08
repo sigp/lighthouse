@@ -285,8 +285,8 @@ impl<T: EthSpec, S: Store<T>> CachingEth1Backend<T, S> {
     }
 
     /// Starts the routine which connects to the external eth1 node and updates the caches.
-    pub async fn start(&self, exit: tokio::sync::oneshot::Receiver<()>) {
-        tokio::spawn(async move { self.core.auto_update(exit).await });
+    fn start(&self, exit: tokio::sync::oneshot::Receiver<()>) {
+        tokio::spawn(HttpService::auto_update(self.core.clone(), exit));
     }
 
     /// Instantiates `self` from an existing service.

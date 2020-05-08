@@ -6,18 +6,13 @@ use crate::{
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
-use futures::{
-    future::{FutureExt, TryFutureExt},
-    stream,
-    stream::TryStreamExt,
-};
+use futures::{future::TryFutureExt, stream, stream::TryStreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::oneshot::error::TryRecvError;
 use tokio::time::delay_for;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
@@ -290,35 +285,33 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn auto_update(&self, exit: tokio::sync::oneshot::Receiver<()>) {
-        let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
+    pub async fn auto_update(service: Self, mut exit: tokio::sync::oneshot::Receiver<()>) {
+        let update_interval = Duration::from_millis(service.config().auto_update_interval_millis);
 
         loop {
-            let update_future = async move {
-                /*
-                let update_result = self.update().await;
+            let update_future = async {
+                let update_result = service.update().await;
 
                 match update_result {
                     Err(e) => error!(
-                        self.log,
+                        service.log,
                         "Failed to update eth1 cache";
                         "retry_millis" => update_interval.as_millis(),
                         "error" => e,
                     ),
                     Ok((deposit, block)) => debug!(
-                        self.log,
+                        service.log,
                         "Updated eth1 cache";
                         "retry_millis" => update_interval.as_millis(),
                         "blocks" => format!("{:?}", block),
                         "deposits" => format!("{:?}", deposit),
                     ),
                 };
-                */
                 // WARNING: delay_for doesn't return an error and panics on error.
                 delay_for(update_interval).await;
             };
             if let futures::future::Either::Right(_) =
-                futures::future::select(Box::pin(update_future), futures::future::ready(())).await
+                futures::future::select(Box::pin(update_future), &mut exit).await
             {
                 // the exit future returned end
                 break;

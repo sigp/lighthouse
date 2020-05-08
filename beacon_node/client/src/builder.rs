@@ -657,7 +657,7 @@ where
         };
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
-        context.runtime_handle.spawn(backend.start(exit));
+        context.runtime_handle.enter(|| backend.start(exit));
 
         self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
 
