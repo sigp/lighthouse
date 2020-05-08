@@ -113,27 +113,31 @@ where
         client_genesis: ClientGenesis,
         config: ClientConfig,
     ) -> Result<Self, String> {
-        let store = self
-            .store
+        let store = self.store.clone();
+        let store_migrator = self.store_migrator.take();
+        let chain_spec = self.chain_spec.clone();
+        let runtime_context = self.runtime_context.clone();
+        let eth_spec_instance = self.eth_spec_instance.clone();
+        let data_dir = config.data_dir.clone();
+        let disabled_forks = config.disabled_forks.clone();
+
+        let store = store
             .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
-        let store_migrator = self
-            .store_migrator
+        let store_migrator = store_migrator
             .ok_or_else(|| "beacon_chain_start_method requires a store migrator".to_string())?;
-        let context = self
-            .runtime_context
+        let context = runtime_context
             .ok_or_else(|| "beacon_chain_start_method requires a runtime context".to_string())?
             .service_context("beacon".into());
-        let spec = self
-            .chain_spec
+        let spec = chain_spec
             .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
-        let builder = BeaconChainBuilder::new(self.eth_spec_instance)
+        let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log.clone())
             .store(store)
             .store_migrator(store_migrator)
-            .data_dir(config.data_dir)
+            .data_dir(data_dir)
             .custom_spec(spec.clone())
-            .disabled_forks(config.disabled_forks);
+            .disabled_forks(disabled_forks);
 
         let chain_exists = builder
             .store_contains_beacon_chain()
@@ -286,6 +290,7 @@ where
             network_chan: network_send,
         };
 
+        let log = context.log.clone();
         let (exit_channel, listening_addr) = context.runtime_handle.enter(|| {
             rest_api::start_server(
                 &client_config.rest_api,
@@ -298,7 +303,7 @@ where
                     .create_freezer_db_path()
                     .map_err(|_| "unable to read freezer DB dir")?,
                 eth2_config.clone(),
-                context.log,
+                log,
             )
             .map_err(|e| format!("Failed to start HTTP API: {:?}", e))
         })?;
