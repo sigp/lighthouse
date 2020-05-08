@@ -75,8 +75,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     ///
     /// The `Runtime` used is just the standard tokio runtime.
     pub fn multi_threaded_tokio_runtime(mut self) -> Result<Self, String> {
-        self.runtime =
-            Some(Runtime::new().map_err(|e| format!("Failed to start runtime: {:?}", e))?);
+        self.runtime = Some(
+            RuntimeBuilder::new()
+                .threaded_scheduler()
+                .enable_all()
+                .build()
+                .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
+        );
         Ok(self)
     }
 
@@ -87,7 +92,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     pub fn single_thread_tokio_runtime(mut self) -> Result<Self, String> {
         self.runtime = Some(
             RuntimeBuilder::new()
-                .core_threads(1)
+                .basic_scheduler()
+                .enable_all()
                 .build()
                 .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
         );
