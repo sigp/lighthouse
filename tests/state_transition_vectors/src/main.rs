@@ -14,11 +14,7 @@ use types::{BeaconState, ChainSpec, EthSpec, SignedBeaconBlock};
 
 type E = MainnetEthSpec;
 
-pub const NUM_DEPOSITS: u64 = 1;
-
 pub const VALIDATOR_COUNT: usize = 64;
-pub const EPOCH_OFFSET: u64 = 4;
-pub const NUM_ATTESTATIONS: u64 = 1;
 
 /// The base output directory for test vectors.
 pub const BASE_VECTOR_DIR: &str = "vectors";

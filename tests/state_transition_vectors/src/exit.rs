@@ -47,10 +47,10 @@ impl ExitTest {
 
     fn process(
         block: &SignedBeaconBlock<E>,
-        mut state: &mut BeaconState<E>,
+        state: &mut BeaconState<E>,
     ) -> Result<(), BlockProcessingError> {
         per_block_processing(
-            &mut state,
+            state,
             block,
             None,
             BlockSignatureStrategy::VerifyIndividual,
@@ -96,7 +96,7 @@ vectors_and_tests!(
     valid_single_exit,
     ExitTest::default(),
     // Tests three exists in the same block.
-    valid_three_exists,
+    valid_three_exits,
     ExitTest {
         builder_modifier: Box::new(|builder| {
             builder
