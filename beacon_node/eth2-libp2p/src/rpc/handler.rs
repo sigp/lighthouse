@@ -75,8 +75,16 @@ where
 
     /// Map of outbound substreams that need to be driven to completion. The `RequestId` is
     /// maintained by the application sending the request.
-    outbound_substreams:
-        FnvHashMap<OutboundRequestId, (OutboundSubstreamState<TSpec>, delay_queue::Key, Protocol)>,
+    /// For Responses with multiple expected response chunks a counter is added to be able to terminate the stream when the expected number has been received
+    outbound_substreams: FnvHashMap<
+        OutboundRequestId,
+        (
+            OutboundSubstreamState<TSpec>,
+            delay_queue::Key,
+            Protocol,
+            Option<u64>,
+        ),
+    >,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<OutboundRequestId>,
@@ -366,10 +374,15 @@ where
                 substream: out,
                 request,
             };
-            if let Some(_) = self
-                .outbound_substreams
-                .insert(id, (awaiting_stream, delay_key, protocol))
-            {
+            let response_chunk_count: Option<u64> = match protocol {
+                Protocol::BlocksByRange => Some(0),
+                Protocol::BlocksByRoot => Some(0),
+                _ => None,
+            };
+            if let Some(_) = self.outbound_substreams.insert(
+                id,
+                (awaiting_stream, delay_key, protocol, response_chunk_count),
+            ) {
                 crit!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
             }
         }
@@ -815,8 +828,48 @@ where
                                             request,
                                         };
                                     let delay_key = &entry.get().1;
-                                    self.outbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                    let number_of_received_chunks_for_this_stream: u64 =
+                                        match &entry.get().3 {
+                                            Some(count) => count + 1,
+                                            // There should always be a count here, but if not we can simply set it to 0
+                                            None => 0,
+                                        };
+                                    let protocol = &entry.get().2;
+                                    let maximum_allowed_number_of_chunks_for_this_request: u64 =
+                                        match protocol {
+                                            Protocol::BlocksByRange => {
+                                                if let RPCRequest::BlocksByRange(req) = request {
+                                                    req.count
+                                                } else {
+                                                    0
+                                                }
+                                            }
+                                            Protocol::BlocksByRoot => {
+                                                if let RPCRequest::BlocksByRoot(req) = request {
+                                                    req.block_roots.len() as u64
+                                                } else {
+                                                    0
+                                                }
+                                            }
+                                            _ => 0,
+                                        };
+                                    // close the stream if something went wrong in the match statement above
+                                    // Such as a wrong request type being passed in somehow, or if all requested chunks have been received
+                                    if maximum_allowed_number_of_chunks_for_this_request == 0
+                                        || number_of_received_chunks_for_this_stream
+                                            == maximum_allowed_number_of_chunks_for_this_request
+                                    {
+                                        entry.get_mut().0 =
+                                            OutboundSubstreamState::Closing(substream);
+                                    } else {
+                                        // If the response chunk was expected increase the amount of received chunks and reset the Timeout
+                                        entry.get_mut().3 =
+                                            Some(number_of_received_chunks_for_this_stream);
+                                        self.outbound_substreams_delay.reset(
+                                            delay_key,
+                                            Duration::from_secs(RESPONSE_TIMEOUT),
+                                        );
+                                    }
                                 } else {
                                     // either this is a single response request or we received an
                                     // error
