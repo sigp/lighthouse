@@ -18,3 +18,5 @@ tiny-bip39 = "0.7.3"
 
 [dev-dependencies]
 hex = "0.3"
+eth2_ssz = { path = "../ssz" }
+tempfile = "3.1.0"

@@ -5,8 +5,6 @@ use crate::{
     },
     KeyType, ValidatorPath,
 };
-use bip39::{Mnemonic, Seed as Bip39Seed};
-use eth2_key_derivation::DerivedKey;
 use eth2_keystore::{
     decrypt, default_kdf, encrypt, keypair_from_secret, Keystore, KeystoreBuilder, IV_SIZE,
     SALT_SIZE,
@@ -16,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use uuid::Uuid;
 
+pub use bip39::{Mnemonic, Seed as Bip39Seed};
+pub use eth2_key_derivation::DerivedKey;
 pub use eth2_keystore::{Error as KeystoreError, PlainText};
 
 #[derive(Debug, PartialEq)]
@@ -23,12 +23,22 @@ pub enum Error {
     KeystoreError(KeystoreError),
     PathExhausted,
     EmptyPassword,
+    EmptySeed,
 }
 
 impl From<KeystoreError> for Error {
     fn from(e: KeystoreError) -> Error {
         Error::KeystoreError(e)
     }
+}
+
+/// Contains the two keystores required for an eth2 validator.
+pub struct ValidatorKeystores {
+    /// Contains the secret key used for signing every-day consensus messages (blocks,
+    /// attestations, etc).
+    pub voting: Keystore,
+    /// Contains the secret key that should eventually be required for withdrawing stacked ETH.
+    pub withdrawal: Keystore,
 }
 
 /// Constructs a `Keystore`.
@@ -56,6 +66,7 @@ impl<'a> WalletBuilder<'a> {
         password: &'a [u8],
         name: String,
     ) -> Result<Self, Error> {
+        // TODO: `bip39` does not use zeroize. Perhaps we should make a PR upstream?
         let seed = Bip39Seed::new(mnemonic, "");
 
         Self::from_seed_bytes(seed.as_bytes(), password, name)
@@ -68,7 +79,9 @@ impl<'a> WalletBuilder<'a> {
     /// Returns `Error::EmptyPassword` if `password == ""`.
     pub fn from_seed_bytes(seed: &[u8], password: &'a [u8], name: String) -> Result<Self, Error> {
         if password.is_empty() {
-            Err(KeystoreError::EmptyPassword.into())
+            Err(Error::EmptyPassword)
+        } else if seed.is_empty() {
+            Err(Error::EmptySeed)
         } else {
             let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
             let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
@@ -83,18 +96,6 @@ impl<'a> WalletBuilder<'a> {
                 name,
             })
         }
-    }
-
-    /// Specify a custom `kdf` (key derivation function) with which to encrypt the wallet.
-    pub fn kdf(mut self, kdf: Kdf) -> Self {
-        self.kdf = kdf;
-        self
-    }
-
-    /// Specify a custom `cipher` with which to encrypt the wallet.
-    pub fn cipher(mut self, cipher: Cipher) -> Self {
-        self.cipher = cipher;
-        self
     }
 
     /// Consumes `self`, returning an encrypted `Wallet`.
@@ -172,21 +173,31 @@ impl Wallet {
     /// - If `wallet_password` is unable to decrypt `self`.
     /// - If `keystore_password.is_empty()`.
     /// - If `self.nextaccount == u32::max_value() - 1`.
-    pub fn next_voting_keystore(
+    pub fn next_validator(
         &mut self,
         wallet_password: &[u8],
-        keystore_password: &[u8],
-    ) -> Result<Keystore, Error> {
-        let (secret, path) = recover_validator_secret(
-            &self,
-            wallet_password,
-            self.json.nextaccount,
-            KeyType::Voting,
-        )?;
-        let keypair = keypair_from_secret(secret.as_bytes())?;
+        voting_keystore_password: &[u8],
+        withdrawal_keystore_password: &[u8],
+    ) -> Result<ValidatorKeystores, Error> {
+        // Helper closure to reduce code duplication when generating keys.
+        //
+        // It is not a function on `self` to help protect against generating keys without
+        // incrementing `nextaccount`.
+        let derive = |key_type: KeyType, password: &[u8]| -> Result<Keystore, Error> {
+            let (secret, path) =
+                recover_validator_secret(&self, wallet_password, self.json.nextaccount, key_type)?;
 
-        let keystore =
-            KeystoreBuilder::new(&keypair, keystore_password, format!("{}", path))?.build()?;
+            let keypair = keypair_from_secret(secret.as_bytes())?;
+
+            KeystoreBuilder::new(&keypair, password, format!("{}", path))?
+                .build()
+                .map_err(Into::into)
+        };
+
+        let keystores = ValidatorKeystores {
+            voting: derive(KeyType::Voting, voting_keystore_password)?,
+            withdrawal: derive(KeyType::Withdrawal, withdrawal_keystore_password)?,
+        };
 
         self.json.nextaccount = self
             .json
@@ -194,7 +205,29 @@ impl Wallet {
             .checked_add(1)
             .ok_or_else(|| Error::PathExhausted)?;
 
-        Ok(keystore)
+        Ok(keystores)
+    }
+
+    /// Returns the value of the JSON wallet `nextaccount` field.
+    ///
+    /// This will be the index of the next wallet generated with `Self::next_validator`.
+    pub fn nextaccount(&self) -> u32 {
+        self.json.nextaccount
+    }
+
+    /// Returns the value of the JSON wallet `name` field.
+    pub fn name(&self) -> &str {
+        &self.json.name
+    }
+
+    /// Returns the value of the JSON wallet `uuid` field.
+    pub fn uuid(&self) -> &Uuid {
+        &self.json.uuid
+    }
+
+    /// Returns the value of the JSON wallet `type` field.
+    pub fn type_field(&self) -> String {
+        self.json.type_field.clone().into()
     }
 
     /// Returns the master seed of this wallet. Care should be taken not to leak this seed.
