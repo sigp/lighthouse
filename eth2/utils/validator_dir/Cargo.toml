@@ -1,0 +1,15 @@
+[package]
+name = "validator_dir"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eth2_wallet = { path = "../eth2_wallet" }
+bls = { path = "../bls" }
+eth2_keystore = { path = "../eth2_keystore" }
+types = { path = "../../types" }
+rand = "0.7.2"
+deposit_contract = { path = "../deposit_contract" }
