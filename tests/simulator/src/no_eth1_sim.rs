@@ -1,6 +1,6 @@
 use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
-use futures::{future, stream, Future, Stream};
+use futures::prelude::*;
 use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
 };
@@ -63,88 +63,61 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
-    let future = LocalNetwork::new(context, beacon_config.clone())
+    let main_future = async {
+        let network = LocalNetwork::new(context, beacon_config.clone()).await?;
         /*
          * One by one, add beacon nodes to the network.
          */
-        .and_then(move |network| {
-            let network_1 = network.clone();
 
-            stream::unfold(0..node_count - 1, move |mut iter| {
-                iter.next().map(|_| {
-                    network_1
-                        .add_beacon_node(beacon_config.clone())
-                        .map(|()| ((), iter))
-                })
-            })
-            .collect()
-            .map(|_| network)
-        })
+        for _ in 0..node_count - 1 {
+            network.add_beacon_node(beacon_config.clone()).await?;
+        }
         /*
          * One by one, add validator clients to the network. Each validator client is attached to
          * a single corresponding beacon node.
          */
-        .and_then(move |network| {
-            let network_1 = network.clone();
 
-            // Note: presently the validator client future will only resolve once genesis time
-            // occurs. This is great for this scenario, but likely to change in the future.
-            //
-            // If the validator client future behaviour changes, we would need to add a new future
-            // that delays until genesis. Otherwise, all of the checks that start in the next
-            // future will start too early.
+        // Note: presently the validator client future will only resolve once genesis time
+        // occurs. This is great for this scenario, but likely to change in the future.
+        //
+        // If the validator client future behaviour changes, we would need to add a new future
+        // that delays until genesis. Otherwise, all of the checks that start in the next
+        // future will start too early.
 
-            stream::unfold(0..node_count, move |mut iter| {
-                iter.next().map(|i| {
-                    let indices = (i * validators_per_node..(i + 1) * validators_per_node)
-                        .collect::<Vec<_>>();
-
-                    network_1
-                        .add_validator_client(ValidatorConfig::default(), i, indices)
-                        .map(|()| ((), iter))
-                })
-            })
-            .collect()
-            .map(|_| network)
-        })
+        for i in 0..node_count {
+            let indices =
+                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+            network
+                .add_validator_client(ValidatorConfig::default(), i, indices)
+                .await?;
+        }
         /*
          * Start the processes that will run checks on the network as it runs.
          */
-        .and_then(move |network| {
-            // The `final_future` either completes immediately or never completes, depending on the value
-            // of `end_after_checks`.
-            let final_future: Box<dyn Future<Item = (), Error = String> + Send> =
-                if end_after_checks {
-                    Box::new(future::ok(()).map_err(|()| "".to_string()))
-                } else {
-                    Box::new(future::empty().map_err(|()| "".to_string()))
-                };
+        // Check that the chain finalizes at the first given opportunity.
+        checks::verify_first_finalization(network.clone(), slot_duration).await?;
 
-            future::ok(())
-                // Check that the chain finalizes at the first given opportunity.
-                .join(checks::verify_first_finalization(
-                    network.clone(),
-                    slot_duration,
-                ))
-                // End now or run forever, depending on the `end_after_checks` flag.
-                .join(final_future)
-                .map(|_| network)
-        })
+        // The `final_future` either completes immediately or never completes, depending on the value
+        // of `end_after_checks`.
+
+        if !end_after_checks {
+            future::pending::<()>().await;
+        }
         /*
          * End the simulation by dropping the network. This will kill all running beacon nodes and
          * validator clients.
          */
-        .map(|network| {
-            println!(
-                "Simulation complete. Finished with {} beacon nodes and {} validator clients",
-                network.beacon_node_count(),
-                network.validator_client_count()
-            );
+        println!(
+            "Simulation complete. Finished with {} beacon nodes and {} validator clients",
+            network.beacon_node_count(),
+            network.validator_client_count()
+        );
 
-            // Be explicit about dropping the network, as this kills all the nodes. This ensures
-            // all the checks have adequate time to pass.
-            drop(network)
-        });
+        // Be explicit about dropping the network, as this kills all the nodes. This ensures
+        // all the checks have adequate time to pass.
+        drop(network);
+        Ok::<(), String>(())
+    };
 
-    env.runtime().block_on(future)
+    Ok(env.runtime().block_on(main_future).unwrap())
 }

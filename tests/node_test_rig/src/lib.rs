@@ -4,7 +4,6 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use futures::Future;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempdir::TempDir;
@@ -40,10 +39,12 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         client_config.data_dir = datadir.path().into();
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        ProductionBeaconNode::new(context, client_config).await.map(move |client| Self {
-            client: client.into_inner(),
-            datadir,
-        })
+        ProductionBeaconNode::new(context, client_config)
+            .await
+            .map(move |client| Self {
+                client: client.into_inner(),
+                datadir,
+            })
     }
 }
 
@@ -126,7 +127,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     pub async fn production(
         context: RuntimeContext<E>,
         config: ValidatorConfig,
-    ) -> Result<Self,String> {
+    ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse-validator")
             .expect("should create temp directory for client datadir");
@@ -141,11 +142,13 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     ) -> Result<Self, String> {
         config.data_dir = datadir.path().into();
 
-        ProductionValidatorClient::new(context, config).await.map(move |mut client| {
-            client
-                .start_service()
-                .expect("should start validator services");
-            Self { client, datadir }
-        })
+        ProductionValidatorClient::new(context, config)
+            .await
+            .map(move |mut client| {
+                client
+                    .start_service()
+                    .expect("should start validator services");
+                Self { client, datadir }
+            })
     }
 }
