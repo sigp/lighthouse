@@ -94,9 +94,7 @@ impl Eth1GenesisService {
         loop {
             // **WARNING** `delay_for` panics on error
             delay_for(update_interval).await;
-            let update_result = self
-                .core
-                .update_deposit_cache()
+            let update_result = Service::update_deposit_cache(self.core.clone())
                 .await
                 .map_err(|e| format!("{:?}", e));
 
@@ -134,7 +132,7 @@ impl Eth1GenesisService {
 
             let should_update_block_cache = *sync_blocks;
             if should_update_block_cache {
-                let update_result = self.core.update_block_cache().await;
+                let update_result = Service::update_block_cache(self.core.clone()).await;
                 if let Err(e) = update_result {
                     error!(
                         log,

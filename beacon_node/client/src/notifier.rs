@@ -43,7 +43,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let interval_duration = slot_duration;
 
     let speedo = Mutex::new(Speedo::default());
-    let interval = tokio::time::interval_at(start_instant, interval_duration);
+    let mut interval = tokio::time::interval_at(start_instant, interval_duration);
 
     let interval_future = async move {
         while let Some(_) = interval.next().await {
