@@ -1297,6 +1297,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth2_keystore"
+version = "0.1.0"
+dependencies = [
+ "bls",
+ "eth2_ssz",
+ "hex 0.3.2",
+ "rand 0.7.3",
+ "rust-crypto",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "tempfile",
+ "uuid 0.8.1",
+ "zeroize 1.1.0",
+]
+
+[[package]]
 name = "eth2_ssz"
 version = "0.1.2"
 dependencies = [
@@ -3550,7 +3567,7 @@ dependencies = [
  "tokio-threadpool",
  "tokio-timer 0.2.13",
  "url 1.7.2",
- "uuid",
+ "uuid 0.7.4",
  "winreg",
 ]
 
@@ -3651,6 +3668,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-crypto"
+version = "0.2.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f76d05d3993fd5f4af9434e8e436db163a12a9d40e1a58a726f27a01dfd12a2a"
+dependencies = [
+ "gcc",
+ "libc",
+ "rand 0.3.23",
+ "rustc-serialize",
+ "time",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3661,6 +3691,12 @@ name = "rustc-hex"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e75f6a532d0fd9f7f13144f392b6ad56a32696bfcd9c78f797f16bbb6f072d6"
+
+[[package]]
+name = "rustc-serialize"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
 name = "rustc_version"
@@ -4199,9 +4235,9 @@ dependencies = [
 name = "state_transition_vectors"
 version = "0.1.0"
 dependencies = [
- "eth2_ssz 0.1.2",
- "state_processing 0.2.0",
- "types 0.2.0",
+ "eth2_ssz",
+ "state_processing",
+ "types",
 ]
 
 [[package]]
@@ -4984,6 +5020,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "uuid"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fde2f6a4bea1d6e007c4ad38c6839fa71cbb63b6dbf5b595aa38dc9b1093c11"
+dependencies = [
+ "rand 0.7.3",
+ "serde",
+]
+
+[[package]]
 name = "validator_client"
 version = "0.2.0"
 dependencies = [
@@ -5424,7 +5470,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e68403b858b6af538b11614e62dfe9ab2facba9f13a0cafb974855cfb495ec95"
 dependencies = [
- "zeroize_derive",
+ "zeroize_derive 0.1.0",
 ]
 
 [[package]]
@@ -5432,6 +5478,9 @@ name = "zeroize"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cbac2ed2ba24cc90f5e06485ac8c7c1e5449fe8911aef4d8877218af021a5b8"
+dependencies = [
+ "zeroize_derive 1.0.0",
+]
 
 [[package]]
 name = "zeroize_derive"
@@ -5442,4 +5491,16 @@ dependencies = [
  "proc-macro2 0.4.30",
  "quote 0.6.13",
  "syn 0.15.44",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de251eec69fc7c1bc3923403d18ececb929380e016afe103da75f396704f8ca2"
+dependencies = [
+ "proc-macro2 1.0.12",
+ "quote 1.0.4",
+ "syn 1.0.19",
+ "synstructure",
 ]

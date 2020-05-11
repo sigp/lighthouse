@@ -338,7 +338,10 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             // Reference:
             //
             // https://www.ietf.org/rfc/rfc2898.txt
-            if params.c == 0 {
+            //
+            // Additionally, we always compute a derived key of 32 bytes so reject anything that
+            // says otherwise.
+            if params.c == 0 || params.dklen != DKLEN {
                 return Err(Error::InvalidPbkdf2Param);
             }
 
@@ -360,8 +363,9 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             //
             // https://tools.ietf.org/html/rfc7914
             //
-            // `params.n <= 1` is to protect against a not-power-of-two panic.
-            if params.n <= 1 || params.r == 0 || params.p == 0 {
+            // Additionally, we always compute a derived key of 32 bytes so reject anything that
+            // says otherwise.
+            if params.n <= 1 || params.r == 0 || params.p == 0 || params.dklen != DKLEN {
                 return Err(Error::InvalidScryptParam);
             }
 
