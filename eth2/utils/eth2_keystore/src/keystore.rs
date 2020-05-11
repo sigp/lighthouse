@@ -365,8 +365,10 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 return Err(Error::InvalidScryptParam);
             }
 
-            // Assert that `n` is power of 2.
-            debug_assert_eq!(params.n, 2u32.pow(log2_int(params.n)));
+            // Ensure that `n` is power of 2.
+            if params.n != 2u32.pow(log2_int(params.n)) {
+                return Err(Error::InvalidScryptParam);
+            }
 
             crypto::scrypt::scrypt(
                 password,
