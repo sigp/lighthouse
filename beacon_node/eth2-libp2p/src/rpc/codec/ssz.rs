@@ -4,10 +4,10 @@ use crate::rpc::{
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version},
 };
 use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
+use futures_codec::{Decoder, Encoder};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
-use futures_codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::UviBytes;
 
@@ -40,11 +40,7 @@ impl<TSpec: EthSpec> Encoder for SSZInboundCodec<TSpec> {
     type Item = RPCCodedResponse<TSpec>;
     type Error = RPCError;
 
-    fn encode(
-        &mut self,
-        item: Self::Item,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),

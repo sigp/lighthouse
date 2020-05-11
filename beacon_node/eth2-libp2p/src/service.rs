@@ -261,8 +261,8 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
                 }) => {
                     debug!(log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining)
                 }
-                Poll::Ready(SwarmEvent::UnknownPeerUnreachableAddr { address, .. }) => {
-                    debug!(log, "Peer not known at dialed address"; "address" => address.to_string())
+                Poll::Ready(SwarmEvent::UnknownPeerUnreachableAddr { address, error }) => {
+                    debug!(log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string())
                 }
                 Poll::Ready(SwarmEvent::ExpiredListenAddr(multiaddr)) => {
                     debug!(log, "Listen address expired"; "multiaddr" => multiaddr.to_string())

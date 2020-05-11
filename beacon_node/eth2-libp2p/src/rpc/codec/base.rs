@@ -1,10 +1,10 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
 use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
+use futures_codec::{Decoder, Encoder};
 use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use std::marker::PhantomData;
-use futures_codec::{Decoder, Encoder};
 use types::EthSpec;
 
 pub trait OutboundCodec: Encoder + Decoder {
@@ -78,16 +78,12 @@ where
 impl<TCodec, TSpec> Encoder for BaseInboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec: Decoder + Encoder,
+    TCodec: Decoder + Encoder<Item = RPCCodedResponse<TSpec>>,
 {
-    type Item = RPCCodedResponse<TSpec>;
+    type Item = <TCodec as Encoder>::Item;
     type Error = <TCodec as Encoder>::Error;
 
-    fn encode(
-        &mut self,
-        item: Self::Item,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.clear();
         dst.reserve(1);
         dst.put_u8(
@@ -132,8 +128,7 @@ where
 impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec: OutboundCodec<ErrorType = ErrorMessage>
-        + Decoder<Item = RPCResponse<TSpec>>,
+    TCodec: OutboundCodec<ErrorType = ErrorMessage> + Decoder<Item = RPCResponse<TSpec>>,
 {
     type Item = RPCCodedResponse<TSpec>;
     type Error = <TCodec as Decoder>::Error;

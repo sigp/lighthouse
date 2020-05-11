@@ -2,8 +2,9 @@
 use eth2_libp2p::Enr;
 use eth2_libp2p::EnrExt;
 use eth2_libp2p::Multiaddr;
-use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
+use eth2_libp2p::{Libp2pEvent, NetworkConfig};
+use futures::prelude::*;
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
 use std::time::Duration;
@@ -124,14 +125,43 @@ pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
-pub fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PService<E>) {
+pub async fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PService<E>) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
     let mut sender = build_libp2p_instance(vec![], None, sender_log);
-    let receiver = build_libp2p_instance(vec![], None, receiver_log);
+    let mut receiver = build_libp2p_instance(vec![], None, receiver_log);
 
     let receiver_multiaddr = receiver.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
+
+    // let the two nodes set up listeners
+    let sender_fut = async {
+        loop {
+            while let Some(event) = sender.next().await {
+                if let Libp2pEvent::NewListenAddr(_) = event {
+                    return;
+                }
+            }
+        }
+    };
+    let receiver_fut = async {
+        loop {
+            while let Some(event) = receiver.next().await {
+                if let Libp2pEvent::NewListenAddr(_) = event {
+                    return;
+                }
+            }
+        }
+    };
+
+    let joined = futures::future::join(sender_fut, receiver_fut);
+
+    // wait for either both nodes to listen or a timeout
+    tokio::select! {
+        _  = tokio::time::delay_for(Duration::from_millis(500)) => {}
+        _ = joined => {}
+    }
+
     match libp2p::Swarm::dial_addr(&mut sender.swarm, receiver_multiaddr.clone()) {
         Ok(()) => {
             debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))

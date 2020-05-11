@@ -4990,8 +4990,7 @@ name = "unsigned-varint"
 version = "0.3.3"
 source = "git+https://github.com/sigp/unsigned-varint?branch=latest-codecs#76fc423494e59f1ec4c8948bd0d3ae3c09851909"
 dependencies = [
- "bytes 0.5.4",
- "tokio-util",
+ "futures_codec 0.4.0",
 ]
 
 [[package]]

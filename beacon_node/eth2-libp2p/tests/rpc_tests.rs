@@ -1,7 +1,7 @@
 #![cfg(test)]
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{BehaviourEvent, RPCEvent};
+use eth2_libp2p::{BehaviourEvent, Libp2pEvent, RPCEvent};
 use futures::prelude::*;
 use slog::{debug, error, warn, Level};
 use std::sync::{Arc, Mutex};
@@ -26,8 +26,8 @@ async fn test_status_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log);
 
+    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
     // Dummy STATUS RPC message
     let rpc_request = RPCRequest::Status(StatusMessage {
         fork_digest: [0; 4],
@@ -46,65 +46,75 @@ async fn test_status_rpc() {
         head_slot: Slot::new(1),
     });
 
-    // build the sender future
-    let sender_future = async {
-        while let Some(sender_event) = sender.next().await {
-            match sender_event {
-                Ok(BehaviourEvent::PeerDialed(peer_id)) => {
-                    // Send a STATUS message
-                    debug!(log, "Sending RPC");
-                    sender
-                        .swarm
-                        .send_rpc(peer_id, RPCEvent::Request(1, rpc_request.clone()));
-                }
-                Ok(BehaviourEvent::RPC(_, event)) => match event {
-                    // Should receive the RPC response
-                    RPCEvent::Response(id, response @ RPCCodedResponse::Success(_)) => {
-                        if id == 1 {
-                            debug!(log, "Sender Received");
-                            let response = {
-                                match response {
-                                    RPCCodedResponse::Success(r) => r,
-                                    _ => unreachable!(),
-                                }
-                            };
-                            assert_eq!(response, rpc_response.clone());
+    let rpc_req = rpc_request.clone();
+    let rpc_resp = rpc_response.clone();
+    let log1 = log.clone();
 
-                            debug!(log, "Sender Completed");
-                            return;
-                        }
+    // build the sender future
+    let sender_future = async move {
+        loop {
+            while let Some(sender_event) = sender.next().await {
+                match sender_event {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                        // Send a STATUS message
+                        debug!(log, "Sending RPC");
+                        sender
+                            .swarm
+                            .send_rpc(peer_id, RPCEvent::Request(1, rpc_request.clone()));
                     }
-                    e => panic!("Received invalid RPC message {}", e),
-                },
-                Err(e) => error!(log, "Error in sender: {}", e),
-                x => debug!(log, "Event:"; "e:"=> format!("{:?}",x)), // ignore other events
+                    Libp2pEvent::ConnectionEstablished { .. } => {
+                        debug!(log, "Connection established");
+                    }
+                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
+                        // Should receive the RPC response
+                        RPCEvent::Response(id, response @ RPCCodedResponse::Success(_)) => {
+                            if id == 1 {
+                                debug!(log, "Sender Received");
+                                let response = {
+                                    match response {
+                                        RPCCodedResponse::Success(r) => r,
+                                        _ => unreachable!(),
+                                    }
+                                };
+                                assert_eq!(response, rpc_response.clone());
+
+                                debug!(log, "Sender Completed");
+                            }
+                        }
+                        e => panic!("Received invalid RPC message {}", e),
+                    },
+                    x => debug!(log, "Sender Event:"; "e:"=> format!("{:?}",x)), // ignore other events
+                }
             }
         }
     };
 
     // build the receiver future
-    let receiver_future = async {
-        while let Some(recv_event) = receiver.next().await {
-            match recv_event {
-                Ok(BehaviourEvent::RPC(peer_id, event)) => match event {
-                    // Should receive sent RPC request
-                    RPCEvent::Request(id, request) => {
-                        if request == rpc_request {
-                            // send the response
-                            debug!(log, "Receiver Received");
-                            receiver.swarm.send_rpc(
-                                peer_id,
-                                RPCEvent::Response(
-                                    id,
-                                    RPCCodedResponse::Success(rpc_response.clone()),
-                                ),
-                            );
+    let receiver_future = async move {
+        loop {
+            while let Some(recv_event) = receiver.next().await {
+                match recv_event {
+                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
+                        match event {
+                            // Should receive sent RPC request
+                            RPCEvent::Request(id, request) => {
+                                if request == rpc_req {
+                                    // send the response
+                                    debug!(log1, "Receiver Received");
+                                    receiver.swarm.send_rpc(
+                                        peer_id,
+                                        RPCEvent::Response(
+                                            id,
+                                            RPCCodedResponse::Success(rpc_resp.clone()),
+                                        ),
+                                    );
+                                }
+                            }
+                            e => panic!("Received invalid RPC message {}", e),
                         }
                     }
-                    e => panic!("Received invalid RPC message {}", e),
-                },
-                Err(e) => error!(log, "Error in sender: {}", e),
-                _ => {} // ignore other events
+                    x => debug!(log1, "Receiver Event:"; "e:"=> format!("{:?}",x)), // ignore other events
+                }
             }
         }
     };
