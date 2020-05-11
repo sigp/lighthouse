@@ -359,7 +359,9 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             // Reference:
             //
             // https://tools.ietf.org/html/rfc7914
-            if params.n == 0 || params.r == 0 || params.p == 0 {
+            //
+            // `params.n <= 1` is to protect against a not-power-of-two panic.
+            if params.n <= 1 || params.r == 0 || params.p == 0 {
                 return Err(Error::InvalidScryptParam);
             }
 
