@@ -1,5 +1,5 @@
-use crate::{Uuid, Wallet};
 use eth2_wallet::Error as WalletError;
+use eth2_wallet::{Uuid, Wallet};
 use std::fs::{copy as copy_file, remove_file, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
