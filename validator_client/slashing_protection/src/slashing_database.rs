@@ -4,14 +4,13 @@ use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, ValidityReason};
 use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::path::Path;
-use types::{AttestationData, BeaconBlockHeader, Hash256, PublicKey};
-// FIXME(slashing): remove UNIX dependency
-use std::os::unix::fs::PermissionsExt;
 use tree_hash::TreeHash;
+use types::{AttestationData, BeaconBlockHeader, Hash256, PublicKey};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
+type Connection = PooledConnection<SqliteConnectionManager>;
 
 #[derive(Debug, Clone)]
 pub struct SlashingDatabase {
@@ -30,19 +29,19 @@ impl SlashingDatabase {
     /// Create a slashing database at the given path, if none exists.
     pub fn create(path: &Path) -> Result<Self, NotSafe> {
         // Create all tables
+        // TODO: could consider using `create_new`, atm `create` is required by tempfile tests
         let file = OpenOptions::new()
             .write(true)
             .read(true)
-            .create_new(true)
+            .create(true)
             .open(path)?;
 
-        let mut perm = file.metadata()?.permissions();
-        perm.set_mode(0o600);
-        file.set_permissions(perm)?;
+        Self::set_db_file_permissions(&file)?;
 
-        let manager = SqliteConnectionManager::file(path)
-            .with_init(|conn| conn.pragma_update(None, "foreign_keys", &true));
-        let conn_pool = Pool::new(manager)
+        let manager = SqliteConnectionManager::file(path).with_init(Self::apply_pragmas);
+        let conn_pool = Pool::builder()
+            .max_size(1)
+            .build(manager)
             .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {:?}", e)))?;
 
         let conn = conn_pool.get()?;
@@ -55,18 +54,17 @@ impl SlashingDatabase {
             params![],
         )?;
 
-        // FIXME(slashing): consider unique (validator_id, slot)
         conn.execute(
             "CREATE TABLE signed_blocks (
                 validator_id INTEGER NOT NULL,
                 slot INTEGER NOT NULL,
                 signing_root BLOB NOT NULL,
                 FOREIGN KEY(validator_id) REFERENCES validators(id)
+                UNIQUE (validator_id, slot)
             )",
             params![],
         )?;
 
-        // FIXME(slashing): consider uniqueness and index
         conn.execute(
             "CREATE TABLE signed_attestations (
                 validator_id INTEGER,
@@ -74,6 +72,7 @@ impl SlashingDatabase {
                 target_epoch INTEGER NOT NULL,
                 signing_root BLOB NOT NULL,
                 FOREIGN KEY(validator_id) REFERENCES validators(id)
+                UNIQUE (validator_id, target_epoch)
             )",
             params![],
         )?;
@@ -83,12 +82,38 @@ impl SlashingDatabase {
 
     /// Open an existing `SlashingDatabase` from disk.
     pub fn open(path: &Path) -> Result<Self, NotSafe> {
-        let manager = SqliteConnectionManager::file(path)
-            .with_init(|conn| conn.pragma_update(None, "foreign_keys", &true));
+        let manager = SqliteConnectionManager::file(path).with_init(Self::apply_pragmas);
         let conn_pool = Pool::new(manager)
             .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {:?}", e)))?;
         Ok(Self { conn_pool })
     }
+
+    /// Apply the necessary settings to an SQLite connection.
+    ///
+    /// Most importantly, put the database into exclusive locking mode, so that threads are forced
+    /// to serialise all DB access (to prevent slashable data being checked and signed in parallel).
+    /// The exclusive locking mode also has the benefit of applying to other processes, so multiple
+    /// Lighthouse processes trying to access the same database will also be blocked.
+    fn apply_pragmas(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
+        conn.pragma_update(None, "foreign_keys", &true)?;
+        conn.pragma_update(None, "locking_mode", &"EXCLUSIVE")?;
+        Ok(())
+    }
+
+    /// Set the database file to readable and writable only by its owner (0600).
+    #[cfg(unix)]
+    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut perm = file.metadata()?.permissions();
+        perm.set_mode(0o600);
+        file.set_permissions(perm)?;
+        Ok(())
+    }
+
+    // TODO: add support for Windows ACLs
+    #[cfg(windows)]
+    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {}
 
     /// Register a validator with the slashing protection database.
     ///
@@ -96,7 +121,14 @@ impl SlashingDatabase {
     /// for slashings.
     pub fn register_validator(&self, validator_pk: &PublicKey) -> Result<(), NotSafe> {
         let conn = self.conn_pool.get()?;
+        self.register_validator_from_conn(&conn, validator_pk)
+    }
 
+    fn register_validator_from_conn(
+        &self,
+        conn: &Connection,
+        validator_pk: &PublicKey,
+    ) -> Result<(), NotSafe> {
         conn.execute(
             "INSERT INTO validators (public_key) VALUES (?1)",
             params![validator_pk.as_hex_string()],
@@ -105,10 +137,7 @@ impl SlashingDatabase {
         Ok(())
     }
 
-    pub fn get_validator_id(
-        connection: &PooledConnection<SqliteConnectionManager>,
-        public_key: &PublicKey,
-    ) -> Result<i64, NotSafe> {
+    fn get_validator_id(connection: &Connection, public_key: &PublicKey) -> Result<i64, NotSafe> {
         connection
             .query_row(
                 "SELECT id FROM validators WHERE public_key = ?1",
@@ -119,50 +148,12 @@ impl SlashingDatabase {
             .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
     }
 
-    pub fn check_block_proposal(
+    fn check_block_proposal(
         &self,
+        conn: &Connection,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
     ) -> Result<Safe, NotSafe> {
-        let conn = self.conn_pool.get()?;
-
-        // Checking if history is empty
-        // FIXME(slashing): check efficacy of these optimisations
-        /*
-        let mut empty_select = conn.prepare("SELECT 1 FROM signed_blocks LIMIT 1")?;
-        if !empty_select.exists(params![])? {
-            return Ok(Safe {
-                reason: ValidityReason::EmptyHistory,
-            });
-        }
-
-        // Short-circuit: checking if the incoming block has a higher slot than the maximum slot
-        // in the DB.
-        let mut latest_block_select =
-            conn.prepare("SELECT MAX(slot), signing_root FROM signed_blocks")?;
-        let latest_block = latest_block_select.query_row(params![], |row| {
-            let slot = row.get(0)?;
-            let signing_bytes: Vec<u8> = row.get(1)?;
-            let signing_root = Hash256::from_slice(&signing_bytes);
-            Ok(SignedBlock::new(slot, signing_root))
-        })?;
-
-        if block_header.slot > latest_block.slot {
-            return Ok(Safe {
-                reason: ValidityReason::Valid,
-            });
-        }
-
-        // Checking for Pruning Error i.e the incoming block slot is smaller than the minimum slot
-        // signed in the DB.
-        let mut min_select = conn.prepare("SELECT MIN(slot) FROM signed_blocks")?;
-        let oldest_slot: Slot = min_select.query_row(params![], |row| row.get(0))?;
-        if block_header.slot < oldest_slot {
-            // FIXME(slashing): consider renaming
-            return Err(NotSafe::PruningError);
-        }
-        */
-
         let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
 
         let existing_block_root = conn
@@ -199,31 +190,21 @@ impl SlashingDatabase {
         }
     }
 
-    pub fn check_attestation(
+    fn check_attestation(
         &self,
+        conn: &Connection,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
     ) -> Result<Safe, NotSafe> {
         let att_source_epoch = attestation.source.epoch;
         let att_target_epoch = attestation.target.epoch;
-        let conn = self.conn_pool.get()?;
 
-        // Checking if history is empty
-        /* FIXME necessary?
-        let mut empty_select = conn.prepare("SELECT 1 FROM signed_attestations LIMIT 1")?;
-        if !empty_select.exists(params![])? {
-            return Ok(Safe {
-                reason: ValidityReason::EmptyHistory,
-            });
-        }
-        */
+        // FIXME(slashing): check target >= source?
 
         let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
 
         // 1. Check for a double vote. Namely, an existing attestation with the same target epoch,
         //    and a different signing root.
-        // TODO: consider checking invariants here (1 attestation with a given target), or have a
-        // separate invariant check function
         let same_target_att = conn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
@@ -258,70 +239,45 @@ impl SlashingDatabase {
             }
         }
 
-        /*
-        // Checking for PruningError (where attestation's target is smaller than the minimum
-        // target epoch in db)
-        let mut min_select = conn.prepare("SELECT MIN(target_epoch) FROM signed_attestations")?;
-        let min_target_epoch: Epoch = min_select.query_row(params![], |row| row.get(0))?;
-        if att_target_epoch < min_target_epoch {
-            return Err(NotSafe::PruningError);
-        }
-        */
-
-        // 2. Check that no previous votes are surrounding `attestation`.
-        // TODO: simplify this to just return an optional row
-        let surrounding_attestations = conn
+        // 2. Check that no previous vote is surrounding `attestation`.
+        // If there is a surrounding attestation, we only return the most recent one.
+        let surrounding_attestation = conn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
                  FROM signed_attestations
                  WHERE validator_id = ?1 AND source_epoch < ?2 AND target_epoch > ?3
-                 ORDER BY target_epoch DESC",
+                 ORDER BY target_epoch DESC
+                 LIMIT 1",
             )?
-            .query_map(
+            .query_row(
                 params![validator_id, att_source_epoch, att_target_epoch],
-                |row| {
-                    let source = row.get(0)?;
-                    let target = row.get(1)?;
-                    let signing_root: Vec<u8> = row.get(2)?;
-                    Ok(SignedAttestation::new(
-                        source,
-                        target,
-                        Hash256::from_slice(&signing_root[..]),
-                    ))
-                },
-            )?
-            .collect::<Result<Vec<_>, _>>()?;
+                SignedAttestation::from_row,
+            )
+            .optional()?;
 
-        if let Some(prev) = surrounding_attestations.first().cloned() {
+        if let Some(prev) = surrounding_attestation {
             return Err(NotSafe::InvalidAttestation(
                 InvalidAttestation::PrevSurroundsNew { prev },
             ));
         }
 
-        // 3. Check that no previous votes are surrounded by `attestation`.
-        let surrounded_attestations = conn
+        // 3. Check that no previous vote is surrounded by `attestation`.
+        // If there is a surrounded attestation, we only return the most recent one.
+        let surrounded_attestation = conn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
                  FROM signed_attestations
                  WHERE validator_id = ?1 AND source_epoch > ?2 AND target_epoch < ?3
-                 ORDER BY target_epoch DESC",
+                 ORDER BY target_epoch DESC
+                 LIMIT 1",
             )?
-            .query_map(
+            .query_row(
                 params![validator_id, att_source_epoch, att_target_epoch],
-                |row| {
-                    let source = row.get(0)?;
-                    let target = row.get(1)?;
-                    let signing_root: Vec<u8> = row.get(2)?;
-                    Ok(SignedAttestation::new(
-                        source,
-                        target,
-                        Hash256::from_slice(&signing_root[..]),
-                    ))
-                },
-            )?
-            .collect::<Result<Vec<_>, _>>()?;
+                SignedAttestation::from_row,
+            )
+            .optional()?;
 
-        if let Some(prev) = surrounded_attestations.first().cloned() {
+        if let Some(prev) = surrounded_attestation {
             return Err(NotSafe::InvalidAttestation(
                 InvalidAttestation::NewSurroundsPrev { prev },
             ));
@@ -335,11 +291,10 @@ impl SlashingDatabase {
 
     fn insert_block_proposal(
         &self,
+        conn: &Connection,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
     ) -> Result<(), NotSafe> {
-        let conn = self.conn_pool.get()?;
-
         let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
 
         conn.execute(
@@ -356,11 +311,10 @@ impl SlashingDatabase {
 
     fn insert_attestation(
         &self,
+        conn: &Connection,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
     ) -> Result<(), NotSafe> {
-        let conn = self.conn_pool.get()?;
-
         let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
 
         conn.execute(
@@ -381,10 +335,15 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
     ) -> Result<(), NotSafe> {
-        match self.check_block_proposal(validator_pubkey, block_header) {
+        let conn = self.conn_pool.get()?;
+
+        // FIXME(slashing): remove autoregistration
+        self.register_validator_from_conn(&conn, validator_pubkey)?;
+
+        match self.check_block_proposal(&conn, validator_pubkey, block_header) {
             Ok(safe) => match safe.reason {
                 ValidityReason::SameData => Ok(()),
-                _ => self.insert_block_proposal(validator_pubkey, block_header),
+                _ => self.insert_block_proposal(&conn, validator_pubkey, block_header),
             },
             Err(notsafe) => Err(notsafe),
         }
@@ -394,11 +353,18 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
-    ) -> Result<(), NotSafe> {
-        match self.check_attestation(validator_pubkey, attestation) {
+    ) -> Result<Safe, NotSafe> {
+        let conn = self.conn_pool.get()?;
+
+        // FIXME(slashing): remove autoregistration
+        self.register_validator_from_conn(&conn, validator_pubkey)?;
+
+        match self.check_attestation(&conn, validator_pubkey, attestation) {
             Ok(safe) => match safe.reason {
-                ValidityReason::SameData => Ok(()),
-                _ => self.insert_attestation(validator_pubkey, attestation),
+                ValidityReason::SameData => Ok(safe),
+                _ => self
+                    .insert_attestation(&conn, validator_pubkey, attestation)
+                    .map(|()| safe),
             },
             Err(notsafe) => Err(notsafe),
         }

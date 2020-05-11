@@ -1,3 +1,7 @@
+mod attestation_tests;
+// FIXME(slashing) revive block tests
+mod block_tests;
+mod parallel_tests;
 mod signed_attestation;
 mod signed_block;
 mod slashing_database;
@@ -30,35 +34,29 @@ impl From<r2d2::Error> for NotSafe {
 
 impl ToString for NotSafe {
     fn to_string(&self) -> String {
-        format!("{:?}", &self)
+        format!("{:?}", self)
     }
 }
 
 #[derive(PartialEq, Debug)]
 pub enum NotSafe {
-    InvalidAttestation(InvalidAttestation),
-    InvalidBlock(InvalidBlock),
-    PruningError,
-    // No slots_per_epoch was provided whilst using the block proposer protection database
-    NoSlotsPerEpochProvided,
-    // slots_per_epoch was provided whilst using the signed attestation database
-    UnnecessarySlotsPerEpoch,
-    IOError(ErrorKind),
     UnregisteredValidator(PublicKey),
+    InvalidBlock(InvalidBlock),
+    InvalidAttestation(InvalidAttestation),
+    IOError(ErrorKind),
     SQLError(String),
     SQLPoolError(String),
 }
 
 #[derive(PartialEq, Debug)]
 pub enum ValidityReason {
-    // History is empty so inserting is safe
-    EmptyHistory,
     // Casting the exact same data (block or attestation) twice is never slashable.
     SameData,
     // Incoming data is safe from slashing
     Valid,
 }
 
+// FIXME(slashing): flatten ValidityReason into this enum
 #[derive(PartialEq, Debug)]
 pub struct Safe {
     /// Used to check if the attestation is a SameData, in which case it should not get inserted.

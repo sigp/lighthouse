@@ -1,3 +1,5 @@
+// FIXME(slashing): delete this file
+
 use crate::signed_attestation::SignedAttestation;
 use crate::signed_block::SignedBlock;
 use crate::{NotSafe, Safe, ValidityReason};
