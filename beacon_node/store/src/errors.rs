@@ -1,7 +1,7 @@
 use crate::chunked_vector::ChunkError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
-use types::BeaconStateError;
+use types::{BeaconStateError, Hash256};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -12,6 +12,7 @@ pub enum Error {
     HotColdDBError(HotColdDBError),
     DBError { message: String },
     RlpError(String),
+    BlockNotFound(Hash256),
 }
 
 impl From<DecodeError> for Error {

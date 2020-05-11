@@ -3,7 +3,6 @@ use crate::head_tracker::HeadTracker;
 use parking_lot::Mutex;
 use slog::{debug, warn, Logger};
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -49,18 +48,23 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
 
         // Collect hashes from new_finalized_block back to old_finalized_block (inclusive)
         let mut found_block = false; // hack for `take_until`
-        let newly_finalized_blocks: HashMap<SignedBeaconBlockHash, Slot> = HashMap::from_iter(
+        let maybe_newly_finalized_blocks: Result<HashMap<SignedBeaconBlockHash, Slot>, Error> =
             ParentRootBlockIterator::new(&*store, new_finalized_block_hash.into())
-                .take_while(|(block_hash, _)| {
-                    if found_block {
-                        false
-                    } else {
-                        found_block |= *block_hash == old_finalized_block_hash.into();
-                        true
+                .take_while(|result| match result {
+                    Ok((block_hash, _)) => {
+                        if found_block {
+                            false
+                        } else {
+                            found_block |= *block_hash == old_finalized_block_hash.into();
+                            true
+                        }
                     }
+                    Err(_) => true,
                 })
-                .map(|(block_hash, block)| (block_hash.into(), block.slot())),
-        );
+                .map(|result| result.map(|(block_hash, block)| (block_hash.into(), block.slot())))
+                .collect();
+
+        let newly_finalized_blocks = maybe_newly_finalized_blocks?;
 
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.

@@ -2007,9 +2007,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         for (head_hash, _head_slot) in heads {
-            for (block_hash, signed_beacon_block) in
-                ParentRootBlockIterator::new(&*self.store, head_hash)
-            {
+            for maybe_pair in ParentRootBlockIterator::new(&*self.store, head_hash) {
+                let (block_hash, signed_beacon_block) = maybe_pair.unwrap();
                 if visited.contains(&block_hash) {
                     break;
                 }
