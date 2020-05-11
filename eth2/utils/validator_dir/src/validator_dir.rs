@@ -7,6 +7,7 @@ use types::Keypair;
 
 const LOCK_FILE: &str = ".lock";
 
+#[derive(Debug)]
 pub enum Error {
     DirectoryDoesNotExist(PathBuf),
     DirectoryLocked(PathBuf),

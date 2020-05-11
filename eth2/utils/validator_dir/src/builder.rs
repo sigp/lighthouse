@@ -3,9 +3,10 @@ use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{create_dir_all, OpenOptions};
+use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
 
 /// The `Alphanumeric` crate only generates a-Z, A-Z, 0-9, therefore it has a range of 62
@@ -17,8 +18,9 @@ const DEFAULT_PASSWORD_LEN: usize = 48;
 
 pub const VOTING_KEYSTORE_FILE: &str = "voting-keystore.json";
 pub const WITHDRAWAL_KEYSTORE_FILE: &str = "withdrawal-keystore.json";
-const ETH1_DEPOSIT_DATA_FILE: &str = "eth1_deposit_data.rlp";
+const ETH1_DEPOSIT_DATA_FILE: &str = "eth1-deposit-data.rlp";
 
+#[derive(Debug)]
 pub enum Error {
     DirectoryAlreadyExists(PathBuf),
     UnableToCreateDir(io::Error),
@@ -45,7 +47,7 @@ impl From<KeystoreError> for Error {
 }
 
 pub struct Builder<'a> {
-    dir: PathBuf,
+    base_validators_dir: PathBuf,
     password_dir: PathBuf,
     voting_keystore: Option<(Keystore, PlainText)>,
     withdrawal_keystore: Option<(Keystore, PlainText)>,
@@ -54,18 +56,14 @@ pub struct Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
-    pub fn new(dir: PathBuf, password_dir: PathBuf) -> Result<Self, Error> {
-        if dir.exists() {
-            Err(Error::DirectoryAlreadyExists(dir))
-        } else {
-            Ok(Self {
-                dir,
-                password_dir,
-                voting_keystore: None,
-                withdrawal_keystore: None,
-                store_withdrawal_keystore: true,
-                deposit_info: None,
-            })
+    pub fn new(base_validators_dir: PathBuf, password_dir: PathBuf) -> Self {
+        Self {
+            base_validators_dir,
+            password_dir,
+            voting_keystore: None,
+            withdrawal_keystore: None,
+            store_withdrawal_keystore: true,
+            deposit_info: None,
         }
     }
 
@@ -81,6 +79,11 @@ impl<'a> Builder<'a> {
 
     pub fn create_eth1_tx_data(mut self, deposit_amount: u64, spec: &'a ChainSpec) -> Self {
         self.deposit_info = Some((deposit_amount, spec));
+        self
+    }
+
+    pub fn store_withdrawal_keystore(mut self, should_store: bool) -> Self {
+        self.store_withdrawal_keystore = should_store;
         self
     }
 
@@ -105,10 +108,14 @@ impl<'a> Builder<'a> {
         let (withdrawal_keystore, withdrawal_password, withdrawal_keypair) =
             expand_keystore!(withdrawal_keystore);
 
-        if self.dir.exists() {
-            return Err(Error::DirectoryAlreadyExists(self.dir));
+        let dir = self
+            .base_validators_dir
+            .join(format!("0x{}", voting_keystore.pubkey()));
+
+        if dir.exists() {
+            return Err(Error::DirectoryAlreadyExists(dir));
         } else {
-            create_dir_all(&self.dir).map_err(Error::UnableToCreateDir)?;
+            create_dir_all(&dir).map_err(Error::UnableToCreateDir)?;
         }
 
         if let Some((amount, spec)) = self.deposit_info {
@@ -129,7 +136,7 @@ impl<'a> Builder<'a> {
             let deposit_data =
                 encode_eth1_tx_data(&deposit_data).map_err(Error::UnableToEncodeDeposit)?;
 
-            let path = self.dir.clone().join(ETH1_DEPOSIT_DATA_FILE);
+            let path = dir.clone().join(ETH1_DEPOSIT_DATA_FILE);
 
             if path.exists() {
                 return Err(Error::DepositDataAlreadyExists(path));
@@ -152,10 +159,7 @@ impl<'a> Builder<'a> {
             voting_password.as_bytes(),
         )?;
 
-        write_keystore_to_file(
-            self.dir.clone().join(VOTING_KEYSTORE_FILE),
-            &voting_keystore,
-        )?;
+        write_keystore_to_file(dir.clone().join(VOTING_KEYSTORE_FILE), &voting_keystore)?;
 
         if self.store_withdrawal_keystore {
             write_password_to_file(
@@ -165,12 +169,12 @@ impl<'a> Builder<'a> {
                 withdrawal_password.as_bytes(),
             )?;
             write_keystore_to_file(
-                self.dir.clone().join(WITHDRAWAL_KEYSTORE_FILE),
+                dir.clone().join(WITHDRAWAL_KEYSTORE_FILE),
                 &withdrawal_keystore,
             )?;
         }
 
-        ValidatorDir::open(self.dir).map_err(Error::UnableToOpenDir)
+        ValidatorDir::open(dir).map_err(Error::UnableToOpenDir)
     }
 }
 
@@ -189,19 +193,29 @@ fn write_keystore_to_file(path: PathBuf, keystore: &Keystore) -> Result<(), Erro
     }
 }
 
-fn write_password_to_file(path: PathBuf, password: &[u8]) -> Result<(), Error> {
+/// Creates a file with `600 (-rw-------)` permissions.
+pub fn write_password_to_file<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), Error> {
+    let path = path.as_ref();
+
     if path.exists() {
-        Err(Error::PasswordAlreadyExists(path))
-    } else {
-        OpenOptions::new()
-            .write(true)
-            .read(true)
-            .create(true)
-            .open(path.clone())
-            .map_err(Error::UnableToSavePassword)?
-            .write_all(&password)
-            .map_err(Error::UnableToSavePassword)
+        return Err(Error::PasswordAlreadyExists(path.into()));
     }
+
+    let mut file = File::create(&path).map_err(Error::UnableToSavePassword)?;
+
+    let mut perm = file
+        .metadata()
+        .map_err(Error::UnableToSavePassword)?
+        .permissions();
+
+    perm.set_mode(0o600);
+
+    file.set_permissions(perm)
+        .map_err(Error::UnableToSavePassword)?;
+
+    file.write_all(bytes).map_err(Error::UnableToSavePassword)?;
+
+    Ok(())
 }
 
 fn random_keystore() -> Result<(Keystore, PlainText), Error> {

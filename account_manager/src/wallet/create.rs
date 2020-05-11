@@ -1,10 +1,10 @@
+use super::random_password;
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
 };
 use eth2_wallet_manager::{WalletManager, WalletType};
-use rand::{distributions::Alphanumeric, Rng};
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
@@ -13,13 +13,6 @@ use types::EthSpec;
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
-
-/// The `Alphanumeric` crate only generates a-Z, A-Z, 0-9, therefore it has a range of 62
-/// characters.
-///
-/// 62**48 is greater than 255**32, therefore this password has more bits of entropy than a byte
-/// array of length 32.
-const DEFAULT_PASSWORD_LEN: usize = 48;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -92,14 +85,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, base_dir: PathBuf) -> Result<()
 
     // Create a random password if the file does not exist.
     if !wallet_password_path.exists() {
-        let password: PlainText = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(DEFAULT_PASSWORD_LEN)
-            .collect::<String>()
-            .into_bytes()
-            .into();
-
-        create_with_600_perms(&wallet_password_path, password.as_bytes())
+        create_with_600_perms(&wallet_password_path, random_password().as_bytes())
             .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
     }
 

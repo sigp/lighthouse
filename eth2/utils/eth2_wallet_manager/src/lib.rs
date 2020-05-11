@@ -61,7 +61,9 @@ pub struct LockedWallet {
 }
 
 impl LockedWallet {
-    pub fn open(wallet_dir: PathBuf, uuid: &Uuid) -> Result<Self, Error> {
+    pub fn open<P: AsRef<Path>>(base_dir: P, uuid: &Uuid) -> Result<Self, Error> {
+        let wallet_dir = base_dir.as_ref().join(format!("{}", uuid));
+
         if !wallet_dir.exists() {
             return Err(Error::MissingWalletDir(wallet_dir));
         }
@@ -121,12 +123,12 @@ impl WalletManager {
         }
     }
 
-    pub fn wallet_by_name(&self, name: String) -> Result<LockedWallet, Error> {
+    pub fn wallet_by_name(&self, name: &str) -> Result<LockedWallet, Error> {
         LockedWallet::open(
             self.dir.clone(),
             self.wallets()?
-                .get(&name)
-                .ok_or_else(|| Error::WalletNameUnknown(name))?,
+                .get(name)
+                .ok_or_else(|| Error::WalletNameUnknown(name.into()))?,
         )
     }
 

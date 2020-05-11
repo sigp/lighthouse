@@ -1,6 +1,6 @@
 use crate::{Uuid, Wallet};
 use eth2_wallet::Error as WalletError;
-use std::fs::{copy as copy_file, create_dir_all, read_dir, remove_file, File, OpenOptions};
+use std::fs::{copy as copy_file, remove_file, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -37,7 +37,7 @@ pub fn update<P: AsRef<Path>>(wallet_dir: P, wallet: &Wallet) -> Result<(), Erro
     let wallet_dir = wallet_dir.as_ref();
 
     let json_path = wallet_json_path(wallet_dir, wallet.uuid());
-    let json_backup_path = wallet_json_path(wallet_dir, wallet.uuid());
+    let json_backup_path = wallet_json_backup_path(wallet_dir, wallet.uuid());
 
     // Require that a wallet already exists.
     if !json_path.exists() {

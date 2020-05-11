@@ -27,6 +27,7 @@ dependencies = [
  "tokio 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "types 0.2.0",
  "validator_client 0.2.0",
+ "validator_dir 0.1.0",
  "web3 0.10.0 (git+https://github.com/tomusdrw/rust-web3)",
 ]
 
