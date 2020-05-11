@@ -21,7 +21,6 @@ There are two, different ways to install and start a Lighthouse validator:
 
 2. [Building from source](./become-a-validator-source.md): this is a little more involved, however it
    gives a more hands-on experience.
-   - Note: to connect to the testnet you must build from the `testnet5` branch, `master` will not work.
 
 Once you've completed **either one** of these steps, you can move onto the next step.
 
