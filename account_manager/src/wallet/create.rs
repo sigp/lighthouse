@@ -5,8 +5,10 @@ use eth2_wallet::{
 };
 use eth2_wallet_manager::{WalletManager, WalletType};
 use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{self};
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::io::prelude::*;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use types::EthSpec;
 
 pub const CMD: &str = "create";
@@ -97,8 +99,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, base_dir: PathBuf) -> Result<()
             .into_bytes()
             .into();
 
-        // TODO: better file permissions for this.
-        fs::write(&wallet_password_path, password.as_bytes())
+        create_with_600_perms(&wallet_password_path, password.as_bytes())
             .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
     }
 
@@ -111,8 +112,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, base_dir: PathBuf) -> Result<()
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
     if let Some(path) = mnemonic_output_path {
-        // TODO: better file permissions for this.
-        fs::write(&path, mnemonic.phrase().as_bytes())
+        create_with_600_perms(&path, mnemonic.phrase().as_bytes())
             .map_err(|e| format!("Unable to write mnemonic to {:?}: {:?}", path, e))?;
     }
 
@@ -136,6 +136,29 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, base_dir: PathBuf) -> Result<()
     println!("\t{}", wallet.wallet().uuid());
     println!("");
     println!("You do not need to backup your UUID or keep it secret.");
+
+    Ok(())
+}
+
+/// Creates a file with `600 (-rw-------)` permissions.
+pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), String> {
+    let path = path.as_ref();
+
+    let mut file =
+        File::create(&path).map_err(|e| format!("Unable to create {:?}: {}", path, e))?;
+
+    let mut perm = file
+        .metadata()
+        .map_err(|e| format!("Unable to get {:?} metadata: {}", path, e))?
+        .permissions();
+
+    perm.set_mode(0o600);
+
+    file.set_permissions(perm)
+        .map_err(|e| format!("Unable to set {:?} permissions: {}", path, e))?;
+
+    file.write_all(bytes)
+        .map_err(|e| format!("Unable to write to {:?}: {}", path, e))?;
 
     Ok(())
 }
