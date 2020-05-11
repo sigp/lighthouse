@@ -298,7 +298,6 @@ impl Service {
 
     async fn do_update(service: Self, update_interval: Duration) -> Result<(), ()> {
         let update_result = Service::update(service.clone()).await;
-        println!("Going on");
         match update_result {
             Err(e) => error!(
                 service.log,
