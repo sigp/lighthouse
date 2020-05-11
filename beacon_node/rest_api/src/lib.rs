@@ -100,19 +100,16 @@ pub fn start_server<T: BeaconChainTypes>(
     // Build a channel to kill the HTTP server.
     let (exit_signal, exit) = oneshot::channel::<()>();
     let inner_log = log.clone();
-    let server_exit = exit
-        .and_then(move |_| {
-            info!(inner_log, "HTTP service shutdown");
-            futures::future::ok(())
-        })
-        .map_err(|_| ());
+    let server_exit = async move {
+        let _ = exit.await;
+        info!(inner_log, "HTTP service shutdown");
+    };
 
     // Configure the `hyper` server to gracefully shutdown when the shutdown channel is triggered.
     let inner_log = log.clone();
     let server_future = server
         .with_graceful_shutdown(async {
-            // TODO: Copied from the docs. I think the await is ok here.
-            server_exit.await.ok();
+            server_exit.await;
         })
         .map_err(move |e| {
             warn!(

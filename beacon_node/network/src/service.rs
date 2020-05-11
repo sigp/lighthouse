@@ -339,13 +339,16 @@ fn spawn_service<T: BeaconChainTypes>(
                 }
                  }
             }
-                // if there is a fork update
-                _ = service.next_fork_update.take().unwrap(), if service.next_fork_update.is_some() => {
-                        service
-                            .libp2p
-                            .swarm
-                            .update_fork_version(service.beacon_chain.enr_fork_id());
-                        service.next_fork_update = next_fork_delay(&service.beacon_chain);
+
+            }
+
+            if let Some(delay) = &service.next_fork_update {
+                if delay.is_elapsed() {
+                    service
+                        .libp2p
+                        .swarm
+                        .update_fork_version(service.beacon_chain.enr_fork_id());
+                    service.next_fork_update = next_fork_delay(&service.beacon_chain);
                 }
             }
         }
