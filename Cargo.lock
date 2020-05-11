@@ -1313,7 +1313,6 @@ dependencies = [
  "bls",
  "eth2_ssz",
  "hex 0.3.2",
- "num-bigint",
  "rand 0.7.3",
  "rust-crypto",
  "serde",
