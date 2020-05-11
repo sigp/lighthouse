@@ -1,5 +1,6 @@
 #![cfg(test)]
 use eth2_libp2p::Enr;
+use eth2_libp2p::EnrExt;
 use eth2_libp2p::Multiaddr;
 use eth2_libp2p::NetworkConfig;
 use eth2_libp2p::Service as LibP2PService;
@@ -93,7 +94,6 @@ pub fn build_libp2p_instance(
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
     let enr = node.swarm.discovery().local_enr().clone();
-    dbg!(enr.multiaddr());
     enr
 }
 
@@ -121,7 +121,7 @@ pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
     nodes
 }
 
-// Constructs a pair of nodes with seperate loggers. The sender dials the receiver.
+// Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
 pub fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PService<E>) {
@@ -132,8 +132,10 @@ pub fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PService<E
     let receiver = build_libp2p_instance(vec![], None, receiver_log);
 
     let receiver_multiaddr = receiver.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
-    match libp2p::Swarm::dial_addr(&mut sender.swarm, receiver_multiaddr) {
-        Ok(()) => debug!(log, "Sender dialed receiver"),
+    match libp2p::Swarm::dial_addr(&mut sender.swarm, receiver_multiaddr.clone()) {
+        Ok(()) => {
+            debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
+        }
         Err(_) => error!(log, "Dialing failed"),
     };
     (sender, receiver)

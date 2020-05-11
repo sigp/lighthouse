@@ -12,8 +12,13 @@ use libp2p::core::{
     muxing::StreamMuxerBox,
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
+    ConnectedPoint,
 };
-use libp2p::{core, noise, secio, swarm::NetworkBehaviour, PeerId, Swarm, Transport};
+use libp2p::{
+    core, noise, secio,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    PeerId, Swarm, Transport,
+};
 use slog::{crit, debug, error, info, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
@@ -29,6 +34,23 @@ pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
 /// flushed and protocols to be negotiated.
 const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
+
+/// The types of events than can be obtained from polling the libp2p service.
+///
+/// This is a subset of the events that a libp2p swarm emits.
+#[derive(Debug)]
+pub enum Libp2pEvent<TSpec: EthSpec> {
+    /// A behaviour event
+    Behaviour(BehaviourEvent<TSpec>),
+    /// A new listening address has been established.
+    NewListenAddr(Multiaddr),
+    /// A connection has been established with a peer.
+    ConnectionEstablished {
+        peer_id: PeerId,
+        endpoint: ConnectedPoint,
+        num_established: u32,
+    },
+}
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service<TSpec: EthSpec> {
@@ -178,54 +200,100 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 }
 
-// TODO: Convert to an async function via building a stored stream from libp2p swarm
 impl<TSpec: EthSpec> Stream for Service<TSpec> {
-    type Item = Result<BehaviourEvent<TSpec>, error::Error>;
+    type Item = Libp2pEvent<TSpec>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let log = self.log.clone();
         loop {
-            match self.swarm.poll_next_unpin(cx) {
-                Poll::Ready(Some(event)) => {
-                    return Poll::Ready(Some(Ok(event)));
-                }
-                Poll::Ready(None) => unreachable!("Swarm stream shouldn't end"),
+            // Process the next action coming from the network.
+            let libp2p_event = self.swarm.next_event();
+            futures::pin_mut!(libp2p_event);
+            let event = libp2p_event.poll_unpin(cx);
+
+            match event {
                 Poll::Pending => break,
+                Poll::Ready(SwarmEvent::Behaviour(behaviour)) => {
+                    return Poll::Ready(Some(Libp2pEvent::Behaviour(behaviour)))
+                }
+                Poll::Ready(SwarmEvent::ConnectionEstablished {
+                    peer_id,
+                    endpoint,
+                    num_established,
+                }) => {
+                    return Poll::Ready(Some(Libp2pEvent::ConnectionEstablished {
+                        peer_id,
+                        endpoint,
+                        num_established: num_established.get(),
+                    }))
+                }
+                Poll::Ready(SwarmEvent::NewListenAddr(multiaddr)) => {
+                    return Poll::Ready(Some(Libp2pEvent::NewListenAddr(multiaddr)))
+                }
+
+                Poll::Ready(SwarmEvent::ConnectionClosed { peer_id, cause, .. }) => {
+                    debug!(log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string());
+                }
+                Poll::Ready(SwarmEvent::IncomingConnection {
+                    local_addr,
+                    send_back_addr,
+                }) => {
+                    debug!(log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
+                }
+                Poll::Ready(SwarmEvent::IncomingConnectionError {
+                    local_addr,
+                    send_back_addr,
+                    error,
+                }) => {
+                    debug!(log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
+                }
+                Poll::Ready(SwarmEvent::BannedPeer {
+                    peer_id,
+                    endpoint: _,
+                }) => {
+                    debug!(log, "Attempted to dial a banned peer"; "peer_id" => peer_id.to_string())
+                }
+                Poll::Ready(SwarmEvent::UnreachableAddr {
+                    peer_id,
+                    address,
+                    error,
+                    attempts_remaining,
+                }) => {
+                    debug!(log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining)
+                }
+                Poll::Ready(SwarmEvent::UnknownPeerUnreachableAddr { address, .. }) => {
+                    debug!(log, "Peer not known at dialed address"; "address" => address.to_string())
+                }
+                Poll::Ready(SwarmEvent::ExpiredListenAddr(multiaddr)) => {
+                    debug!(log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
+                }
+                Poll::Ready(SwarmEvent::ListenerClosed { addresses, reason }) => {
+                    debug!(log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
+                }
+                Poll::Ready(SwarmEvent::ListenerError { error }) => {
+                    debug!(log, "Listener error"; "error" => format!("{:?}", error.to_string()))
+                }
+                Poll::Ready(SwarmEvent::Dialing(peer_id)) => {
+                    trace!(log, "Dialing peer"; "peer" => peer_id.to_string());
+                }
             }
         }
 
-        // check if peers need to be banned
-        loop {
-            match self.peers_to_ban.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    let peer_id = peer_id.into_inner();
-                    Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
-                    // TODO: Correctly notify protocols of the disconnect
-                    // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
-                    self.swarm.inject_disconnected(&peer_id);
-                    // inform the behaviour that the peer has been banned
-                    self.swarm.peer_banned(peer_id);
-                }
-                Poll::Pending | Poll::Ready(None) => break,
-                Poll::Ready(Some(Err(e))) => {
-                    warn!(self.log, "Peer banning queue failed"; "error" => format!("{:?}", e));
-                }
-            }
+        while let Poll::Ready(Some(Ok(peer_to_ban))) = self.peers_to_ban.poll_next_unpin(cx) {
+            let peer_id = peer_to_ban.into_inner();
+            Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
+            // TODO: Correctly notify protocols of the disconnect
+            // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
+            self.swarm.inject_disconnected(&peer_id);
+            // inform the behaviour that the peer has been banned
+            self.swarm.peer_banned(peer_id);
         }
 
-        // un-ban peer if it's timeout has expired
-        loop {
-            match self.peer_ban_timeout.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    let peer_id = peer_id.into_inner();
-                    debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_id));
-                    self.swarm.peer_unbanned(&peer_id);
-                    Swarm::unban_peer_id(&mut self.swarm, peer_id);
-                }
-                Poll::Pending | Poll::Ready(None) => break,
-                Poll::Ready(Some(Err(e))) => {
-                    warn!(self.log, "Peer banning timeout queue failed"; "error" => format!("{:?}", e));
-                }
-            }
+        while let Poll::Ready(Some(Ok(peer_to_unban))) = self.peer_ban_timeout.poll_next_unpin(cx) {
+            debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_to_unban));
+            let unban_peer = peer_to_unban.into_inner();
+            self.swarm.peer_unbanned(&unban_peer);
+            Swarm::unban_peer_id(&mut self.swarm, unban_peer);
         }
 
         Poll::Pending

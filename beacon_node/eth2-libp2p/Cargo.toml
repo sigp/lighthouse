@@ -32,11 +32,17 @@ snap = "1.0.0"
 void = "1.0.2"
 tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
-libp2p = "0.18.1"
 discv5 = "0.1.0-alpha.1"
 tiny-keccak = "2.0.2"
 
+[dependencies.libp2p]
+version = "0.18.1"
+default-features = false
+features = ["websocket", "ping", "identify", "mplex", "yamux", "noise", "secio", "gossipsub", "tcp", "dns"]
+
+
 [dev-dependencies]
+tokio = { version = "0.2.20", features = ["full"] }
 slog-stdlog = "4.0.0"
 slog-term = "2.5.0"
 slog-async = "2.5.0"

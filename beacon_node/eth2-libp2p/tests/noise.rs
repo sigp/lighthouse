@@ -1,3 +1,4 @@
+/*
 #![cfg(test)]
 use crate::behaviour::{Behaviour, BehaviourEvent};
 use crate::multiaddr::Protocol;
@@ -179,3 +180,4 @@ fn test_secio_noise_fallback() {
     );
     assert!(test_result.load(Relaxed));
 }
+*/
