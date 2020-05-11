@@ -2,7 +2,7 @@ use crate::{
     lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, secret_hash::SecretHash,
 };
 use crypto::{digest::Digest, sha2::Sha256};
-use num_bigint::BigUint;
+use num_bigint_dig::BigUint;
 use zeroize::Zeroize;
 
 /// The byte size of a SHA256 hash.
@@ -94,12 +94,14 @@ fn hkdf_mod_r(ikm: &[u8]) -> SecretHash {
 fn mod_r(bytes: &[u8]) -> SecretHash {
     let n = BigUint::from_bytes_be(bytes);
     let r = BigUint::parse_bytes(R.as_bytes(), 10).expect("must be able to parse R");
-    let x = (n % r).to_bytes_be();
+    let x = SecretBytes::from((n % r).to_bytes_be());
 
-    debug_assert!(x.len() <= HASH_SIZE);
+    let x_slice = x.as_bytes();
+
+    debug_assert!(x_slice.len() <= HASH_SIZE);
 
     let mut output = SecretHash::zero();
-    output.as_mut_bytes()[HASH_SIZE - x.len()..].copy_from_slice(&x);
+    output.as_mut_bytes()[HASH_SIZE - x_slice.len()..].copy_from_slice(&x_slice);
     output
 }
 

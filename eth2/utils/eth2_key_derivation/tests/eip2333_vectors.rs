@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use eth2_key_derivation::DerivedKey;
-use num_bigint::BigUint;
+use num_bigint_dig::BigUint;
 
 /// Contains the test vectors in a format that's easy for us to test against.
 struct TestVector {

@@ -1,4 +1,4 @@
-use eth2_wallet::Wallet;
+use eth2_wallet::{Uuid, Wallet};
 
 const EXPECTED_SECRET: &str = "147addc7ec981eb2715a22603813271cce540e0b7f577126011eb06249d9227c";
 const PASSWORD: &str = "testpassword";

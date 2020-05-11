@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 rust-crypto = "0.2.36"
 zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
-num-bigint = "0.2.6"
+num-bigint-dig = { version = "0.6.0", features = ["zeroize"] }
 
 [dev-dependencies]
 hex = "0.3"
