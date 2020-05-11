@@ -172,7 +172,7 @@ impl Wallet {
     ///
     /// - If `wallet_password` is unable to decrypt `self`.
     /// - If `keystore_password.is_empty()`.
-    /// - If `self.nextaccount == u32::max_value() - 1`.
+    /// - If `self.nextaccount == u32::max_value()`.
     pub fn next_validator(
         &mut self,
         wallet_password: &[u8],

@@ -43,7 +43,7 @@ fn additional_top_level_param() {
 	  "nextaccount": 0,
 	  "type": "hierarchical deterministic",
 	  "uuid": "b74559b8-ed56-4841-b25c-dba1b7c9d9d5",
-	  "version": 1
+	  "version": 1,
 	  "cats": 42
 	}
         "#;
@@ -82,7 +82,7 @@ fn missing_top_level_param() {
 	  "name": "Test wallet 2",
 	  "nextaccount": 0,
 	  "type": "hierarchical deterministic",
-	  "uuid": "b74559b8-ed56-4841-b25c-dba1b7c9d9d5",
+	  "uuid": "b74559b8-ed56-4841-b25c-dba1b7c9d9d5"
 	}
         "#;
 
