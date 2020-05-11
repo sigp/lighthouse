@@ -1,4 +1,4 @@
-use crate::deposits;
+use crate::{deposits, wallet};
 use clap::{App, Arg, SubCommand};
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -9,6 +9,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             SubCommand::with_name("validator")
                 .about("Generate or manage Ethereum 2.0 validators.")
                 .subcommand(deposits::cli_app())
+                .subcommand(wallet::cli_app())
                 .subcommand(
                     SubCommand::with_name("new")
                         .about("Create a new Ethereum 2.0 validator.")

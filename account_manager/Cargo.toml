@@ -28,3 +28,6 @@ web3 = "0.10.0"
 futures = "0.1.25"
 clap_utils = { path = "../eth2/utils/clap_utils" }
 tokio = "0.1.22"
+eth2_wallet = { path = "../eth2/utils/eth2_wallet" }
+eth2_wallet_manager = { path = "../eth2/utils/eth2_wallet_manager" }
+rand = "0.7.2"

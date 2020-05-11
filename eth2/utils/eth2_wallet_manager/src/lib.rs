@@ -1,7 +1,9 @@
 mod filesystem;
 
 use crate::filesystem::{create, read, update, Error as FilesystemError};
-use eth2_wallet::{Error as WalletError, Uuid, ValidatorKeystores, Wallet, WalletBuilder};
+use eth2_wallet::{
+    bip39::Mnemonic, Error as WalletError, Uuid, ValidatorKeystores, Wallet, WalletBuilder,
+};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{create_dir_all, read_dir, remove_file, File, OpenOptions};
@@ -10,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 const LOCK_FILE: &str = ".lock";
 
+#[derive(Debug)]
 pub enum Error {
     DirectoryDoesNotExist(PathBuf),
     WalletError(WalletError),
@@ -131,14 +134,14 @@ impl WalletManager {
         &self,
         name: String,
         _wallet_type: WalletType,
-        seed: &[u8],
+        mnemonic: &Mnemonic,
         password: &[u8],
     ) -> Result<LockedWallet, Error> {
         if self.wallets()?.contains_key(&name) {
             return Err(Error::NameAlreadyTaken(name));
         }
 
-        let wallet = WalletBuilder::from_seed_bytes(seed, password, name)?.build()?;
+        let wallet = WalletBuilder::from_mnemonic(mnemonic, password, name)?.build()?;
 
         let uuid = wallet.uuid().clone();
         let uuid_string = format!("{}", uuid);

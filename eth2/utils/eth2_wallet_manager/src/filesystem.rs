@@ -4,6 +4,7 @@ use std::fs::{copy as copy_file, create_dir_all, read_dir, remove_file, File, Op
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
 pub enum Error {
     WalletAlreadyExists(PathBuf),
     WalletDoesNotExist(PathBuf),

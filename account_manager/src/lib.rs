@@ -1,5 +1,6 @@
 mod cli;
 mod deposits;
+mod wallet;
 
 use clap::ArgMatches;
 use deposit_contract::DEPOSIT_GAS;
@@ -48,6 +49,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Result<
     );
 
     match matches.subcommand() {
+        (wallet::CMD, Some(matches)) => wallet::cli_run(matches, env)?,
         ("validator", Some(matches)) => match matches.subcommand() {
             ("deposited", Some(matches)) => deposits::cli_run(matches, env)?,
             ("new", Some(matches)) => run_new_validator_subcommand(matches, datadir, env)?,
