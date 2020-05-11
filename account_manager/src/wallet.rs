@@ -4,6 +4,7 @@ mod validator;
 use clap::{App, Arg, ArgMatches};
 use clap_utils;
 use environment::Environment;
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 use types::EthSpec;
 
@@ -29,6 +30,11 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, _env: Environment<T>) -> Result
         "validator_dir",
         PathBuf::new().join(".lighthouse").join("wallets"),
     )?;
+
+    if !base_dir.exists() {
+        create_dir_all(&base_dir)
+            .map_err(|e| format!("Unable to create {:?}: {:?}", base_dir, e))?;
+    }
 
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run::<T>(matches, base_dir),
