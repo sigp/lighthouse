@@ -31,7 +31,7 @@ impl ValidatorDir {
             return Err(Error::DirectoryDoesNotExist(dir));
         }
 
-        let lockfile = dir.clone().join(LOCK_FILE);
+        let lockfile = dir.join(LOCK_FILE);
         if lockfile.exists() {
             return Err(Error::DirectoryLocked(dir));
         } else {

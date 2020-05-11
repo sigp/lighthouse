@@ -1292,6 +1292,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth2_wallet_manager"
+version = "0.1.0"
+dependencies = [
+ "eth2_keystore 0.1.0",
+ "eth2_wallet 0.1.0",
+]
+
+[[package]]
 name = "ethabi"
 version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
