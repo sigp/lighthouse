@@ -167,6 +167,10 @@ impl Keystore {
     ///
     /// - The provided password is incorrect.
     /// - The keystore is badly formed.
+    ///
+    /// ## Panics
+    ///
+    /// May panic if provided unreasonable crypto parameters.
     pub fn decrypt_keypair(&self, password: &[u8]) -> Result<Keypair, Error> {
         let plain_text = decrypt(password, &self.json.crypto)?;
 
