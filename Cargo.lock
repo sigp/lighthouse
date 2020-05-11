@@ -1239,6 +1239,7 @@ dependencies = [
  "eth2_ssz_types",
  "fnv",
  "futures 0.3.4",
+ "futures_codec 0.4.0",
  "hashset_delay",
  "hex 0.4.2",
  "lazy_static",
@@ -1259,7 +1260,6 @@ dependencies = [
  "tiny-keccak 2.0.2",
  "tokio 0.2.20",
  "tokio-io-timeout",
- "tokio-util",
  "types",
  "unsigned-varint 0.3.3 (git+https://github.com/sigp/unsigned-varint?branch=latest-codecs)",
  "version",
@@ -1604,6 +1604,18 @@ name = "futures_codec"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0a73299e4718f5452e45980fc1d6957a070abe308d3700b63b8673f47e1c2b3"
+dependencies = [
+ "bytes 0.5.4",
+ "futures 0.3.4",
+ "memchr",
+ "pin-project",
+]
+
+[[package]]
+name = "futures_codec"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe8859feb7140742ed1a2a85a07941100ad2b5f98a421b353931d718a34144d1"
 dependencies = [
  "bytes 0.5.4",
  "futures 0.3.4",
@@ -2302,7 +2314,7 @@ dependencies = [
  "bytes 0.5.4",
  "fnv",
  "futures 0.3.4",
- "futures_codec",
+ "futures_codec 0.3.4",
  "libp2p-core",
  "libp2p-swarm",
  "log 0.4.8",
@@ -2341,7 +2353,7 @@ dependencies = [
  "bytes 0.5.4",
  "fnv",
  "futures 0.3.4",
- "futures_codec",
+ "futures_codec 0.3.4",
  "libp2p-core",
  "log 0.4.8",
  "parking_lot 0.10.2",
@@ -4770,7 +4782,6 @@ checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
 dependencies = [
  "bytes 0.5.4",
  "futures-core",
- "futures-io",
  "futures-sink",
  "log 0.4.8",
  "pin-project-lite",
@@ -4990,7 +5001,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f67332660eb59a6f1eb24ff1220c9e8d01738a8503c6002e30bcfe4bd9f2b4a9"
 dependencies = [
  "bytes 0.5.4",
- "futures_codec",
+ "futures_codec 0.3.4",
 ]
 
 [[package]]
