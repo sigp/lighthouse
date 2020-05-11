@@ -182,19 +182,13 @@ impl Keystore {
             });
         }
 
-        // Instantiate a `SecretKey`.
-        let sk =
-            SecretKey::from_bytes(plain_text.as_bytes()).map_err(Error::InvalidSecretKeyBytes)?;
-
-        // Derive a `PublicKey` from `SecretKey`.
-        let pk = PublicKey::from_secret_key(&sk);
-
+        let keypair = keypair_from_secret(plain_text.as_bytes())?;
         // Verify that the derived `PublicKey` matches `self`.
-        if pk.as_hex_string()[2..].to_string() != self.json.pubkey {
+        if keypair.pk.as_hex_string()[2..].to_string() != self.json.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
 
-        Ok(Keypair { sk, pk })
+        Ok(keypair)
     }
 
     /// Returns the UUID for the keystore.
@@ -228,6 +222,18 @@ impl Keystore {
     pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
         serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
     }
+}
+
+/// Instantiates a BLS keypair from the given `secret`.
+///
+/// ## Errors
+///
+/// - If `secret.len() != 32`.
+/// - If `secret` does not represent a point in the BLS curve.
+pub fn keypair_from_secret(secret: &[u8]) -> Result<Keypair, Error> {
+    let sk = SecretKey::from_bytes(secret).map_err(Error::InvalidSecretKeyBytes)?;
+    let pk = PublicKey::from_secret_key(&sk);
+    Ok(Keypair { sk, pk })
 }
 
 /// Returns `Kdf` used by default when creating keystores.
