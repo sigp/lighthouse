@@ -30,23 +30,9 @@ pub enum DepositTestTask {
 
 /// Enum used for passing test options to builder
 #[derive(PartialEq, Clone, Copy)]
-pub enum ExitTestTask {
-    AlreadyInitiated,
-    AlreadyExited,
-    BadSignature,
-    FutureEpoch,
-    NotActive,
-    Valid,
-    ValidatorUnknown,
-}
-
-/// Enum used for passing test options to builder
-#[derive(PartialEq, Clone, Copy)]
 pub enum AttestationTestTask {
     Valid,
-    NoCommiteeForShard,
     WrongJustifiedCheckpoint,
-    BadShard,
     BadIndexedAttestationBadSignature,
     BadAggregationBitfieldLen,
     BadSignature,
@@ -348,37 +334,23 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         }
     }
 
-    /// Insert a `Valid` exit into the state.
+    /// Insert an exit for the given validator at the given epoch into the block.
     pub fn insert_exit(
         &mut self,
-        test_task: ExitTestTask,
-        state: &mut BeaconState<T>,
-        mut validator_index: u64,
+        validator_index: u64,
+        exit_epoch: Epoch,
         secret_key: &SecretKey,
+        state: &BeaconState<T>,
         spec: &ChainSpec,
     ) {
-        let sk = &mut secret_key.clone();
-        let mut exit_epoch = state.slot.epoch(T::slots_per_epoch());
-
-        match test_task {
-            ExitTestTask::BadSignature => *sk = SecretKey::random(),
-            ExitTestTask::ValidatorUnknown => validator_index = 4242,
-            ExitTestTask::AlreadyExited => {
-                state.validators[validator_index as usize].exit_epoch = Epoch::from(314_159 as u64)
-            }
-            // FIXME: disabled in v0.9
-            ExitTestTask::NotActive => {
-                state.validators[validator_index as usize].activation_epoch =
-                    Epoch::from(314_159 as u64)
-            }
-            ExitTestTask::FutureEpoch => exit_epoch = spec.far_future_epoch,
-            _ => (),
-        }
-
         let builder = TestingVoluntaryExitBuilder::new(exit_epoch, validator_index);
-        let exit = builder.build(sk, &state.fork, state.genesis_validators_root, spec);
-
+        let exit = builder.build(secret_key, &state.fork, state.genesis_validators_root, spec);
         self.block.body.voluntary_exits.push(exit).unwrap();
+    }
+
+    /// Mutate the block before signing.
+    pub fn modify(&mut self, f: impl FnOnce(&mut BeaconBlock<T>)) {
+        f(&mut self.block)
     }
 
     /// Signs and returns the block, consuming the builder.

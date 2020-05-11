@@ -1,4 +1,4 @@
-use crate::common::{initiate_validator_exit, slash_validator};
+use crate::common::{increase_balance, initiate_validator_exit, slash_validator};
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithIndex};
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
@@ -321,37 +321,9 @@ pub fn process_attester_slashings<T: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // Verify the `IndexedAttestation`s in parallel (these are the resource-consuming objects, not
-    // the `AttesterSlashing`s themselves).
-    let mut indexed_attestations: Vec<&_> =
-        Vec::with_capacity(attester_slashings.len().safe_mul(2)?);
-    for attester_slashing in attester_slashings {
-        indexed_attestations.push(&attester_slashing.attestation_1);
-        indexed_attestations.push(&attester_slashing.attestation_2);
-    }
-
-    // Verify indexed attestations in parallel.
-    indexed_attestations
-        .par_iter()
-        .enumerate()
-        .try_for_each(|(i, indexed_attestation)| {
-            is_valid_indexed_attestation(&state, indexed_attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))
-        })?;
-    let all_indexed_attestations_have_been_checked = true;
-
-    // Gather the indexed indices and preform the final verification and update the state in series.
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        let should_verify_indexed_attestations = !all_indexed_attestations_have_been_checked;
-
-        verify_attester_slashing(
-            &state,
-            &attester_slashing,
-            should_verify_indexed_attestations,
-            verify_signatures,
-            spec,
-        )
-        .map_err(|e| e.into_with_index(i))?;
+        verify_attester_slashing(&state, &attester_slashing, verify_signatures, spec)
+            .map_err(|e| e.into_with_index(i))?;
 
         let slashable_indices =
             get_slashable_indices(&state, &attester_slashing).map_err(|e| e.into_with_index(i))?;
@@ -379,18 +351,13 @@ pub fn process_attestations<T: EthSpec>(
     // Ensure the previous epoch cache exists.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
 
-    // Verify attestations in parallel.
-    attestations
-        .par_iter()
-        .enumerate()
-        .try_for_each(|(i, attestation)| {
-            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))
-        })?;
-
-    // Update the state in series.
     let proposer_index = state.get_beacon_proposer_index(state.slot, spec)? as u64;
-    for attestation in attestations {
+
+    // Verify and apply each attestation.
+    for (i, attestation) in attestations.iter().enumerate() {
+        verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
+            .map_err(|e| e.into_with_index(i))?;
+
         let pending_attestation = PendingAttestation {
             aggregation_bits: attestation.aggregation_bits.clone(),
             data: attestation.data.clone(),
@@ -489,7 +456,7 @@ pub fn process_deposit<T: EthSpec>(
 
     if let Some(index) = validator_index {
         // Update the existing validator balance.
-        safe_add_assign!(state.balances[index as usize], amount);
+        increase_balance(state, index as usize, amount)?;
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
@@ -530,18 +497,12 @@ pub fn process_exits<T: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // Verify exits in parallel.
-    voluntary_exits
-        .par_iter()
-        .enumerate()
-        .try_for_each(|(i, exit)| {
-            verify_exit(&state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))
-        })?;
+    // Verify and apply each exit in series. We iterate in series because higher-index exits may
+    // become invalid due to the application of lower-index ones.
+    for (i, exit) in voluntary_exits.into_iter().enumerate() {
+        verify_exit(&state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))?;
 
-    // Update the state in series.
-    for exit in voluntary_exits {
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
-
     Ok(())
 }
