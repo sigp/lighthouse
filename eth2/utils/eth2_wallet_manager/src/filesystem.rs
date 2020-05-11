@@ -1,3 +1,5 @@
+//! Provides some CRUD functions for wallets on the filesystem.
+
 use eth2_wallet::Error as WalletError;
 use eth2_wallet::{Uuid, Wallet};
 use std::fs::{copy as copy_file, remove_file, OpenOptions};
@@ -18,6 +20,7 @@ pub enum Error {
     JsonReadError(WalletError),
 }
 
+/// Read a wallet with the given `uuid` from the `wallet_dir`.
 pub fn read<P: AsRef<Path>>(wallet_dir: P, uuid: &Uuid) -> Result<Wallet, Error> {
     let json_path = wallet_json_path(wallet_dir, uuid);
 
@@ -33,6 +36,13 @@ pub fn read<P: AsRef<Path>>(wallet_dir: P, uuid: &Uuid) -> Result<Wallet, Error>
     }
 }
 
+/// Update the JSON file in the `wallet_dir` with the given `wallet`.
+///
+/// Performs a three-step copy:
+///
+/// 1. Copy the current JSON file to a backup file.
+/// 2. Over-write the existing JSON file.
+/// 3. Delete the backup file.
 pub fn update<P: AsRef<Path>>(wallet_dir: P, wallet: &Wallet) -> Result<(), Error> {
     let wallet_dir = wallet_dir.as_ref();
 
@@ -62,6 +72,7 @@ pub fn update<P: AsRef<Path>>(wallet_dir: P, wallet: &Wallet) -> Result<(), Erro
     Ok(())
 }
 
+/// Writes the `wallet` into the `wallet_dir`, returning an error if it already exists.
 pub fn create<P: AsRef<Path>>(wallet_dir: P, wallet: &Wallet) -> Result<(), Error> {
     let json_path = wallet_json_path(wallet_dir, wallet.uuid());
 
