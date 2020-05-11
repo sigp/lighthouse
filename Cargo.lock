@@ -4282,6 +4282,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "state_transition_vectors"
+version = "0.1.0"
+dependencies = [
+ "eth2_ssz",
+ "state_processing",
+ "types",
+]
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
