@@ -12,7 +12,7 @@ use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use tokio_util::codec::{Decoder, Encoder};
+use futures_codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::Uvi;
 
@@ -44,12 +44,13 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<TSpec> {
+impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
+    type Item = RPCCodedResponse<TSpec>;
     type Error = RPCError;
 
     fn encode(
         &mut self,
-        item: RPCCodedResponse<TSpec>,
+        item: Self::Item,
         dst: &mut BytesMut,
     ) -> Result<(), Self::Error> {
         let bytes = match item {
@@ -196,10 +197,11 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
+    type Item = RPCRequest<TSpec>;
     type Error = RPCError;
 
-    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
@@ -309,7 +311,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
     type ErrorType = ErrorMessage;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
