@@ -375,8 +375,20 @@ where
                 request,
             };
             let response_chunk_count: Option<u64> = match protocol {
-                Protocol::BlocksByRange => Some(0),
-                Protocol::BlocksByRoot => Some(0),
+                Protocol::BlocksByRange => {
+                    if let RPCRequest::BlocksByRange(req) = request {
+                        Some(req.count)
+                    } else {
+                        None
+                    }
+                }
+                Protocol::BlocksByRoot => {
+                    if let RPCRequest::BlocksByRoot(req) = request {
+                        Some(req.block_roots.len() as u64)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             if let Some(_) = self.outbound_substreams.insert(
@@ -828,43 +840,20 @@ where
                                             request,
                                         };
                                     let delay_key = &entry.get().1;
-                                    let number_of_received_chunks_for_this_stream: u64 =
+                                    let remaining_number_of_chunks_for_this_stream: u64 =
                                         match &entry.get().3 {
-                                            Some(count) => count + 1,
-                                            // There should always be a count here, but if not we can simply set it to 0
+                                            Some(count) => count - 1,
+                                            // There should always be a count here, but if not we can simply set it to 0 as this will close the stream later in this block
                                             None => 0,
                                         };
-                                    let protocol = &entry.get().2;
-                                    let maximum_allowed_number_of_chunks_for_this_request: u64 =
-                                        match protocol {
-                                            Protocol::BlocksByRange => {
-                                                if let RPCRequest::BlocksByRange(req) = request {
-                                                    req.count
-                                                } else {
-                                                    0
-                                                }
-                                            }
-                                            Protocol::BlocksByRoot => {
-                                                if let RPCRequest::BlocksByRoot(req) = request {
-                                                    req.block_roots.len() as u64
-                                                } else {
-                                                    0
-                                                }
-                                            }
-                                            _ => 0,
-                                        };
-                                    // close the stream if something went wrong in the match statement above
-                                    // Such as a wrong request type being passed in somehow, or if all requested chunks have been received
-                                    if maximum_allowed_number_of_chunks_for_this_request == 0
-                                        || number_of_received_chunks_for_this_stream
-                                            == maximum_allowed_number_of_chunks_for_this_request
-                                    {
+                                    // close the stream if all expected chunks have been received
+                                    if remaining_number_of_chunks_for_this_stream == 0 {
                                         entry.get_mut().0 =
                                             OutboundSubstreamState::Closing(substream);
                                     } else {
                                         // If the response chunk was expected increase the amount of received chunks and reset the Timeout
                                         entry.get_mut().3 =
-                                            Some(number_of_received_chunks_for_this_stream);
+                                            Some(remaining_number_of_chunks_for_this_stream);
                                         self.outbound_substreams_delay.reset(
                                             delay_key,
                                             Duration::from_secs(RESPONSE_TIMEOUT),
