@@ -25,6 +25,7 @@ pub enum Error {
     WalletIsLocked(PathBuf),
     MissingWalletDir(PathBuf),
     UnableToCreateLockfile(io::Error),
+    UuidMismatch((Uuid, Uuid)),
 }
 
 impl From<io::Error> for Error {
@@ -53,6 +54,104 @@ pub enum WalletType {
     Hd,
 }
 
+/// Represents a `Wallet` in a `wallet_dir`.
+///
+/// For example:
+///
+/// ```ignore
+/// <wallet_dir>
+/// └── .lock
+/// └── <wallet-json>
+/// ```
+///
+/// Provides the following functionality:
+///
+/// - Control over the `.lock` file to prevent concurrent access.
+/// - A `next_validator` function which wraps `Wallet::next_validator`, ensuring that the wallet is
+///     persisted to disk (as JSON) between each consecutive call.
+pub struct LockedWallet {
+    wallet_dir: PathBuf,
+    wallet: Wallet,
+}
+
+impl LockedWallet {
+    /// Opens a wallet with the `uuid` from a `base_dir`.
+    ///
+    /// ```ignore
+    /// <base-dir>
+    /// ├── <uuid (directory)>
+    ///     └── <uuid (json file)>
+    /// ```
+    ///
+    /// ## Errors
+    ///
+    /// - If the wallet does not exist.
+    /// - There is file-system or parsing error.
+    /// - The lock-file already exists.
+    fn open<P: AsRef<Path>>(base_dir: P, uuid: &Uuid) -> Result<Self, Error> {
+        let wallet_dir = base_dir.as_ref().join(format!("{}", uuid));
+
+        if !wallet_dir.exists() {
+            return Err(Error::MissingWalletDir(wallet_dir));
+        }
+
+        let lockfile = wallet_dir.join(LOCK_FILE);
+        if lockfile.exists() {
+            return Err(Error::WalletIsLocked(wallet_dir));
+        } else {
+            File::create(lockfile).map_err(Error::UnableToCreateLockfile)?;
+        }
+
+        Ok(Self {
+            wallet: read(&wallet_dir, uuid)?,
+            wallet_dir,
+        })
+    }
+
+    /// Returns a reference to the underlying wallet.
+    ///
+    /// Note: this does not read from the file-system on each call. It assumes that the wallet does
+    /// not change due to the use of a lock-file.
+    pub fn wallet(&self) -> &Wallet {
+        &self.wallet
+    }
+
+    /// Calls `Wallet::next_validator` on the underlying `wallet`.
+    ///
+    /// Ensures that the wallet JSON file is updated after each call.
+    ///
+    /// ## Errors
+    ///
+    /// - If there is an error generating the validator keys.
+    /// - If there is a file-system error.
+    pub fn next_validator(
+        &mut self,
+        wallet_password: &[u8],
+        voting_keystore_password: &[u8],
+        withdrawal_keystore_password: &[u8],
+    ) -> Result<ValidatorKeystores, Error> {
+        let keystores = self.wallet.next_validator(
+            wallet_password,
+            voting_keystore_password,
+            withdrawal_keystore_password,
+        )?;
+
+        update(&self.wallet_dir, &self.wallet)?;
+
+        Ok(keystores)
+    }
+}
+
+impl Drop for LockedWallet {
+    /// Clean-up the lockfile.
+    fn drop(&mut self) {
+        let lockfile = self.wallet_dir.clone().join(LOCK_FILE);
+        if let Err(e) = remove_file(&lockfile) {
+            panic!("Unable to remove {:?}: {:?}", lockfile, e);
+        }
+    }
+}
+
 /// Manages a directory containing EIP-2386 wallets.
 ///
 /// Each wallet is stored in a directory with the name of the wallet UUID. Inside each directory a
@@ -75,64 +174,10 @@ pub struct WalletManager {
     dir: PathBuf,
 }
 
-pub struct LockedWallet {
-    wallet_dir: PathBuf,
-    wallet: Wallet,
-}
-
-impl LockedWallet {
-    pub fn open<P: AsRef<Path>>(base_dir: P, uuid: &Uuid) -> Result<Self, Error> {
-        let wallet_dir = base_dir.as_ref().join(format!("{}", uuid));
-
-        if !wallet_dir.exists() {
-            return Err(Error::MissingWalletDir(wallet_dir));
-        }
-
-        let lockfile = wallet_dir.join(LOCK_FILE);
-        if lockfile.exists() {
-            return Err(Error::WalletIsLocked(wallet_dir));
-        } else {
-            File::create(lockfile).map_err(Error::UnableToCreateLockfile)?;
-        }
-
-        Ok(Self {
-            wallet: read(&wallet_dir, uuid)?,
-            wallet_dir,
-        })
-    }
-
-    pub fn wallet(&self) -> &Wallet {
-        &self.wallet
-    }
-
-    pub fn next_validator(
-        &mut self,
-        wallet_password: &[u8],
-        voting_keystore_password: &[u8],
-        withdrawal_keystore_password: &[u8],
-    ) -> Result<ValidatorKeystores, Error> {
-        let keystores = self.wallet.next_validator(
-            wallet_password,
-            voting_keystore_password,
-            withdrawal_keystore_password,
-        )?;
-
-        update(&self.wallet_dir, &self.wallet)?;
-
-        Ok(keystores)
-    }
-}
-
-impl Drop for LockedWallet {
-    fn drop(&mut self) {
-        let lockfile = self.wallet_dir.clone().join(LOCK_FILE);
-        if let Err(e) = remove_file(&lockfile) {
-            panic!("Unable to remove {:?}: {:?}", lockfile, e);
-        }
-    }
-}
-
 impl WalletManager {
+    /// Open a directory containing multiple wallets.
+    ///
+    /// Pass the `wallets` director as `dir` (see struct-level example).
     pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, Error> {
         let dir: PathBuf = dir.as_ref().into();
 
@@ -143,6 +188,12 @@ impl WalletManager {
         }
     }
 
+    /// Searches all wallets in `self.dir` and returns the wallet with this name.
+    ///
+    /// ## Errors
+    ///
+    /// - If there is no wallet with this name.
+    /// - If there is a file-system or parsing error.
     pub fn wallet_by_name(&self, name: &str) -> Result<LockedWallet, Error> {
         LockedWallet::open(
             self.dir.clone(),
@@ -152,6 +203,13 @@ impl WalletManager {
         )
     }
 
+    /// Creates a new wallet with the given `name` in `self.dir` with the given `mnemonic` as a
+    /// seed, encrypted with `password`.
+    ///
+    /// ## Errors
+    ///
+    /// - If a wallet with this name already exists.
+    /// - If there is a file-system or parsing error.
     pub fn create_wallet(
         &self,
         name: String,
@@ -164,11 +222,9 @@ impl WalletManager {
         }
 
         let wallet = WalletBuilder::from_mnemonic(mnemonic, password, name)?.build()?;
-
         let uuid = wallet.uuid().clone();
-        let uuid_string = format!("{}", uuid);
 
-        let wallet_dir = self.dir.join(&uuid_string);
+        let wallet_dir = self.dir.join(format!("{}", uuid));
 
         if wallet_dir.exists() {
             return Err(Error::WalletDirExists(wallet_dir));
@@ -180,9 +236,19 @@ impl WalletManager {
 
         drop(wallet);
 
-        LockedWallet::open(wallet_dir, &uuid)
+        LockedWallet::open(&self.dir, &uuid)
     }
 
+    /// Iterates all wallets in `self.dir` and returns a mapping of their name to their UUID.
+    ///
+    /// Ignores and items in `self.dir` that:
+    ///
+    /// - Are files.
+    /// - Are directories, but their file-name does not parse as a UUID.
+    ///
+    /// This function is fairly strict, it will fail if any directory is found that does not obey
+    /// the expected structure (e.g., there is a UUID directory that does not contain a valid JSON
+    /// keystore with the same UUID).
     fn wallets(&self) -> Result<HashMap<String, Uuid>, Error> {
         let mut wallets = HashMap::new();
 
@@ -205,6 +271,11 @@ impl WalletManager {
                         .open(wallet_path)
                         .map_err(Error::UnableToReadWallet)
                         .and_then(|f| Wallet::from_json_reader(f).map_err(Error::WalletError))?;
+
+                    if *wallet.uuid() != uuid {
+                        return Err(Error::UuidMismatch((uuid, *wallet.uuid())));
+                    }
+
                     wallets.insert(wallet.name().into(), *wallet.uuid());
                 }
             }
@@ -215,9 +286,182 @@ impl WalletManager {
 }
 
 #[cfg(test)]
+// These tests are very slow in debug, only test in release.
+#[cfg(not(debug_assertions))]
 mod tests {
+    use super::*;
+    use eth2_wallet::bip39::{Language, Mnemonic};
+    use tempfile::tempdir;
+
+    const MNEMONIC: &str =
+        "enemy fog enlist laundry nurse hungry discover turkey holiday resemble glad discover";
+    const WALLET_PASSWORD: &[u8] = &[43; 43];
+
+    fn get_mnemonic() -> Mnemonic {
+        Mnemonic::from_phrase(MNEMONIC, Language::English).unwrap()
+    }
+
+    fn create_wallet(mgr: &WalletManager, id: usize) -> LockedWallet {
+        let wallet = mgr
+            .create_wallet(
+                format!("{}", id),
+                WalletType::Hd,
+                &get_mnemonic(),
+                WALLET_PASSWORD,
+            )
+            .expect("should create wallet");
+
+        assert!(
+            wallet_dir_path(&mgr.dir, wallet.wallet.uuid()).exists(),
+            "should have created wallet dir"
+        );
+        assert!(
+            json_path(&mgr.dir, wallet.wallet.uuid()).exists(),
+            "should have created json file"
+        );
+        assert!(
+            lockfile_path(&mgr.dir, wallet.wallet.uuid()).exists(),
+            "should have created lockfile"
+        );
+
+        wallet
+    }
+
+    fn load_wallet_raw<P: AsRef<Path>>(base_dir: P, uuid: &Uuid) -> Wallet {
+        read(wallet_dir_path(base_dir, uuid), uuid).expect("should load raw json")
+    }
+
+    fn wallet_dir_path<P: AsRef<Path>>(base_dir: P, uuid: &Uuid) -> PathBuf {
+        let s = format!("{}", uuid);
+        base_dir.as_ref().join(&s)
+    }
+
+    fn lockfile_path<P: AsRef<Path>>(base_dir: P, uuid: &Uuid) -> PathBuf {
+        let s = format!("{}", uuid);
+        base_dir.as_ref().join(&s).join(LOCK_FILE)
+    }
+
+    fn json_path<P: AsRef<Path>>(base_dir: P, uuid: &Uuid) -> PathBuf {
+        let s = format!("{}", uuid);
+        base_dir.as_ref().join(&s).join(&s)
+    }
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn duplicate_names() {
+        let dir = tempdir().unwrap();
+        let base_dir = dir.path();
+        let mgr = WalletManager::open(base_dir).unwrap();
+        let name = "cats".to_string();
+
+        mgr.create_wallet(
+            name.clone(),
+            WalletType::Hd,
+            &get_mnemonic(),
+            WALLET_PASSWORD,
+        )
+        .expect("should create first wallet");
+
+        match mgr.create_wallet(
+            name.clone(),
+            WalletType::Hd,
+            &get_mnemonic(),
+            WALLET_PASSWORD,
+        ) {
+            Err(Error::NameAlreadyTaken(_)) => {}
+            _ => panic!("expected name error"),
+        }
+    }
+
+    #[test]
+    fn keystore_generation() {
+        let dir = tempdir().unwrap();
+        let base_dir = dir.path();
+        let mgr = WalletManager::open(base_dir).unwrap();
+        let name = "cats".to_string();
+
+        let mut w = mgr
+            .create_wallet(
+                name.clone(),
+                WalletType::Hd,
+                &get_mnemonic(),
+                WALLET_PASSWORD,
+            )
+            .expect("should create first wallet");
+
+        let uuid = w.wallet().uuid().clone();
+
+        assert_eq!(
+            load_wallet_raw(&base_dir, &uuid).nextaccount(),
+            0,
+            "should start wallet with nextaccount 0"
+        );
+
+        for i in 1..3 {
+            w.next_validator(WALLET_PASSWORD, &[1], &[0])
+                .expect("should create validator");
+            assert_eq!(
+                load_wallet_raw(&base_dir, &uuid).nextaccount(),
+                i,
+                "should update wallet with nextaccount {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn locked_wallet_lockfile() {
+        let dir = tempdir().unwrap();
+        let base_dir = dir.path();
+        let mgr = WalletManager::open(base_dir).unwrap();
+
+        let uuid_a = create_wallet(&mgr, 0).wallet().uuid().clone();
+        let uuid_b = create_wallet(&mgr, 1).wallet().uuid().clone();
+
+        let locked_a = LockedWallet::open(&base_dir, &uuid_a).expect("should open wallet a");
+
+        assert!(
+            lockfile_path(&base_dir, &uuid_a).exists(),
+            "lockfile should exist"
+        );
+
+        drop(locked_a);
+
+        assert!(
+            !lockfile_path(&base_dir, &uuid_a).exists(),
+            "lockfile have been cleaned up"
+        );
+
+        let locked_a = LockedWallet::open(&base_dir, &uuid_a).expect("should open wallet a");
+        let locked_b = LockedWallet::open(&base_dir, &uuid_b).expect("should open wallet b");
+
+        assert!(
+            lockfile_path(&base_dir, &uuid_a).exists(),
+            "lockfile a should exist"
+        );
+
+        assert!(
+            lockfile_path(&base_dir, &uuid_b).exists(),
+            "lockfile b should exist"
+        );
+
+        match LockedWallet::open(&base_dir, &uuid_a) {
+            Err(Error::WalletIsLocked(_)) => {}
+            _ => panic!("did not get locked error"),
+        };
+
+        drop(locked_a);
+
+        LockedWallet::open(&base_dir, &uuid_a)
+            .expect("should open wallet a after previous instance is dropped");
+
+        match LockedWallet::open(&base_dir, &uuid_b) {
+            Err(Error::WalletIsLocked(_)) => {}
+            _ => panic!("did not get locked error"),
+        };
+
+        drop(locked_b);
+
+        LockedWallet::open(&base_dir, &uuid_b)
+            .expect("should open wallet a after previous instance is dropped");
     }
 }

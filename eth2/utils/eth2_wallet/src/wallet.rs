@@ -112,7 +112,7 @@ impl<'a> WalletBuilder<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Wallet {
     json: JsonWallet,

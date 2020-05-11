@@ -1301,6 +1301,7 @@ version = "0.1.0"
 dependencies = [
  "eth2_keystore 0.1.0",
  "eth2_wallet 0.1.0",
+ "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
