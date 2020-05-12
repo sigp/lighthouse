@@ -31,21 +31,21 @@ mod tests {
         let enr2 = Enr::from_str("enr:-IS4QJ2d11eu6dC7E7LoXeLMgMP3kom1u3SE8esFSWvaHoo0dP1jg8O3-nx9ht-EO3CmG7L6OkHcMmoIh00IYWB92QABgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQIB_c-jQMOXsbjWkbN-Oj99H57gfId5pfb4wa1qxwV4CIN1ZHCCIyk").unwrap();
         let enrs = vec![enr1, enr2];
 
-        let mut runtime = Runtime::new().unwrap();
+        let runtime = Runtime::new().unwrap();
         let handle = runtime.handle().clone();
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;
         config.discovery_port = 21212;
         config.boot_nodes = enrs.clone();
-        runtime.spawn(async {
+        runtime.spawn(async move {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
             let _ =
                 NetworkService::start(beacon_chain.clone(), &config, &handle, log.clone()).unwrap();
         });
-        runtime.shutdown_timeout(std::Duration::from_millis(300));
+        runtime.shutdown_timeout(tokio::time::Duration::from_millis(300));
 
         // Load the persisted dht from the store
         let persisted_enrs = load_dht(store);
