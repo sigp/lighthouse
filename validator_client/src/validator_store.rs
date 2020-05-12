@@ -38,7 +38,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        // FIXME(slashing): work out where to do validator registration
         let slashing_db_path = base_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection =
             SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
@@ -125,22 +124,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .voting_keypair
                     .clone()
                     .map(|voting_keypair| (voting_keypair.pk, validator_directory))
-            })
-            .collect::<Vec<_>>();
-
-        // Register all validators with the slashing protection agency.
-        for (validator_pubkey, _) in validators.iter() {
-            slashing_protection
-                .register_validator(validator_pubkey)
-                .unwrap_or_else(|e| {
-                    warn!(
-                        log,
-                        "Failed to register validator for slashing protection";
-                        "pubkey" => format!("{:?}", validator_pubkey),
-                        "error" => format!("{:?}", e),
-                    );
-                });
-        }
+            });
 
         Ok(Self {
             validators: Arc::new(RwLock::new(HashMap::from_iter(validators))),
@@ -152,6 +136,19 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             fork_service,
             _phantom: PhantomData,
         })
+    }
+
+    /// Register all known validators with the slashing protection database.
+    ///
+    /// Registration is required to protect against a lost or missing slashing database,
+    /// such as when relocating validator keys to a new machine.
+    pub fn register_all_validators_for_slashing_protection(&self) -> Result<(), String> {
+        for pubkey in self.validators.read().keys() {
+            self.slashing_protection
+                .register_validator(pubkey)
+                .map_err(|e| format!("Error while registering validator {:?}: {:?}", pubkey, e))?;
+        }
+        Ok(())
     }
 
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {

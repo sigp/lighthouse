@@ -192,7 +192,13 @@ impl SlashingDatabase {
         let att_source_epoch = attestation.source.epoch;
         let att_target_epoch = attestation.target.epoch;
 
-        // FIXME(slashing): check target >= source?
+        // Although it's not required to avoid slashing, we disallow attestations
+        // which are obviously invalid by virtue of their source epoch exceeding their target.
+        if att_source_epoch > att_target_epoch {
+            return Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SourceExceedsTarget,
+            ));
+        }
 
         let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
 
@@ -326,9 +332,6 @@ impl SlashingDatabase {
     ) -> Result<Safe, NotSafe> {
         let conn = self.conn_pool.get()?;
 
-        // FIXME(slashing): remove autoregistration
-        self.register_validator_from_conn(&conn, validator_pubkey)?;
-
         match self.check_block_proposal(&conn, validator_pubkey, block_header) {
             Ok(Safe::SameData) => Ok(Safe::SameData),
             Ok(Safe::Valid) => self
@@ -344,9 +347,6 @@ impl SlashingDatabase {
         attestation: &AttestationData,
     ) -> Result<Safe, NotSafe> {
         let conn = self.conn_pool.get()?;
-
-        // FIXME(slashing): remove autoregistration
-        self.register_validator_from_conn(&conn, validator_pubkey)?;
 
         match self.check_attestation(&conn, validator_pubkey, attestation) {
             Ok(Safe::SameData) => Ok(Safe::SameData),

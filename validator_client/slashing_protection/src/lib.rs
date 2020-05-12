@@ -1,10 +1,10 @@
 mod attestation_tests;
-// FIXME(slashing) revive block tests
 mod block_tests;
 mod parallel_tests;
 mod signed_attestation;
 mod signed_block;
 mod slashing_database;
+mod test_utils;
 
 pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
 pub use crate::signed_block::{InvalidBlock, SignedBlock};

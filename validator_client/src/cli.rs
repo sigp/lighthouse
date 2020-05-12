@@ -20,6 +20,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("If present, the validator client will still poll for duties if the beacon
                       node is not synced.")
         )
+        .arg(
+            Arg::with_name("auto-register")
+                .long("auto-register")
+                .help("If present, the validator client will register any new signing keys with
+                       the slashing protection database so that they may be used. WARNING: enabling
+                       the same signing key on multiple Lighthouse instances WILL lead to that
+                       validator getting slashed")
+        )
         /*
          * The "testnet" sub-command.
          *

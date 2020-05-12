@@ -46,4 +46,5 @@ pub enum InvalidAttestation {
     DoubleVote(SignedAttestation),
     NewSurroundsPrev { prev: SignedAttestation },
     PrevSurroundsNew { prev: SignedAttestation },
+    SourceExceedsTarget,
 }

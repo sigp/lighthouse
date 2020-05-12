@@ -1,145 +1,104 @@
 #![cfg(test)]
 
-/* FIXME(slashing
 use super::*;
-use crate::validator_history::SlashingProtection;
-use tempfile::NamedTempFile;
-use types::{BeaconBlockHeader, EthSpec, MinimalEthSpec, Signature, Slot};
+use crate::test_utils::*;
+use types::{BeaconBlockHeader, Hash256, Slot};
 
-fn block_builder(slot: u64) -> BeaconBlockHeader {
+pub fn block(slot: u64) -> BeaconBlockHeader {
     BeaconBlockHeader {
-        slot: Slot::from(slot),
+        slot: Slot::new(slot),
+        proposer_index: 0,
         parent_root: Hash256::random(),
         state_root: Hash256::random(),
         body_root: Hash256::random(),
-        signature: Signature::empty_signature(),
     }
-}
-
-fn create_tmp() -> (ValidatorHistory<SignedBlock>, NamedTempFile) {
-    let block_file = NamedTempFile::new().expect("couldn't create temporary file");
-    let filename = block_file.path();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let block_history: ValidatorHistory<SignedBlock> =
-        ValidatorHistory::new(filename, Some(slots_per_epoch)).expect("IO error with file");
-
-    (block_history, block_file)
 }
 
 #[test]
 fn valid_empty_history() {
-    let (mut block_history, _attestation_file) = create_tmp();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let new_block = block_builder(3 * slots_per_epoch);
-    let res = block_history.update_if_valid(&new_block);
-    assert_eq!(res, Ok(()));
+    StreamTest {
+        cases: vec![Test::single(block(1))],
+        ..StreamTest::default()
+    }
+    .run()
 }
 
 #[test]
-fn valid_block() {
-    let (mut block_history, _attestation_file) = create_tmp();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let first = block_builder(slots_per_epoch);
-    block_history
-        .update_if_valid(&first)
-        .expect("should have inserted prev data");
-    let second = block_builder(2 * slots_per_epoch);
-    block_history
-        .update_if_valid(&second)
-        .expect("should have inserted prev data");
-
-    let new_block = block_builder(3 * slots_per_epoch);
-    let res = block_history.update_if_valid(&new_block);
-    assert_eq!(res, Ok(()));
+fn valid_blocks() {
+    StreamTest {
+        cases: vec![
+            Test::single(block(1)),
+            Test::single(block(2)),
+            Test::single(block(3)),
+            Test::single(block(4)),
+        ],
+        ..StreamTest::default()
+    }
+    .run()
 }
 
 #[test]
 fn valid_same_block() {
-    let (mut block_history, _attestation_file) = create_tmp();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let first = block_builder(slots_per_epoch);
-    block_history
-        .update_if_valid(&first)
-        .expect("should have inserted prev data");
-    let second = block_builder(2 * slots_per_epoch);
-    block_history
-        .update_if_valid(&second)
-        .expect("should have inserted prev data");
-
-    let res = block_history.update_if_valid(&second);
-    assert_eq!(res, Ok(()));
+    let block = block(100);
+    StreamTest {
+        cases: vec![
+            Test::single(block.clone()),
+            Test::single(block).expect_same_data(),
+        ],
+        ..StreamTest::default()
+    }
+    .run()
 }
 
 #[test]
-fn invalid_pruning_error() {
-    let (mut block_history, _attestation_file) = create_tmp();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let first = block_builder(slots_per_epoch);
-    block_history
-        .update_if_valid(&first)
-        .expect("should have inserted prev data");
-    let second = block_builder(2 * slots_per_epoch);
-    block_history
-        .update_if_valid(&second)
-        .expect("should have inserted prev data");
-
-    let new_block = block_builder(0);
-    let res = block_history.update_if_valid(&new_block);
-    assert_eq!(res, Err(NotSafe::PruningError));
+fn valid_same_slot_different_validator() {
+    StreamTest {
+        registered_validators: vec![pubkey(0), pubkey(1)],
+        cases: vec![
+            Test::with_pubkey(pubkey(0), block(100)),
+            Test::with_pubkey(pubkey(1), block(100)),
+        ],
+    }
+    .run()
 }
 
 #[test]
-fn valid_block_in_the_middle() {
-    let (mut block_history, _attestation_file) = create_tmp();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let first = block_builder(slots_per_epoch);
-    block_history
-        .update_if_valid(&first)
-        .expect("should have inserted prev data");
-    let second = block_builder(3 * slots_per_epoch);
-    block_history
-        .update_if_valid(&second)
-        .expect("should have inserted prev data");
-
-    let new_block = block_builder(2 * slots_per_epoch);
-    let res = block_history.update_if_valid(&new_block);
-    assert_eq!(res, Ok(()));
+fn valid_same_block_different_validator() {
+    let block = block(100);
+    StreamTest {
+        registered_validators: vec![pubkey(0), pubkey(1)],
+        cases: vec![
+            Test::with_pubkey(pubkey(0), block.clone()),
+            Test::with_pubkey(pubkey(1), block.clone()),
+        ],
+    }
+    .run()
 }
 
 #[test]
 fn invalid_double_block_proposal() {
-    let (mut block_history, _attestation_file) = create_tmp();
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let first = block_builder(slots_per_epoch);
-    block_history
-        .update_if_valid(&first)
-        .expect("should have inserted prev data");
-    let second = block_builder(2 * slots_per_epoch);
-    block_history
-        .update_if_valid(&second)
-        .expect("should have inserted prev data");
-    let third = block_builder(3 * slots_per_epoch);
-    block_history
-        .update_if_valid(&third)
-        .expect("should have inserted prev data");
-
-    let new_block = block_builder(2 * slots_per_epoch + 2);
-    let res = block_history.update_if_valid(&new_block);
-    let slots_per_epoch = block_history
-        .slots_per_epoch()
-        .expect("should have slots_per_epoch");
-    assert_eq!(
-        res,
-        Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
-            SignedBlock::from(&second, slots_per_epoch)
-        )))
-    );
+    let first_block = block(1);
+    StreamTest {
+        cases: vec![
+            Test::single(first_block.clone()),
+            Test::single(block(1)).expect_invalid_block(InvalidBlock::DoubleBlockProposal(
+                SignedBlock::from(&first_block),
+            )),
+        ],
+        ..StreamTest::default()
+    }
+    .run()
 }
-*/
+
+#[test]
+fn invalid_unregistered_validator() {
+    StreamTest {
+        registered_validators: vec![],
+        cases: vec![
+            Test::single(block(0)).expect_result(Err(NotSafe::UnregisteredValidator(pubkey(
+                DEFAULT_VALIDATOR_INDEX,
+            )))),
+        ],
+    }
+    .run()
+}

@@ -37,19 +37,22 @@ pub struct Config {
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
+    /// If true, register new validator keys with the slashing protection database.
+    pub auto_register: bool,
 }
 
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let mut data_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        data_dir.push(".lighthouse");
-        data_dir.push("validators");
+        let data_dir = dirs::home_dir()
+            .map(|home| home.join(DEFAULT_DATA_DIR))
+            .unwrap_or_else(|| PathBuf::from("."));
         Self {
             data_dir,
             key_source: <_>::default(),
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
+            auto_register: false,
         }
     }
 }
@@ -95,6 +98,7 @@ impl Config {
         };
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        config.auto_register = cli_args.is_present("auto-register");
 
         Ok(config)
     }
