@@ -114,9 +114,15 @@ async fn test_status_rpc() {
     }
 }
 
+<<<<<<< HEAD
 #[tokio::test]
 // Tests a streamed BlocksByRange RPC Message
 async fn test_blocks_by_range_chunked_rpc() {
+=======
+#[test]
+// Tests a streamed BlocksByRange RPC Message that terminates when all chunks have been received
+fn test_blocks_by_range_chunked_rpc() {
+>>>>>>> 58c994bf... WIP test, waiting for stable-futures to land in master
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
     let enable_logging = false;
@@ -188,6 +194,7 @@ async fn test_blocks_by_range_chunked_rpc() {
     // build the receiver future
     let receiver_future = async {
         loop {
+<<<<<<< HEAD
             match receiver.next_event().await {
                 Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
                     match event {
@@ -207,6 +214,17 @@ async fn test_blocks_by_range_chunked_rpc() {
                                     );
                                 }
                                 // send the stream termination
+=======
+            match receiver.poll().unwrap() {
+                Async::Ready(Some(BehaviourEvent::RPC(peer_id, event))) => match event {
+                    // Should receive the sent RPC request
+                    RPCEvent::Request(id, request) => {
+                        if request == rpc_request {
+                            // send the response
+                            warn!(log, "Receiver got request");
+
+                            for _ in 1..=messages_to_send + 1 {
+>>>>>>> 58c994bf... WIP test, waiting for stable-futures to land in master
                                 receiver.swarm.send_rpc(
                                     peer_id,
                                     RPCEvent::Response(
