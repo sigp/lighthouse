@@ -49,16 +49,9 @@ pub enum NotSafe {
 }
 
 #[derive(PartialEq, Debug)]
-pub enum ValidityReason {
-    // Casting the exact same data (block or attestation) twice is never slashable.
+pub enum Safe {
+    /// Casting the exact same data (block or attestation) twice is never slashable.
     SameData,
-    // Incoming data is safe from slashing
+    /// Incoming data is safe from slashing, and is not a duplicate.
     Valid,
-}
-
-// FIXME(slashing): flatten ValidityReason into this enum
-#[derive(PartialEq, Debug)]
-pub struct Safe {
-    /// Used to check if the attestation is a SameData, in which case it should not get inserted.
-    pub reason: ValidityReason,
 }

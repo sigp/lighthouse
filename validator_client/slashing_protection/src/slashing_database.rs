@@ -1,6 +1,6 @@
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
-use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, ValidityReason};
+use crate::{NotSafe, Safe, SignedAttestation, SignedBlock};
 use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension};
@@ -156,37 +156,30 @@ impl SlashingDatabase {
     ) -> Result<Safe, NotSafe> {
         let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
 
-        let existing_block_root = conn
+        let existing_block = conn
             .prepare(
-                "SELECT signing_root
+                "SELECT slot, signing_root
                  FROM signed_blocks
                  WHERE validator_id = ?1 AND slot = ?2",
             )?
-            .query_row(params![validator_id, block_header.slot], |row| {
-                let signing_bytes: Vec<u8> = row.get(0)?;
-                Ok(Hash256::from_slice(&signing_bytes))
-            })
+            .query_row(
+                params![validator_id, block_header.slot],
+                SignedBlock::from_row,
+            )
             .optional()?;
 
-        if let Some(existing_block_root) = existing_block_root {
-            if existing_block_root == block_header.canonical_root() {
+        if let Some(existing_block) = existing_block {
+            if existing_block.signing_root == block_header.canonical_root() {
                 // Same slot and same hash -> we're re-broadcasting a previously signed block
-                Ok(Safe {
-                    reason: ValidityReason::SameData,
-                })
+                Ok(Safe::SameData)
             } else {
                 // Same epoch but not the same hash -> it's a DoubleBlockProposal
                 Err(NotSafe::InvalidBlock(InvalidBlock::DoubleBlockProposal(
-                    SignedBlock {
-                        slot: block_header.slot,
-                        signing_root: existing_block_root,
-                    },
+                    existing_block,
                 )))
             }
         } else {
-            Ok(Safe {
-                reason: ValidityReason::Valid,
-            })
+            Ok(Safe::Valid)
         }
     }
 
@@ -228,9 +221,7 @@ impl SlashingDatabase {
             // If the new attestation is identical to the existing attestation, then we already
             // know that it is safe, and can return immediately.
             if existing_attestation.signing_root == attestation.tree_hash_root() {
-                return Ok(Safe {
-                    reason: ValidityReason::SameData,
-                });
+                return Ok(Safe::SameData);
             // Otherwise if the hashes are different, this is a double vote.
             } else {
                 return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
@@ -284,9 +275,7 @@ impl SlashingDatabase {
         }
 
         // Everything has been checked, return Valid
-        Ok(Safe {
-            reason: ValidityReason::Valid,
-        })
+        Ok(Safe::Valid)
     }
 
     fn insert_block_proposal(
@@ -334,17 +323,17 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
-    ) -> Result<(), NotSafe> {
+    ) -> Result<Safe, NotSafe> {
         let conn = self.conn_pool.get()?;
 
         // FIXME(slashing): remove autoregistration
         self.register_validator_from_conn(&conn, validator_pubkey)?;
 
         match self.check_block_proposal(&conn, validator_pubkey, block_header) {
-            Ok(safe) => match safe.reason {
-                ValidityReason::SameData => Ok(()),
-                _ => self.insert_block_proposal(&conn, validator_pubkey, block_header),
-            },
+            Ok(Safe::SameData) => Ok(Safe::SameData),
+            Ok(Safe::Valid) => self
+                .insert_block_proposal(&conn, validator_pubkey, block_header)
+                .map(|()| Safe::Valid),
             Err(notsafe) => Err(notsafe),
         }
     }
@@ -360,12 +349,10 @@ impl SlashingDatabase {
         self.register_validator_from_conn(&conn, validator_pubkey)?;
 
         match self.check_attestation(&conn, validator_pubkey, attestation) {
-            Ok(safe) => match safe.reason {
-                ValidityReason::SameData => Ok(safe),
-                _ => self
-                    .insert_attestation(&conn, validator_pubkey, attestation)
-                    .map(|()| safe),
-            },
+            Ok(Safe::SameData) => Ok(Safe::SameData),
+            Ok(Safe::Valid) => self
+                .insert_attestation(&conn, validator_pubkey, attestation)
+                .map(|()| Safe::Valid),
             Err(notsafe) => Err(notsafe),
         }
     }

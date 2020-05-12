@@ -49,9 +49,7 @@ impl AttestationTest {
         Self {
             pubkey,
             attestation,
-            expected: Ok(Safe {
-                reason: ValidityReason::Valid,
-            }),
+            expected: Ok(Safe::Valid),
         }
     }
 
@@ -65,9 +63,7 @@ impl AttestationTest {
     }
 
     pub fn expect_same_data(self) -> Self {
-        self.expect_result(Ok(Safe {
-            reason: ValidityReason::SameData,
-        }))
+        self.expect_result(Ok(Safe::SameData))
     }
 }
 
@@ -439,7 +435,6 @@ fn invalid_surrounded_multiple_votes() {
     let attestation_data = attestation_data_builder(3, 4);
     let res = attestation_history.update_if_valid(&attestation_data);
 
-    println!("{:?}", third);
     assert_eq!(
         res,
         Err(NotSafe::InvalidAttestation(
