@@ -27,7 +27,7 @@ Since Eth2 relies upon the Eth1 chain for validator on-boarding, all Eth2 valida
 
 We provide instructions for using Geth (the Eth1 client that, by chance, we ended up testing with), but you could use any client that implements the JSON RPC via HTTP. A fast-synced node should be sufficient.
 
-### Installing Geth 
+### Installing Geth
 If you're using a Mac, follow the instructions [listed here](https://github.com/ethereum/go-ethereum/wiki/Installation-Instructions-for-Mac) to install geth. Otherwise [see here](https://github.com/ethereum/go-ethereum/wiki/Installing-Geth).
 
 ### Starting Geth
