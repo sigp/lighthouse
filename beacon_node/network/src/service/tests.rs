@@ -5,7 +5,6 @@ mod tests {
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
     use eth2_libp2p::Enr;
-    use futures::{Future, IntoFuture};
     use slog::Logger;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
@@ -32,22 +31,25 @@ mod tests {
         let enr2 = Enr::from_str("enr:-IS4QJ2d11eu6dC7E7LoXeLMgMP3kom1u3SE8esFSWvaHoo0dP1jg8O3-nx9ht-EO3CmG7L6OkHcMmoIh00IYWB92QABgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQIB_c-jQMOXsbjWkbN-Oj99H57gfId5pfb4wa1qxwV4CIN1ZHCCIyk").unwrap();
         let enrs = vec![enr1, enr2];
 
-        let runtime = Runtime::new().unwrap();
-        let executor = runtime.executor();
+        let mut runtime = Runtime::new().unwrap();
+        let handle = runtime.handle().clone();
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;
         config.discovery_port = 21212;
         config.boot_nodes = enrs.clone();
-        runtime
-            .block_on_all(
-                // Create a new network service which implicitly gets dropped at the
-                // end of the block.
-                NetworkService::start(beacon_chain.clone(), &config, &executor, log.clone())
-                    .into_future()
-                    .and_then(move |(_globals, _service, _exit)| Ok(())),
-            )
-            .unwrap();
+        runtime.block_on(async {
+            // Create a new network service which implicitly gets dropped at the
+            // end of the block.
+            {
+                let _ = NetworkService::start(beacon_chain.clone(), &config, &handle, log.clone())
+                    .unwrap();
+            }
+            // Delay for a bit so the spawned network task has time to exit
+            // TODO: look for a better way to block till all spawned tasks have completed
+            // a la `block_on_all`
+            tokio::time::delay_for(tokio::time::Duration::from_secs(1)).await;
+        });
 
         // Load the persisted dht from the store
         let persisted_enrs = load_dht(store);

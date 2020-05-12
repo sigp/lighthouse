@@ -1,4 +1,3 @@
-use futures::future::TryFutureExt;
 use slog::{debug, error, info, warn, Logger};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
@@ -73,20 +72,19 @@ pub fn start_server<T: EthSpec>(
 
         let log_inner = log.clone();
         let broadcaster_inner = server.broadcaster();
-        let exit_future = exit
-            .and_then(move |_| {
-                if let Err(e) = broadcaster_inner.shutdown() {
-                    warn!(
-                        log_inner,
-                        "Websocket server errored on shutdown";
-                        "error" => format!("{:?}", e)
-                    );
-                } else {
-                    info!(log_inner, "Websocket server shutdown");
-                }
-                futures::future::ok(())
-            })
-            .map_err(|_| ());
+        let exit_future = async move {
+            let _ = exit.await;
+            if let Err(e) = broadcaster_inner.shutdown() {
+                warn!(
+                    log_inner,
+                    "Websocket server errored on shutdown";
+                    "error" => format!("{:?}", e)
+                );
+            } else {
+                info!(log_inner, "Websocket server shutdown");
+            }
+            futures::future::ready(())
+        };
 
         // Place a future on the handle that will shutdown the websocket server when the
         // application exits.
@@ -96,7 +94,10 @@ pub fn start_server<T: EthSpec>(
     };
 
     let log_inner = log.clone();
-    let _handle = tokio::task::spawn_blocking(move || match server.run() {
+
+    // TODO: explore spawning the task on a tokio blocking thread
+    // This causes issues with tests as you can't run a single threaded scheduler
+    let _ = std::thread::spawn(move || match server.run() {
         Ok(_) => {
             debug!(
                 log_inner,
