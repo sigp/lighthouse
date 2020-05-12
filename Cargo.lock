@@ -1302,6 +1302,7 @@ version = "0.1.0"
 dependencies = [
  "hex 0.3.2",
  "num-bigint-dig",
+ "ring",
  "rust-crypto",
  "zeroize 1.1.0",
 ]

@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![cfg(not(debug_assertions))]
 
 use bls::Keypair;
 use eth2_keystore::{Error, Keystore, KeystoreBuilder};
