@@ -154,6 +154,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         secrets_dir: TempDir,
     ) -> impl Future<Item = Self, Error = String> {
         config.data_dir = datadir.path().into();
+        config.secrets_dir = secrets_dir.path().into();
 
         ProductionValidatorClient::new(context, config).map(move |mut client| {
             client
