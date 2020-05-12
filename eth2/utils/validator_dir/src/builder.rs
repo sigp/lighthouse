@@ -18,7 +18,7 @@ const DEFAULT_PASSWORD_LEN: usize = 48;
 
 pub const VOTING_KEYSTORE_FILE: &str = "voting-keystore.json";
 pub const WITHDRAWAL_KEYSTORE_FILE: &str = "withdrawal-keystore.json";
-const ETH1_DEPOSIT_DATA_FILE: &str = "eth1-deposit-data.rlp";
+pub const ETH1_DEPOSIT_DATA_FILE: &str = "eth1-deposit-data.rlp";
 
 #[derive(Debug)]
 pub enum Error {

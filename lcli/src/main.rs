@@ -12,6 +12,7 @@ mod parse_hex;
 mod refund_deposit_contract;
 mod skip_slots;
 mod transition_blocks;
+mod upgrade_legacy_keypairs;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use environment::EnvironmentBuilder;
@@ -405,7 +406,7 @@ fn main() {
         .subcommand(
             SubCommand::with_name("generate-bootnode-enr")
                 .about(
-                    "Generates an ENR address to be used as a pre-genesis boot node..",
+                    "Generates an ENR address to be used as a pre-genesis boot node.",
                 )
                 .arg(
                     Arg::with_name("ip")
@@ -438,6 +439,28 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("The directory in which to create the network dir"),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("upgrade-legacy-keypairs")
+                .about(
+                    "Converts legacy unencrypted SSZ keypairs into encrypted keystores.",
+                )
+                .arg(
+                    Arg::with_name("validators-dir")
+                        .long("validators-dir")
+                        .value_name("VALIDATORS_DIRECTORY")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The directory containing legacy validators. Generally ~/.lighthouse/validators"),
+                )
+                .arg(
+                    Arg::with_name("secrets-dir")
+                        .long("secrets-dir")
+                        .value_name("SECRETS_DIRECTORY")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The directory where keystore passwords will be stored. Generally ~/.lighthouse/secrets"),
                 )
         )
         .get_matches();
@@ -541,6 +564,8 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> 
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
+        ("upgrade-legacy-keypairs", Some(matches)) => upgrade_legacy_keypairs::run::<T>(matches)
+            .map_err(|e| format!("Failed to run upgrade-legacy-keypairs command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

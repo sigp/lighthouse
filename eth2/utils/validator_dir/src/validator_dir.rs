@@ -15,7 +15,7 @@ pub enum Error {
     UnableToOpenKeystore(io::Error),
     UnableToReadKeystore(KeystoreError),
     UnableToOpenPassword(io::Error),
-    UnableToReadPassword(io::Error),
+    UnableToReadPassword(PathBuf),
     UnableToDecryptKeypair(KeystoreError),
     #[cfg(feature = "unencrypted_keys")]
     SszKeypairError(String),
@@ -77,13 +77,12 @@ fn unlock_keypair<P: AsRef<Path>>(
     )
     .map_err(Error::UnableToReadKeystore)?;
 
-    let password: PlainText = read(
-        password_dir
-            .as_ref()
-            .join(format!("0x{}", keystore.pubkey())),
-    )
-    .map_err(Error::UnableToReadPassword)?
-    .into();
+    let password_path = password_dir
+        .as_ref()
+        .join(format!("0x{}", keystore.pubkey()));
+    let password: PlainText = read(&password_path)
+        .map_err(|_| Error::UnableToReadPassword(password_path.into()))?
+        .into();
 
     keystore
         .decrypt_keypair(password.as_bytes())

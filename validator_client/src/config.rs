@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
-pub const DEFAULT_SECRET_DIR: &str = ".lighthouse/secrets";
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
@@ -31,7 +30,7 @@ impl Default for Config {
     fn default() -> Self {
         let base_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("lighthouse");
+            .join(".lighthouse");
         let data_dir = base_dir.join("validators");
         let secrets_dir = base_dir.join("secrets");
 
