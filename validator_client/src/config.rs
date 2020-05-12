@@ -1,9 +1,9 @@
 use clap::ArgMatches;
+use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
@@ -50,26 +50,37 @@ impl Config {
     pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
         let mut config = Config::default();
 
-        // Read the `--datadir` flag.
-        //
-        // If it's not present, try and find the home directory (`~`) and push the default data
-        // directory onto it. If the home directory is not available, use the present directory.
-        config.data_dir = cli_args
-            .value_of("datadir")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                dirs::home_dir()
-                    .map(|home| home.join(DEFAULT_DATA_DIR))
-                    .unwrap_or_else(|| PathBuf::from("."))
-            });
+        config.data_dir = parse_path_with_default_in_home_dir(
+            cli_args,
+            "datadir",
+            PathBuf::from(".lighthouse").join("validators"),
+        )?;
 
-        if let Some(server) = cli_args.value_of("server") {
-            config.http_server = server.to_string();
+        if !config.data_dir.exists() {
+            return Err(format!(
+                "The directory for validator data  (--datadir) does not exist: {:?}",
+                config.data_dir
+            ));
+        }
+
+        if let Some(server) = parse_optional(cli_args, "server")? {
+            config.http_server = server;
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
 
         config.use_legacy_keys = cli_args.is_present("legacy-keys");
+
+        if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
+            config.secrets_dir = secrets_dir;
+        }
+
+        if !config.secrets_dir.exists() {
+            return Err(format!(
+                "The directory for validator passwords (--secrets-dir) does not exist: {:?}",
+                config.secrets_dir
+            ));
+        }
 
         Ok(config)
     }
