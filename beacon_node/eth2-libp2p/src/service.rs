@@ -16,7 +16,7 @@ use libp2p::core::{
 };
 use libp2p::{
     core, noise, secio,
-    swarm::{NetworkBehaviour, SwarmEvent},
+    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
 use slog::{crit, debug, error, info, trace, warn};
@@ -34,6 +34,8 @@ pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
 /// flushed and protocols to be negotiated.
 const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
+/// The maximum simultaneous libp2p connections per peer.
+const MAX_CONNECTIONS_PER_PEER: usize = 2;
 
 /// The types of events than can be obtained from polling the libp2p service.
 ///
@@ -108,7 +110,18 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
-            Swarm::new(transport, behaviour, local_peer_id.clone())
+
+            // use the executor for libp2p
+            struct Executor(tokio::runtime::Handle);
+            impl libp2p::core::Executor for Executor {
+                fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
+                    self.0.spawn(f);
+                }
+            }
+            SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
+                .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
+                .executor(Box::new(Executor(tokio::runtime::Handle::current())))
+                .build()
         };
 
         // listen on the specified address
