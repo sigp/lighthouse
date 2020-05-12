@@ -320,7 +320,7 @@ fn build_transport(
 ) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
     // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
     // in the future.
-    let transport = libp2p::tcp::TcpConfig::new().nodelay(true);
+    let transport = libp2p_tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
     let transport = {

@@ -33,6 +33,15 @@ jobs:
       run: sudo npm install -g ganache-cli
     - name: Run tests in debug
       run: make test-debug
+  state-transition-vectors-ubuntu:
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Run state_transition_vectors in release.
+      run: make run-state-transition-tests
   ef-tests-ubuntu:
     runs-on: ubuntu-latest
     needs: cargo-fmt

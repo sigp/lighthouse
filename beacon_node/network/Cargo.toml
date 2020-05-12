@@ -7,7 +7,6 @@ edition = "2018"
 [dev-dependencies]
 sloggers = "1.0.0"
 genesis = { path = "../genesis" }
-tempdir = "0.3.7"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
