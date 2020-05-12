@@ -168,9 +168,9 @@ impl ProtocolName for ProtocolId {
 // handler to respond to once ready.
 
 pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
-//pub type InboundFramed<TSocket, TSpec> =
-//    Framed<TimeoutStream<Compat<TSocket>>, InboundCodec<TSpec>>;
-pub type InboundFramed<TSocket, TSpec> = futures_codec::Framed<TSocket, InboundCodec<TSpec>>;
+pub type InboundFramed<TSocket, TSpec> =
+    Framed<TimeoutStream<Compat<TSocket>>, InboundCodec<TSpec>>;
+//pub type InboundFramed<TSocket, TSpec> = futures_codec::Framed<TSocket, InboundCodec<TSpec>>;
 type FnAndThen<TSocket, TSpec> = fn(
     (
         Option<Result<RPCRequest<TSpec>, RPCError>>,
@@ -191,7 +191,7 @@ where
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
         let protocol_name = protocol.message_name;
         // convert the socket to tokio compatible socket
-        //let socket = socket.compat();
+        let socket = socket.compat();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec =
@@ -203,10 +203,8 @@ where
                 InboundCodec::SSZ(ssz_codec)
             }
         };
-        /*
         let mut timed_socket = TimeoutStream::new(socket);
         timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
-        */
 
         let socket = futures_codec::Framed::new(socket, codec);
 
@@ -217,13 +215,14 @@ where
             }
 
             _ => future::Either::Right(
+                /*
                 socket.into_future().then({
                     |(req, stream)| match req {
                         Some(Ok(request)) => future::ok((request, stream)),
                         Some(Err(_)) | None => future::err(RPCError::IncompleteStream),
                     }
                 } as FnAndThen<TSocket, TSpec>),
-                /*
+                */
                 tokio::time::timeout(Duration::from_secs(REQUEST_TIMEOUT), socket.into_future())
                     .map_err(RPCError::from as FnMapErr)
                     .and_then({
@@ -232,7 +231,6 @@ where
                             Some(Err(_)) | None => future::err(RPCError::IncompleteStream),
                         }
                     } as FnAndThen<TSocket, TSpec>),
-                */
             ),
         })
     }
