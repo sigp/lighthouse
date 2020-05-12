@@ -318,8 +318,6 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
 fn build_transport(
     local_private_key: Keypair,
 ) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
-    // TODO: The Wire protocol currently doesn't specify encryption and this will need to be customised
-    // in the future.
     let transport = libp2p_tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]

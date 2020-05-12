@@ -110,7 +110,7 @@ fn build_secio_swarm(
 
 /// Build a simple TCP transport with secio, mplex/yamux.
 fn build_secio_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
-    let transport = libp2p::tcp::TcpConfig::new().nodelay(true);
+    let transport = libp2p_tcp::TokioTcpConfig::new().nodelay(true);
     transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(secio::SecioConfig::new(local_private_key))
