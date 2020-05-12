@@ -83,7 +83,6 @@ pub fn start_server<T: EthSpec>(
             } else {
                 info!(log_inner, "Websocket server shutdown");
             }
-            futures::future::ready(())
         };
 
         // Place a future on the handle that will shutdown the websocket server when the
@@ -95,8 +94,6 @@ pub fn start_server<T: EthSpec>(
 
     let log_inner = log.clone();
 
-    // TODO: explore spawning the task on a tokio blocking thread
-    // This causes issues with tests as you can't run a single threaded scheduler
     let _ = std::thread::spawn(move || match server.run() {
         Ok(_) => {
             debug!(

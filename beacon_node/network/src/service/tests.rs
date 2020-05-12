@@ -38,18 +38,14 @@ mod tests {
         config.libp2p_port = 21212;
         config.discovery_port = 21212;
         config.boot_nodes = enrs.clone();
-        runtime.block_on(async {
+        runtime.spawn(async {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
-            {
-                let _ = NetworkService::start(beacon_chain.clone(), &config, &handle, log.clone())
-                    .unwrap();
-            }
-            // Delay for a bit so the spawned network task has time to exit
-            // TODO: look for a better way to block till all spawned tasks have completed
-            // a la `block_on_all`
-            tokio::time::delay_for(tokio::time::Duration::from_secs(1)).await;
+
+            let _ =
+                NetworkService::start(beacon_chain.clone(), &config, &handle, log.clone()).unwrap();
         });
+        runtime.shutdown_timeout(std::Duration::from_millis(300));
 
         // Load the persisted dht from the store
         let persisted_enrs = load_dht(store);
