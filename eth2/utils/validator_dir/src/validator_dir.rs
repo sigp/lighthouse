@@ -17,8 +17,11 @@ pub enum Error {
     UnableToOpenPassword(io::Error),
     UnableToReadPassword(io::Error),
     UnableToDecryptKeypair(KeystoreError),
+    #[cfg(feature = "unencrypted_keys")]
+    SszKeypairError(String),
 }
 
+#[derive(Debug, PartialEq)]
 pub struct ValidatorDir {
     pub dir: PathBuf,
 }
@@ -51,6 +54,15 @@ impl ValidatorDir {
     }
 }
 
+impl Drop for ValidatorDir {
+    fn drop(&mut self) {
+        let lockfile = self.dir.clone().join(LOCK_FILE);
+        if let Err(e) = remove_file(&lockfile) {
+            eprintln!("Unable to remove validator {:?}: {:?}", lockfile, e);
+        }
+    }
+}
+
 fn unlock_keypair<P: AsRef<Path>>(
     keystore_dir: &PathBuf,
     filename: &str,
@@ -76,13 +88,4 @@ fn unlock_keypair<P: AsRef<Path>>(
     keystore
         .decrypt_keypair(password.as_bytes())
         .map_err(Error::UnableToDecryptKeypair)
-}
-
-impl Drop for ValidatorDir {
-    fn drop(&mut self) {
-        let lockfile = self.dir.clone().join(LOCK_FILE);
-        if let Err(e) = remove_file(&lockfile) {
-            eprintln!("Unable to remove validator {:?}: {:?}", lockfile, e);
-        }
-    }
 }

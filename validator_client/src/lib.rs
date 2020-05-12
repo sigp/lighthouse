@@ -10,7 +10,7 @@ mod validator_store;
 pub mod validator_directory;
 
 pub use cli::cli_app;
-pub use config::{Config, KeySource};
+pub use config::Config;
 
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
@@ -193,30 +193,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         .build()?;
 
                     let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
-                        match &config.key_source {
-                            // Load pre-existing validators from the data dir.
-                            //
-                            // Use the `account_manager` to generate these files.
-                            KeySource::Disk => ValidatorStore::load_from_disk(
-                                config.data_dir.clone(),
-                                genesis_validators_root,
-                                context.eth2_config.spec.clone(),
-                                fork_service.clone(),
-                                log.clone(),
-                            )?,
-                            // Generate ephemeral insecure keypairs for testing purposes.
-                            //
-                            // Do not use in production.
-                            KeySource::InsecureKeypairs(indices) => {
-                                ValidatorStore::insecure_ephemeral_validators(
-                                    &indices,
-                                    genesis_validators_root,
-                                    context.eth2_config.spec.clone(),
-                                    fork_service.clone(),
-                                    log.clone(),
-                                )?
-                            }
-                        };
+                        ValidatorStore::load_from_disk(
+                            &config,
+                            genesis_validators_root,
+                            context.eth2_config.spec.clone(),
+                            fork_service.clone(),
+                            log.clone(),
+                        )?;
 
                     info!(
                         log,

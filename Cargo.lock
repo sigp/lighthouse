@@ -4756,6 +4756,7 @@ dependencies = [
  "tokio-timer 0.2.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tree_hash 0.1.1",
  "types 0.2.0",
+ "validator_dir 0.1.0",
  "web3 0.10.0 (git+https://github.com/tomusdrw/rust-web3)",
 ]
 
@@ -4766,6 +4767,8 @@ dependencies = [
  "bls 0.2.0",
  "deposit_contract 0.2.0",
  "eth2_keystore 0.1.0",
+ "eth2_ssz 0.1.2",
+ "eth2_ssz_derive 0.1.0",
  "eth2_wallet 0.1.0",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "types 0.2.0",

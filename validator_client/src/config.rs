@@ -4,30 +4,19 @@ use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
-
-/// Specifies a method for obtaining validator keypairs.
-#[derive(Clone)]
-pub enum KeySource {
-    /// Load the keypairs from disk.
-    Disk,
-    /// Generate the keypairs (insecure, generates predictable keys).
-    InsecureKeypairs(Vec<usize>),
-}
-
-impl Default for KeySource {
-    fn default() -> Self {
-        KeySource::Disk
-    }
-}
+pub const DEFAULT_SECRET_DIR: &str = ".lighthouse/secrets";
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub data_dir: PathBuf,
-    /// Specifies how the validator client should load keypairs.
-    #[serde(skip)]
-    pub key_source: KeySource,
+    /// The directory containing the passwords to unlock validator keystores.
+    pub secrets_dir: PathBuf,
+    /// If `true`, load the legacy-style unencrypted keys from disk.
+    ///
+    /// This feature should be removed very soon.
+    pub use_legacy_keys: bool,
     /// The http endpoint of the beacon node API.
     ///
     /// Should be similar to `http://localhost:8080`
@@ -40,12 +29,16 @@ pub struct Config {
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let mut data_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        data_dir.push(".lighthouse");
-        data_dir.push("validators");
+        let base_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("lighthouse");
+        let data_dir = base_dir.join("validators");
+        let secrets_dir = base_dir.join("secrets");
+
         Self {
             data_dir,
-            key_source: <_>::default(),
+            secrets_dir,
+            use_legacy_keys: false,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
         }
@@ -75,53 +68,10 @@ impl Config {
             config.http_server = server.to_string();
         }
 
-        let mut config = match cli_args.subcommand() {
-            ("testnet", Some(sub_cli_args)) => {
-                if cli_args.is_present("eth2-config") && sub_cli_args.is_present("bootstrap") {
-                    return Err(
-                        "Cannot specify --eth2-config and --bootstrap as it may result \
-                         in ambiguity."
-                            .into(),
-                    );
-                }
-                process_testnet_subcommand(sub_cli_args, config)?
-            }
-            _ => {
-                config.key_source = KeySource::Disk;
-                config
-            }
-        };
-
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+
+        config.use_legacy_keys = cli_args.is_present("legacy-keys");
 
         Ok(config)
     }
-}
-
-/// Parses the `testnet` CLI subcommand, modifying the `config` based upon the parameters in
-/// `cli_args`.
-fn process_testnet_subcommand(cli_args: &ArgMatches, mut config: Config) -> Result<Config, String> {
-    config.key_source = match cli_args.subcommand() {
-        ("insecure", Some(sub_cli_args)) => {
-            let first = sub_cli_args
-                .value_of("first_validator")
-                .ok_or_else(|| "No first validator supplied")?
-                .parse::<usize>()
-                .map_err(|e| format!("Unable to parse first validator: {:?}", e))?;
-            let last = sub_cli_args
-                .value_of("last_validator")
-                .ok_or_else(|| "No last validator supplied")?
-                .parse::<usize>()
-                .map_err(|e| format!("Unable to parse last validator: {:?}", e))?;
-
-            if last < first {
-                return Err("Cannot supply a last validator less than the first".to_string());
-            }
-
-            KeySource::InsecureKeypairs((first..last).collect())
-        }
-        _ => KeySource::Disk,
-    };
-
-    Ok(config)
 }
