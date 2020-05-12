@@ -382,8 +382,8 @@ fn check_duties<T: BeaconChainTypes>(
                     let slot_proposer = state
                         .get_beacon_proposer_index(slot, spec)
                         .expect("should know proposer");
-                    assert!(
-                        slot_proposer != validator_index,
+                    assert_ne!(
+                        slot_proposer, validator_index,
                         "validator should not have proposal slot in this epoch"
                     )
                 })
