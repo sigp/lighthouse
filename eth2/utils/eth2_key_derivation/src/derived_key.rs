@@ -154,11 +154,6 @@ fn ikm_to_lamport_sk(salt: &[u8], ikm: &[u8]) -> LamportSecretKey {
 /// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
 fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> Prk {
     Salt::new(HKDF_SHA256, salt).extract(ikm)
-    /*
-    let mut prk = SecretHash::zero();
-    crypto::hkdf::hkdf_extract(Sha256::new(), salt, ikm, prk.as_mut_bytes());
-    prk
-    */
 }
 
 /// Peforms a `HKDF-Expand` on the `pkr` (pseudo-random key), returning `l` bytes.
