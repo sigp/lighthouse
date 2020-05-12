@@ -13,14 +13,3 @@ macro_rules! block_verify {
         }
     };
 }
-
-macro_rules! safe_add_assign {
-    ($a: expr, $b: expr) => {
-        $a = $a.saturating_add($b);
-    };
-}
-macro_rules! safe_sub_assign {
-    ($a: expr, $b: expr) => {
-        $a = $a.saturating_sub($b);
-    };
-}

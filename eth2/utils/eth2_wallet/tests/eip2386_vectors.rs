@@ -1,3 +1,4 @@
+use eth2_keystore::Uuid;
 use eth2_wallet::Wallet;
 
 const EXPECTED_SECRET: &str = "147addc7ec981eb2715a22603813271cce540e0b7f577126011eb06249d9227c";
@@ -48,12 +49,12 @@ fn eip2386_test_vector_scrypt() {
         "#;
 
     let wallet = decode_and_check_seed(&vector);
-    /*
     assert_eq!(
-        *keystore.uuid(),
-        Uuid::parse_str("1d85ae20-35c5-4611-98e8-aa14a633906f").unwrap(),
+        *wallet.uuid(),
+        Uuid::parse_str("b74559b8-ed56-4841-b25c-dba1b7c9d9d5").unwrap(),
         "uuid"
     );
-    assert_eq!(keystore.path(), "", "path");
-    */
+    assert_eq!(wallet.name(), "Test wallet 2", "name");
+    assert_eq!(wallet.nextaccount(), 0, "nextaccount");
+    assert_eq!(wallet.type_field(), "hierarchical deterministic", "type");
 }

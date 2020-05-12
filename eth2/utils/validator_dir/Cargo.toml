@@ -6,6 +6,7 @@ edition = "2018"
 
 [features]
 unencrypted_keys = []
+insecure_keys = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

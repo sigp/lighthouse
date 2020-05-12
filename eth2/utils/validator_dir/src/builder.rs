@@ -38,6 +38,8 @@ pub enum Error {
     KeystoreError(KeystoreError),
     //
     UnableToOpenDir(DirError),
+    #[cfg(feature = "insecure_keys")]
+    InsecureKeysError(String),
 }
 
 impl From<KeystoreError> for Error {
@@ -49,8 +51,8 @@ impl From<KeystoreError> for Error {
 pub struct Builder<'a> {
     base_validators_dir: PathBuf,
     password_dir: PathBuf,
-    voting_keystore: Option<(Keystore, PlainText)>,
-    withdrawal_keystore: Option<(Keystore, PlainText)>,
+    pub(crate) voting_keystore: Option<(Keystore, PlainText)>,
+    pub(crate) withdrawal_keystore: Option<(Keystore, PlainText)>,
     store_withdrawal_keystore: bool,
     deposit_info: Option<(u64, &'a ChainSpec)>,
 }

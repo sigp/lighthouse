@@ -1,4 +1,5 @@
 mod builder;
+pub mod insecure_keys;
 pub mod unencrypted_keys;
 mod validator_dir;
 

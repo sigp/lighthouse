@@ -3,6 +3,7 @@
 //! https://eips.ethereum.org/EIPS/eip-2335
 
 #![cfg(test)]
+#![cfg(not(debug_assertions))]
 
 use eth2_keystore::{Keystore, Uuid};
 

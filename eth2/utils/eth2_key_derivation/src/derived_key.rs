@@ -2,7 +2,8 @@ use crate::{
     lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, secret_hash::SecretHash,
 };
 use crypto::{digest::Digest, sha2::Sha256};
-use num_bigint::BigUint;
+use num_bigint_dig::BigUint;
+use ring::hkdf::{KeyType, Prk, Salt, HKDF_SHA256};
 use zeroize::Zeroize;
 
 /// The byte size of a SHA256 hash.
@@ -83,7 +84,7 @@ fn derive_child_sk(parent_sk: &[u8], index: u32) -> SecretHash {
 /// Equivalent to `HKDF_mod_r` in EIP-2333.
 fn hkdf_mod_r(ikm: &[u8]) -> SecretHash {
     let prk = hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm);
-    let okm = &hkdf_expand(prk.as_bytes(), MOD_R_L);
+    let okm = &hkdf_expand(prk, MOD_R_L);
     mod_r(okm.as_bytes())
 }
 
@@ -94,12 +95,14 @@ fn hkdf_mod_r(ikm: &[u8]) -> SecretHash {
 fn mod_r(bytes: &[u8]) -> SecretHash {
     let n = BigUint::from_bytes_be(bytes);
     let r = BigUint::parse_bytes(R.as_bytes(), 10).expect("must be able to parse R");
-    let x = (n % r).to_bytes_be();
+    let x = SecretBytes::from((n % r).to_bytes_be());
 
-    debug_assert!(x.len() <= HASH_SIZE);
+    let x_slice = x.as_bytes();
+
+    debug_assert!(x_slice.len() <= HASH_SIZE);
 
     let mut output = SecretHash::zero();
-    output.as_mut_bytes()[HASH_SIZE - x.len()..].copy_from_slice(&x);
+    output.as_mut_bytes()[HASH_SIZE - x_slice.len()..].copy_from_slice(&x_slice);
     output
 }
 
@@ -142,25 +145,34 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> SecretHash {
 /// Equivalent to `IKM_to_lamport_SK` in EIP-2333.
 fn ikm_to_lamport_sk(salt: &[u8], ikm: &[u8]) -> LamportSecretKey {
     let prk = hkdf_extract(salt, ikm);
-    let okm = hkdf_expand(prk.as_bytes(), HASH_SIZE * LAMPORT_ARRAY_SIZE as usize);
+    let okm = hkdf_expand(prk, HASH_SIZE * LAMPORT_ARRAY_SIZE as usize);
     LamportSecretKey::from_bytes(okm.as_bytes())
 }
 
 /// Peforms a `HKDF-Extract` on the `ikm` (initial key material) based up on the `salt`.
 ///
 /// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
-fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> SecretHash {
-    let mut prk = SecretHash::zero();
-    crypto::hkdf::hkdf_extract(Sha256::new(), salt, ikm, prk.as_mut_bytes());
-    prk
+fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> Prk {
+    Salt::new(HKDF_SHA256, salt).extract(ikm)
 }
 
 /// Peforms a `HKDF-Expand` on the `pkr` (pseudo-random key), returning `l` bytes.
 ///
 /// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
-fn hkdf_expand(prk: &[u8], l: usize) -> SecretBytes {
+fn hkdf_expand(prk: Prk, l: usize) -> SecretBytes {
+    struct ExpandLen(usize);
+
+    impl KeyType for ExpandLen {
+        fn len(&self) -> usize {
+            self.0
+        }
+    }
+
     let mut okm = SecretBytes::zero(l);
-    crypto::hkdf::hkdf_expand(Sha256::new(), prk, &[], okm.as_mut_bytes());
+    prk.expand(&[], ExpandLen(l))
+        .expect("expand len is constant and cannot be too large")
+        .fill(okm.as_mut_bytes())
+        .expect("fill len is constant and cannot be too large");
     okm
 }
 

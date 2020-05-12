@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempdir::TempDir;
 use types::EthSpec;
-use validator_client::{KeySource, ProductionValidatorClient};
+use validator_client::ProductionValidatorClient;
+use validator_dir::insecure_keys::build_deterministic_validator_dirs;
 
 pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
 pub use environment;
@@ -98,6 +99,7 @@ pub fn testing_client_config() -> ClientConfig {
 pub struct LocalValidatorClient<T: EthSpec> {
     pub client: ProductionValidatorClient<T>,
     pub datadir: TempDir,
+    pub secrets_dir: TempDir,
 }
 
 impl<E: EthSpec> LocalValidatorClient<E> {
@@ -107,16 +109,24 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     /// The validator created is using the same types as the node we use in production.
     pub fn production_with_insecure_keypairs(
         context: RuntimeContext<E>,
-        mut config: ValidatorConfig,
+        config: ValidatorConfig,
         keypair_indices: &[usize],
     ) -> impl Future<Item = Self, Error = String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
-        let datadir = TempDir::new("lighthouse-beacon-node")
-            .expect("should create temp directory for client datadir");
+        let datadir = TempDir::new("lighthouse-validator-client")
+            .expect("should create temp directory for VC datadir");
 
-        config.key_source = KeySource::InsecureKeypairs(keypair_indices.to_vec());
+        let secrets_dir = TempDir::new("lighthouse-validator-client-secrets")
+            .expect("should create temp directory for VC secrets");
 
-        Self::new(context, config, datadir)
+        build_deterministic_validator_dirs(
+            datadir.path().into(),
+            secrets_dir.path().into(),
+            keypair_indices,
+        )
+        .expect("should build validator dirs");
+
+        Self::new(context, config, datadir, secrets_dir)
     }
 
     /// Creates a validator client that attempts to read keys from the default data dir.
@@ -129,15 +139,19 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     ) -> impl Future<Item = Self, Error = String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse-validator")
-            .expect("should create temp directory for client datadir");
+            .expect("should create temp directory for VC datadir");
 
-        Self::new(context, config, datadir)
+        let secrets_dir = TempDir::new("lighthouse-validator-client-secrets")
+            .expect("should create temp directory for VC secrets");
+
+        Self::new(context, config, datadir, secrets_dir)
     }
 
     fn new(
         context: RuntimeContext<E>,
         mut config: ValidatorConfig,
         datadir: TempDir,
+        secrets_dir: TempDir,
     ) -> impl Future<Item = Self, Error = String> {
         config.data_dir = datadir.path().into();
 
@@ -145,7 +159,11 @@ impl<E: EthSpec> LocalValidatorClient<E> {
             client
                 .start_service()
                 .expect("should start validator services");
-            Self { client, datadir }
+            Self {
+                client,
+                datadir,
+                secrets_dir,
+            }
         })
     }
 }
