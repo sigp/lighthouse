@@ -8,6 +8,7 @@ use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::metrics;
 use crate::{
     leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
+    StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -200,6 +201,21 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
                 .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
         }
 
+        Ok(())
+    }
+
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+        let mut guard = self.block_cache.lock();
+        self.hot_db.do_atomically(batch)?;
+        for op in batch {
+            match op {
+                StoreOp::DeleteBlock(block_hash) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    guard.pop(&untyped_hash);
+                }
+                StoreOp::DeleteState(_, _) => (),
+            }
+        }
         Ok(())
     }
 

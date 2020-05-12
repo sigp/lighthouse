@@ -1,4 +1,4 @@
-use super::{Error, Store};
+use super::{DBColumn, Error, Store, StoreOp};
 use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use parking_lot::RwLock;
@@ -87,6 +87,30 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         _: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
         get_full_state(self, state_root)
+    }
+
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+        for op in batch {
+            match op {
+                StoreOp::DeleteBlock(block_hash) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    self.key_delete(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes())?;
+                }
+
+                StoreOp::DeleteState(state_hash, slot) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    if *slot % E::slots_per_epoch() == 0 {
+                        self.key_delete(DBColumn::BeaconState.into(), untyped_hash.as_bytes())?;
+                    } else {
+                        self.key_delete(
+                            DBColumn::BeaconStateSummary.into(),
+                            untyped_hash.as_bytes(),
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn forwards_block_roots_iterator(

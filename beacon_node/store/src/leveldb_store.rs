@@ -3,6 +3,7 @@ use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::metrics;
 use db_key::Key;
+use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
@@ -144,6 +145,41 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
         _: &ChainSpec,
     ) -> Self::ForwardsBlockRootsIterator {
         SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
+    }
+
+    fn do_atomically(&self, ops_batch: &[StoreOp]) -> Result<(), Error> {
+        let mut leveldb_batch = Writebatch::new();
+        for op in ops_batch {
+            match op {
+                StoreOp::DeleteBlock(block_hash) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    let key = Self::get_key_for_col(
+                        DBColumn::BeaconBlock.into(),
+                        untyped_hash.as_bytes(),
+                    );
+                    leveldb_batch.delete(key);
+                }
+
+                StoreOp::DeleteState(state_hash, slot) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    let state_summary_key = Self::get_key_for_col(
+                        DBColumn::BeaconStateSummary.into(),
+                        untyped_hash.as_bytes(),
+                    );
+                    leveldb_batch.delete(state_summary_key);
+
+                    if *slot % E::slots_per_epoch() == 0 {
+                        let state_key = Self::get_key_for_col(
+                            DBColumn::BeaconState.into(),
+                            untyped_hash.as_bytes(),
+                        );
+                        leveldb_batch.delete(state_key);
+                    }
+                }
+            }
+        }
+        self.db.write(self.write_options(), &leveldb_batch)?;
+        Ok(())
     }
 }
 

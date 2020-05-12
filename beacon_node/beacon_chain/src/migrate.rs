@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use store::iter::{ParentRootBlockIterator, RootsIterator};
-use store::{hot_cold_store::HotColdDBError, Error, SimpleDiskStore, Store};
+use store::{hot_cold_store::HotColdDBError, Error, SimpleDiskStore, Store, StoreOp};
 pub use store::{DiskStore, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
@@ -145,14 +145,16 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
             }
         }
 
-        // XXX Should be performed atomically, see
-        // https://github.com/sigp/lighthouse/issues/692
-        for block_hash in abandoned_blocks.into_iter() {
-            store.delete_block(&block_hash.into())?;
-        }
-        for (slot, state_hash) in abandoned_states.into_iter() {
-            store.delete_state(&state_hash.into(), slot)?;
-        }
+        let batch: Vec<StoreOp> = abandoned_blocks
+            .into_iter()
+            .map(|block_hash| StoreOp::DeleteBlock(block_hash))
+            .chain(
+                abandoned_states
+                    .into_iter()
+                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash, slot)),
+            )
+            .collect();
+        store.do_atomically(&batch)?;
         for head_hash in abandoned_heads.into_iter() {
             head_tracker.remove_head(head_hash);
         }
