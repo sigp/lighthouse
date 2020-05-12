@@ -36,8 +36,4 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       node is not synced.",
                 ),
         )
-        .arg(Arg::with_name("legacy-keys").long("legacy-keys").help(
-            "If present, we will load the legacy, unencrypted keys from disk. \
-                    This command will be deprecated very soon..",
-        ))
 }

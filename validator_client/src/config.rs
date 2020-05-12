@@ -12,10 +12,6 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// The directory containing the passwords to unlock validator keystores.
     pub secrets_dir: PathBuf,
-    /// If `true`, load the legacy-style unencrypted keys from disk.
-    ///
-    /// This feature should be removed very soon.
-    pub use_legacy_keys: bool,
     /// The http endpoint of the beacon node API.
     ///
     /// Should be similar to `http://localhost:8080`
@@ -37,7 +33,6 @@ impl Default for Config {
         Self {
             data_dir,
             secrets_dir,
-            use_legacy_keys: false,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
         }
@@ -68,8 +63,6 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
-
-        config.use_legacy_keys = cli_args.is_present("legacy-keys");
 
         if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
             config.secrets_dir = secrets_dir;

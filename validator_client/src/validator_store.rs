@@ -54,13 +54,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 if path.is_dir() {
                     match ValidatorDir::open(path.clone()) {
                         Ok(validator_dir) => {
-                            let keypair_result = if config.use_legacy_keys {
-                                validator_dir.load_unencrypted_voting_keypair()
-                            } else {
-                                validator_dir.voting_keypair(&config.secrets_dir)
-                            };
-
-                            match keypair_result {
+                            match validator_dir.voting_keypair(&config.secrets_dir) {
                                 Ok(voting_keypair) => Some(LocalValidator {
                                     validator_dir,
                                     voting_keypair,

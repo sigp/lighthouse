@@ -1,6 +1,5 @@
 #![cfg(feature = "unencrypted_keys")]
 
-use crate::{Error, ValidatorDir};
 use eth2_keystore::PlainText;
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
@@ -8,12 +7,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use types::{Keypair, PublicKey, SecretKey};
-
-impl ValidatorDir {
-    pub fn load_unencrypted_voting_keypair(&self) -> Result<Keypair, Error> {
-        load_unencrypted_keypair(self.dir.join("voting_keypair")).map_err(Error::SszKeypairError)
-    }
-}
 
 pub fn load_unencrypted_keypair<P: AsRef<Path>>(path: P) -> Result<Keypair, String> {
     let path = path.as_ref();

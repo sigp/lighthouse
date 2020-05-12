@@ -42,5 +42,5 @@ remote_beacon_node = { path = "../eth2/utils/remote_beacon_node" }
 tempdir = "0.3"
 rayon = "1.2.0"
 web3 = "0.10.0"
-validator_dir = { path = "../eth2/utils/validator_dir", features = ["unencrypted_keys"] }
+validator_dir = { path = "../eth2/utils/validator_dir" }
 clap_utils = { path = "../eth2/utils/clap_utils" }
