@@ -340,6 +340,7 @@ fn bad_version() {
 }
 
 #[test]
+#[cfg(not(debug_assertions))]
 fn json_bad_checksum() {
     let vector = r#"
             {
