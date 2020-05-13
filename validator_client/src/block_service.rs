@@ -208,11 +208,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// Produce a block at the given slot for validator_pubkey
     async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
-        let log_1 = self.context.log.clone();
+        let log = &self.context.log;
+
         let randao_reveal = self
             .validator_store
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
             .ok_or_else(|| "Unable to produce randao reveal".to_string())?;
+
         let block = self
             .beacon_node
             .http
@@ -220,10 +222,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .produce_block(slot, randao_reveal)
             .await
             .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?;
+
         let signed_block = self
             .validator_store
             .sign_block(&validator_pubkey, block)
             .ok_or_else(|| "Unable to sign block".to_string())?;
+
         let publish_status = self
             .beacon_node
             .http
@@ -231,22 +235,24 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .publish_block(signed_block.clone())
             .await
             .map_err(|e| format!("Error from beacon node when publishing block: {:?}", e))?;
+
         match publish_status {
             PublishStatus::Valid => info!(
-                log_1,
+                log,
                 "Successfully published block";
                 "deposits" => signed_block.message.body.deposits.len(),
                 "attestations" => signed_block.message.body.attestations.len(),
                 "slot" => signed_block.slot().as_u64(),
             ),
             PublishStatus::Invalid(msg) => crit!(
-                log_1,
+                log,
                 "Published block was invalid";
                 "message" => msg,
                 "slot" => signed_block.slot().as_u64(),
             ),
-            PublishStatus::Unknown => crit!(log_1, "Unknown condition when publishing block"),
+            PublishStatus::Unknown => crit!(log, "Unknown condition when publishing block"),
         }
+
         Ok(())
     }
 }
