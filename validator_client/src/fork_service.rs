@@ -3,7 +3,7 @@ use exit_future::Signal;
 use futures::{FutureExt, StreamExt};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{info, trace};
+use slog::{debug, info, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -146,22 +146,26 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     async fn do_update(self) -> Result<(), ()> {
         let log = &self.context.log;
 
-        let _ = self
+        let fork = self
             .inner
             .beacon_node
             .http
             .beacon()
             .get_fork()
             .await
-            .map(|fork| *(self.fork.write()) = Some(fork))
-            .map(|_| trace!(log, "Fork update success"))
             .map_err(|e| {
                 trace!(
                     log,
                     "Fork update failed";
                     "error" => format!("Error retrieving fork: {:?}", e)
                 )
-            });
+            })?;
+
+        if self.fork.read().as_ref() != Some(&fork) {
+            *(self.fork.write()) = Some(fork);
+        }
+
+        debug!(log, "Fork update success");
 
         // Returning an error will stop the interval. This is not desired, a single failure
         // should not stop all future attempts.
