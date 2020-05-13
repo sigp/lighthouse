@@ -100,7 +100,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     }
 
     /// Starts the service that periodically polls for the `Fork`.
-    pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
         let duration_to_next_epoch = self
@@ -108,7 +108,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             .duration_to_next_epoch(E::slots_per_epoch())
             .ok_or_else(|| "Unable to determine duration to next epoch".to_string())?;
 
-        let interval = {
+        let mut interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
             // Note: interval_at panics if `slot_duration * E::slots_per_epoch()` = 0
             interval_at(
@@ -120,31 +120,32 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         let (exit_signal, exit_fut) = exit_future::signal();
 
         // Run an immediate update before starting the updater service.
-        let service_1 = self.clone();
-        let service_2 = self.clone();
         self.inner
             .context
             .runtime_handle
-            .spawn(service_1.do_update());
+            .spawn(self.clone().do_update());
 
-        let interval_fut = interval.for_each(move |_| {
-            let _ = service_2.clone().do_update();
-            futures::future::ready(())
-        });
+        let runtime_handle = self.inner.context.runtime_handle.clone();
+
+        let interval_fut = async move {
+            while interval.next().await.is_some() {
+                self.clone().do_update().await.unwrap_or(())
+            }
+        };
 
         let future = futures::future::select(
-            interval_fut,
+            Box::pin(interval_fut),
             exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
-        self.inner.context.runtime_handle.spawn(future);
+        runtime_handle.spawn(future);
 
         Ok(exit_signal)
     }
 
     /// Attempts to download the `Fork` from the server.
     async fn do_update(self) -> Result<(), ()> {
-        let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
+        let log = &self.context.log;
+
         let _ = self
             .inner
             .beacon_node
@@ -152,15 +153,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             .beacon()
             .get_fork()
             .await
-            .map(move |fork| *(self.fork.write()) = Some(fork))
-            .map(move |_| trace!(log_1, "Fork update success"))
-            .map_err(move |e| {
+            .map(|fork| *(self.fork.write()) = Some(fork))
+            .map(|_| trace!(log, "Fork update success"))
+            .map_err(|e| {
                 trace!(
-                    log_2,
+                    log,
                     "Fork update failed";
                     "error" => format!("Error retrieving fork: {:?}", e)
                 )
             });
+
         // Returning an error will stop the interval. This is not desired, a single failure
         // should not stop all future attempts.
         Ok(())

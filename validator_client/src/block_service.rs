@@ -139,7 +139,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let runtime_handle = self.inner.context.runtime_handle.clone();
 
         let interval_fut = async move {
-            while let Some(_) = interval.next().await {
+            while interval.next().await.is_some() {
                 self.do_update().await.unwrap_or(())
             }
         };

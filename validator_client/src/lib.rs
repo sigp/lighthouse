@@ -229,6 +229,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let fork_exit = self
             .fork_service
+            .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
 
