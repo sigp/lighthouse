@@ -100,7 +100,7 @@ pub fn get_enr(node: &LibP2PService<E>) -> Enr {
 
 // Returns `n` libp2p peers in fully connected topology.
 #[allow(dead_code)]
-pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
+pub async fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
     let mut nodes: Vec<LibP2PService<E>> = (0..n)
         .map(|_| build_libp2p_instance(vec![], None, log.clone()))
         .collect();
@@ -108,6 +108,24 @@ pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
         .iter()
         .map(|x| get_enr(&x).multiaddr()[1].clone())
         .collect();
+
+    let futs = nodes.iter_mut().map(|node| async move {
+        loop {
+            while let Some(event) = node.next().await {
+                if let Libp2pEvent::NewListenAddr(_) = event {
+                    return;
+                }
+            }
+        }
+    });
+
+    let joined = future::join_all(futs);
+
+    // wait for either both nodes to listen or a timeout
+    tokio::select! {
+        _  = tokio::time::delay_for(Duration::from_millis(500)) => {}
+        _ = joined => {}
+    }
 
     for (i, node) in nodes.iter_mut().enumerate().take(n) {
         for (j, multiaddr) in multiaddrs.iter().enumerate().skip(i) {
@@ -173,7 +191,7 @@ pub async fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PSer
 
 // Returns `n` peers in a linear topology
 #[allow(dead_code)]
-pub fn build_linear(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
+pub async fn build_linear(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
     let mut nodes: Vec<LibP2PService<E>> = (0..n)
         .map(|_| build_libp2p_instance(vec![], None, log.clone()))
         .collect();
@@ -181,9 +199,27 @@ pub fn build_linear(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
         .iter()
         .map(|x| get_enr(&x).multiaddr()[1].clone())
         .collect();
+    let futs = nodes.iter_mut().map(|node| async move {
+        loop {
+            while let Some(event) = node.next().await {
+                if let Libp2pEvent::NewListenAddr(_) = event {
+                    return;
+                }
+            }
+        }
+    });
+
+    let joined = future::join_all(futs);
+
+    // wait for either both nodes to listen or a timeout
+    tokio::select! {
+        _  = tokio::time::delay_for(Duration::from_millis(500)) => {}
+        _ = joined => {}
+    }
+
     for i in 0..n - 1 {
         match libp2p::Swarm::dial_addr(&mut nodes[i].swarm, multiaddrs[i + 1].clone()) {
-            Ok(()) => debug!(log, "Connected"),
+            Ok(()) => debug!(log, "{} dialed {}", multiaddrs[i], multiaddrs[i + 1]),
             Err(_) => error!(log, "Failed to connect"),
         };
     }

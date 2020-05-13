@@ -22,10 +22,10 @@ mod common;
 #[tokio::test]
 async fn test_gossipsub_forward() {
     // set up the logging. The level and enabled or not
-    let log = common::build_log(Level::Info, false);
+    let log = common::build_log(Level::Debug, true);
 
-    let num_nodes = 20;
-    let mut nodes = common::build_linear(log.clone(), num_nodes);
+    let num_nodes = 3;
+    let mut nodes = common::build_linear(log.clone(), num_nodes).await;
     let mut received_count = 0;
     let spec = E::default_spec();
     let empty_block = BeaconBlock::empty(&spec);
@@ -33,6 +33,7 @@ async fn test_gossipsub_forward() {
         message: empty_block,
         signature: Signature::empty_signature(),
     };
+    let mut publish_node = nodes.pop().unwrap();
     let pubsub_message = PubsubMessage::BeaconBlock(Box::new(signed_block));
     let publishing_topic: String = pubsub_message
         .topics(GossipEncoding::default(), [0, 0, 0, 0])
@@ -41,9 +42,34 @@ async fn test_gossipsub_forward() {
         .clone()
         .into();
     let mut subscribed_count = 0;
-    let fut = async move {
-        for node in nodes.iter_mut() {
-            loop {
+    let publish_fut = async {
+        loop {
+            match publish_node.next().await {
+                Some(Libp2pEvent::Behaviour(b)) => match b {
+                    BehaviourEvent::PeerSubscribed(_, topic) => {
+                        // Publish on beacon block topic
+                        dbg!(&topic);
+                        if topic == TopicHash::from_raw(publishing_topic.clone()) {
+                            subscribed_count += 1;
+                            dbg!(subscribed_count);
+                            // Every node except the corner nodes are connected to 2 nodes.
+                            if subscribed_count == 1 {
+                                dbg!("Publishing");
+                                publish_node.swarm.publish(vec![pubsub_message.clone()]);
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+    };
+
+    let futs = async {
+        loop {
+            for node in nodes.iter_mut() {
+                dbg!(&node.local_peer_id);
                 match node.next().await {
                     Some(Libp2pEvent::Behaviour(b)) => match b {
                         BehaviourEvent::PubsubMessage {
@@ -69,27 +95,18 @@ async fn test_gossipsub_forward() {
                                 return;
                             }
                         }
-                        BehaviourEvent::PeerSubscribed(_, topic) => {
-                            // Publish on beacon block topic
-                            if topic == TopicHash::from_raw(publishing_topic.clone()) {
-                                subscribed_count += 1;
-                                // Every node except the corner nodes are connected to 2 nodes.
-                                if subscribed_count == (num_nodes * 2) - 2 {
-                                    node.swarm.publish(vec![pubsub_message.clone()]);
-                                }
-                            }
-                        }
-                        _ => break,
+                        _ => {}
                     },
-                    _ => break,
+                    _ => {}
                 }
             }
         }
     };
 
     tokio::select! {
-        _ = fut => {}
-        _ = tokio::time::delay_for(tokio::time::Duration::from_millis(800)) => {
+        _ = futs => {}
+        _ = publish_fut => {}
+        _ = tokio::time::delay_for(tokio::time::Duration::from_millis(8000)) => {
             panic!("Future timed out");
         }
     }
@@ -107,7 +124,7 @@ async fn test_gossipsub_full_mesh_publish() {
     // as nodes may get pruned out of the mesh before the gossipsub message
     // is published to them.
     let num_nodes = 12;
-    let mut nodes = common::build_full_mesh(log, num_nodes);
+    let mut nodes = common::build_full_mesh(log, num_nodes).await;
     let mut publishing_node = nodes.pop().unwrap();
     let spec = E::default_spec();
     let empty_block = BeaconBlock::empty(&spec);
