@@ -22,7 +22,7 @@ mod tests {
     use tokio::time::Duration;
     use types::{CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
 
-    const SLOT_DURATION_MILLIS: u64 = 200;
+    const SLOT_DURATION_MILLIS: u64 = 2000;
 
     type TestBeaconChainType = Witness<
         MemoryStore<MinimalEthSpec>,
@@ -316,11 +316,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn subscribe_ten_slots_ahead() {
+    async fn subscribe_7_slots_ahead() {
         // subscription config
         let validator_index = 1;
         let committee_index = 1;
-        let subscription_slot = 10;
+        let subscription_slot = 7;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();

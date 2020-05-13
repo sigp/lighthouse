@@ -552,24 +552,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 mod tests {
     use super::*;
     use parking_lot::RwLock;
-    use tokio::runtime::Builder as RuntimeBuilder;
 
     /// This test is to ensure that a `tokio_timer::Delay` with an instant in the past will still
     /// trigger.
-    #[test]
-    fn delay_triggers_when_in_the_past() {
+    #[tokio::test]
+    async fn delay_triggers_when_in_the_past() {
         let in_the_past = Instant::now() - Duration::from_secs(2);
         let state_1 = Arc::new(RwLock::new(in_the_past));
         let state_2 = state_1.clone();
 
-        let future = delay_until(in_the_past).map(move |()| *state_1.write() = Instant::now());
-
-        let mut runtime = RuntimeBuilder::new()
-            .core_threads(1)
-            .build()
-            .expect("failed to start runtime");
-
-        runtime.block_on(future);
+        delay_until(in_the_past)
+            .map(move |()| *state_1.write() = Instant::now())
+            .await;
 
         assert!(
             *state_2.read() > in_the_past,
