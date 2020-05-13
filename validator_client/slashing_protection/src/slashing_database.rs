@@ -1,7 +1,6 @@
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{NotSafe, Safe, SignedAttestation, SignedBlock};
-use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::{File, OpenOptions};
@@ -11,7 +10,6 @@ use tree_hash::TreeHash;
 use types::{AttestationData, BeaconBlockHeader, Hash256, PublicKey};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
-type Connection = PooledConnection<SqliteConnectionManager>;
 
 /// We set the pool size to 1 for compatibility with locking_mode=EXCLUSIVE.
 ///
@@ -137,20 +135,24 @@ impl SlashingDatabase {
     /// This allows the validator to record their signatures in the database, and check
     /// for slashings.
     pub fn register_validator(&self, validator_pk: &PublicKey) -> Result<(), NotSafe> {
-        let conn = self.conn_pool.get()?;
-        self.register_validator_from_conn(&conn, validator_pk)
+        self.register_validators(std::iter::once(validator_pk))
     }
 
-    /// Same as `register_validator` but allows connection reuse.
-    fn register_validator_from_conn(
+    /// Register multiple validators with the slashing protection database.
+    pub fn register_validators<'a>(
         &self,
-        conn: &Connection,
-        validator_pk: &PublicKey,
+        public_keys: impl Iterator<Item = &'a PublicKey>,
     ) -> Result<(), NotSafe> {
-        conn.execute(
-            "INSERT INTO validators (public_key) VALUES (?1)",
-            params![validator_pk.as_hex_string()],
-        )?;
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+        {
+            let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
+
+            for pubkey in public_keys {
+                stmt.execute(&[pubkey.as_hex_string()])?;
+            }
+        }
+        txn.commit()?;
 
         Ok(())
     }

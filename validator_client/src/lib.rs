@@ -225,8 +225,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     );
 
                     if config.auto_register {
+                        info!(log, "Registering all validators for slashing protection");
                         validator_store.register_all_validators_for_slashing_protection()?;
-                        info!(log, "Registered all validators for slashing protection");
+                        info!(log, "Validator auto-registration complete");
                     }
 
                     let duties_service = DutiesServiceBuilder::new()

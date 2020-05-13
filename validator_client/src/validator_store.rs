@@ -143,12 +143,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Registration is required to protect against a lost or missing slashing database,
     /// such as when relocating validator keys to a new machine.
     pub fn register_all_validators_for_slashing_protection(&self) -> Result<(), String> {
-        for pubkey in self.validators.read().keys() {
-            self.slashing_protection
-                .register_validator(pubkey)
-                .map_err(|e| format!("Error while registering validator {:?}: {:?}", pubkey, e))?;
-        }
-        Ok(())
+        self.slashing_protection
+            .register_validators(self.validators.read().keys())
+            .map_err(|e| format!("Error while registering validators: {:?}", e))
     }
 
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
