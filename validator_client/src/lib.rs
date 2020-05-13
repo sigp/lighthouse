@@ -223,6 +223,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     pub fn start_service(&mut self) -> Result<(), String> {
         let duties_exit = self
             .duties_service
+            .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
 
