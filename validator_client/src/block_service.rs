@@ -1,7 +1,7 @@
 use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
@@ -121,6 +121,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .duration_to_next_slot()
             .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
 
+        info!(
+            log,
+            "Block production service started";
+            "next_update_millis" => duration_to_next_slot.as_millis()
+        );
+
         let interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
             // Note: interval_at panics if slot_duration = 0
@@ -133,7 +139,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let (exit_signal, exit_fut) = exit_future::signal();
         let service = self.clone();
         let interval_fut = interval.for_each(move |_| {
-            let _ = service.clone().do_update();
+            let service = service.clone();
+            service
+                .context
+                .runtime_handle
+                .clone()
+                .spawn(service.do_update());
             futures::future::ready(())
         });
 
@@ -147,24 +158,30 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    fn do_update(&self) -> Result<(), ()> {
-        let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
+    async fn do_update(self) -> Result<(), ()> {
+        let log = &self.context.log;
 
         let slot = self.slot_clock.now().ok_or_else(move || {
-            crit!(log_1, "Duties manager failed to read slot clock");
+            crit!(log, "Duties manager failed to read slot clock");
         })?;
+
+        trace!(
+            log,
+            "Block service update started";
+            "slot" => slot.as_u64()
+        );
+
         let iter = self.duties_service.block_producers(slot).into_iter();
 
         if iter.len() == 0 {
             trace!(
-                log_2,
+                log,
                 "No local block proposers for this slot";
                 "slot" => slot.as_u64()
             )
         } else if iter.len() > 1 {
             error!(
-                log_2,
+                log,
                 "Multiple block proposers for this slot";
                 "action" => "producing blocks for all proposers",
                 "num_proposers" => iter.len(),
@@ -172,23 +189,27 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        // TODO: check if the logic is same as stream::unfold version
-        let _ = futures::stream::iter(iter).for_each(|validator_pubkey| async {
-            match self.publish_block(slot, validator_pubkey).await {
-                Ok(()) => (),
-                Err(e) => crit!(
-                    log_2,
-                    "Error whilst producing block";
-                    "message" => e
-                ),
-            }
+        iter.for_each(|validator_pubkey| {
+            let service = self.clone();
+            let log = log.clone();
+            self.inner.context.runtime_handle.spawn(
+                service
+                    .publish_block(slot, validator_pubkey)
+                    .map_err(move |e| {
+                        crit!(
+                            log,
+                            "Error whilst producing block";
+                            "message" => e
+                        )
+                    }),
+            );
         });
 
         Ok(())
     }
 
     /// Produce a block at the given slot for validator_pubkey
-    async fn publish_block(&self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
+    async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
         let log_1 = self.context.log.clone();
         let randao_reveal = self
             .validator_store
