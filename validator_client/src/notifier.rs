@@ -81,7 +81,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
         interval_fut,
         exit.map(move |_| info!(log, "Shutdown complete")),
     );
-    tokio::task::spawn(future);
+    context.runtime_handle.spawn(future);
 
     Ok(exit_signal)
 }

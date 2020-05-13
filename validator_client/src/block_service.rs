@@ -141,7 +141,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             interval_fut,
             exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
-        tokio::task::spawn(future);
+        self.inner.context.runtime_handle.spawn(future);
 
         Ok(exit_signal)
     }

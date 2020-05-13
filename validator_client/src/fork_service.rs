@@ -122,7 +122,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         // Run an immediate update before starting the updater service.
         let service_1 = self.clone();
         let service_2 = self.clone();
-        tokio::task::spawn(service_1.do_update());
+        self.inner
+            .context
+            .runtime_handle
+            .spawn(service_1.do_update());
 
         let interval_fut = interval.for_each(move |_| {
             let _ = service_2.clone().do_update();
@@ -133,7 +136,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             interval_fut,
             exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
-        tokio::task::spawn(future);
+        self.inner.context.runtime_handle.spawn(future);
 
         Ok(exit_signal)
     }

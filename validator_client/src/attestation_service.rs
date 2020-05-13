@@ -161,7 +161,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             interval_fut,
             exit_fut.map(move |_| info!(log_2, "Shutdown complete")),
         );
-        tokio::task::spawn(future);
+        self.inner.context.runtime_handle.spawn(future);
 
         Ok(exit_signal)
     }
@@ -209,12 +209,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                tokio::task::spawn(service.clone().publish_attestations_and_aggregates(
-                    slot,
-                    committee_index,
-                    validator_duties,
-                    aggregate_production_instant,
-                ));
+                self.inner.context.runtime_handle.spawn(
+                    service.clone().publish_attestations_and_aggregates(
+                        slot,
+                        committee_index,
+                        validator_duties,
+                        aggregate_production_instant,
+                    ),
+                );
             });
 
         Ok(())
