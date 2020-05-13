@@ -132,15 +132,30 @@ mod tests {
 
     // gets a number of events from the subscription service, or returns none if it times out after a number
     // of slots
-    async fn get_events<S: Stream<Item = AttServiceMessage>>(
-        stream: S,
+    async fn get_events<S: Stream<Item = AttServiceMessage> + Unpin>(
+        mut stream: S,
         no_events: usize,
         no_slots_before_timeout: u32,
     ) -> Vec<AttServiceMessage> {
+        let mut events = Vec::new();
+
+        let collect_stream_fut = async {
+            loop {
+                if let Some(result) = stream.next().await {
+                    events.push(result);
+                    if events.len() == no_events {
+                        return;
+                    }
+                }
+            }
+        };
+
         tokio::select! {
-        result = stream.take(no_events).collect() => {result}
-        _ = tokio::time::delay_for(Duration::from_millis(SLOT_DURATION_MILLIS) * no_slots_before_timeout)=> { Vec::new()}
-        }
+            _ = collect_stream_fut => {return events}
+            _ = tokio::time::delay_for(
+            Duration::from_millis(SLOT_DURATION_MILLIS) * no_slots_before_timeout,
+        ) => { return events; }
+            }
     }
 
     #[tokio::test]

@@ -380,7 +380,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
             BatchProcessResult::Failed => {
-                warn!(self.log, "Batch processing failed";
+                debug!(self.log, "Batch processing failed";
                     "chain_id" => self.id,"id" => *batch.id, "peer" => format!("{}", batch.current_peer));
                 // The batch processing failed
                 // This could be because this batch is invalid, or a previous invalidated batch

@@ -48,12 +48,12 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                         BatchProcessResult::Success
                     }
                     (imported_blocks, Err(e)) if imported_blocks > 0 => {
-                        debug!(log, "Batch processing failed but imported some blocks";
+                        warn!(log, "Batch processing failed but imported some blocks";
                             "id" => *batch_id, "error" => e, "imported_blocks"=> imported_blocks);
                         BatchProcessResult::Partial
                     }
                     (_, Err(e)) => {
-                        debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
+                        warn!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
                         BatchProcessResult::Failed
                     }
                 };

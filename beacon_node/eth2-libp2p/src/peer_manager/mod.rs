@@ -125,7 +125,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             debug!(self.log, "Received a ping request"; "peer_id" => peer_id.to_string(), "seq_no" => seq);
             self.ping_peers.insert(peer_id.clone());
 
-            // if the sequence number is unknown send update the meta data of the peer.
+            // if the sequence number is unknown send an update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
                 if meta_data.seq_number < seq {
                     debug!(self.log, "Requesting new metadata from peer";
@@ -182,9 +182,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
                     peer_info.meta_data = Some(meta_data);
                 } else {
-                    // TODO: isn't this malicious/random behaviour? What happens if the seq_number
-                    // is the same but the contents differ?
-                    warn!(self.log, "Received old metadata";
+                    debug!(self.log, "Received old metadata";
                         "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
                 }
             } else {

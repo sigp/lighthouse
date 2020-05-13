@@ -18,7 +18,7 @@ use eth2_libp2p::{
 };
 use futures::prelude::*;
 use processor::Processor;
-use slog::{debug, o, trace, warn};
+use slog::{debug, info, o, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -276,6 +276,7 @@ impl<T: BeaconChainTypes> Router<T> {
             PubsubMessage::BeaconBlock(block) => {
                 match self.processor.should_forward_block(&peer_id, block) {
                     Ok(verified_block) => {
+                        info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
                         self.propagate_message(id, peer_id.clone());
                         self.processor.on_block_gossip(peer_id, verified_block);
                     }
