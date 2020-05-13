@@ -458,7 +458,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
-                self.clone().do_update().await.unwrap_or(())
+                self.clone().do_update().await.ok();
             }
         };
 

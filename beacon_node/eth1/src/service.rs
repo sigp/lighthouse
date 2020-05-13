@@ -292,7 +292,7 @@ impl Service {
             while interval.next().await.is_some() {
                 Service::do_update(service.clone(), update_interval)
                     .await
-                    .unwrap_or(())
+                    .ok();
             }
         };
 

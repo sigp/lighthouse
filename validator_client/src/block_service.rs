@@ -140,7 +140,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
-                self.do_update().await.unwrap_or(())
+                self.do_update().await.ok();
             }
         };
 
