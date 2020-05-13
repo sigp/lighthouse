@@ -24,10 +24,7 @@ use web3::{
 pub use cli::cli_app;
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<T: EthSpec>(
-    matches: &ArgMatches<'_>,
-    mut env: Environment<T>,
-) -> Result<(), String> {
+pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, mut env: Environment<T>) -> Result<(), String> {
     let context = env.core_context();
     let log = context.log.clone();
 

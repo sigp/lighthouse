@@ -53,7 +53,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     pub async fn new_from_cli<'a, 'b>(
         context: RuntimeContext<E>,
         matches: &ArgMatches<'b>,
-    ) -> Result<Self, String>  {
+    ) -> Result<Self, String> {
         let client_config = get_config::<E>(
             &matches,
             &context.eth2_config.spec_constants,
