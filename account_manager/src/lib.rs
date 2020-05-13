@@ -317,7 +317,7 @@ async fn deposit_validators<E: EthSpec>(
      */
     let web3 = Web3::new(transport);
 
-    let _ = futures::stream::iter(validators)
+    futures::stream::iter(validators)
         .for_each(|validator| async {
             let web3 = web3.clone();
             let log = log_2.clone();
@@ -336,7 +336,9 @@ async fn deposit_validators<E: EthSpec>(
         })
         .map(|_| event_loop)
         // // Web3 gives errors if the event loop is dropped whilst performing requests.
-        .map(drop);
+        .map(drop)
+        .await;
+
     Ok(())
 }
 
