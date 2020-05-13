@@ -9,8 +9,8 @@ name = "ssz_types"
 
 [dependencies]
 tree_hash = "0.1.0"
-serde = "1.0.106"
-serde_derive = "1.0.106"
+serde = "1.0.110"
+serde_derive = "1.0.110"
 serde_hex = { path = "../serde_hex" }
 eth2_ssz = "0.1.2"
 typenum = "1.12.0"

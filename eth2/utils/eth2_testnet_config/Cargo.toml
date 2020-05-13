@@ -13,7 +13,7 @@ reqwest = { version = "0.10.4", features = ["blocking"] }
 tempdir = "0.3.7"
 
 [dependencies]
-serde = "1.0.106"
+serde = "1.0.110"
 serde_yaml = "0.8.11"
 types = { path = "../../types"}
 eth2-libp2p = { path = "../../../beacon_node/eth2-libp2p"}
