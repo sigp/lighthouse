@@ -242,6 +242,7 @@ impl<E: EthSpec> ObservedAttestations<E> {
 }
 
 #[cfg(test)]
+#[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
     use tree_hash::TreeHash;
