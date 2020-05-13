@@ -113,7 +113,7 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Starts the service that periodically attempts to produce blocks.
-    pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
         let duration_to_next_slot = self
@@ -127,7 +127,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "next_update_millis" => duration_to_next_slot.as_millis()
         );
 
-        let interval = {
+        let mut interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
             // Note: interval_at panics if slot_duration = 0
             interval_at(
@@ -136,29 +136,27 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         };
 
+        let runtime_handle = self.inner.context.runtime_handle.clone();
+
+        let interval_fut = async move {
+            while let Some(_) = interval.next().await {
+                self.do_update().await.unwrap_or(())
+            }
+        };
+
         let (exit_signal, exit_fut) = exit_future::signal();
-        let service = self.clone();
-        let interval_fut = interval.for_each(move |_| {
-            let service = service.clone();
-            service
-                .context
-                .runtime_handle
-                .clone()
-                .spawn(service.do_update());
-            futures::future::ready(())
-        });
 
         let future = futures::future::select(
-            interval_fut,
+            Box::pin(interval_fut),
             exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
-        self.inner.context.runtime_handle.spawn(future);
+        runtime_handle.spawn(future);
 
         Ok(exit_signal)
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    async fn do_update(self) -> Result<(), ()> {
+    async fn do_update(&self) -> Result<(), ()> {
         let log = &self.context.log;
 
         let slot = self.slot_clock.now().ok_or_else(move || {
