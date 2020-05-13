@@ -1,14 +1,10 @@
 #![cfg(test)]
 
 use crate::*;
-use tempfile::NamedTempFile;
+use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader};
 
 pub const DEFAULT_VALIDATOR_INDEX: usize = 0;
-
-pub type AttestationTest = Test<AttestationData>;
-pub type AttestationStreamTest = StreamTest<AttestationData>;
-pub type BlockStreamTest = StreamTest<BeaconBlockHeader>;
 
 pub fn pubkey(index: usize) -> PublicKey {
     generate_deterministic_keypair(index).pk
@@ -67,10 +63,11 @@ impl<T> Default for StreamTest<T> {
     }
 }
 
-impl AttestationStreamTest {
+impl StreamTest<AttestationData> {
     pub fn run(&self) {
-        let slashing_db_file = NamedTempFile::new().expect("couldn't create temporary file");
-        let slashing_db = SlashingDatabase::create(slashing_db_file.path()).unwrap();
+        let dir = tempdir().unwrap();
+        let slashing_db_file = dir.path().join("slashing_protection.sqlite");
+        let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
         for pubkey in &self.registered_validators {
             slashing_db.register_validator(pubkey).unwrap();
@@ -87,10 +84,11 @@ impl AttestationStreamTest {
     }
 }
 
-impl BlockStreamTest {
+impl StreamTest<BeaconBlockHeader> {
     pub fn run(&self) {
-        let slashing_db_file = NamedTempFile::new().expect("couldn't create temporary file");
-        let slashing_db = SlashingDatabase::create(slashing_db_file.path()).unwrap();
+        let dir = tempdir().unwrap();
+        let slashing_db_file = dir.path().join("slashing_protection.sqlite");
+        let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
         for pubkey in &self.registered_validators {
             slashing_db.register_validator(pubkey).unwrap();

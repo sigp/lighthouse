@@ -5,12 +5,13 @@ use crate::block_tests::block;
 use crate::test_utils::*;
 use crate::*;
 use rayon::prelude::*;
-use tempfile::NamedTempFile;
+use tempfile::tempdir;
 
 #[test]
 fn block_same_slot() {
-    let slashing_db_file = NamedTempFile::new().expect("couldn't create temporary file");
-    let slashing_db = SlashingDatabase::create(slashing_db_file.path()).unwrap();
+    let dir = tempdir().unwrap();
+    let slashing_db_file = dir.path().join("slashing_protection.sqlite");
+    let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
     let pk = pubkey(0);
 
@@ -29,8 +30,9 @@ fn block_same_slot() {
 
 #[test]
 fn attestation_same_target() {
-    let slashing_db_file = NamedTempFile::new().expect("couldn't create temporary file");
-    let slashing_db = SlashingDatabase::create(slashing_db_file.path()).unwrap();
+    let dir = tempdir().unwrap();
+    let slashing_db_file = dir.path().join("slashing_protection.sqlite");
+    let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
     let pk = pubkey(0);
 
@@ -52,8 +54,9 @@ fn attestation_same_target() {
 
 #[test]
 fn attestation_surround_fest() {
-    let slashing_db_file = NamedTempFile::new().expect("couldn't create temporary file");
-    let slashing_db = SlashingDatabase::create(slashing_db_file.path()).unwrap();
+    let dir = tempdir().unwrap();
+    let slashing_db_file = dir.path().join("slashing_protection.sqlite");
+    let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
     let pk = pubkey(0);
 

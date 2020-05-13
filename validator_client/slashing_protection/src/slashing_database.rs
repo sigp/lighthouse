@@ -3,14 +3,25 @@ use crate::signed_block::InvalidBlock;
 use crate::{NotSafe, Safe, SignedAttestation, SignedBlock};
 use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::{File, OpenOptions};
 use std::path::Path;
+use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{AttestationData, BeaconBlockHeader, Hash256, PublicKey};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 type Connection = PooledConnection<SqliteConnectionManager>;
+
+/// We set the pool size to 1 for compatibility with locking_mode=EXCLUSIVE.
+///
+/// This is perhaps overkill in the presence of exclusive transactions, but has
+/// the added bonus of preventing other processes from trying to use our slashing database.
+pub const POOL_SIZE: u32 = 1;
+#[cfg(not(test))]
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone)]
 pub struct SlashingDatabase {
@@ -18,6 +29,7 @@ pub struct SlashingDatabase {
 }
 
 impl SlashingDatabase {
+    /// Open an existing database at the given `path`, or create one if none exists.
     pub fn open_or_create(path: &Path) -> Result<Self, NotSafe> {
         if path.exists() {
             Self::open(path)
@@ -26,24 +38,18 @@ impl SlashingDatabase {
         }
     }
 
-    /// Create a slashing database at the given path, if none exists.
+    /// Create a slashing database at the given path.
+    ///
+    /// Error if a database (or any file) already exists at `path`.
     pub fn create(path: &Path) -> Result<Self, NotSafe> {
-        // Create all tables
-        // TODO: could consider using `create_new`, atm `create` is required by tempfile tests
         let file = OpenOptions::new()
             .write(true)
             .read(true)
-            .create(true)
+            .create_new(true)
             .open(path)?;
 
         Self::set_db_file_permissions(&file)?;
-
-        let manager = SqliteConnectionManager::file(path).with_init(Self::apply_pragmas);
-        let conn_pool = Pool::builder()
-            .max_size(1)
-            .build(manager)
-            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {:?}", e)))?;
-
+        let conn_pool = Self::open_conn_pool(path)?;
         let conn = conn_pool.get()?;
 
         conn.execute(
@@ -82,10 +88,21 @@ impl SlashingDatabase {
 
     /// Open an existing `SlashingDatabase` from disk.
     pub fn open(path: &Path) -> Result<Self, NotSafe> {
-        let manager = SqliteConnectionManager::file(path).with_init(Self::apply_pragmas);
-        let conn_pool = Pool::new(manager)
-            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {:?}", e)))?;
+        let conn_pool = Self::open_conn_pool(&path)?;
         Ok(Self { conn_pool })
+    }
+
+    /// Open a new connection pool with all of the necessary settings and tweaks.
+    fn open_conn_pool(path: &Path) -> Result<Pool, NotSafe> {
+        let manager = SqliteConnectionManager::file(path)
+            .with_flags(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .with_init(Self::apply_pragmas);
+        let conn_pool = Pool::builder()
+            .max_size(POOL_SIZE)
+            .connection_timeout(CONNECTION_TIMEOUT)
+            .build(manager)
+            .map_err(|e| NotSafe::SQLError(format!("Unable to open database: {:?}", e)))?;
+        Ok(conn_pool)
     }
 
     /// Apply the necessary settings to an SQLite connection.
@@ -124,6 +141,7 @@ impl SlashingDatabase {
         self.register_validator_from_conn(&conn, validator_pk)
     }
 
+    /// Same as `register_validator` but allows connection reuse.
     fn register_validator_from_conn(
         &self,
         conn: &Connection,
@@ -137,26 +155,30 @@ impl SlashingDatabase {
         Ok(())
     }
 
-    fn get_validator_id(connection: &Connection, public_key: &PublicKey) -> Result<i64, NotSafe> {
-        connection
-            .query_row(
-                "SELECT id FROM validators WHERE public_key = ?1",
-                params![&public_key.as_hex_string()],
-                |row| row.get(0),
-            )
-            .optional()?
-            .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
+    /// Get the database-internal ID for a validator.
+    ///
+    /// This is NOT the same as a validator index, and depends on the ordering that validators
+    /// are registered with the slashing protection database (and may vary between machines).
+    fn get_validator_id(txn: &Transaction, public_key: &PublicKey) -> Result<i64, NotSafe> {
+        txn.query_row(
+            "SELECT id FROM validators WHERE public_key = ?1",
+            params![&public_key.as_hex_string()],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
     }
 
+    /// Check a block proposal from `validator_pubkey` for slash safety.
     fn check_block_proposal(
         &self,
-        conn: &Connection,
+        txn: &Transaction,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
     ) -> Result<Safe, NotSafe> {
-        let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
+        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
 
-        let existing_block = conn
+        let existing_block = txn
             .prepare(
                 "SELECT slot, signing_root
                  FROM signed_blocks
@@ -183,9 +205,10 @@ impl SlashingDatabase {
         }
     }
 
+    /// Check an attestation from `validator_pubkey` for slash safety.
     fn check_attestation(
         &self,
-        conn: &Connection,
+        txn: &Transaction,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
     ) -> Result<Safe, NotSafe> {
@@ -200,11 +223,11 @@ impl SlashingDatabase {
             ));
         }
 
-        let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
+        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
 
         // 1. Check for a double vote. Namely, an existing attestation with the same target epoch,
         //    and a different signing root.
-        let same_target_att = conn
+        let same_target_att = txn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
                  FROM signed_attestations
@@ -238,7 +261,7 @@ impl SlashingDatabase {
 
         // 2. Check that no previous vote is surrounding `attestation`.
         // If there is a surrounding attestation, we only return the most recent one.
-        let surrounding_attestation = conn
+        let surrounding_attestation = txn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
                  FROM signed_attestations
@@ -260,7 +283,7 @@ impl SlashingDatabase {
 
         // 3. Check that no previous vote is surrounded by `attestation`.
         // If there is a surrounded attestation, we only return the most recent one.
-        let surrounded_attestation = conn
+        let surrounded_attestation = txn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
                  FROM signed_attestations
@@ -284,15 +307,19 @@ impl SlashingDatabase {
         Ok(Safe::Valid)
     }
 
+    /// Insert a block proposal into the slashing database.
+    ///
+    /// This should *only* be called in the same (exclusive) transaction as `check_block_proposal`
+    /// so that the check isn't invalidated by a concurrent mutation.
     fn insert_block_proposal(
         &self,
-        conn: &Connection,
+        txn: &Transaction,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
     ) -> Result<(), NotSafe> {
-        let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
+        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
 
-        conn.execute(
+        txn.execute(
             "INSERT INTO signed_blocks (validator_id, slot, signing_root)
              VALUES (?1, ?2, ?3)",
             params![
@@ -304,15 +331,19 @@ impl SlashingDatabase {
         Ok(())
     }
 
+    /// Insert an attestation into the slashing database.
+    ///
+    /// This should *only* be called in the same (exclusive) transaction as `check_attestation`
+    /// so that the check isn't invalidated by a concurrent mutation.
     fn insert_attestation(
         &self,
-        conn: &Connection,
+        txn: &Transaction,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
     ) -> Result<(), NotSafe> {
-        let validator_id = Self::get_validator_id(&conn, validator_pubkey)?;
+        let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
 
-        conn.execute(
+        txn.execute(
             "INSERT INTO signed_attestations (validator_id, source_epoch, target_epoch, signing_root)
              VALUES (?1, ?2, ?3, ?4)",
             params![
@@ -325,35 +356,116 @@ impl SlashingDatabase {
         Ok(())
     }
 
+    /// Check a block proposal for slash safety, and if it is safe, record it in the database.
+    ///
+    /// The checking and inserting happen atomically and exclusively. We enforce exclusivity
+    /// to prevent concurrent checks and inserts from resulting in slashable data being inserted.
+    ///
+    /// This is the safe, externally-callable interface for checking block proposals.
     pub fn check_and_insert_block_proposal(
         &self,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
     ) -> Result<Safe, NotSafe> {
-        let conn = self.conn_pool.get()?;
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
 
-        match self.check_block_proposal(&conn, validator_pubkey, block_header) {
-            Ok(Safe::SameData) => Ok(Safe::SameData),
-            Ok(Safe::Valid) => self
-                .insert_block_proposal(&conn, validator_pubkey, block_header)
-                .map(|()| Safe::Valid),
-            Err(notsafe) => Err(notsafe),
+        let safe = self.check_block_proposal(&txn, validator_pubkey, block_header)?;
+
+        if safe != Safe::SameData {
+            self.insert_block_proposal(&txn, validator_pubkey, block_header)?;
         }
+
+        txn.commit()?;
+        Ok(safe)
     }
 
+    /// Check an attestation for slash safety, and if it is safe, record it in the database.
+    ///
+    /// The checking and inserting happen atomically and exclusively. We enforce exclusivity
+    /// to prevent concurrent checks and inserts from resulting in slashable data being inserted.
+    ///
+    /// This is the safe, externally-callable interface for checking attestations.
     pub fn check_and_insert_attestation(
         &self,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
     ) -> Result<Safe, NotSafe> {
-        let conn = self.conn_pool.get()?;
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
 
-        match self.check_attestation(&conn, validator_pubkey, attestation) {
-            Ok(Safe::SameData) => Ok(Safe::SameData),
-            Ok(Safe::Valid) => self
-                .insert_attestation(&conn, validator_pubkey, attestation)
-                .map(|()| Safe::Valid),
-            Err(notsafe) => Err(notsafe),
+        let safe = self.check_attestation(&txn, validator_pubkey, attestation)?;
+
+        if safe != Safe::SameData {
+            self.insert_attestation(&txn, validator_pubkey, attestation)?;
         }
+
+        txn.commit()?;
+        Ok(safe)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::pubkey;
+    use tempfile::tempdir;
+
+    #[test]
+    fn open_non_existent_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("db.sqlite");
+        assert!(SlashingDatabase::open(&file).is_err());
+    }
+
+    // Due to the exclusive locking, trying to use an already open database should error.
+    #[test]
+    fn double_open_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("db.sqlite");
+        let _db1 = SlashingDatabase::create(&file).unwrap();
+
+        let db2 = SlashingDatabase::open(&file).unwrap();
+        db2.register_validator(&pubkey(0)).unwrap_err();
+    }
+
+    // Attempting to create the same database twice should error.
+    #[test]
+    fn double_create_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("db.sqlite");
+        let _db1 = SlashingDatabase::create(&file).unwrap();
+        drop(_db1);
+        SlashingDatabase::create(&file).unwrap_err();
+    }
+
+    // Check that both `open` and `create` apply the same connection settings.
+    #[test]
+    fn connection_settings_applied() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("db.sqlite");
+
+        let check = |db: &SlashingDatabase| {
+            assert_eq!(db.conn_pool.max_size(), POOL_SIZE);
+            assert_eq!(db.conn_pool.connection_timeout(), CONNECTION_TIMEOUT);
+            let conn = db.conn_pool.get().unwrap();
+            assert_eq!(
+                conn.pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
+                    .unwrap(),
+                true
+            );
+            assert_eq!(
+                conn.pragma_query_value(None, "locking_mode", |row| { row.get::<_, String>(0) })
+                    .unwrap()
+                    .to_uppercase(),
+                "EXCLUSIVE"
+            );
+        };
+
+        let db1 = SlashingDatabase::create(&file).unwrap();
+        check(&db1);
+        drop(db1);
+        let db2 = SlashingDatabase::open(&file).unwrap();
+        check(&db2);
     }
 }

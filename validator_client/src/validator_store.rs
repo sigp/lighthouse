@@ -239,7 +239,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    // FIXME(slashing): consider returning Result
     pub fn sign_attestation(
         &self,
         validator_pubkey: &PublicKey,
