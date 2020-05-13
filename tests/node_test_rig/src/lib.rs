@@ -87,8 +87,6 @@ pub fn testing_client_config() -> ClientConfig {
         genesis_time: now,
     };
 
-    client_config.dummy_eth1_backend = true;
-
     client_config
 }
 
