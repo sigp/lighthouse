@@ -52,6 +52,7 @@ where {
     }
 }
 
+#[cfg(not(feature = "fake_crypto"))]
 type VerifySet<'a> = (
     &'a RawAggregateSignature,
     &'a RawAggregatePublicKey,
@@ -69,6 +70,6 @@ pub fn verify_signature_sets<'a>(sets: Vec<SignatureSet>) -> bool {
 }
 
 #[cfg(feature = "fake_crypto")]
-pub fn verify_signature_sets<'a>(sets: Vec<SignatureSet>) -> bool {
+pub fn verify_signature_sets<'a>(_: Vec<SignatureSet>) -> bool {
     true
 }

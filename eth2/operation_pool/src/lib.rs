@@ -218,7 +218,7 @@ impl<T: EthSpec> OperationPool<T> {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<(), AttesterSlashingValidationError> {
-        verify_attester_slashing(state, &slashing, true, VerifySignatures::True, spec)?;
+        verify_attester_slashing(state, &slashing, VerifySignatures::True, spec)?;
         let id = Self::attester_slashing_id(&slashing, state, spec);
         self.attester_slashings.write().insert(id, slashing);
         Ok(())

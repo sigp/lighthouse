@@ -8,11 +8,11 @@ If you don't have Rust installed already, visit [rustup.rs](https://rustup.rs/) 
 
 ## 1. Download and install Lighthouse
 
-Once you have Rust installed, you can install Lighthouse with the following commands (don't forget to use the `testnet5` branch):
+Once you have Rust installed, you can install Lighthouse with the following commands:
 
 1.  `git clone https://github.com/sigp/lighthouse.git`
 2.  `cd lighthouse`
-3.  `git checkout testnet5`
+3.  `git checkout master`
 4.  `make`
 
 You may need to open a new terminal window before running `make`.

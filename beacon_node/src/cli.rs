@@ -211,9 +211,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
-                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag.")
+                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag. Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
-                .default_value("http://127.0.0.1:8545")
         )
         .arg(
             Arg::with_name("slots-per-restore-point")
