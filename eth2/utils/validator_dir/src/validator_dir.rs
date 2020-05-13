@@ -58,7 +58,10 @@ impl Drop for ValidatorDir {
     fn drop(&mut self) {
         let lockfile = self.dir.clone().join(LOCK_FILE);
         if let Err(e) = remove_file(&lockfile) {
-            eprintln!("Unable to remove validator {:?}: {:?}", lockfile, e);
+            eprintln!(
+                "Unable to remove validator lockfile {:?}: {:?}",
+                lockfile, e
+            );
         }
     }
 }
