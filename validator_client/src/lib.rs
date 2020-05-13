@@ -241,6 +241,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let attestation_exit = self
             .attestation_service
+            .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
