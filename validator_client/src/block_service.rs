@@ -1,7 +1,7 @@
 use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use exit_future::Signal;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
@@ -113,7 +113,7 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Starts the service that periodically attempts to produce blocks.
-    pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
         let duration_to_next_slot = self
@@ -121,7 +121,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .duration_to_next_slot()
             .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
 
-        let interval = {
+        info!(
+            log,
+            "Block production service started";
+            "next_update_millis" => duration_to_next_slot.as_millis()
+        );
+
+        let mut interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
             // Note: interval_at panics if slot_duration = 0
             interval_at(
@@ -130,41 +136,50 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         };
 
+        let runtime_handle = self.inner.context.runtime_handle.clone();
+
+        let interval_fut = async move {
+            while interval.next().await.is_some() {
+                self.do_update().await.ok();
+            }
+        };
+
         let (exit_signal, exit_fut) = exit_future::signal();
-        let service = self.clone();
-        let interval_fut = interval.for_each(move |_| {
-            let _ = service.clone().do_update();
-            futures::future::ready(())
-        });
 
         let future = futures::future::select(
-            interval_fut,
+            Box::pin(interval_fut),
             exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
-        tokio::task::spawn(future);
+        runtime_handle.spawn(future);
 
         Ok(exit_signal)
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    fn do_update(&self) -> Result<(), ()> {
-        let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
+    async fn do_update(&self) -> Result<(), ()> {
+        let log = &self.context.log;
 
         let slot = self.slot_clock.now().ok_or_else(move || {
-            crit!(log_1, "Duties manager failed to read slot clock");
+            crit!(log, "Duties manager failed to read slot clock");
         })?;
+
+        trace!(
+            log,
+            "Block service update started";
+            "slot" => slot.as_u64()
+        );
+
         let iter = self.duties_service.block_producers(slot).into_iter();
 
         if iter.len() == 0 {
             trace!(
-                log_2,
+                log,
                 "No local block proposers for this slot";
                 "slot" => slot.as_u64()
             )
         } else if iter.len() > 1 {
             error!(
-                log_2,
+                log,
                 "Multiple block proposers for this slot";
                 "action" => "producing blocks for all proposers",
                 "num_proposers" => iter.len(),
@@ -172,28 +187,34 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        // TODO: check if the logic is same as stream::unfold version
-        let _ = futures::stream::iter(iter).for_each(|validator_pubkey| async {
-            match self.publish_block(slot, validator_pubkey).await {
-                Ok(()) => (),
-                Err(e) => crit!(
-                    log_2,
-                    "Error whilst producing block";
-                    "message" => e
-                ),
-            }
+        iter.for_each(|validator_pubkey| {
+            let service = self.clone();
+            let log = log.clone();
+            self.inner.context.runtime_handle.spawn(
+                service
+                    .publish_block(slot, validator_pubkey)
+                    .map_err(move |e| {
+                        crit!(
+                            log,
+                            "Error whilst producing block";
+                            "message" => e
+                        )
+                    }),
+            );
         });
 
         Ok(())
     }
 
     /// Produce a block at the given slot for validator_pubkey
-    async fn publish_block(&self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
-        let log_1 = self.context.log.clone();
+    async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
+        let log = &self.context.log;
+
         let randao_reveal = self
             .validator_store
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
             .ok_or_else(|| "Unable to produce randao reveal".to_string())?;
+
         let block = self
             .beacon_node
             .http
@@ -201,10 +222,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .produce_block(slot, randao_reveal)
             .await
             .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?;
+
         let signed_block = self
             .validator_store
             .sign_block(&validator_pubkey, block)
             .ok_or_else(|| "Unable to sign block".to_string())?;
+
         let publish_status = self
             .beacon_node
             .http
@@ -212,22 +235,24 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .publish_block(signed_block.clone())
             .await
             .map_err(|e| format!("Error from beacon node when publishing block: {:?}", e))?;
+
         match publish_status {
             PublishStatus::Valid => info!(
-                log_1,
+                log,
                 "Successfully published block";
                 "deposits" => signed_block.message.body.deposits.len(),
                 "attestations" => signed_block.message.body.attestations.len(),
                 "slot" => signed_block.slot().as_u64(),
             ),
             PublishStatus::Invalid(msg) => crit!(
-                log_1,
+                log,
                 "Published block was invalid";
                 "message" => msg,
                 "slot" => signed_block.slot().as_u64(),
             ),
-            PublishStatus::Unknown => crit!(log_1, "Unknown condition when publishing block"),
+            PublishStatus::Unknown => crit!(log, "Unknown condition when publishing block"),
         }
+
         Ok(())
     }
 }

@@ -526,11 +526,13 @@ async fn run<T: EthSpec>(
             run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
-            deploy_deposit_contract::run::<T>(env, matches).await
+            deploy_deposit_contract::run::<T>(env, matches)
+                .await
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
         ("refund-deposit-contract", Some(matches)) => {
-            refund_deposit_contract::run::<T>(env, matches).await
+            refund_deposit_contract::run::<T>(env, matches)
+                .await
                 .map_err(|e| format!("Failed to run refund-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)

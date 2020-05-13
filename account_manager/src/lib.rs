@@ -24,10 +24,7 @@ use web3::{
 pub use cli::cli_app;
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<T: EthSpec>(
-    matches: &ArgMatches<'_>,
-    mut env: Environment<T>,
-) -> Result<(), String> {
+pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, mut env: Environment<T>) -> Result<(), String> {
     let context = env.core_context();
     let log = context.log.clone();
 
@@ -320,7 +317,7 @@ async fn deposit_validators<E: EthSpec>(
      */
     let web3 = Web3::new(transport);
 
-    let _ = futures::stream::iter(validators)
+    futures::stream::iter(validators)
         .for_each(|validator| async {
             let web3 = web3.clone();
             let log = log_2.clone();
@@ -339,7 +336,9 @@ async fn deposit_validators<E: EthSpec>(
         })
         .map(|_| event_loop)
         // // Web3 gives errors if the event loop is dropped whilst performing requests.
-        .map(drop);
+        .map(drop)
+        .await;
+
     Ok(())
 }
 

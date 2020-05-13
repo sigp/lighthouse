@@ -223,21 +223,25 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     pub fn start_service(&mut self) -> Result<(), String> {
         let duties_exit = self
             .duties_service
+            .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
 
         let fork_exit = self
             .fork_service
+            .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
 
         let block_exit = self
             .block_service
+            .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start block service: {}", e))?;
 
         let attestation_exit = self
             .attestation_service
+            .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 

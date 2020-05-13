@@ -121,8 +121,8 @@ where
         let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
 
-        let store = store
-            .ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
+        let store =
+            store.ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
         let store_migrator = store_migrator
             .ok_or_else(|| "beacon_chain_start_method requires a store migrator".to_string())?;
         let context = runtime_context

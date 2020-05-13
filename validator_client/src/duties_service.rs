@@ -429,7 +429,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Start the service that periodically polls the beacon node for validator duties.
-    pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
         let log = self.context.log.clone();
 
         let duration_to_next_slot = self
@@ -437,7 +437,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .duration_to_next_slot()
             .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
 
-        let interval = {
+        let mut interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
             // Note: `interval_at` panics if `slot_duration` is 0
             interval_at(
@@ -447,53 +447,48 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         };
 
         let (exit_signal, exit_fut) = exit_future::signal();
-        let service_1 = self.clone();
-        let service_2 = self.clone();
 
         // Run an immediate update before starting the updater service.
-        tokio::task::spawn(service_1.do_update());
+        self.inner
+            .context
+            .runtime_handle
+            .spawn(self.clone().do_update());
 
-        let interval_fut = interval.for_each(move |_| {
-            let _ = service_2.clone().do_update();
-            futures::future::ready(())
-        });
+        let runtime_handle = self.inner.context.runtime_handle.clone();
+
+        let interval_fut = async move {
+            while interval.next().await.is_some() {
+                self.clone().do_update().await.ok();
+            }
+        };
 
         let future = futures::future::select(
-            interval_fut,
+            Box::pin(interval_fut),
             exit_fut.map(move |_| info!(log, "Shutdown complete")),
         );
-        tokio::task::spawn(future);
+        runtime_handle.spawn(future);
 
         Ok(exit_signal)
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
     async fn do_update(self) -> Result<(), ()> {
-        let log_1 = self.context.log.clone();
-        let log_2 = self.context.log.clone();
-        let log_3 = self.context.log.clone();
-        let log = self.context.log.clone();
+        let log = &self.context.log;
 
-        let service_1 = self.clone();
-        let service_2 = self.clone();
-        let service_3 = self.clone();
-        let service_4 = self.clone();
-        let service_5 = self.clone();
-
-        let current_epoch = service_1
+        let current_epoch = self
             .slot_clock
             .now()
-            .ok_or_else(move || {
-                error!(log_1, "Duties manager failed to read slot clock");
+            .ok_or_else(|| {
+                error!(log, "Duties manager failed to read slot clock");
             })
-            .map(move |slot| {
+            .map(|slot| {
                 let epoch = slot.epoch(E::slots_per_epoch());
 
                 if slot % E::slots_per_epoch() == 0 {
                     let prune_below = epoch - PRUNE_DEPTH;
 
                     trace!(
-                        log_2,
+                        log,
                         "Pruning duties cache";
                         "pruning_below" => prune_below.as_u64(),
                         "current_epoch" => epoch.as_u64(),
@@ -505,7 +500,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 epoch
             })?;
 
-        let beacon_head_epoch = service_2
+        let beacon_head_epoch = self
             .beacon_node
             .http
             .beacon()
@@ -514,13 +509,13 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .map(|head| head.slot.epoch(E::slots_per_epoch()))
             .map_err(move |e| {
                 error!(
-                        log_3,
-                        "Failed to contact beacon node";
-                        "error" => format!("{:?}", e)
+                    log,
+                    "Failed to contact beacon node";
+                    "error" => format!("{:?}", e)
                 )
             })?;
 
-        if beacon_head_epoch + 1 < current_epoch && !service_3.allow_unsynced_beacon_node {
+        if beacon_head_epoch + 1 < current_epoch && !self.allow_unsynced_beacon_node {
             error!(
                 log,
                 "Beacon node is not synced";
@@ -528,7 +523,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 "current_epoch" => format!("{}", current_epoch),
             );
         } else {
-            let result = service_4.clone().update_epoch(current_epoch).await;
+            let result = self.clone().update_epoch(current_epoch).await;
             if let Err(e) = result {
                 error!(
                     log,
@@ -537,8 +532,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 );
             }
 
-            service_5
-                .clone()
+            self.clone()
                 .update_epoch(current_epoch + 1)
                 .await
                 .map_err(move |e| {
