@@ -150,7 +150,7 @@ pub fn cli_run<T: EthSpec>(
         .wallet_by_name(&name)
         .map_err(|e| format!("Unable to open wallet: {:?}", e))?;
 
-    for _ in 0..n {
+    for i in 0..n {
         let voting_password = random_password();
         let withdrawal_password = random_password();
 
@@ -169,6 +169,12 @@ pub fn cli_run<T: EthSpec>(
             .store_withdrawal_keystore(matches.is_present("store-withdrawal-keystore"))
             .build()
             .map_err(|e| format!("Unable to build validator director: {:?}", e))?;
+
+        info!(
+            log,
+            "Created validator";
+            "progress" => format!("{} of {}", i + 1, n)
+        );
     }
 
     Ok(())
