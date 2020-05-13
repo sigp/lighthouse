@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))]
+
 use eth2_wallet::{
     bip39::{Language, Mnemonic, Seed},
     recover_validator_secret, DerivedKey, Error, KeyType, KeystoreError, Wallet, WalletBuilder,

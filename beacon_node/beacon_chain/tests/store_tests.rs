@@ -368,7 +368,7 @@ fn delete_blocks_and_states() {
         fork_blocks as usize,
     );
 
-    assert!(honest_head != faulty_head, "forks should be distinct");
+    assert_ne!(honest_head, faulty_head, "forks should be distinct");
     let head_info = harness.chain.head_info().expect("should get head");
     assert_eq!(head_info.slot, unforked_blocks + fork_blocks);
 

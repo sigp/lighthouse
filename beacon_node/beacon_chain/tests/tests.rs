@@ -159,7 +159,7 @@ fn chooses_fork() {
         faulty_fork_blocks,
     );
 
-    assert!(honest_head != faulty_head, "forks should be distinct");
+    assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
 

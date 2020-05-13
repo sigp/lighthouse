@@ -687,7 +687,7 @@ where
             AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
         );
 
-        assert!(honest_head != faulty_head, "forks should be distinct");
+        assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
     }
