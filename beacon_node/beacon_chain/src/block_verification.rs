@@ -238,7 +238,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 /// the p2p network.
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
-    block_root: Hash256,
+    pub block_root: Hash256,
     parent: BeaconSnapshot<T::EthSpec>,
 }
 
