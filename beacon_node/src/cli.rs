@@ -229,13 +229,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
-        .arg(
-            Arg::with_name("state-cache-size")
-                .long("state-cache-size")
-                .value_name("SIZE")
-                .help("Specifies how many states the database should cache in memory [default: 5]")
-                .takes_value(true)
-        )
+
         /*
          * Purge.
          */
