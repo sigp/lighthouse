@@ -129,6 +129,7 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("since", &since.elapsed().as_secs())?;
                 s.end()
             }
+            Unknown => serializer.serialize_unit_variant("", 4, "Unknown"),
         }
     }
 }
@@ -177,7 +178,7 @@ impl PeerConnectionStatus {
     pub fn connect_ingoing(&mut self) {
         match self {
             Connected { n_in, .. } => *n_in += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } => {
+            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
                 *self = Connected { n_in: 1, n_out: 0 }
             }
         }
@@ -188,7 +189,7 @@ impl PeerConnectionStatus {
     pub fn connect_outgoing(&mut self) {
         match self {
             Connected { n_out, .. } => *n_out += 1,
-            Disconnected { .. } | Banned { .. } | Dialing { .. } => {
+            Disconnected { .. } | Banned { .. } | Dialing { .. } | Unknown => {
                 *self = Connected { n_in: 0, n_out: 1 }
             }
         }
