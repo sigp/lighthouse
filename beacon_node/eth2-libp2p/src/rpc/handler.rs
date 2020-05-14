@@ -480,7 +480,7 @@ where
                         }
                     }
                     None => {
-                        warn!(self.log, "Stream has expired. Response not sent"; "response" => format!("{}", response));
+                        warn!(self.log, "Stream has expired. Response not sent"; "response" => response.to_string(), "id" => rpc_id);
                     }
                 };
             }
@@ -648,7 +648,7 @@ where
                                             }
                                             Err(e) => {
                                                 // error with sending in the codec
-                                                error!(self.log, "Error sending RPC message"; "error" => e.to_string());
+                                                warn!(self.log, "Error sending RPC message"; "error" => e.to_string());
                                                 // keep connection with the peer and return the
                                                 // stream to awaiting response if this message
                                                 // wasn't closing the stream
@@ -671,6 +671,7 @@ where
                                     }
                                     Poll::Ready(Err(e)) => {
                                         error!(self.log, "Outbound substream error while sending RPC message: {:?}", e);
+                                        entry.remove();
                                         return Poll::Ready(ProtocolsHandlerEvent::Close(e));
                                     }
                                     Poll::Pending => {
