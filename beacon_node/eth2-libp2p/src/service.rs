@@ -19,7 +19,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
-use slog::{crit, debug, error, info, trace, warn};
+use slog::{crit, debug, error, info, o, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
@@ -85,8 +85,9 @@ impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
-        log: slog::Logger,
+        log: &slog::Logger,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
+        let log = log.new(o!("service"=> "libp2p"));
         trace!(log, "Libp2p Service starting");
 
         // initialise the node's ID

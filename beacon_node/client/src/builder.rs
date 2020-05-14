@@ -221,7 +221,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or_else(|| "network requires a runtime_context")?
-            .service_context("network".into());
+            .clone();
 
         let (network_globals, network_send, network_exit) =
             NetworkService::start(beacon_chain, config, &context.runtime_handle, context.log)

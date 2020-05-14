@@ -74,9 +74,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let next_fork_update = next_fork_delay(&beacon_chain);
 
         // launch libp2p service
-        let libp2p_log = network_log.new(o!("service"=> "libp2p"));
         let (network_globals, mut libp2p) =
-            runtime_handle.enter(|| LibP2PService::new(config, enr_fork_id, libp2p_log))?;
+            runtime_handle.enter(|| LibP2PService::new(config, enr_fork_id, &network_log))?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -98,6 +97,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
 
         // create the network service and spawn the task
+        let network_log = network_log.new(o!("service"=> "network"));
         let network_service = NetworkService {
             beacon_chain,
             libp2p,
