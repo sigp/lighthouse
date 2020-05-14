@@ -48,9 +48,6 @@ impl TestingAttestationDataBuilder {
         let beacon_block_root = *state.get_block_root(slot).unwrap();
 
         match test_task {
-            // FIXME: re-enable the shard-like tests
-            // AttestationTestTask::NoCommiteeForShard => index += 2,
-            // AttestationTestTask::BadShard => index = T::ShardCount::to_u64(),
             AttestationTestTask::IncludedTooEarly => {
                 slot = state.slot - spec.min_attestation_inclusion_delay + 1
             }

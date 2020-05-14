@@ -27,7 +27,7 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::path::PathBuf;
 
-pub const PRIVATE_KEY_BYTES: usize = 48;
+pub const PRIVATE_KEY_BYTES: usize = 32;
 pub const PUBLIC_KEY_BYTES: usize = 48;
 pub const HASH_BYTES: usize = 32;
 

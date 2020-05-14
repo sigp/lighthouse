@@ -1,6 +1,6 @@
 use super::{
-    fake_aggregate_public_key::FakeAggregatePublicKey, fake_signature::FakeSignature,
-    BLS_AGG_SIG_BYTE_SIZE,
+    fake_aggregate_public_key::FakeAggregatePublicKey, fake_public_key::FakePublicKey,
+    fake_signature::FakeSignature, BLS_AGG_SIG_BYTE_SIZE,
 };
 use milagro_bls::G2Point;
 use serde::de::{Deserialize, Deserializer};
@@ -47,6 +47,11 @@ impl FakeAggregateSignature {
         // Do nothing.
     }
 
+    /// Does glorious nothing.
+    pub fn aggregate(&mut self, _agg_sig: &FakeAggregateSignature) {
+        // Do nothing.
+    }
+
     /// _Always_ returns `true`.
     pub fn verify(&self, _msg: &[u8], _aggregate_public_key: &FakeAggregatePublicKey) -> bool {
         true
@@ -56,9 +61,26 @@ impl FakeAggregateSignature {
     pub fn verify_multiple(
         &self,
         _messages: &[&[u8]],
-        _aggregate_public_keys: &[&FakeAggregatePublicKey],
+        _aggregate_public_keys: &[&FakePublicKey],
     ) -> bool {
         true
+    }
+
+    /// _Always_ returns `true`.
+    pub fn fast_aggregate_verify_pre_aggregated(
+        &self,
+        _messages: &[u8],
+        _aggregate_public_keys: &FakeAggregatePublicKey,
+    ) -> bool {
+        true
+    }
+
+    /// _Always_ returns `true`.
+    pub fn from_signature(signature: &FakeSignature) -> Self {
+        Self {
+            bytes: signature.as_bytes(),
+            point: signature.point.clone(),
+        }
     }
 
     /// Convert bytes to fake BLS aggregate signature
@@ -107,6 +129,15 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
         let obj = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(obj)
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary for FakeAggregateSignature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; BLS_AGG_SIG_BYTE_SIZE];
+        u.fill_buffer(&mut bytes)?;
+        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }
 

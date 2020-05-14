@@ -164,9 +164,10 @@ impl<T: EthSpec> TestingBeaconStateBuilder<T> {
     }
 
     /// Sets the `BeaconState` to be in a slot, calling `teleport_to_epoch` to update the epoch.
-    pub fn teleport_to_slot(&mut self, slot: Slot) {
+    pub fn teleport_to_slot(&mut self, slot: Slot) -> &mut Self {
         self.teleport_to_epoch(slot.epoch(T::slots_per_epoch()));
         self.state.slot = slot;
+        self
     }
 
     /// Sets the `BeaconState` to be in the first slot of the given epoch.

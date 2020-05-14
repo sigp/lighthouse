@@ -122,6 +122,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
             } else {
                 if sync_state.is_synced() {
+                    let block_info = if current_slot > head_slot { format!("   …  empty") } else { format!("{}", head_root) };
                     info!(
                         log_2,
                         "Synced";
@@ -129,6 +130,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
                         "epoch" => current_epoch,
+                        "block" => block_info,
                         "slot" => current_slot,
                     );
                 } else {

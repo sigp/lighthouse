@@ -7,7 +7,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .about("Utilities for generating and managing Ethereum 2.0 accounts.")
         .subcommand(
             SubCommand::with_name("validator")
-                .about("Generate or manage Etheruem 2.0 validators.")
+                .about("Generate or manage Ethereum 2.0 validators.")
                 .subcommand(deposits::cli_app())
                 .subcommand(
                     SubCommand::with_name("new")
@@ -18,8 +18,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                                 .long("deposit-value")
                                 .value_name("GWEI")
                                 .takes_value(true)
-                                .default_value("3200000000")
-                                .help("The deposit amount in Gwei (not Wei). Default is 3.2 ETH."),
+                                .default_value("32000000000")
+                                .help("The deposit amount in Gwei (not Wei). Default is 32 ETH."),
                         )
                         .arg(
                             Arg::with_name("send-deposits")

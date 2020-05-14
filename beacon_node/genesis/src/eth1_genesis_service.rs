@@ -10,7 +10,7 @@ use futures::{
 use parking_lot::Mutex;
 use slog::{debug, error, info, trace, Logger};
 use state_processing::{
-    initialize_beacon_state_from_eth1, is_valid_genesis_state,
+    eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
     per_block_processing::process_deposit, process_activations,
 };
 use std::sync::Arc;
@@ -223,9 +223,15 @@ impl Eth1GenesisService {
             .blocks()
             .read()
             .iter()
-            // It's only worth scanning blocks that have timestamps _after_ genesis time. It's
-            // impossible for any other block to trigger genesis.
-            .filter(|block| block.timestamp >= spec.min_genesis_time)
+            // Filter out any blocks that would result in a genesis time that is earlier than
+            // `MIN_GENESIS_TIME`.
+            //
+            // Note: any `SafeArith` errors are suppressed here; we simply skip blocks that cause
+            // overflow/div-by-zero.
+            .filter(|block| {
+                eth2_genesis_time(block.timestamp, spec)
+                    .map_or(false, |t| t >= spec.min_genesis_time)
+            })
             // The block cache might be more recently updated than deposit cache. Restrict any
             // block numbers that are not known by all caches.
             .filter(|block| {

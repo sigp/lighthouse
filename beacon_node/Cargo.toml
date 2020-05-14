@@ -41,3 +41,4 @@ eth2-libp2p = { path = "./eth2-libp2p" }
 eth2_ssz = { path = "../eth2/utils/ssz" }
 toml = "0.5.4"
 serde = "1.0.102"
+clap_utils = { path = "../eth2/utils/clap_utils" }

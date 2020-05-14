@@ -306,7 +306,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         let event = if is_request {
             RPCEvent::Request(id, RPCRequest::Ping(ping))
         } else {
-            RPCEvent::Response(id, RPCErrorResponse::Success(RPCResponse::Pong(ping)))
+            RPCEvent::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)))
         };
         self.send_rpc(peer_id, event);
     }
@@ -322,7 +322,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     fn send_meta_data_response(&mut self, id: RequestId, peer_id: PeerId) {
         let metadata_response = RPCEvent::Response(
             id,
-            RPCErrorResponse::Success(RPCResponse::MetaData(self.meta_data.clone())),
+            RPCCodedResponse::Success(RPCResponse::MetaData(self.meta_data.clone())),
         );
         self.send_rpc(peer_id, metadata_response);
     }
@@ -391,7 +391,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                     let bitfield = match enr.bitfield::<TSpec>() {
                         Ok(v) => v,
                         Err(e) => {
-                            warn!(self.log, "Peer has invalid ENR bitfield"; 
+                            warn!(self.log, "Peer has invalid ENR bitfield";
                                         "peer_id" => format!("{}", peer_id),
                                         "error" => format!("{:?}", e));
                             return;
@@ -435,20 +435,24 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                         // send the requested meta-data
                         self.send_meta_data_response(id, peer_id);
                     }
-                    RPCEvent::Response(_, RPCErrorResponse::Success(RPCResponse::Pong(ping))) => {
+                    RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
                         self.peer_manager.pong_response(&peer_id, ping.data);
                     }
                     RPCEvent::Response(
                         _,
-                        RPCErrorResponse::Success(RPCResponse::MetaData(meta_data)),
+                        RPCCodedResponse::Success(RPCResponse::MetaData(meta_data)),
                     ) => {
                         self.peer_manager.meta_data_response(&peer_id, meta_data);
                     }
                     RPCEvent::Request(_, RPCRequest::Status(_))
-                    | RPCEvent::Response(_, RPCErrorResponse::Success(RPCResponse::Status(_))) => {
+                    | RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager.peer_statusd(&peer_id);
                         // propagate the STATUS message upwards
+                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event));
+                    }
+                    RPCEvent::Error(_, protocol, ref err) => {
+                        self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
                         self.events.push(BehaviourEvent::RPC(peer_id, rpc_event));
                     }
                     _ => {

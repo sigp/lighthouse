@@ -10,16 +10,16 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
     BlockOperationError::invalid(reason)
 }
 
-/// Indicates if an `AttesterSlashing` is valid to be included in a block in the current epoch of the given
-/// state.
+/// Indicates if an `AttesterSlashing` is valid to be included in a block in the current epoch of
+/// the given state.
 ///
-/// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for invalidity.
+/// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for
+/// invalidity.
 ///
 /// Spec v0.11.1
 pub fn verify_attester_slashing<T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing<T>,
-    should_verify_indexed_attestations: bool,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
@@ -33,12 +33,10 @@ pub fn verify_attester_slashing<T: EthSpec>(
         Invalid::NotSlashable
     );
 
-    if should_verify_indexed_attestations {
-        is_valid_indexed_attestation(state, &attestation_1, verify_signatures, spec)
-            .map_err(|e| error(Invalid::IndexedAttestation1Invalid(e)))?;
-        is_valid_indexed_attestation(state, &attestation_2, verify_signatures, spec)
-            .map_err(|e| error(Invalid::IndexedAttestation2Invalid(e)))?;
-    }
+    is_valid_indexed_attestation(state, &attestation_1, verify_signatures, spec)
+        .map_err(|e| error(Invalid::IndexedAttestation1Invalid(e)))?;
+    is_valid_indexed_attestation(state, &attestation_2, verify_signatures, spec)
+        .map_err(|e| error(Invalid::IndexedAttestation2Invalid(e)))?;
 
     Ok(())
 }

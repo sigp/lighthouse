@@ -1,13 +1,15 @@
-use crate::{test_utils::TestRandom, BeaconBlock, EthSpec, Hash256, Slot};
+use crate::{
+    test_utils::TestRandom, BeaconBlock, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
+    SignedRoot, SigningRoot, Slot,
+};
 use bls::Signature;
-
-use std::fmt;
-
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::fmt;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SignedBeaconBlockHash(Hash256);
 
@@ -38,6 +40,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 /// A `BeaconBlock` and a signature from its proposer.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBeaconBlock<E: EthSpec> {
@@ -46,6 +49,38 @@ pub struct SignedBeaconBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> SignedBeaconBlock<E> {
+    /// Verify `self.signature`.
+    ///
+    /// If the root of `block.message` is already known it can be passed in via `object_root_opt`.
+    /// Otherwise, it will be computed locally.
+    pub fn verify_signature(
+        &self,
+        object_root_opt: Option<Hash256>,
+        pubkey: &PublicKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> bool {
+        let domain = spec.get_domain(
+            self.message.slot.epoch(E::slots_per_epoch()),
+            Domain::BeaconProposer,
+            fork,
+            genesis_validators_root,
+        );
+
+        let message = if let Some(object_root) = object_root_opt {
+            SigningRoot {
+                object_root,
+                domain,
+            }
+            .tree_hash_root()
+        } else {
+            self.message.signing_root(domain)
+        };
+
+        self.signature.verify(message.as_bytes(), pubkey)
+    }
+
     /// Convenience accessor for the block's slot.
     pub fn slot(&self) -> Slot {
         self.message.slot

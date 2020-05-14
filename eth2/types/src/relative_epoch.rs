@@ -6,10 +6,14 @@ pub enum Error {
     EpochTooHigh { base: Epoch, other: Epoch },
 }
 
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
+
 /// Defines the epochs relative to some epoch. Most useful when referring to the committees prior
 /// to and following some epoch.
 ///
 /// Spec v0.11.1
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RelativeEpoch {
     /// The prior epoch.

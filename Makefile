@@ -1,6 +1,7 @@
 .PHONY: tests
 
 EF_TESTS = "tests/ef_tests"
+STATE_TRANSITION_VECTORS = "tests/state_transition_vectors"
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -35,6 +36,10 @@ run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
 
+# Runs only the tests/state_transition_vectors tests.
+run-state-transition-tests:
+	make -C $(STATE_TRANSITION_VECTORS) test
+
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
 
@@ -58,7 +63,12 @@ lint:
 make-ef-tests:
 	make -C $(EF_TESTS)
 
+# Verifies that state_processing feature arbitrary-fuzz will compile
+arbitrary-fuzz:
+	cargo check --manifest-path=eth2/state_processing/Cargo.toml --features arbitrary-fuzz
+
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
 	cargo clean
 	make -C $(EF_TESTS) clean
+	make -C $(STATE_TRANSITION_VECTORS) clean

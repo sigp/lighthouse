@@ -2,6 +2,7 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
+
 use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
@@ -102,6 +103,7 @@ impl AllowNextEpoch {
     }
 }
 
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct BeaconStateHash(Hash256);
 
@@ -1153,5 +1155,48 @@ impl From<tree_hash::Error> for Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Error {
         Error::ArithError(e)
+    }
+}
+
+#[cfg(feature = "arbitrary-fuzz")]
+impl<T: EthSpec> arbitrary::Arbitrary for BeaconState<T> {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self {
+            genesis_time: u64::arbitrary(u)?,
+            genesis_validators_root: Hash256::arbitrary(u)?,
+            slot: Slot::arbitrary(u)?,
+            fork: Fork::arbitrary(u)?,
+            latest_block_header: BeaconBlockHeader::arbitrary(u)?,
+            block_roots: <FixedVector<Hash256, T::SlotsPerHistoricalRoot>>::arbitrary(u)?,
+            state_roots: <FixedVector<Hash256, T::SlotsPerHistoricalRoot>>::arbitrary(u)?,
+            historical_roots: <VariableList<Hash256, T::HistoricalRootsLimit>>::arbitrary(u)?,
+            eth1_data: Eth1Data::arbitrary(u)?,
+            eth1_data_votes: <VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>>::arbitrary(u)?,
+            eth1_deposit_index: u64::arbitrary(u)?,
+            validators: <VariableList<Validator, T::ValidatorRegistryLimit>>::arbitrary(u)?,
+            balances: <VariableList<u64, T::ValidatorRegistryLimit>>::arbitrary(u)?,
+            randao_mixes: <FixedVector<Hash256, T::EpochsPerHistoricalVector>>::arbitrary(u)?,
+            slashings: <FixedVector<u64, T::EpochsPerSlashingsVector>>::arbitrary(u)?,
+            previous_epoch_attestations: <VariableList<
+                PendingAttestation<T>,
+                T::MaxPendingAttestations,
+            >>::arbitrary(u)?,
+            current_epoch_attestations: <VariableList<
+                PendingAttestation<T>,
+                T::MaxPendingAttestations,
+            >>::arbitrary(u)?,
+            justification_bits: <BitVector<T::JustificationBitsLength>>::arbitrary(u)?,
+            previous_justified_checkpoint: Checkpoint::arbitrary(u)?,
+            current_justified_checkpoint: Checkpoint::arbitrary(u)?,
+            finalized_checkpoint: Checkpoint::arbitrary(u)?,
+            committee_caches: [
+                CommitteeCache::arbitrary(u)?,
+                CommitteeCache::arbitrary(u)?,
+                CommitteeCache::arbitrary(u)?,
+            ],
+            pubkey_cache: PubkeyCache::arbitrary(u)?,
+            exit_cache: ExitCache::arbitrary(u)?,
+            tree_hash_cache: None,
+        })
     }
 }

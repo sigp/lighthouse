@@ -94,10 +94,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")
-                .help("The IP address to broadcast to other peers on how to reach this node. \
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach this node. \
+                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
+                does not auto-update based on PONG responses in discovery. \
                 Set this only if you are sure other nodes can connect to your local node on this address. \
-                Discovery will automatically find your external address,if possible.
-           ")
+                Discovery will automatically find your external address,if possible.")
+                .requires("enr-udp-port")
                 .takes_value(true),
         )
         .arg(
@@ -209,9 +211,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("eth1-endpoint")
                 .long("eth1-endpoint")
                 .value_name("HTTP-ENDPOINT")
-                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag.")
+                .help("Specifies the server for a web3 connection to the Eth1 chain. Also enables the --eth1 flag. Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
-                .default_value("http://127.0.0.1:8545")
         )
         .arg(
             Arg::with_name("slots-per-restore-point")
