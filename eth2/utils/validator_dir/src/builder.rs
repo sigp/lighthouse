@@ -19,6 +19,7 @@ const DEFAULT_PASSWORD_LEN: usize = 48;
 pub const VOTING_KEYSTORE_FILE: &str = "voting-keystore.json";
 pub const WITHDRAWAL_KEYSTORE_FILE: &str = "withdrawal-keystore.json";
 pub const ETH1_DEPOSIT_DATA_FILE: &str = "eth1-deposit-data.rlp";
+pub const ETH1_DEPOSIT_AMOUNT_FILE: &str = "eth1-deposit-gwei.txt";
 
 #[derive(Debug)]
 pub enum Error {
@@ -28,6 +29,9 @@ pub enum Error {
     UnableToEncodeDeposit(DepositError),
     DepositDataAlreadyExists(PathBuf),
     UnableToSaveDepositData(io::Error),
+    //
+    DepositAmountAlreadyExists(PathBuf),
+    UnableToSaveDepositAmount(io::Error),
     //
     KeystoreAlreadyExists(PathBuf),
     UnableToSaveKeystore(io::Error),
@@ -138,8 +142,11 @@ impl<'a> Builder<'a> {
             let deposit_data =
                 encode_eth1_tx_data(&deposit_data).map_err(Error::UnableToEncodeDeposit)?;
 
+            // Save `ETH1_DEPOSIT_DATA_FILE` to file.
+            //
+            // This allows us to know the RLP data for the eth1 transaction without needed to know
+            // the withdrawal/voting keypairs again at a later date.
             let path = dir.clone().join(ETH1_DEPOSIT_DATA_FILE);
-
             if path.exists() {
                 return Err(Error::DepositDataAlreadyExists(path));
             } else {
@@ -151,6 +158,23 @@ impl<'a> Builder<'a> {
                     .map_err(Error::UnableToSaveDepositData)?
                     .write_all(&deposit_data)
                     .map_err(Error::UnableToSaveDepositData)?
+            }
+
+            // Save `ETH1_DEPOSIT_AMOUNT_FILE` to file.
+            //
+            // This allows us to know the intended deposit amount at a later date.
+            let path = dir.clone().join(ETH1_DEPOSIT_AMOUNT_FILE);
+            if path.exists() {
+                return Err(Error::DepositAmountAlreadyExists(path));
+            } else {
+                OpenOptions::new()
+                    .write(true)
+                    .read(true)
+                    .create(true)
+                    .open(path.clone())
+                    .map_err(Error::UnableToSaveDepositAmount)?
+                    .write_all(format!("{}", amount).as_bytes())
+                    .map_err(Error::UnableToSaveDepositAmount)?
             }
         }
 

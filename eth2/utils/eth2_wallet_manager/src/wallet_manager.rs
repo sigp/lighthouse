@@ -78,7 +78,7 @@ pub struct WalletManager {
 impl WalletManager {
     /// Open a directory containing multiple wallets.
     ///
-    /// Pass the `wallets` director as `dir` (see struct-level example).
+    /// Pass the `wallets` directory as `dir` (see struct-level example).
     pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, Error> {
         let dir: PathBuf = dir.as_ref().into();
 

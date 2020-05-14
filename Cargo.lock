@@ -5201,6 +5201,8 @@ dependencies = [
  "eth2_ssz_derive",
  "eth2_wallet",
  "rand 0.7.3",
+ "rayon",
+ "tree_hash",
  "types",
 ]
 

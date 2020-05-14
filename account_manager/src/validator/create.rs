@@ -1,4 +1,4 @@
-use super::{ensure_dir_exists, random_password};
+use crate::common::{ensure_dir_exists, random_password};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2_wallet::PlainText;
@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
-pub const CMD: &str = "validator";
+pub const CMD: &str = "create";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -36,7 +36,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path where the validator directories will be created. \
-                            Defaults to ~/.lighthouse/validators",
+                    Defaults to ~/.lighthouse/validators",
                 )
                 .takes_value(true),
         )
@@ -46,7 +46,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                            Defaults to ~/.lighthouse/secrets",
+                    Defaults to ~/.lighthouse/secrets",
                 )
                 .takes_value(true),
         )
@@ -55,8 +55,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("deposit-gwei")
                 .value_name("DEPOSIT_GWEI")
                 .help(
-                    "The GWEI value of the deposit amount. Defaults to the minimum amount
-                            required for an active validator (MAX_EFFECTIVE_BALANCE)",
+                    "The GWEI value of the deposit amount. Defaults to the minimum amount \
+                    required for an active validator (MAX_EFFECTIVE_BALANCE)",
                 )
                 .takes_value(true),
         )
@@ -83,8 +83,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("at-most")
                 .value_name("AT_MOST_VALIDATORS")
                 .help(
-                    "Observe the number of validators in --validator-dir, only creating enough to
-                        ensure reach the given count. Never deletes an existing validator.",
+                    "Observe the number of validators in --validator-dir, only creating enough to \
+                    ensure reach the given count. Never deletes an existing validator.",
                 )
                 .conflicts_with("count")
                 .takes_value(true),

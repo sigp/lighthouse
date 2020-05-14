@@ -1,10 +1,9 @@
 use crate::{config::Config, fork_service::ForkService};
 use parking_lot::RwLock;
-use rayon::prelude::*;
 use slog::{error, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
-use std::fs::read_dir;
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tempdir::TempDir;
@@ -12,7 +11,7 @@ use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
-use validator_dir::ValidatorDir;
+use validator_dir::{Manager as ValidatorManager, ValidatorDir};
 
 #[derive(PartialEq)]
 struct LocalValidator {
@@ -39,55 +38,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        let validator_key_values = read_dir(&config.data_dir)
-            .map_err(|e| {
-                format!(
-                    "Failed to read base directory {:?}: {:?}",
-                    config.data_dir, e
+        let validators = ValidatorManager::open(&config.data_dir)
+            .map_err(|e| format!("Unable to read data_dir: {:?}", e))?
+            .decrypt_all_validators(config.secrets_dir.clone())
+            .map_err(|e| format!("Unable to decrypt all validator directories: {:?}", e))?
+            .into_iter()
+            .map(|(kp, dir)| {
+                (
+                    kp.pk.clone(),
+                    LocalValidator {
+                        validator_dir: dir,
+                        voting_keypair: kp,
+                    },
                 )
-            })?
-            .collect::<Vec<_>>()
-            .into_par_iter()
-            .filter_map(|validator_dir| {
-                let path = validator_dir.ok()?.path();
-
-                if path.is_dir() {
-                    match ValidatorDir::open(path.clone()) {
-                        Ok(validator_dir) => {
-                            match validator_dir.voting_keypair(&config.secrets_dir) {
-                                Ok(voting_keypair) => Some(LocalValidator {
-                                    validator_dir,
-                                    voting_keypair,
-                                }),
-                                Err(e) => {
-                                    error!(
-                                        log,
-                                        "Failed to load a validator keypair";
-                                        "error" => format!("{:?}", e),
-                                        "path" => path.to_str(),
-                                    );
-                                    None
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                log,
-                                "Failed to load a validator directory";
-                                "error" => format!("{:?}", e),
-                                "path" => path.to_str(),
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .map(|local_validator| (local_validator.voting_keypair.pk.clone(), local_validator));
+            });
 
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_par_iter(validator_key_values))),
+            validators: Arc::new(RwLock::new(HashMap::from_iter(validators))),
             genesis_validators_root,
             spec: Arc::new(spec),
             log,

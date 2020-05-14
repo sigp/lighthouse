@@ -1,4 +1,4 @@
-use super::random_password;
+use crate::common::random_password;
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
