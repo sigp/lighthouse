@@ -100,6 +100,8 @@ pub enum PeerConnectionStatus {
         /// time since we last communicated with the peer.
         since: Instant,
     },
+    /// The connection status has not been specified.
+    Unknown,
 }
 
 /// Serialization for http requests.
@@ -133,9 +135,7 @@ impl Serialize for PeerConnectionStatus {
 
 impl Default for PeerConnectionStatus {
     fn default() -> Self {
-        PeerConnectionStatus::Dialing {
-            since: Instant::now(),
-        }
+        PeerConnectionStatus::Unknown
     }
 }
 

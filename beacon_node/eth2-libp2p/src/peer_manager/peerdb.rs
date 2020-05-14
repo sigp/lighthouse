@@ -3,7 +3,7 @@ use super::peer_sync_status::PeerSyncStatus;
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use slog::{crit, warn};
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
@@ -263,11 +263,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 "peer_id" => peer_id.to_string());
             PeerInfo::default()
         });
-
         if !info.connection_status.is_disconnected() && !info.connection_status.is_banned() {
-            info.connection_status.disconnect();
             self.n_dc += 1;
         }
+        info.connection_status.disconnect();
         self.shrink_to_fit();
     }
 
@@ -334,11 +333,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// upper (lower) bounds, it stays at the maximum (minimum) value.
     pub(super) fn add_reputation(&mut self, peer_id: &PeerId, change: RepChange) {
         let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
-            warn!(log_ref, "Adding to the reputation of an unknown peer";
-                    "peer_id" => peer_id.to_string());
-            PeerInfo::default()
-        });
+        let info = match self.peers.entry(peer_id.clone()) {
+            Entry::Vacant(_) => {
+                warn!(log_ref, "Peer is unknown, no reputation change made";
+                        "peer_id" => peer_id.to_string());
+                return;
+            }
+            Entry::Occupied(e) => e.into_mut(),
+        };
 
         info.reputation = if change.is_good {
             info.reputation.saturating_add(change.diff)
