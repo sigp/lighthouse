@@ -568,7 +568,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             return Ok(());
         }
 
-        let subscribed_subnets = self.random_subnets.keys_vec();
+        let subscribed_subnets = self.random_subnets.keys().cloned().collect::<Vec<_>>();
         let to_remove_subnets = subscribed_subnets.choose_multiple(
             &mut rand::thread_rng(),
             random_subnets_per_validator as usize,
@@ -583,7 +583,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // If there is no unsubscription for this subnet,slot it is safe to add one, without
             // unsubscribing early from a required subnet
             let subnet = ExactSubnet {
-                subnet_id: **subnet_id,
+                subnet_id: *subnet_id,
                 slot: current_slot + 2,
             };
             if self.subscriptions.get(&subnet).is_none() {
@@ -604,7 +604,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // as the long lasting subnet subscription is being removed, remove the subnet_id from
             // the ENR bitfield
             self.events
-                .push_back(AttServiceMessage::EnrRemove(**subnet_id));
+                .push_back(AttServiceMessage::EnrRemove(*subnet_id));
             self.random_subnets.remove(subnet_id);
         }
         Ok(())

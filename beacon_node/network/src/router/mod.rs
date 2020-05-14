@@ -170,6 +170,7 @@ impl<T: BeaconChainTypes> Router<T> {
         // an error could have occurred.
         match error_response {
             RPCCodedResponse::InvalidRequest(error) => {
+                warn!(self.log, "RPC Invalid Request"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
                 self.handle_rpc_error(
                     peer_id,
                     request_id,
@@ -177,6 +178,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
             }
             RPCCodedResponse::ServerError(error) => {
+                warn!(self.log, "RPC Server Error"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
                 self.handle_rpc_error(
                     peer_id,
                     request_id,
@@ -184,6 +186,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
             }
             RPCCodedResponse::Unknown(error) => {
+                warn!(self.log, "RPC Unknown Error"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
                 self.handle_rpc_error(
                     peer_id,
                     request_id,

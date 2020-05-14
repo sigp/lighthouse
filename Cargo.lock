@@ -989,8 +989,7 @@ dependencies = [
 [[package]]
 name = "discv5"
 version = "0.1.0-alpha.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f0d1200ed4b74c1caac07c4ff8e21798d5ab9a362235b3994c1971114770282"
+source = "git+https://github.com/sigp/discv5?rev=7b3bd40591b62b8c002ffdb85de008aa9f82e2e5#7b3bd40591b62b8c002ffdb85de008aa9f82e2e5"
 dependencies = [
  "arrayvec 0.5.1",
  "digest",

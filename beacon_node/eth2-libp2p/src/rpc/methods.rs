@@ -274,8 +274,8 @@ pub struct ErrorMessage {
     pub error_message: Vec<u8>,
 }
 
-impl ErrorMessage {
-    pub fn as_string(&self) -> String {
+impl std::string::ToString for ErrorMessage {
+    fn to_string(&self) -> String {
         String::from_utf8(self.error_message.clone()).unwrap_or_else(|_| "".into())
     }
 }

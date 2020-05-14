@@ -423,6 +423,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         // TODO: decide how to handle this
                     }
                 }
+                Unknown => {} //TODO: Handle this case
             }
             // Check if the peer gets banned or unbanned and if it should be disconnected
             if info.reputation < MIN_REP_BEFORE_BAN && !info.connection_status.is_banned() {
