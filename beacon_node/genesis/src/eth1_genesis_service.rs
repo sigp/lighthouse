@@ -2,11 +2,6 @@ pub use crate::{common::genesis_deposits, interop::interop_genesis_state};
 pub use eth1::Config as Eth1Config;
 
 use eth1::{DepositLog, Eth1Block, Service};
-use futures::{
-    future,
-    future::{loop_fn, Loop},
-    Future,
-};
 use parking_lot::Mutex;
 use slog::{debug, error, info, trace, Logger};
 use state_processing::{
@@ -14,8 +9,8 @@ use state_processing::{
     per_block_processing::process_deposit, process_activations,
 };
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Delay;
+use std::time::Duration;
+use tokio::time::delay_for;
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
 
 /// Provides a service that connects to some Eth1 HTTP JSON-RPC endpoint and maintains a cache of eth1
@@ -87,117 +82,83 @@ impl Eth1GenesisService {
     ///
     /// - `Ok(state)` once the canonical eth2 genesis state has been discovered.
     /// - `Err(e)` if there is some internal error during updates.
-    pub fn wait_for_genesis_state<E: EthSpec>(
+    pub async fn wait_for_genesis_state<E: EthSpec>(
         &self,
         update_interval: Duration,
         spec: ChainSpec,
-    ) -> impl Future<Item = BeaconState<E>, Error = String> {
+    ) -> Result<BeaconState<E>, String> {
         let service = self.clone();
+        let log = service.core.log.clone();
+        let min_genesis_active_validator_count = spec.min_genesis_active_validator_count;
+        let min_genesis_time = spec.min_genesis_time;
+        loop {
+            // **WARNING** `delay_for` panics on error
+            delay_for(update_interval).await;
+            let update_result = Service::update_deposit_cache(self.core.clone())
+                .await
+                .map_err(|e| format!("{:?}", e));
 
-        loop_fn::<(ChainSpec, Option<BeaconState<E>>), _, _, _>(
-            (spec, None),
-            move |(spec, state)| {
-                let service_1 = service.clone();
-                let service_2 = service.clone();
-                let service_3 = service.clone();
-                let service_4 = service.clone();
-                let log = service.core.log.clone();
-                let min_genesis_active_validator_count = spec.min_genesis_active_validator_count;
-                let min_genesis_time = spec.min_genesis_time;
+            if let Err(e) = update_result {
+                error!(
+                    log,
+                    "Failed to update eth1 deposit cache";
+                    "error" => e
+                )
+            }
 
-                Delay::new(Instant::now() + update_interval)
-                    .map_err(|e| format!("Delay between genesis deposit checks failed: {:?}", e))
-                    .and_then(move |()| {
-                        service_1
-                            .core
-                            .update_deposit_cache()
-                            .map_err(|e| format!("{:?}", e))
-                    })
-                    .then(move |update_result| {
-                        if let Err(e) = update_result {
-                            error!(
-                                log,
-                                "Failed to update eth1 deposit cache";
-                                "error" => e
-                            )
-                        }
+            // Do not exit the loop if there is an error whilst updating.
+            // Only enable the `sync_blocks` flag if there are enough deposits to feasibly
+            // trigger genesis.
+            //
+            // Note: genesis is triggered by the _active_ validator count, not just the
+            // deposit count, so it's possible that block downloads are started too early.
+            // This is just wasteful, not erroneous.
+            let mut sync_blocks = self.sync_blocks.lock();
 
-                        // Do not exit the loop if there is an error whilst updating.
-                        Ok(())
-                    })
-                    // Only enable the `sync_blocks` flag if there are enough deposits to feasibly
-                    // trigger genesis.
-                    //
-                    // Note: genesis is triggered by the _active_ validator count, not just the
-                    // deposit count, so it's possible that block downloads are started too early.
-                    // This is just wasteful, not erroneous.
-                    .and_then(move |()| {
-                        let mut sync_blocks = service_2.sync_blocks.lock();
+            if !(*sync_blocks) {
+                if let Some(viable_eth1_block) =
+                    self.first_viable_eth1_block(min_genesis_active_validator_count as usize)
+                {
+                    info!(
+                        log,
+                        "Minimum genesis deposit count met";
+                        "deposit_count" => min_genesis_active_validator_count,
+                        "block_number" => viable_eth1_block,
+                    );
+                    self.core.set_lowest_cached_block(viable_eth1_block);
+                    *sync_blocks = true
+                }
+            }
 
-                        if !(*sync_blocks) {
-                            if let Some(viable_eth1_block) = service_2.first_viable_eth1_block(
-                                min_genesis_active_validator_count as usize,
-                            ) {
-                                info!(
-                                    service_2.core.log,
-                                    "Minimum genesis deposit count met";
-                                    "deposit_count" => min_genesis_active_validator_count,
-                                    "block_number" => viable_eth1_block,
-                                );
-                                service_2.core.set_lowest_cached_block(viable_eth1_block);
-                                *sync_blocks = true
-                            }
-                        }
-
-                        Ok(*sync_blocks)
-                    })
-                    .and_then(move |should_update_block_cache| {
-                        let maybe_update_future: Box<dyn Future<Item = _, Error = _> + Send> =
-                            if should_update_block_cache {
-                                Box::new(service_3.core.update_block_cache().then(
-                                    move |update_result| {
-                                        if let Err(e) = update_result {
-                                            error!(
-                                                service_3.core.log,
-                                                "Failed to update eth1 block cache";
-                                                "error" => format!("{:?}", e)
-                                            );
-                                        }
-
-                                        // Do not exit the loop if there is an error whilst updating.
-                                        Ok(())
-                                    },
-                                ))
-                            } else {
-                                Box::new(future::ok(()))
-                            };
-
-                        maybe_update_future
-                    })
-                    .and_then(move |()| {
-                        if let Some(genesis_state) = service_4
-                            .scan_new_blocks::<E>(&spec)
-                            .map_err(|e| format!("Failed to scan for new blocks: {}", e))?
-                        {
-                            Ok(Loop::Break((spec, genesis_state)))
-                        } else {
-                            debug!(
-                                service_4.core.log,
-                                "No eth1 genesis block found";
-                                "latest_block_timestamp" => service_4.core.latest_block_timestamp(),
-                                "min_genesis_time" => min_genesis_time,
-                                "min_validator_count" => min_genesis_active_validator_count,
-                                "cached_blocks" => service_4.core.block_cache_len(),
-                                "cached_deposits" => service_4.core.deposit_cache_len(),
-                                "cache_head" => service_4.highest_known_block(),
-                            );
-
-                            Ok(Loop::Continue((spec, state)))
-                        }
-                    })
-            },
-        )
-        .map(|(_spec, state)| state)
+            let should_update_block_cache = *sync_blocks;
+            if should_update_block_cache {
+                let update_result = Service::update_block_cache(self.core.clone()).await;
+                if let Err(e) = update_result {
+                    error!(
+                        log,
+                        "Failed to update eth1 block cache";
+                        "error" => format!("{:?}", e)
+                    );
+                }
+            };
+            if let Some(genesis_state) = self
+                .scan_new_blocks::<E>(&spec)
+                .map_err(|e| format!("Failed to scan for new blocks: {}", e))?
+            {
+                break Ok(genesis_state);
+            } else {
+                debug!(
+                    log,
+                    "No eth1 genesis block found";
+                    "latest_block_timestamp" => self.core.latest_block_timestamp(),
+                    "min_genesis_time" => min_genesis_time,
+                    "min_validator_count" => min_genesis_active_validator_count,
+                    "cached_blocks" => self.core.block_cache_len(),
+                    "cached_deposits" => self.core.deposit_cache_len(),
+                    "cache_head" => self.highest_known_block(),
+                );
+            }
+        }
     }
 
     /// Processes any new blocks that have appeared since this function was last run.

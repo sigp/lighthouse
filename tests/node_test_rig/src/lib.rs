@@ -4,7 +4,6 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use futures::Future;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempdir::TempDir;
@@ -30,10 +29,10 @@ impl<E: EthSpec> LocalBeaconNode<E> {
     /// Starts a new, production beacon node on the tokio runtime in the given `context`.
     ///
     /// The node created is using the same types as the node we use in production.
-    pub fn production(
+    pub async fn production(
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
-    ) -> impl Future<Item = Self, Error = String> {
+    ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse_node_test_rig")
             .expect("should create temp directory for client datadir");
@@ -41,10 +40,12 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         client_config.data_dir = datadir.path().into();
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        ProductionBeaconNode::new(context, client_config).map(move |client| Self {
-            client: client.into_inner(),
-            datadir,
-        })
+        ProductionBeaconNode::new(context, client_config)
+            .await
+            .map(move |client| Self {
+                client: client.into_inner(),
+                datadir,
+            })
     }
 }
 
@@ -87,8 +88,6 @@ pub fn testing_client_config() -> ClientConfig {
         genesis_time: now,
     };
 
-    client_config.dummy_eth1_backend = true;
-
     client_config
 }
 
@@ -107,11 +106,11 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     /// are created in a temp dir then removed when the process exits.
     ///
     /// The validator created is using the same types as the node we use in production.
-    pub fn production_with_insecure_keypairs(
+    pub async fn production_with_insecure_keypairs(
         context: RuntimeContext<E>,
         config: ValidatorConfig,
         keypair_indices: &[usize],
-    ) -> impl Future<Item = Self, Error = String> {
+    ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse-validator-client")
             .expect("should create temp directory for VC datadir");
@@ -126,17 +125,17 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         )
         .expect("should build validator dirs");
 
-        Self::new(context, config, datadir, secrets_dir)
+        Self::new(context, config, datadir, secrets_dir).await
     }
 
     /// Creates a validator client that attempts to read keys from the default data dir.
     ///
     /// - The validator created is using the same types as the node we use in production.
     /// - It is recommended to use `production_with_insecure_keypairs` for testing.
-    pub fn production(
+    pub async fn production(
         context: RuntimeContext<E>,
         config: ValidatorConfig,
-    ) -> impl Future<Item = Self, Error = String> {
+    ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempDir::new("lighthouse-validator")
             .expect("should create temp directory for VC datadir");
@@ -144,27 +143,29 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         let secrets_dir = TempDir::new("lighthouse-validator-client-secrets")
             .expect("should create temp directory for VC secrets");
 
-        Self::new(context, config, datadir, secrets_dir)
+        Self::new(context, config, datadir, secrets_dir).await
     }
 
-    fn new(
+    async fn new(
         context: RuntimeContext<E>,
         mut config: ValidatorConfig,
         datadir: TempDir,
         secrets_dir: TempDir,
-    ) -> impl Future<Item = Self, Error = String> {
+    ) -> Result<Self, String> {
         config.data_dir = datadir.path().into();
         config.secrets_dir = secrets_dir.path().into();
 
-        ProductionValidatorClient::new(context, config).map(move |mut client| {
-            client
-                .start_service()
-                .expect("should start validator services");
-            Self {
-                client,
-                datadir,
-                secrets_dir,
-            }
-        })
+        ProductionValidatorClient::new(context, config)
+            .await
+            .map(move |mut client| {
+                client
+                    .start_service()
+                    .expect("should start validator services");
+                Self {
+                    client,
+                    datadir,
+                    secrets_dir,
+                }
+            })
     }
 }

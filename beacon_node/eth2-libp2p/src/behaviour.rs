@@ -3,20 +3,22 @@ use crate::peer_manager::{PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
+use discv5::Discv5Event;
 use futures::prelude::*;
 use libp2p::{
     core::{identity::Keypair, ConnectedPoint},
-    discv5::Discv5Event,
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
-    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
-    tokio_io::{AsyncRead, AsyncWrite},
+    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters},
     NetworkBehaviour, PeerId,
 };
 use lru::LruCache;
 use slog::{crit, debug, o, warn};
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use types::{EnrForkId, EthSpec, SubnetId};
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
@@ -26,17 +28,17 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 /// behaviours.
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "BehaviourEvent<TSpec>", poll_method = "poll")]
-pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
+pub struct Behaviour<TSpec: EthSpec> {
     /// The routing pub-sub mechanism for eth2.
-    gossipsub: Gossipsub<TSubstream>,
+    gossipsub: Gossipsub,
     /// The Eth2 RPC specified in the wire-0 protocol.
-    eth2_rpc: RPC<TSubstream, TSpec>,
+    eth2_rpc: RPC<TSpec>,
     /// Keep regular connection to peers and disconnect if absent.
     // TODO: Using id for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
-    identify: Identify<TSubstream>,
+    identify: Identify,
     /// Discovery behaviour.
-    discovery: Discovery<TSubstream, TSpec>,
+    discovery: Discovery<TSpec>,
     /// The peer manager that keeps track of peer's reputation and status.
     #[behaviour(ignore)]
     peer_manager: PeerManager<TSpec>,
@@ -65,7 +67,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
 }
 
 /// Implements the combined behaviour for the libp2p service.
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
+impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub fn new(
         local_key: &Keypair,
         net_conf: &NetworkConfig,
@@ -114,12 +116,12 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     }
 
     /// Obtain a reference to the discovery protocol.
-    pub fn discovery(&self) -> &Discovery<TSubstream, TSpec> {
+    pub fn discovery(&self) -> &Discovery<TSpec> {
         &self.discovery
     }
 
     /// Obtain a reference to the gossipsub protocol.
-    pub fn gs(&self) -> &Gossipsub<TSubstream> {
+    pub fn gs(&self) -> &Gossipsub {
         &self.gossipsub
     }
 
@@ -329,9 +331,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
-    NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<TSubstream, TSpec>
-{
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<TSpec> {
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(propagation_source, id, gs_msg) => {
@@ -372,9 +372,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
-    NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSubstream, TSpec>
-{
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSpec> {
     fn inject_event(&mut self, event: RPCMessage<TSpec>) {
         match event {
             // TODO: These are temporary methods to give access to injected behaviour
@@ -465,19 +463,21 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
+impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Consumes the events list when polled.
     fn poll<TBehaviourIn>(
         &mut self,
-    ) -> Async<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
+        cx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
         // check the peer manager for events
         loop {
-            match self.peer_manager.poll() {
-                Ok(Async::Ready(Some(event))) => match event {
+            match self.peer_manager.poll_next_unpin(cx) {
+                Poll::Ready(Some(event)) => match event {
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
                         // the network to send a status to this peer
-                        return Async::Ready(NetworkBehaviourAction::GenerateEvent(
+                        return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
                             BehaviourEvent::StatusPeer(peer_id),
                         ));
                     }
@@ -495,25 +495,20 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
                         //TODO: Implement
                     }
                 },
-                Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) | Err(_) => {
-                    crit!(self.log, "Error polling peer manager");
-                    break;
-                }
+                Poll::Pending => break,
+                Poll::Ready(None) => break, // peer manager ended
             }
         }
 
         if !self.events.is_empty() {
-            return Async::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
         }
 
-        Async::NotReady
+        Poll::Pending
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent>
-    for Behaviour<TSubstream, TSpec>
-{
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<TSpec> {
     fn inject_event(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received {
@@ -545,9 +540,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventPr
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventProcess<Discv5Event>
-    for Behaviour<TSubstream, TSpec>
-{
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<Discv5Event> for Behaviour<TSpec> {
     fn inject_event(&mut self, _event: Discv5Event) {
         // discv5 has no events to inject
     }

@@ -355,7 +355,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         peer_id: &PeerId,
     ) {
         // if the peer is in the awaiting head mapping, remove it
-        self.awaiting_head_peers.remove(&peer_id);
+        self.awaiting_head_peers.remove(peer_id);
 
         // remove the peer from any peer pool
         self.remove_peer(network, peer_id);

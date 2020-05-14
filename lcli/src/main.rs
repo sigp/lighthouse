@@ -25,7 +25,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
 use types::{test_utils::TestingBeaconStateBuilder, EthSpec, MainnetEthSpec, MinimalEthSpec};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     simple_logger::init_with_level(Level::Info).expect("logger should initialize");
 
     let matches = App::new("Lighthouse CLI Tool")
@@ -467,7 +468,7 @@ fn main() {
 
     macro_rules! run_with_spec {
         ($env_builder: expr) => {
-            match run($env_builder, &matches) {
+            match run($env_builder, &matches).await {
                 Ok(()) => process::exit(0),
                 Err(e) => {
                     println!("Failed to run lcli: {}", e);
@@ -488,7 +489,10 @@ fn main() {
     }
 }
 
-fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> Result<(), String> {
+async fn run<T: EthSpec>(
+    env_builder: EnvironmentBuilder<T>,
+    matches: &ArgMatches<'_>,
+) -> Result<(), String> {
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
@@ -545,14 +549,15 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> 
             run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
-            deploy_deposit_contract::run::<T>(env, matches)
+            deploy_deposit_contract::run::<T>(env, matches).await
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
         ("refund-deposit-contract", Some(matches)) => {
-            refund_deposit_contract::run::<T>(env, matches)
+            refund_deposit_contract::run::<T>(env, matches).await
                 .map_err(|e| format!("Failed to run refund-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
+            .await
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
         ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(env, matches)
             .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),

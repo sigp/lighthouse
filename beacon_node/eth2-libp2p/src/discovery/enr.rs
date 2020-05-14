@@ -1,15 +1,15 @@
 //! Helper functions and an extension trait for Ethereum 2 ENRs.
 
-pub use libp2p::{core::identity::Keypair, discv5::enr::CombinedKey};
+pub use discv5::enr::{self, CombinedKey, EnrBuilder};
+pub use libp2p::core::identity::Keypair;
 
 use super::ENR_FILENAME;
 use crate::types::{Enr, EnrBitfield};
+use crate::CombinedKeyExt;
 use crate::NetworkConfig;
-use libp2p::discv5::enr::EnrBuilder;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -62,10 +62,7 @@ pub fn build_or_load_enr<T: EthSpec>(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
-    let enr_key: CombinedKey = local_key
-        .try_into()
-        .map_err(|_| "Invalid key type for ENR records")?;
-
+    let enr_key = CombinedKey::from_libp2p(&local_key)?;
     let mut local_enr = build_enr::<T>(&enr_key, config, enr_fork_id)?;
 
     let enr_f = config.network_dir.join(ENR_FILENAME);
