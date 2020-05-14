@@ -225,10 +225,10 @@ impl<'a, E: EthSpec, S: Store<E>> ParentRootBlockIterator<'a, E, S> {
             Ok(None)
         } else {
             let block_root = self.next_block_root;
-            let block = match self.store.get_block(&block_root)? {
-                None => return Err(Error::BlockNotFound(block_root)),
-                Some(block) => block,
-            };
+            let block = self
+                .store
+                .get_block(&block_root)?
+                .ok_or(Error::BlockNotFound(block_root))?;
             self.next_block_root = block.message.parent_root;
             Ok(Some((block_root, block)))
         }

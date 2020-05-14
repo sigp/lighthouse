@@ -96,7 +96,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
-    /// Execute either all of operations in `batch` or none at all, returning an error.
+    /// Execute either all of the operations in `batch` or none at all, returning an error.
     fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
 
     /// Store a state summary in the store.
@@ -183,6 +183,8 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 }
 
+/// Reified key-value storage operation.  Helps in modifying the storage atomically.
+/// See also https://github.com/sigp/lighthouse/issues/692
 pub enum StoreOp {
     DeleteBlock(SignedBeaconBlockHash),
     DeleteState(BeaconStateHash, Slot),

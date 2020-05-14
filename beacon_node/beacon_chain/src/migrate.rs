@@ -48,7 +48,7 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
 
         // Collect hashes from new_finalized_block back to old_finalized_block (inclusive)
         let mut found_block = false; // hack for `take_until`
-        let maybe_newly_finalized_blocks: Result<HashMap<SignedBeaconBlockHash, Slot>, Error> =
+        let newly_finalized_blocks: HashMap<SignedBeaconBlockHash, Slot> =
             ParentRootBlockIterator::new(&*store, new_finalized_block_hash.into())
                 .take_while(|result| match result {
                     Ok((block_hash, _)) => {
@@ -62,9 +62,7 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
                     Err(_) => true,
                 })
                 .map(|result| result.map(|(block_hash, block)| (block_hash.into(), block.slot())))
-                .collect();
-
-        let newly_finalized_blocks = maybe_newly_finalized_blocks?;
+                .collect::<Result<_, _>>()?;
 
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.

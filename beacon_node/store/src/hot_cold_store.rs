@@ -578,23 +578,24 @@ impl<E: EthSpec> HotColdDB<E> {
         end_slot: Slot,
         end_block_hash: Hash256,
     ) -> Result<Vec<SignedBeaconBlock<E>>, Error> {
-        let maybe_blocks: Result<Vec<SignedBeaconBlock<E>>, Error> =
+        let mut blocks: Vec<SignedBeaconBlock<E>> =
             ParentRootBlockIterator::new(self, end_block_hash)
                 .map(|result| result.map(|(_, block)| block))
                 // Include the block at the end slot (if any), it needs to be
                 // replayed in order to construct the canonical state at `end_slot`.
-                .filter(|result| match result {
-                    Ok(block) => block.message.slot <= end_slot,
-                    Err(_) => true,
+                .filter(|result| {
+                    result
+                        .as_ref()
+                        .map_or(true, |block| block.message.slot <= end_slot)
                 })
                 // Include the block at the start slot (if any). Whilst it doesn't need to be applied
                 // to the state, it contains a potentially useful state root.
-                .take_while(|result| match result {
-                    Ok(block) => block.message.slot >= start_slot,
-                    Err(_) => true,
+                .take_while(|result| {
+                    result
+                        .as_ref()
+                        .map_or(true, |block| block.message.slot >= start_slot)
                 })
-                .collect();
-        let mut blocks = maybe_blocks?;
+                .collect::<Result<_, _>>()?;
         blocks.reverse();
         Ok(blocks)
     }
