@@ -46,11 +46,19 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
     Behaviour(BehaviourEvent<TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
-    /// A connection has been established with a peer.
-    ConnectionEstablished {
+    /// A peer has established at least one connection.
+    PeerConnected {
+        /// The peer that connected.
         peer_id: PeerId,
+        /// Whether the peer was a dialer or listener.
         endpoint: ConnectedPoint,
-        num_established: u32,
+    },
+    /// A peer no longer has any connections, i.e is disconnected.
+    PeerDisconnected {
+        /// The peer the disconnected.
+        peer_id: PeerId,
+        /// Whether the peer was a dialer or a listener.
+        endpoint: ConnectedPoint,
     },
 }
 
@@ -173,11 +181,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     continue;
                 }
                 // inform the peer manager that we are currently dialing this peer
+                if !network_globals
+                    .peers
+                    .read()
+                    .is_connected_or_dialing(&bootnode_enr.peer_id())
+                {
+                    dial_addr(multiaddr);
+                }
                 network_globals
                     .peers
                     .write()
                     .dialing_peer(&bootnode_enr.peer_id());
-                dial_addr(multiaddr);
             }
         }
 
@@ -218,6 +232,10 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let log = self.log.clone();
+
+        // TODO: Remove these once behaviour is updated
+        let mut new_connection = None;
+        let mut new_disconnect = None;
         loop {
             // Process the next action coming from the network.
             let libp2p_event = self.swarm.next_event();
@@ -234,19 +252,29 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
                     endpoint,
                     num_established,
                 }) => {
-                    return Poll::Ready(Some(Libp2pEvent::ConnectionEstablished {
-                        peer_id,
-                        endpoint,
-                        num_established: num_established.get(),
-                    }))
+                    if num_established.get() == 1 {
+                        new_connection = Some((peer_id.clone(), endpoint.clone()));
+                    }
+                    debug!(log, "Connection established"; "peer_id"=> peer_id.to_string(), "connections" => num_established.get());
+                    break;
+                }
+                Poll::Ready(SwarmEvent::ConnectionClosed {
+                    peer_id,
+                    cause,
+                    endpoint,
+                    num_established,
+                }) => {
+                    if num_established == 0 {
+                        // the peer has disconnected
+                        new_disconnect = Some((peer_id.clone(), endpoint.clone()));
+                    }
+                    debug!(log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string(), "connections" => num_established);
+                    break;
                 }
                 Poll::Ready(SwarmEvent::NewListenAddr(multiaddr)) => {
                     return Poll::Ready(Some(Libp2pEvent::NewListenAddr(multiaddr)))
                 }
 
-                Poll::Ready(SwarmEvent::ConnectionClosed { peer_id, cause, .. }) => {
-                    debug!(log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string());
-                }
                 Poll::Ready(SwarmEvent::IncomingConnection {
                     local_addr,
                     send_back_addr,
@@ -290,6 +318,24 @@ impl<TSpec: EthSpec> Stream for Service<TSpec> {
                     trace!(log, "Dialing peer"; "peer" => peer_id.to_string());
                 }
             }
+        }
+
+        // TODO: Remove this once new behaviour
+        if let Some(connection) = new_connection {
+            self.swarm
+                .notify_peer_connect(connection.0.clone(), connection.1.clone());
+            return Poll::Ready(Some(Libp2pEvent::PeerConnected {
+                peer_id: connection.0,
+                endpoint: connection.1,
+            }));
+        }
+        if let Some(disconnect) = new_disconnect {
+            self.swarm
+                .notify_peer_disconnect(disconnect.0.clone(), disconnect.1.clone());
+            return Poll::Ready(Some(Libp2pEvent::PeerDisconnected {
+                peer_id: disconnect.0,
+                endpoint: disconnect.1,
+            }));
         }
 
         while let Poll::Ready(Some(Ok(peer_to_ban))) = self.peers_to_ban.poll_next_unpin(cx) {

@@ -465,6 +465,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
 
+        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => format!("{}", block.canonical_root()));
+
         let parent_request = ParentRequests {
             downloaded_blocks: vec![block],
             failed_attempts: 0,
