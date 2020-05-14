@@ -100,7 +100,14 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                         .collect::<Vec<_>>();
 
                     network_1
-                        .add_validator_client(ValidatorConfig::default(), i, indices)
+                        .add_validator_client(
+                            ValidatorConfig {
+                                auto_register: true,
+                                ..ValidatorConfig::default()
+                            },
+                            i,
+                            indices,
+                        )
                         .map(|()| ((), iter))
                 })
             })
