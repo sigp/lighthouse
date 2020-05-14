@@ -306,8 +306,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         };
 
         let event = if is_request {
+            debug!(self.log, "Sending Ping"; "request_id" => id);
             RPCEvent::Request(id, RPCRequest::Ping(ping))
         } else {
+            debug!(self.log, "Sending Pong"; "request_id" => id);
             RPCEvent::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)))
         };
         self.send_rpc(peer_id, event);
