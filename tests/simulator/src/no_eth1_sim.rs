@@ -3,6 +3,7 @@ use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
+    ValidatorFiles,
 };
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -63,6 +64,22 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
+    // Generate the directories and keystores required for the validator clients.
+    let validator_files = (0..node_count)
+        .into_iter()
+        .map(|i| {
+            println!(
+                "Generating keystores for validator {} of {}",
+                i + 1,
+                node_count
+            );
+
+            let indices =
+                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+            ValidatorFiles::with_keystores(&indices).unwrap()
+        })
+        .collect::<Vec<_>>();
+
     let main_future = async {
         let network = LocalNetwork::new(context, beacon_config.clone()).await?;
         /*
@@ -84,11 +101,9 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         // that delays until genesis. Otherwise, all of the checks that start in the next
         // future will start too early.
 
-        for i in 0..node_count {
-            let indices =
-                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+        for (i, files) in validator_files.into_iter().enumerate() {
             network
-                .add_validator_client(ValidatorConfig::default(), i, indices)
+                .add_validator_client(ValidatorConfig::default(), i, files)
                 .await?;
         }
         /*

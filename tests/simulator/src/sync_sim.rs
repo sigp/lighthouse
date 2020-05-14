@@ -5,6 +5,7 @@ use futures::prelude::*;
 use node_test_rig::ClientConfig;
 use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
+    ValidatorFiles,
 };
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -77,6 +78,10 @@ fn syncing_sim(
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
+    // Generate the directories and keystores required for the validator clients.
+    let validator_indices = (0..num_validators).collect::<Vec<_>>();
+    let validator_files = ValidatorFiles::with_keystores(&validator_indices).unwrap();
+
     let main_future = async {
         /*
          * Create a new `LocalNetwork` with one beacon node.
@@ -87,7 +92,7 @@ fn syncing_sim(
          * Add a validator client which handles all validators from the genesis state.
          */
         network
-            .add_validator_client(ValidatorConfig::default(), 0, (0..num_validators).collect())
+            .add_validator_client(ValidatorConfig::default(), 0, validator_files)
             .await?;
 
         // Check all syncing strategies one after other.

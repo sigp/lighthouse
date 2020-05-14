@@ -4,6 +4,7 @@ use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
+    ValidatorFiles,
 };
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
@@ -47,6 +48,22 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
     let total_validator_count = validators_per_node * node_count;
     let deposit_amount = env.eth2_config.spec.max_effective_balance;
+
+    // Generate the directories and keystores required for the validator clients.
+    let validator_files = (0..node_count)
+        .into_iter()
+        .map(|i| {
+            println!(
+                "Generating keystores for validator {} of {}",
+                i + 1,
+                node_count
+            );
+
+            let indices =
+                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+            ValidatorFiles::with_keystores(&indices).unwrap()
+        })
+        .collect::<Vec<_>>();
 
     let context = env.core_context();
 
@@ -115,11 +132,9 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         // that delays until genesis. Otherwise, all of the checks that start in the next
         // future will start too early.
 
-        for i in 0..node_count {
-            let indices =
-                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+        for (i, files) in validator_files.into_iter().enumerate() {
             network
-                .add_validator_client(ValidatorConfig::default(), i, indices)
+                .add_validator_client(ValidatorConfig::default(), i, files)
                 .await?;
         }
 

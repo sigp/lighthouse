@@ -91,14 +91,52 @@ pub fn testing_client_config() -> ClientConfig {
     client_config
 }
 
+/// Contains the directories for a `LocalValidatorClient`.
+///
+/// This struct is separate to `LocalValidatorClient` to allow for pre-computation of validator
+/// keypairs since the task is quite resource intensive.
+pub struct ValidatorFiles {
+    pub datadir: TempDir,
+    pub secrets_dir: TempDir,
+}
+
+impl ValidatorFiles {
+    /// Creates temporary data and secrets dirs.
+    pub fn new() -> Result<Self, String> {
+        let datadir = TempDir::new("lighthouse-validator-client")
+            .map_err(|e| format!("Unable to create VC data dir: {:?}", e))?;
+
+        let secrets_dir = TempDir::new("lighthouse-validator-client-secrets")
+            .map_err(|e| format!("Unable to create VC secrets dir: {:?}", e))?;
+
+        Ok(Self {
+            datadir,
+            secrets_dir,
+        })
+    }
+
+    /// Creates temporary data and secrets dirs, preloaded with keystores.
+    pub fn with_keystores(keypair_indices: &[usize]) -> Result<Self, String> {
+        let this = Self::new()?;
+
+        build_deterministic_validator_dirs(
+            this.datadir.path().into(),
+            this.secrets_dir.path().into(),
+            keypair_indices,
+        )
+        .map_err(|e| format!("Unable to build validator directories: {:?}", e))?;
+
+        Ok(this)
+    }
+}
+
 /// Provides a validator client that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
 pub struct LocalValidatorClient<T: EthSpec> {
     pub client: ProductionValidatorClient<T>,
-    pub datadir: TempDir,
-    pub secrets_dir: TempDir,
+    pub files: ValidatorFiles,
 }
 
 impl<E: EthSpec> LocalValidatorClient<E> {
@@ -109,23 +147,9 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     pub async fn production_with_insecure_keypairs(
         context: RuntimeContext<E>,
         config: ValidatorConfig,
-        keypair_indices: &[usize],
+        files: ValidatorFiles,
     ) -> Result<Self, String> {
-        // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
-        let datadir = TempDir::new("lighthouse-validator-client")
-            .expect("should create temp directory for VC datadir");
-
-        let secrets_dir = TempDir::new("lighthouse-validator-client-secrets")
-            .expect("should create temp directory for VC secrets");
-
-        build_deterministic_validator_dirs(
-            datadir.path().into(),
-            secrets_dir.path().into(),
-            keypair_indices,
-        )
-        .expect("should build validator dirs");
-
-        Self::new(context, config, datadir, secrets_dir).await
+        Self::new(context, config, files).await
     }
 
     /// Creates a validator client that attempts to read keys from the default data dir.
@@ -136,24 +160,18 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         context: RuntimeContext<E>,
         config: ValidatorConfig,
     ) -> Result<Self, String> {
-        // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
-        let datadir = TempDir::new("lighthouse-validator")
-            .expect("should create temp directory for VC datadir");
+        let files = ValidatorFiles::new()?;
 
-        let secrets_dir = TempDir::new("lighthouse-validator-client-secrets")
-            .expect("should create temp directory for VC secrets");
-
-        Self::new(context, config, datadir, secrets_dir).await
+        Self::new(context, config, files).await
     }
 
     async fn new(
         context: RuntimeContext<E>,
         mut config: ValidatorConfig,
-        datadir: TempDir,
-        secrets_dir: TempDir,
+        files: ValidatorFiles,
     ) -> Result<Self, String> {
-        config.data_dir = datadir.path().into();
-        config.secrets_dir = secrets_dir.path().into();
+        config.data_dir = files.datadir.path().into();
+        config.secrets_dir = files.secrets_dir.path().into();
 
         ProductionValidatorClient::new(context, config)
             .await
@@ -161,11 +179,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
                 client
                     .start_service()
                     .expect("should start validator services");
-                Self {
-                    client,
-                    datadir,
-                    secrets_dir,
-                }
+                Self { client, files }
             })
     }
 }

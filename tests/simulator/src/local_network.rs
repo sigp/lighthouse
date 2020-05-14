@@ -1,6 +1,6 @@
 use node_test_rig::{
     environment::RuntimeContext, ClientConfig, LocalBeaconNode, LocalValidatorClient,
-    RemoteBeaconNode, ValidatorConfig,
+    RemoteBeaconNode, ValidatorConfig, ValidatorFiles,
 };
 use parking_lot::RwLock;
 use std::ops::Deref;
@@ -111,7 +111,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         &self,
         mut validator_config: ValidatorConfig,
         beacon_node: usize,
-        keypair_indices: Vec<usize>,
+        validator_files: ValidatorFiles,
     ) -> Result<(), String> {
         let index = self.validator_clients.read().len();
         let context = self.context.service_context(format!("validator_{}", index));
@@ -132,7 +132,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,
             validator_config,
-            &keypair_indices,
+            validator_files,
         )
         .await?;
         self_1.validator_clients.write().push(validator_client);
