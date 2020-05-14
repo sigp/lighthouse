@@ -365,7 +365,7 @@ mod tests {
         let different_root = Hash256::from_low_u64_be(1337);
         unset_bit(&mut a_different, 0);
         sign(&mut a_different, 2, genesis_validators_root);
-        assert!(a_different.data.beacon_block_root != different_root);
+        assert_ne!(a_different.data.beacon_block_root, different_root);
         a_different.data.beacon_block_root = different_root;
 
         assert_eq!(

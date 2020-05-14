@@ -286,13 +286,18 @@ impl Service {
     pub fn auto_update(service: Self, exit: tokio::sync::oneshot::Receiver<()>) {
         let update_interval = Duration::from_millis(service.config().auto_update_interval_millis);
 
-        let interval = interval_at(Instant::now(), update_interval);
+        let mut interval = interval_at(Instant::now(), update_interval);
 
-        let update_future = interval.for_each(move |_| {
-            let _ = Service::do_update(service.clone(), update_interval);
-            futures::future::ready(())
-        });
-        let future = futures::future::select(update_future, exit);
+        let update_future = async move {
+            while interval.next().await.is_some() {
+                Service::do_update(service.clone(), update_interval)
+                    .await
+                    .ok();
+            }
+        };
+
+        let future = futures::future::select(Box::pin(update_future), exit);
+
         tokio::task::spawn(future);
     }
 
@@ -329,6 +334,10 @@ impl Service {
     ///
     /// Emits logs for debugging and errors.
     pub async fn update_deposit_cache(service: Self) -> Result<DepositCacheUpdateOutcome, Error> {
+        let endpoint = service.config().endpoint.clone();
+        let follow_distance = service.config().follow_distance;
+        let deposit_contract_address = service.config().deposit_contract_address.clone();
+
         let blocks_per_log_query = service.config().blocks_per_log_query;
         let max_log_requests_per_update = service
             .config()
@@ -342,12 +351,7 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| service.config().deposit_contract_deploy_block);
 
-        let range = get_new_block_numbers(
-            &service.config().endpoint,
-            next_required_block,
-            service.config().follow_distance,
-        )
-        .await?;
+        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
 
         let block_number_chunks = if let Some(range) = range {
             range
@@ -370,8 +374,8 @@ impl Service {
                     Some(chunk) => {
                         let chunk_1 = chunk.clone();
                         match get_deposit_logs_in_range(
-                            &service.config().endpoint,
-                            &service.config().deposit_contract_address,
+                            &endpoint,
+                            &deposit_contract_address,
                             chunk,
                             Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
                         )
@@ -477,12 +481,10 @@ impl Service {
             .map(|n| n + 1)
             .unwrap_or_else(|| service.config().lowest_cached_block_number);
 
-        let range = get_new_block_numbers(
-            &service.config().endpoint,
-            next_required_block,
-            service.config().follow_distance,
-        )
-        .await?;
+        let endpoint = service.config().endpoint.clone();
+        let follow_distance = service.config().follow_distance;
+
+        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
         // Map the range of required blocks into a Vec.
         //
         // If the required range is larger than the size of the cache, drop the exiting cache
@@ -683,24 +685,29 @@ async fn get_new_block_numbers<'a>(
 ///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
 async fn download_eth1_block(cache: Arc<Inner>, block_number: u64) -> Result<Eth1Block, Error> {
+    let endpoint = cache.config.read().endpoint.clone();
+
     let deposit_root = cache
         .deposit_cache
         .read()
         .cache
         .get_deposit_root_from_cache(block_number);
+
     let deposit_count = cache
         .deposit_cache
         .read()
         .cache
         .get_deposit_count_from_cache(block_number);
+
     // Performs a `get_blockByNumber` call to an eth1 node.
     let http_block = get_block(
-        &cache.config.read().endpoint,
+        &endpoint,
         block_number,
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
     .map_err(Error::BlockDownloadFailed)
     .await?;
+
     Ok(Eth1Block {
         hash: http_block.hash,
         number: http_block.number,

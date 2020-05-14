@@ -171,3 +171,47 @@ where
         inner_result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::ssz::*;
+    use super::super::ssz_snappy::*;
+    use super::*;
+    use crate::rpc::protocol::*;
+
+    #[test]
+    fn test_decode_status_message() {
+        let message = hex::decode("ff060000734e615070590032000006e71e7b54989925efd6c9cbcb8ceb9b5f71216f5137282bf6a1e3b50f64e42d6c7fb347abe07eb0db8200000005029e2800").unwrap();
+        let mut buf = BytesMut::new();
+        buf.extend_from_slice(&message);
+
+        type Spec = types::MainnetEthSpec;
+
+        let snappy_protocol_id =
+            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+        let ssz_protocol_id = ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZ);
+
+        let mut snappy_outbound_codec =
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
+        let mut ssz_outbound_codec = SSZOutboundCodec::<Spec>::new(ssz_protocol_id, 1_048_576);
+
+        // decode message just as snappy message
+        let snappy_decoded_message = snappy_outbound_codec.decode(&mut buf.clone());
+        // decode message just a ssz message
+        let ssz_decoded_message = ssz_outbound_codec.decode(&mut buf.clone());
+
+        // build codecs for entire chunk
+        let mut snappy_base_outbound_codec = BaseOutboundCodec::new(snappy_outbound_codec);
+        let mut ssz_base_outbound_codec = BaseOutboundCodec::new(ssz_outbound_codec);
+
+        // decode message as ssz snappy chunk
+        let snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf.clone());
+        // decode message just a ssz chunk
+        let ssz_decoded_chunk = ssz_base_outbound_codec.decode(&mut buf.clone());
+
+        let _ = dbg!(snappy_decoded_message);
+        let _ = dbg!(ssz_decoded_message);
+        let _ = dbg!(snappy_decoded_chunk);
+        let _ = dbg!(ssz_decoded_chunk);
+    }
+}

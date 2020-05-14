@@ -11,7 +11,7 @@ rand = "0.7.2"
 rust-crypto = "0.2.36"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
-serde = "1.0.102"
+serde = "1.0.110"
 serde_repr = "0.1"
 hex = "0.3"
 bls = { path = "../bls" }
