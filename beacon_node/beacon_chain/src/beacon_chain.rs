@@ -553,7 +553,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
                     match per_slot_processing(&mut state, skip_state_root, &self.spec) {
-                        Ok(()) => (),
+                        Ok(_) => (),
                         Err(e) => {
                             warn!(
                                 self.log,

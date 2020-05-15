@@ -15,6 +15,10 @@ pub use process_slashings::process_slashings;
 pub use registry_updates::process_registry_updates;
 pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 
+pub struct EpochProcessingSummary {
+    pub validator_statuses: ValidatorStatuses,
+}
+
 /// Performs per-epoch processing on some BeaconState.
 ///
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
@@ -24,7 +28,7 @@ pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 pub fn per_epoch_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<EpochProcessingSummary, Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -58,7 +62,7 @@ pub fn per_epoch_processing<T: EthSpec>(
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches();
 
-    Ok(())
+    Ok(EpochProcessingSummary { validator_statuses })
 }
 
 /// Update the following fields on the `BeaconState`:
