@@ -289,6 +289,7 @@ impl Service {
         exit: tokio::sync::oneshot::Receiver<()>,
     ) {
         let update_interval = Duration::from_millis(service.config().auto_update_interval_millis);
+        let log = service.log.clone();
 
         let mut interval = interval_at(Instant::now(), update_interval);
 
@@ -300,7 +301,12 @@ impl Service {
             }
         };
 
-        let future = futures::future::select(Box::pin(update_future), exit);
+        let exit_future = async move {
+            let _ = exit.await.ok();
+            info!(log, "Eth1 service shutdown");
+        };
+
+        let future = futures::future::select(Box::pin(update_future), Box::pin(exit_future));
 
         handle.spawn(future);
     }

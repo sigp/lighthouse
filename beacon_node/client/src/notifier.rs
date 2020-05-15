@@ -31,6 +31,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     milliseconds_per_slot: u64,
     log: slog::Logger,
 ) -> Result<tokio::sync::oneshot::Sender<()>, String> {
+    let log_1 = log.clone();
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
         .slot_clock
@@ -149,8 +150,16 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
     let (exit_signal, exit) = tokio::sync::oneshot::channel();
 
+    let exit_future = async move {
+        let _ = exit.await.ok();
+        info!(log_1, "Notifier service shutdown");
+    };
+
     // run the notifier on the current executor
-    handle.spawn(futures::future::select(Box::pin(interval_future), exit));
+    handle.spawn(futures::future::select(
+        Box::pin(interval_future),
+        Box::pin(exit_future),
+    ));
 
     Ok(exit_signal)
 }

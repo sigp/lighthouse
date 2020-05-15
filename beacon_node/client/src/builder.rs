@@ -251,8 +251,13 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let timer_exit = timer::spawn(&context.runtime_handle, beacon_chain, milliseconds_per_slot)
-            .map_err(|e| format!("Unable to start node timer: {}", e))?;
+        let timer_exit = timer::spawn(
+            &context.runtime_handle,
+            beacon_chain,
+            milliseconds_per_slot,
+            context.log.clone(),
+        )
+        .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         self.exit_channels.push(timer_exit);
 
