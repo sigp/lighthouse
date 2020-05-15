@@ -26,7 +26,7 @@ pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 /// The minimum reputation before a peer is disconnected.
 // Most likely this needs tweaking.
-const MIN_REP_BEFORE_BAN: Rep = 10;
+const _MIN_REP_BEFORE_BAN: Rep = 10;
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
 /// The time in seconds between PING events. We do not send a ping if the other peer as PING'd us within
@@ -44,7 +44,7 @@ pub struct PeerManager<TSpec: EthSpec> {
     /// A collection of peers awaiting to be Status'd.
     status_peers: HashSetDelay<PeerId>,
     /// Last updated moment.
-    last_updated: Instant,
+    _last_updated: Instant,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 }
@@ -106,7 +106,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         PeerManager {
             network_globals,
             events: SmallVec::new(),
-            last_updated: Instant::now(),
+            _last_updated: Instant::now(),
             ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
             log: log.clone(),
@@ -204,7 +204,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Updates the state of the peer as disconnected.
     pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
-        self.update_reputations();
+        //self.update_reputations();
         self.network_globals.peers.write().disconnect(peer_id);
 
         // remove the ping and status timer for the peer
@@ -238,12 +238,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        self.update_reputations();
+        //TODO: Check these. There are double disconnects for example
+        // self.update_reputations();
         self.network_globals
             .peers
             .write()
             .add_reputation(peer_id, action.rep_change());
-        self.update_reputations();
+        // self.update_reputations();
     }
 
     /// Updates `PeerInfo` with `identify` information.
@@ -332,7 +333,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     // TODO: Drop peers if over max_peer limit
     fn connect_peer(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
         // TODO: remove after timed updates
-        self.update_reputations();
+        //self.update_reputations();
 
         {
             let mut peerdb = self.network_globals.peers.write();
@@ -377,10 +378,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// A banned(disconnected) peer that gets its rep above(below) MIN_REP_BEFORE_BAN is
     /// now considered a disconnected(banned) peer.
-    fn update_reputations(&mut self) {
+    fn _update_reputations(&mut self) {
         // avoid locking the peerdb too often
         // TODO: call this on a timer
-        if self.last_updated.elapsed().as_secs() < 30 {
+        if self._last_updated.elapsed().as_secs() < 30 {
             return;
         }
 
@@ -409,7 +410,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .as_secs()
                         / 3600;
                     let last_dc_hours = self
-                        .last_updated
+                        ._last_updated
                         .checked_duration_since(since)
                         .unwrap_or_else(|| Duration::from_secs(0))
                         .as_secs()
@@ -437,10 +438,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 Unknown => {} //TODO: Handle this case
             }
             // Check if the peer gets banned or unbanned and if it should be disconnected
-            if info.reputation < MIN_REP_BEFORE_BAN && !info.connection_status.is_banned() {
+            if info.reputation < _MIN_REP_BEFORE_BAN && !info.connection_status.is_banned() {
                 // This peer gets banned. Check if we should request disconnection
                 ban_queue.push(id.clone());
-            } else if info.reputation >= MIN_REP_BEFORE_BAN && info.connection_status.is_banned() {
+            } else if info.reputation >= _MIN_REP_BEFORE_BAN && info.connection_status.is_banned() {
                 // This peer gets unbanned
                 unban_queue.push(id.clone());
             }
@@ -456,7 +457,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             pdb.disconnect(&id);
         }
 
-        self.last_updated = Instant::now();
+        self._last_updated = Instant::now();
     }
 }
 
