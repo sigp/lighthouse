@@ -220,13 +220,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) -> bool {
-        self.connect_peer(peer_id, false)
+        self.connect_peer(peer_id, ConnectingType::IngoingConnected)
     }
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) -> bool {
-        self.connect_peer(peer_id, true)
+        self.connect_peer(peer_id, ConnectingType::OutgoingConnected)
+    }
+
+    /// Updates the database informing that a peer is being dialed.
+    pub fn dialing_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.connect_peer(peer_id, ConnectingType::Dialing)
     }
 
     /// Reports a peer for some action.
@@ -318,7 +323,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This informs if the peer was accepted in to the db or not.
     // TODO: Drop peers if over max_peer limit
-    fn connect_peer(&mut self, peer_id: &PeerId, outgoing: bool) -> bool {
+    fn connect_peer(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
         // TODO: remove after timed updates
         self.update_reputations();
 
@@ -331,10 +336,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // return false;
             }
 
-            if outgoing {
-                peerdb.connect_outgoing(peer_id);
-            } else {
-                peerdb.connect_ingoing(peer_id);
+            match connection {
+                ConnectingType::Dialing => peerdb.dialing_peer(peer_id),
+                ConnectingType::IngoingConnected => peerdb.connect_outgoing(peer_id),
+                ConnectingType::OutgoingConnected => peerdb.connect_ingoing(peer_id),
             }
         }
 
@@ -487,4 +492,13 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
 
         Poll::Pending
     }
+}
+
+enum ConnectingType {
+    /// We are in the process of dialing this peer.
+    Dialing,
+    /// A peer has dialed us.
+    IngoingConnected,
+    /// We have successfully dialed a peer.
+    OutgoingConnected,
 }
