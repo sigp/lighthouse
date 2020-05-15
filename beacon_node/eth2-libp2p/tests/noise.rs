@@ -136,7 +136,7 @@ async fn test_secio_noise_fallback() {
 
     let port = common::unused_port("tcp").unwrap();
     let noisy_config = common::build_config(port, vec![], None);
-    let mut noisy_node = Service::new(&noisy_config, EnrForkId::default(), log.clone())
+    let mut noisy_node = Service::new(&noisy_config, EnrForkId::default(), &log)
         .expect("should build a libp2p instance")
         .1;
 
@@ -153,7 +153,7 @@ async fn test_secio_noise_fallback() {
 
     let noisy_future = async {
         loop {
-            noisy_node.next().await;
+            noisy_node.next_event().await;
         }
     };
 

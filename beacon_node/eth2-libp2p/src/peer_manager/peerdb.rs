@@ -77,7 +77,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns an iterator over all peers in the db.
-    pub(super) fn peers_mut(&mut self) -> impl Iterator<Item = (&PeerId, &mut PeerInfo<TSpec>)> {
+    pub(super) fn _peers_mut(&mut self) -> impl Iterator<Item = (&PeerId, &mut PeerInfo<TSpec>)> {
         self.peers.iter_mut()
     }
 

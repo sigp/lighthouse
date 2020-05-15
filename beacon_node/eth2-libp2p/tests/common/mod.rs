@@ -4,7 +4,6 @@ use eth2_libp2p::EnrExt;
 use eth2_libp2p::Multiaddr;
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{Libp2pEvent, NetworkConfig};
-use futures::prelude::*;
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
 use std::time::Duration;
@@ -87,7 +86,7 @@ pub fn build_libp2p_instance(
     let port = unused_port("tcp").unwrap();
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
-    LibP2PService::new(&config, EnrForkId::default(), log.clone())
+    LibP2PService::new(&config, EnrForkId::default(), &log)
         .expect("should build libp2p instance")
         .1
 }
@@ -137,19 +136,15 @@ pub async fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PSer
     // let the two nodes set up listeners
     let sender_fut = async {
         loop {
-            while let Some(event) = sender.next().await {
-                if let Libp2pEvent::NewListenAddr(_) = event {
-                    return;
-                }
+            if let Libp2pEvent::NewListenAddr(_) = sender.next_event().await {
+                return;
             }
         }
     };
     let receiver_fut = async {
         loop {
-            while let Some(event) = receiver.next().await {
-                if let Libp2pEvent::NewListenAddr(_) = event {
-                    return;
-                }
+            if let Libp2pEvent::NewListenAddr(_) = receiver.next_event().await {
+                return;
             }
         }
     };

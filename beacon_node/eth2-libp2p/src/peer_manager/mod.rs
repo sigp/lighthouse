@@ -394,7 +394,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         /* Check how long have peers been in this state and update their reputations if needed */
         let mut pdb = self.network_globals.peers.write();
 
-        for (id, info) in pdb.peers_mut() {
+        for (id, info) in pdb._peers_mut() {
             // Update reputations
             match info.connection_status {
                 Connected { .. } => {
