@@ -193,7 +193,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "load_from_store requires a store.".to_string())?;
+            .ok_or_else(|| "store_contains_beacon_chain requires a store.".to_string())?;
 
         Ok(store
             .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
@@ -224,7 +224,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "load_from_store requires a store.".to_string())?;
+            .ok_or_else(|| "resume_from_db requires a store.".to_string())?;
 
         let chain = store
             .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
@@ -511,10 +511,10 @@ where
             let finalized_snapshot = &self
                 .finalized_snapshot
                 .as_ref()
-                .ok_or_else(|| "fork_choice_backend requires a finalized_snapshot")?;
+                .ok_or_else(|| "reduced_tree_fork_choice requires a finalized_snapshot")?;
             let genesis_block_root = self
                 .genesis_block_root
-                .ok_or_else(|| "fork_choice_backend requires a genesis_block_root")?;
+                .ok_or_else(|| "reduced_tree_fork_choice requires a genesis_block_root")?;
 
             let backend = ProtoArrayForkChoice::new(
                 finalized_snapshot.beacon_block.message.slot,
