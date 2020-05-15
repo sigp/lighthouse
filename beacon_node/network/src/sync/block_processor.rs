@@ -41,10 +41,22 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
         match process_id {
             // this a request from the range sync
             ProcessId::RangeBatchId(chain_id, batch_id) => {
-                debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
+                let len = downloaded_blocks.len();
+                let start_slot = if len > 0 {
+                    downloaded_blocks[0].message.slot.as_u64()
+                } else {
+                    0
+                };
+                let end_slot = if len > 0 {
+                    downloaded_blocks[len - 1].message.slot.as_u64()
+                } else {
+                    0
+                };
+
+                debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len(),  "start_slot" => start_slot, "end_slot" => end_slot);
                 let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                     (_, Ok(_)) => {
-                        debug!(log, "Batch processed"; "id" => *batch_id );
+                        debug!(log, "Batch processed"; "id" => *batch_id , "start_slot" => start_slot, "end_slot" => end_slot);
                         BatchProcessResult::Success
                     }
                     (imported_blocks, Err(e)) if imported_blocks > 0 => {

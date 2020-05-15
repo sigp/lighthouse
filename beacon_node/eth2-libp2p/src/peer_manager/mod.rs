@@ -17,7 +17,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use types::EthSpec;
 
-mod client;
+pub mod client;
 mod peer_info;
 mod peer_sync_status;
 mod peerdb;
@@ -257,7 +257,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
-        debug!(self.log, "RPCError"; "protocol" => protocol.to_string(), "err" => err.to_string());
+        let client = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| info.client.clone())
+            .unwrap_or_default();
+        debug!(self.log, "RPCError"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string());
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {

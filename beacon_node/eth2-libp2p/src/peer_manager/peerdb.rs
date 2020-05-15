@@ -260,7 +260,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets the peer as disconnected. A banned peer remains banned
     pub fn disconnect(&mut self, peer_id: &PeerId) {
-        debug!(self.log, "Peer disconnected from db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Disconnecting unknown peer";
@@ -271,6 +270,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.n_dc += 1;
         }
         info.connection_status.disconnect();
+        debug!(self.log, "Peer disconnected from db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         self.shrink_to_fit();
     }
 

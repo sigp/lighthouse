@@ -381,7 +381,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             BatchProcessResult::Failed => {
                 debug!(self.log, "Batch processing failed";
-                    "chain_id" => self.id,"id" => *batch.id, "peer" => format!("{}", batch.current_peer));
+                    "chain_id" => self.id,"id" => *batch.id, "peer" => batch.current_peer.to_string(), "client" => network.client_type(&batch.current_peer).to_string());
                 // The batch processing failed
                 // This could be because this batch is invalid, or a previous invalidated batch
                 // is invalid. We need to find out which and downvote the peer that has sent us
