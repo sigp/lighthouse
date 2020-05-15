@@ -47,7 +47,7 @@ pub type ChainId = u64;
 /// chain.
 pub struct SyncingChain<T: BeaconChainTypes> {
     /// A random id used to identify this chain.
-    id: ChainId,
+    pub id: ChainId,
 
     /// The original start slot when this chain was initialised.
     pub start_epoch: Epoch,
