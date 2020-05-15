@@ -205,10 +205,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Updates the state of the peer as disconnected.
     pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
         self.update_reputations();
-        {
-            let mut peerdb = self.network_globals.peers.write();
-            peerdb.disconnect(peer_id);
-        }
+        self.network_globals.peers.write().disconnect(peer_id);
 
         // remove the ping and status timer for the peer
         self.ping_peers.remove(peer_id);
@@ -329,7 +326,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.connection_status(peer_id).map(|c| c.is_banned()) == Some(true) {
                 // don't connect if the peer is banned
-                return false;
+                // TODO: Handle this case. If peer is banned this shouldn't be reached. It will put
+                // our connection/disconnection out of sync with libp2p
+                // return false;
             }
 
             if outgoing {
@@ -423,6 +422,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         // TODO: decide how to handle this
                     }
                 }
+                Unknown => {} //TODO: Handle this case
             }
             // Check if the peer gets banned or unbanned and if it should be disconnected
             if info.reputation < MIN_REP_BEFORE_BAN && !info.connection_status.is_banned() {

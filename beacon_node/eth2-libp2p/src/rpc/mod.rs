@@ -41,6 +41,14 @@ pub enum RPCEvent<T: EthSpec> {
     Error(RequestId, Protocol, RPCError),
 }
 
+/// Messages sent to the user from the RPC protocol.
+pub struct RPCMessage<TSpec: EthSpec> {
+    /// The peer that sent the message.
+    pub peer_id: PeerId,
+    /// The message that was sent.
+    pub event: RPCEvent<TSpec>,
+}
+
 impl<T: EthSpec> RPCEvent<T> {
     pub fn id(&self) -> usize {
         match *self {
@@ -118,26 +126,7 @@ where
     }
 
     // Use connection established/closed instead of these currently
-    fn inject_connected(&mut self, _peer_id: &PeerId) {}
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
-
-    fn inject_connection_established(
-        &mut self,
-        peer_id: &PeerId,
-        _: &ConnectionId,
-        connected_point: &ConnectedPoint,
-    ) {
-        // TODO: Remove this on proper peer discovery
-        self.events.push(NetworkBehaviourAction::GenerateEvent(
-            RPCMessage::PeerConnectedHack(peer_id.clone(), connected_point.clone()),
-        ));
-        // if initialised the connection, report this upwards to send the HELLO request
-        if let ConnectedPoint::Dialer { .. } = connected_point {
-            self.events.push(NetworkBehaviourAction::GenerateEvent(
-                RPCMessage::PeerDialed(peer_id.clone()),
-            ));
-        }
-
+    fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
         let rpc_event =
@@ -149,21 +138,22 @@ where
         });
     }
 
+    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
+
+    fn inject_connection_established(
+        &mut self,
+        _peer_id: &PeerId,
+        _: &ConnectionId,
+        _connected_point: &ConnectedPoint,
+    ) {
+    }
+
     fn inject_connection_closed(
         &mut self,
-        peer_id: &PeerId,
+        _peer_id: &PeerId,
         _: &ConnectionId,
-        connected_point: &ConnectedPoint,
+        _connected_point: &ConnectedPoint,
     ) {
-        // TODO: Remove this on proper peer discovery
-        self.events.push(NetworkBehaviourAction::GenerateEvent(
-            RPCMessage::PeerDisconnectedHack(peer_id.clone(), connected_point.clone()),
-        ));
-
-        // inform the rpc handler that the peer has disconnected
-        self.events.push(NetworkBehaviourAction::GenerateEvent(
-            RPCMessage::PeerDisconnected(peer_id.clone()),
-        ));
     }
 
     fn inject_event(
@@ -174,9 +164,10 @@ where
     ) {
         // send the event to the user
         self.events
-            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage::RPC(
-                source, event,
-            )));
+            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                peer_id: source,
+                event,
+            }));
     }
 
     fn poll(
@@ -194,15 +185,4 @@ where
         }
         Poll::Pending
     }
-}
-
-/// Messages sent to the user from the RPC protocol.
-pub enum RPCMessage<TSpec: EthSpec> {
-    RPC(PeerId, RPCEvent<TSpec>),
-    PeerDialed(PeerId),
-    PeerDisconnected(PeerId),
-    // TODO: This is a hack to give access to connections to peer manager. Remove this once
-    // behaviour is re-written
-    PeerConnectedHack(PeerId, ConnectedPoint),
-    PeerDisconnectedHack(PeerId, ConnectedPoint),
 }

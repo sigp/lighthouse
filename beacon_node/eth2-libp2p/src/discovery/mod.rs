@@ -501,11 +501,16 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                                         .is_connected_or_dialing(&peer_id)
                                     && !self.banned_peers.contains(&peer_id)
                                 {
-                                    debug!(self.log, "Connecting to discovered peer"; "peer_id"=> format!("{:?}", peer_id));
+                                    let connection_status = self
+                                        .network_globals
+                                        .peers
+                                        .read()
+                                        .connection_status(&peer_id);
+                                    debug!(self.log, "Connecting to discovered peer"; "peer_id"=> peer_id.to_string(), "status" => format!("{:?}", connection_status));
                                     self.network_globals.peers.write().dialing_peer(&peer_id);
                                     self.events.push_back(NetworkBehaviourAction::DialPeer {
                                         peer_id,
-                                        condition: DialPeerCondition::NotDialing, // TODO: check if this is the condition we want
+                                        condition: DialPeerCondition::Disconnected,
                                     });
                                 }
                             }

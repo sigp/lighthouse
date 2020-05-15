@@ -480,7 +480,7 @@ where
                         }
                     }
                     None => {
-                        warn!(self.log, "Stream has expired. Response not sent"; "response" => format!("{}", response));
+                        warn!(self.log, "Stream has expired. Response not sent"; "response" => response.to_string(), "id" => rpc_id);
                     }
                 };
             }
@@ -648,7 +648,7 @@ where
                                             }
                                             Err(e) => {
                                                 // error with sending in the codec
-                                                error!(self.log, "Error sending RPC message"; "error" => e.to_string());
+                                                warn!(self.log, "Error sending RPC message"; "error" => e.to_string());
                                                 // keep connection with the peer and return the
                                                 // stream to awaiting response if this message
                                                 // wasn't closing the stream
@@ -671,6 +671,7 @@ where
                                     }
                                     Poll::Ready(Err(e)) => {
                                         error!(self.log, "Outbound substream error while sending RPC message: {:?}", e);
+                                        entry.remove();
                                         return Poll::Ready(ProtocolsHandlerEvent::Close(e));
                                     }
                                     Poll::Pending => {
@@ -708,20 +709,21 @@ where
                                     }
                                     Poll::Ready(Err(e)) => {
                                         // error during flush
-                                        error!(self.log, "Error sending flushing RPC message"; "error" => e.to_string());
-                                        // close the stream if required
+                                        trace!(self.log, "Error sending flushing RPC message"; "error" => e.to_string());
+                                        // we drop the stream on error and inform the user, remove
+                                        // any pending requests
                                         // TODO: Duplicate code
-                                        if closing {
-                                            entry.get_mut().0 =
-                                                InboundSubstreamState::Closing(substream)
-                                        } else {
-                                            // check for queued chunks and update the stream
-                                            entry.get_mut().0 = apply_queued_responses(
-                                                substream,
-                                                &mut self
-                                                    .queued_outbound_items
-                                                    .get_mut(&request_id),
-                                                &mut new_items_to_send,
+                                        if let Some(delay_key) = &entry.get().1 {
+                                            self.inbound_substreams_delay.remove(delay_key);
+                                        }
+                                        self.queued_outbound_items.remove(&request_id);
+                                        entry.remove();
+
+                                        if self.outbound_substreams.is_empty()
+                                            && self.inbound_substreams.is_empty()
+                                        {
+                                            self.keep_alive = KeepAlive::Until(
+                                                Instant::now() + self.inactive_timeout,
                                             );
                                         }
                                     }

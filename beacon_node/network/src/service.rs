@@ -11,7 +11,7 @@ use eth2_libp2p::{rpc::RPCRequest, BehaviourEvent, Enr, MessageId, NetworkGlobal
 use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
-use slog::{debug, error, info, trace};
+use slog::{debug, error, info, o, trace};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Handle;
@@ -74,8 +74,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let next_fork_update = next_fork_delay(&beacon_chain);
 
         // launch libp2p service
-        let (network_globals, mut libp2p) = runtime_handle
-            .enter(|| LibP2PService::new(config, enr_fork_id, network_log.clone()))?;
+        let (network_globals, mut libp2p) =
+            runtime_handle.enter(|| LibP2PService::new(config, enr_fork_id, &network_log))?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -97,6 +97,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
 
         // create the network service and spawn the task
+        let network_log = network_log.new(o!("service"=> "network"));
         let network_service = NetworkService {
             beacon_chain,
             libp2p,
@@ -266,23 +267,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     debug!(service.log, "Failed to send RPC to router");
                                 });
                         }
-                        BehaviourEvent::PeerDialed(peer_id) => {
-                            debug!(service.log, "Peer Dialed"; "peer_id" => format!("{}", peer_id));
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::PeerDialed(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send peer dialed to router"); });
-                        }
-                        BehaviourEvent::PeerDisconnected(peer_id) => {
-                            debug!(service.log, "Peer Disconnected";  "peer_id" => format!("{}", peer_id));
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::PeerDisconnected(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send peer disconnect to router");
-                                });
-                        }
                         BehaviourEvent::StatusPeer(peer_id) => {
                             let _ = service
                                 .router_send
@@ -334,12 +318,27 @@ fn spawn_service<T: BeaconChainTypes>(
                 Libp2pEvent::NewListenAddr(multiaddr) => {
                     service.network_globals.listen_multiaddrs.write().push(multiaddr);
                 }
-                Libp2pEvent::ConnectionEstablished{ peer_id, endpoint: _, num_established: _ } => {
-                    debug!(service.log, "Connection established"; "peer_id" => peer_id.to_string());
+                Libp2pEvent::PeerConnected{ peer_id, endpoint,} => {
+                    debug!(service.log, "Peer Connected"; "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
+                    if let eth2_libp2p::ConnectedPoint::Dialer { .. } = endpoint {
+                    let _ = service
+                        .router_send
+                        .send(RouterMessage::PeerDialed(peer_id))
+                        .map_err(|_| {
+                            debug!(service.log, "Failed to send peer dialed to router"); });
+                    }
                 }
+                Libp2pEvent::PeerDisconnected{ peer_id, endpoint,} => {
+                    debug!(service.log, "Peer Disconnected";  "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
+                    let _ = service
+                        .router_send
+                        .send(RouterMessage::PeerDisconnected(peer_id))
+                        .map_err(|_| {
+                            debug!(service.log, "Failed to send peer disconnect to router");
+                        });
+                    }
                  }
-            }
-
+                }
             }
 
             if let Some(delay) = &service.next_fork_update {

@@ -306,8 +306,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         };
 
         let event = if is_request {
+            debug!(self.log, "Sending Ping"; "request_id" => id);
             RPCEvent::Request(id, RPCRequest::Ping(ping))
         } else {
+            debug!(self.log, "Sending Pong"; "request_id" => id);
             RPCEvent::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)))
         };
         self.send_rpc(peer_id, event);
@@ -327,6 +329,44 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             RPCCodedResponse::Success(RPCResponse::MetaData(self.meta_data.clone())),
         );
         self.send_rpc(peer_id, metadata_response);
+    }
+
+    // Temporary function until the behaviour is upgraded
+    /// Notifies the behaviour that a peer has disconnected.
+    pub fn notify_peer_disconnect(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
+        self.peer_manager.notify_disconnect(&peer_id)
+    }
+
+    /// Notifies the behaviour that a peer has connected.
+    pub fn notify_peer_connect(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
+        match endpoint {
+            ConnectedPoint::Dialer { .. } => self.peer_manager.connect_outgoing(&peer_id),
+            ConnectedPoint::Listener { .. } => self.peer_manager.connect_ingoing(&peer_id),
+        };
+
+        // Find ENR info about a peer if possible.
+        if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
+            let bitfield = match enr.bitfield::<TSpec>() {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(self.log, "Peer has invalid ENR bitfield";
+                                        "peer_id" => format!("{}", peer_id),
+                                        "error" => format!("{:?}", e));
+                    return;
+                }
+            };
+
+            // use this as a baseline, until we get the actual meta-data
+            let meta_data = MetaData {
+                seq_number: 0,
+                attnets: bitfield,
+            };
+            // TODO: Shift to the peer manager
+            self.network_globals
+                .peers
+                .write()
+                .add_metadata(&peer_id, meta_data);
+        }
     }
 }
 
@@ -358,7 +398,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                             debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
                         }
                         Ok(msg) => {
-                            crit!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
+                            debug!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
                         }
                     }
                 }
@@ -373,91 +413,45 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
 }
 
 impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSpec> {
-    fn inject_event(&mut self, event: RPCMessage<TSpec>) {
-        match event {
-            // TODO: These are temporary methods to give access to injected behaviour
-            // events to the
-            // peer manager. After a behaviour re-write remove these:
-            RPCMessage::PeerConnectedHack(peer_id, connected_point) => {
-                match connected_point {
-                    ConnectedPoint::Dialer { .. } => self.peer_manager.connect_outgoing(&peer_id),
-                    ConnectedPoint::Listener { .. } => self.peer_manager.connect_ingoing(&peer_id),
-                };
-
-                // Find ENR info about a peer if possible.
-                if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
-                    let bitfield = match enr.bitfield::<TSpec>() {
-                        Ok(v) => v,
-                        Err(e) => {
-                            warn!(self.log, "Peer has invalid ENR bitfield";
-                                        "peer_id" => format!("{}", peer_id),
-                                        "error" => format!("{:?}", e));
-                            return;
-                        }
-                    };
-
-                    // use this as a baseline, until we get the actual meta-data
-                    let meta_data = MetaData {
-                        seq_number: 0,
-                        attnets: bitfield,
-                    };
-                    // TODO: Shift to the peer manager
-                    self.network_globals
-                        .peers
-                        .write()
-                        .add_metadata(&peer_id, meta_data);
-                }
+    fn inject_event(&mut self, message: RPCMessage<TSpec>) {
+        let peer_id = message.peer_id;
+        // The METADATA and PING RPC responses are handled within the behaviour and not
+        // propagated
+        // TODO: Improve the RPC types to better handle this logic discrepancy
+        match message.event {
+            RPCEvent::Request(id, RPCRequest::Ping(ping)) => {
+                // inform the peer manager and send the response
+                self.peer_manager.ping_request(&peer_id, ping.data);
+                // send a ping response
+                self.send_ping(id, peer_id, false);
             }
-            RPCMessage::PeerDisconnectedHack(peer_id, _connected_point) => {
-                self.peer_manager.notify_disconnect(&peer_id)
+            RPCEvent::Request(id, RPCRequest::MetaData(_)) => {
+                // send the requested meta-data
+                self.send_meta_data_response(id, peer_id);
             }
-
-            RPCMessage::PeerDialed(peer_id) => {
-                self.events.push(BehaviourEvent::PeerDialed(peer_id))
+            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
+                self.peer_manager.pong_response(&peer_id, ping.data);
             }
-            RPCMessage::PeerDisconnected(peer_id) => {
-                self.events.push(BehaviourEvent::PeerDisconnected(peer_id))
+            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::MetaData(meta_data))) => {
+                self.peer_manager.meta_data_response(&peer_id, meta_data);
             }
-            RPCMessage::RPC(peer_id, rpc_event) => {
-                // The METADATA and PING RPC responses are handled within the behaviour and not
-                // propagated
-                // TODO: Improve the RPC types to better handle this logic discrepancy
-                match rpc_event {
-                    RPCEvent::Request(id, RPCRequest::Ping(ping)) => {
-                        // inform the peer manager and send the response
-                        self.peer_manager.ping_request(&peer_id, ping.data);
-                        // send a ping response
-                        self.send_ping(id, peer_id, false);
-                    }
-                    RPCEvent::Request(id, RPCRequest::MetaData(_)) => {
-                        // send the requested meta-data
-                        self.send_meta_data_response(id, peer_id);
-                    }
-                    RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
-                        self.peer_manager.pong_response(&peer_id, ping.data);
-                    }
-                    RPCEvent::Response(
-                        _,
-                        RPCCodedResponse::Success(RPCResponse::MetaData(meta_data)),
-                    ) => {
-                        self.peer_manager.meta_data_response(&peer_id, meta_data);
-                    }
-                    RPCEvent::Request(_, RPCRequest::Status(_))
-                    | RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
-                        // inform the peer manager that we have received a status from a peer
-                        self.peer_manager.peer_statusd(&peer_id);
-                        // propagate the STATUS message upwards
-                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event));
-                    }
-                    RPCEvent::Error(_, protocol, ref err) => {
-                        self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
-                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event));
-                    }
-                    _ => {
-                        // propagate all other RPC messages upwards
-                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
-                    }
-                }
+            RPCEvent::Request(_, RPCRequest::Status(_))
+            | RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
+                // inform the peer manager that we have received a status from a peer
+                self.peer_manager.peer_statusd(&peer_id);
+                // propagate the STATUS message upwards
+                self.events
+                    .push(BehaviourEvent::RPC(peer_id, message.event));
+            }
+            RPCEvent::Error(_, protocol, ref err) => {
+                self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
+                self.events
+                    .push(BehaviourEvent::RPC(peer_id, message.event));
+            }
+            _ => {
+                // propagate all other RPC messages upwards
+                self.events
+                    .push(BehaviourEvent::RPC(peer_id, message.event))
             }
         }
     }
@@ -551,11 +545,6 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<Discv5Event> for Behaviour<TSp
 pub enum BehaviourEvent<TSpec: EthSpec> {
     /// A received RPC event and the peer that it was received from.
     RPC(PeerId, RPCEvent<TSpec>),
-    /// We have completed an initial connection to a new peer.
-    PeerDialed(PeerId),
-    /// A peer has disconnected.
-    PeerDisconnected(PeerId),
-    /// A gossipsub message has been received.
     PubsubMessage {
         /// The gossipsub message id. Used when propagating blocks after validation.
         id: MessageId,

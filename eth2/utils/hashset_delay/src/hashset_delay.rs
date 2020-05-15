@@ -138,8 +138,8 @@ where
     }
 
     /// Returns a vector of referencing all keys in the map.
-    pub fn keys_vec(&self) -> Vec<&K> {
-        self.entries.keys().collect()
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.entries.keys()
     }
 }
 
