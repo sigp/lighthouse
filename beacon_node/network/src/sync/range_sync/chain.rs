@@ -31,6 +31,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// be downvoted.
 const INVALID_BATCH_LOOKUP_ATTEMPTS: u8 = 3;
 
+#[derive(PartialEq)]
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is
 /// required.
