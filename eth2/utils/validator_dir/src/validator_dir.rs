@@ -4,13 +4,14 @@ use crate::builder::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
-use std::fs::{read, remove_file, File, OpenOptions};
+use std::fs::{read, remove_file, write, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
 use types::{DepositData, Hash256, Keypair};
 
 const LOCK_FILE: &str = ".lock";
+pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
 
 #[derive(Debug)]
 pub enum Error {
@@ -28,6 +29,8 @@ pub enum Error {
     UnableToParseDepositAmount(std::num::ParseIntError),
     DepositAmountIsNotUtf8(std::string::FromUtf8Error),
     UnableToParseDepositData(deposit_contract::DecodeError),
+    Eth1TxHashExists(PathBuf),
+    UnableToWriteEth1TxHash(io::Error),
     Eth1DepositRootMismatch,
     #[cfg(feature = "unencrypted_keys")]
     SszKeypairError(String),
@@ -41,7 +44,7 @@ pub struct Eth1DepositData {
 
 #[derive(Debug, PartialEq)]
 pub struct ValidatorDir {
-    pub dir: PathBuf,
+    dir: PathBuf,
 }
 
 impl ValidatorDir {
@@ -63,12 +66,30 @@ impl ValidatorDir {
         Ok(Self { dir })
     }
 
+    pub fn dir(&self) -> &PathBuf {
+        &self.dir
+    }
+
     pub fn voting_keypair<P: AsRef<Path>>(&self, password_dir: P) -> Result<Keypair, Error> {
         unlock_keypair(&self.dir.clone(), VOTING_KEYSTORE_FILE, password_dir)
     }
 
     pub fn withdrawal_keypair<P: AsRef<Path>>(&self, password_dir: P) -> Result<Keypair, Error> {
         unlock_keypair(&self.dir.clone(), WITHDRAWAL_KEYSTORE_FILE, password_dir)
+    }
+
+    pub fn eth1_deposit_tx_hash_exists(&self) -> bool {
+        self.dir.join(ETH1_DEPOSIT_TX_HASH_FILE).exists()
+    }
+
+    pub fn save_eth1_deposit_tx_hash(&self, tx_hash: &str) -> Result<(), Error> {
+        let path = self.dir.join(ETH1_DEPOSIT_TX_HASH_FILE);
+
+        if path.exists() {
+            return Err(Error::Eth1TxHashExists(path));
+        }
+
+        write(path, tx_hash.as_bytes()).map_err(Error::UnableToWriteEth1TxHash)
     }
 
     pub fn eth1_deposit_data(&self) -> Result<Option<Eth1DepositData>, Error> {

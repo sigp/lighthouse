@@ -1,21 +1,22 @@
 use clap::{App, Arg, ArgMatches};
 use clap_utils;
+use deposit_contract::DEPOSIT_GAS;
 use environment::Environment;
-use futures::compat::Future01CompatExt;
+use futures::{compat::Future01CompatExt, future::Future};
 use slog::{info, Logger};
-use std::fs;
 use std::path::PathBuf;
 use tokio::time::{delay_until, Duration, Instant};
 use types::EthSpec;
 use validator_client::validator_directory::ValidatorDirectoryBuilder;
-use validator_dir::Manager as ValidatorManager;
+use validator_dir::{Manager as ValidatorManager, ValidatorDir};
 use web3::{
     transports::Ipc,
-    types::{Address, SyncInfo, SyncState},
+    types::{Address, SyncInfo, SyncState, TransactionRequest, U256},
     Transport, Web3,
 };
 
 pub const CMD: &str = "deposit";
+const GWEI: u64 = 1_000_000_000;
 
 const SYNCING_STATE_RETRY_DELAY: Duration = Duration::from_secs(2);
 
@@ -112,6 +113,35 @@ pub fn cli_run<T: EthSpec>(
         }
     }?;
 
+    let eth1_deposit_datas = validators
+        .into_iter()
+        .filter(|v| !v.eth1_deposit_tx_hash_exists())
+        .map(|v| match v.eth1_deposit_data() {
+            Ok(Some(data)) => Ok((v, data)),
+            Ok(None) => Err(format!(
+                "Validator is missing deposit data file: {:?}",
+                v.dir()
+            )),
+            Err(e) => Err(format!(
+                "Unable to read deposit data for {:?}: {:?}",
+                v.dir(),
+                e
+            )),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let total_gwei: u64 = eth1_deposit_datas
+        .iter()
+        .map(|(_, d)| d.deposit_data.amount)
+        .sum();
+
+    info!(
+        log,
+        "Starting deposits";
+        "deposit_count" => eth1_deposit_datas.len(),
+        "total_eth" => total_gwei / GWEI,
+    );
+
     let deposit_contract = env
         .testnet
         .as_ref()
@@ -127,10 +157,38 @@ pub fn cli_run<T: EthSpec>(
         Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
     let web3 = Web3::new(transport);
 
-    env.runtime()
-        .block_on(poll_until_synced(web3.clone(), log.clone()))?;
+    let deposits_fut = async {
+        poll_until_synced(web3.clone(), log.clone()).await?;
+
+        for (valdiator_dir, eth1_deposit_data) in eth1_deposit_datas {
+            let result = web3
+                .eth()
+                .send_transaction(TransactionRequest {
+                    from: from_address,
+                    to: Some(deposit_contract),
+                    gas: Some(DEPOSIT_GAS.into()),
+                    gas_price: None,
+                    value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
+                    data: Some(eth1_deposit_data.rlp.into()),
+                    nonce: None,
+                    condition: None,
+                })
+                .compat()
+                .await
+                .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
+        }
+
+        Ok(())
+    };
+
+    env.runtime().block_on(deposits_fut)?;
 
     Ok(())
+}
+
+/// Converts gwei to wei.
+fn from_gwei(gwei: u64) -> U256 {
+    U256::from(gwei) * U256::exp10(9)
 }
 
 /// Run a poll on the `eth_syncing` endpoint, blocking until the node is synced.
