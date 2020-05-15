@@ -21,6 +21,6 @@ pub use discovery::enr_ext::{CombinedKeyExt, EnrExt};
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
-pub use peer_manager::{PeerDB, PeerInfo, PeerSyncStatus, SyncInfo};
+pub use peer_manager::{client::Client, PeerDB, PeerInfo, PeerSyncStatus, SyncInfo};
 pub use rpc::RPCEvent;
 pub use service::{Libp2pEvent, Service, NETWORK_KEY_FILENAME};

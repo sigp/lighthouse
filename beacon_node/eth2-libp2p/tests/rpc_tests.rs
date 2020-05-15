@@ -2,7 +2,6 @@
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{BehaviourEvent, Libp2pEvent, RPCEvent};
-use futures::prelude::*;
 use slog::{debug, warn, Level};
 use std::time::Duration;
 use tokio::time::delay_for;
@@ -47,38 +46,33 @@ async fn test_status_rpc() {
     // build the sender future
     let sender_future = async {
         loop {
-            while let Some(sender_event) = sender.next().await {
-                match sender_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
-                        // Send a STATUS message
-                        debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
-                    }
-                    Libp2pEvent::ConnectionEstablished { .. } => {
-                        debug!(log, "Connection established");
-                    }
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
-                        // Should receive the RPC response
-                        RPCEvent::Response(id, response @ RPCCodedResponse::Success(_)) => {
-                            if id == 10 {
-                                debug!(log, "Sender Received");
-                                let response = {
-                                    match response {
-                                        RPCCodedResponse::Success(r) => r,
-                                        _ => unreachable!(),
-                                    }
-                                };
-                                assert_eq!(response, rpc_response.clone());
-                                debug!(log, "Sender Completed");
-                                return;
-                            }
-                        }
-                        _ => {} // Ignore other RPC messages
-                    },
-                    _ => {}
+            match sender.next_event().await {
+                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                    // Send a STATUS message
+                    debug!(log, "Sending RPC");
+                    sender
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
                 }
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
+                    // Should receive the RPC response
+                    RPCEvent::Response(id, response @ RPCCodedResponse::Success(_)) => {
+                        if id == 10 {
+                            debug!(log, "Sender Received");
+                            let response = {
+                                match response {
+                                    RPCCodedResponse::Success(r) => r,
+                                    _ => unreachable!(),
+                                }
+                            };
+                            assert_eq!(response, rpc_response.clone());
+                            debug!(log, "Sender Completed");
+                            return;
+                        }
+                    }
+                    _ => {} // Ignore other RPC messages
+                },
+                _ => {}
             }
         }
     };
@@ -86,29 +80,27 @@ async fn test_status_rpc() {
     // build the receiver future
     let receiver_future = async {
         loop {
-            while let Some(recv_event) = receiver.next().await {
-                match recv_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
-                        match event {
-                            // Should receive sent RPC request
-                            RPCEvent::Request(id, request) => {
-                                if request == rpc_request {
-                                    // send the response
-                                    debug!(log, "Receiver Received");
-                                    receiver.swarm.send_rpc(
-                                        peer_id,
-                                        RPCEvent::Response(
-                                            id,
-                                            RPCCodedResponse::Success(rpc_response.clone()),
-                                        ),
-                                    );
-                                }
+            match receiver.next_event().await {
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
+                    match event {
+                        // Should receive sent RPC request
+                        RPCEvent::Request(id, request) => {
+                            if request == rpc_request {
+                                // send the response
+                                debug!(log, "Receiver Received");
+                                receiver.swarm.send_rpc(
+                                    peer_id,
+                                    RPCEvent::Response(
+                                        id,
+                                        RPCCodedResponse::Success(rpc_response.clone()),
+                                    ),
+                                );
                             }
-                            _ => {} // Ignore other RPC requests
                         }
+                        _ => {} // Ignore other RPC requests
                     }
-                    _ => {} // Ignore other events
                 }
+                _ => {} // Ignore other events
             }
         }
     };
@@ -157,43 +149,38 @@ async fn test_blocks_by_range_chunked_rpc() {
     // build the sender future
     let sender_future = async {
         loop {
-            while let Some(sender_event) = sender.next().await {
-                match sender_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
-                        // Send a STATUS message
-                        debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
-                    }
-                    Libp2pEvent::ConnectionEstablished { .. } => {
-                        debug!(log, "Connection established");
-                    }
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
-                        // Should receive the RPC response
-                        RPCEvent::Response(id, response) => {
-                            if id == 10 {
-                                warn!(log, "Sender received a response");
-                                match response {
-                                    RPCCodedResponse::Success(res) => {
-                                        assert_eq!(res, rpc_response.clone());
-                                        messages_received += 1;
-                                        warn!(log, "Chunk received");
-                                    }
-                                    RPCCodedResponse::StreamTermination(_) => {
-                                        // should be exactly 10 messages before terminating
-                                        assert_eq!(messages_received, messages_to_send);
-                                        // end the test
-                                        return;
-                                    }
-                                    _ => panic!("Invalid RPC received"),
+            match sender.next_event().await {
+                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                    // Send a STATUS message
+                    debug!(log, "Sending RPC");
+                    sender
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
+                }
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
+                    // Should receive the RPC response
+                    RPCEvent::Response(id, response) => {
+                        if id == 10 {
+                            warn!(log, "Sender received a response");
+                            match response {
+                                RPCCodedResponse::Success(res) => {
+                                    assert_eq!(res, rpc_response.clone());
+                                    messages_received += 1;
+                                    warn!(log, "Chunk received");
                                 }
+                                RPCCodedResponse::StreamTermination(_) => {
+                                    // should be exactly 10 messages before terminating
+                                    assert_eq!(messages_received, messages_to_send);
+                                    // end the test
+                                    return;
+                                }
+                                _ => panic!("Invalid RPC received"),
                             }
                         }
-                        _ => {} // Ignore other RPC messages
-                    },
-                    _ => {} // Ignore other behaviour events
-                }
+                    }
+                    _ => {} // Ignore other RPC messages
+                },
+                _ => {} // Ignore other behaviour events
             }
         }
     };
@@ -201,42 +188,40 @@ async fn test_blocks_by_range_chunked_rpc() {
     // build the receiver future
     let receiver_future = async {
         loop {
-            while let Some(recv_event) = receiver.next().await {
-                match recv_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
-                        match event {
-                            // Should receive sent RPC request
-                            RPCEvent::Request(id, request) => {
-                                if request == rpc_request {
-                                    // send the response
-                                    warn!(log, "Receiver got request");
+            match receiver.next_event().await {
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
+                    match event {
+                        // Should receive sent RPC request
+                        RPCEvent::Request(id, request) => {
+                            if request == rpc_request {
+                                // send the response
+                                warn!(log, "Receiver got request");
 
-                                    for _ in 1..=messages_to_send {
-                                        receiver.swarm.send_rpc(
-                                            peer_id.clone(),
-                                            RPCEvent::Response(
-                                                id,
-                                                RPCCodedResponse::Success(rpc_response.clone()),
-                                            ),
-                                        );
-                                    }
-                                    // send the stream termination
+                                for _ in 1..=messages_to_send {
                                     receiver.swarm.send_rpc(
-                                        peer_id,
+                                        peer_id.clone(),
                                         RPCEvent::Response(
                                             id,
-                                            RPCCodedResponse::StreamTermination(
-                                                ResponseTermination::BlocksByRange,
-                                            ),
+                                            RPCCodedResponse::Success(rpc_response.clone()),
                                         ),
                                     );
                                 }
+                                // send the stream termination
+                                receiver.swarm.send_rpc(
+                                    peer_id,
+                                    RPCEvent::Response(
+                                        id,
+                                        RPCCodedResponse::StreamTermination(
+                                            ResponseTermination::BlocksByRange,
+                                        ),
+                                    ),
+                                );
                             }
-                            _ => {} // Ignore other events
                         }
+                        _ => {} // Ignore other events
                     }
-                    _ => {} // Ignore other events
                 }
+                _ => {} // Ignore other events
             }
         }
     };
@@ -285,43 +270,38 @@ async fn test_blocks_by_range_single_empty_rpc() {
     // build the sender future
     let sender_future = async {
         loop {
-            while let Some(sender_event) = sender.next().await {
-                match sender_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
-                        // Send a STATUS message
-                        debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
-                    }
-                    Libp2pEvent::ConnectionEstablished { .. } => {
-                        debug!(log, "Connection established");
-                    }
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
-                        // Should receive the RPC response
-                        RPCEvent::Response(id, response) => {
-                            if id == 10 {
-                                warn!(log, "Sender received a response");
-                                match response {
-                                    RPCCodedResponse::Success(res) => {
-                                        assert_eq!(res, rpc_response.clone());
-                                        messages_received += 1;
-                                        warn!(log, "Chunk received");
-                                    }
-                                    RPCCodedResponse::StreamTermination(_) => {
-                                        // should be exactly 10 messages before terminating
-                                        assert_eq!(messages_received, messages_to_send);
-                                        // end the test
-                                        return;
-                                    }
-                                    _ => panic!("Invalid RPC received"),
+            match sender.next_event().await {
+                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                    // Send a STATUS message
+                    debug!(log, "Sending RPC");
+                    sender
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
+                }
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
+                    // Should receive the RPC response
+                    RPCEvent::Response(id, response) => {
+                        if id == 10 {
+                            warn!(log, "Sender received a response");
+                            match response {
+                                RPCCodedResponse::Success(res) => {
+                                    assert_eq!(res, rpc_response.clone());
+                                    messages_received += 1;
+                                    warn!(log, "Chunk received");
                                 }
+                                RPCCodedResponse::StreamTermination(_) => {
+                                    // should be exactly 10 messages before terminating
+                                    assert_eq!(messages_received, messages_to_send);
+                                    // end the test
+                                    return;
+                                }
+                                _ => panic!("Invalid RPC received"),
                             }
                         }
-                        _ => {} // Ignore other RPC messages
-                    },
-                    _ => {} // Ignore other behaviour events
-                }
+                    }
+                    _ => {} // Ignore other RPC messages
+                },
+                _ => {} // Ignore other behaviour events
             }
         }
     };
@@ -329,42 +309,40 @@ async fn test_blocks_by_range_single_empty_rpc() {
     // build the receiver future
     let receiver_future = async {
         loop {
-            while let Some(recv_event) = receiver.next().await {
-                match recv_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
-                        match event {
-                            // Should receive sent RPC request
-                            RPCEvent::Request(id, request) => {
-                                if request == rpc_request {
-                                    // send the response
-                                    warn!(log, "Receiver got request");
+            match receiver.next_event().await {
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
+                    match event {
+                        // Should receive sent RPC request
+                        RPCEvent::Request(id, request) => {
+                            if request == rpc_request {
+                                // send the response
+                                warn!(log, "Receiver got request");
 
-                                    for _ in 1..=messages_to_send {
-                                        receiver.swarm.send_rpc(
-                                            peer_id.clone(),
-                                            RPCEvent::Response(
-                                                id,
-                                                RPCCodedResponse::Success(rpc_response.clone()),
-                                            ),
-                                        );
-                                    }
-                                    // send the stream termination
+                                for _ in 1..=messages_to_send {
                                     receiver.swarm.send_rpc(
-                                        peer_id,
+                                        peer_id.clone(),
                                         RPCEvent::Response(
                                             id,
-                                            RPCCodedResponse::StreamTermination(
-                                                ResponseTermination::BlocksByRange,
-                                            ),
+                                            RPCCodedResponse::Success(rpc_response.clone()),
                                         ),
                                     );
                                 }
+                                // send the stream termination
+                                receiver.swarm.send_rpc(
+                                    peer_id,
+                                    RPCEvent::Response(
+                                        id,
+                                        RPCCodedResponse::StreamTermination(
+                                            ResponseTermination::BlocksByRange,
+                                        ),
+                                    ),
+                                );
                             }
-                            _ => {} // Ignore other events
                         }
+                        _ => {} // Ignore other events
                     }
-                    _ => {} // Ignore other events
                 }
+                _ => {} // Ignore other events
             }
         }
     };
@@ -413,43 +391,38 @@ async fn test_blocks_by_root_chunked_rpc() {
     // build the sender future
     let sender_future = async {
         loop {
-            while let Some(sender_event) = sender.next().await {
-                match sender_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
-                        // Send a STATUS message
-                        debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
-                    }
-                    Libp2pEvent::ConnectionEstablished { .. } => {
-                        debug!(log, "Connection established");
-                    }
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
-                        // Should receive the RPC response
-                        RPCEvent::Response(id, response) => {
-                            if id == 10 {
-                                debug!(log, "Sender received a response");
-                                match response {
-                                    RPCCodedResponse::Success(res) => {
-                                        assert_eq!(res, rpc_response.clone());
-                                        messages_received += 1;
-                                        debug!(log, "Chunk received");
-                                    }
-                                    RPCCodedResponse::StreamTermination(_) => {
-                                        // should be exactly messages_to_send
-                                        assert_eq!(messages_received, messages_to_send);
-                                        // end the test
-                                        return;
-                                    }
-                                    _ => {} // Ignore other RPC messages
+            match sender.next_event().await {
+                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                    // Send a STATUS message
+                    debug!(log, "Sending RPC");
+                    sender
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
+                }
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
+                    // Should receive the RPC response
+                    RPCEvent::Response(id, response) => {
+                        if id == 10 {
+                            debug!(log, "Sender received a response");
+                            match response {
+                                RPCCodedResponse::Success(res) => {
+                                    assert_eq!(res, rpc_response.clone());
+                                    messages_received += 1;
+                                    debug!(log, "Chunk received");
                                 }
+                                RPCCodedResponse::StreamTermination(_) => {
+                                    // should be exactly messages_to_send
+                                    assert_eq!(messages_received, messages_to_send);
+                                    // end the test
+                                    return;
+                                }
+                                _ => {} // Ignore other RPC messages
                             }
                         }
-                        _ => {} // Ignore other RPC messages
-                    },
-                    _ => {} // Ignore other behaviour events
-                }
+                    }
+                    _ => {} // Ignore other RPC messages
+                },
+                _ => {} // Ignore other behaviour events
             }
         }
     };
@@ -457,44 +430,42 @@ async fn test_blocks_by_root_chunked_rpc() {
     // build the receiver future
     let receiver_future = async {
         loop {
-            while let Some(recv_event) = receiver.next().await {
-                match recv_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
-                        match event {
-                            // Should receive sent RPC request
-                            RPCEvent::Request(id, request) => {
-                                if request == rpc_request {
-                                    // send the response
-                                    debug!(log, "Receiver got request");
+            match receiver.next_event().await {
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
+                    match event {
+                        // Should receive sent RPC request
+                        RPCEvent::Request(id, request) => {
+                            if request == rpc_request {
+                                // send the response
+                                debug!(log, "Receiver got request");
 
-                                    for _ in 1..=messages_to_send {
-                                        receiver.swarm.send_rpc(
-                                            peer_id.clone(),
-                                            RPCEvent::Response(
-                                                id,
-                                                RPCCodedResponse::Success(rpc_response.clone()),
-                                            ),
-                                        );
-                                        debug!(log, "Sending message");
-                                    }
-                                    // send the stream termination
+                                for _ in 1..=messages_to_send {
                                     receiver.swarm.send_rpc(
-                                        peer_id,
+                                        peer_id.clone(),
                                         RPCEvent::Response(
                                             id,
-                                            RPCCodedResponse::StreamTermination(
-                                                ResponseTermination::BlocksByRange,
-                                            ),
+                                            RPCCodedResponse::Success(rpc_response.clone()),
                                         ),
                                     );
-                                    debug!(log, "Send stream term");
+                                    debug!(log, "Sending message");
                                 }
+                                // send the stream termination
+                                receiver.swarm.send_rpc(
+                                    peer_id,
+                                    RPCEvent::Response(
+                                        id,
+                                        RPCCodedResponse::StreamTermination(
+                                            ResponseTermination::BlocksByRange,
+                                        ),
+                                    ),
+                                );
+                                debug!(log, "Send stream term");
                             }
-                            _ => {} // Ignore other events
                         }
+                        _ => {} // Ignore other events
                     }
-                    _ => {} // Ignore other events
                 }
+                _ => {} // Ignore other events
             }
         }
     };
@@ -525,17 +496,15 @@ async fn test_goodbye_rpc() {
     // build the sender future
     let sender_future = async {
         loop {
-            while let Some(sender_event) = sender.next().await {
-                match sender_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
-                        // Send a STATUS message
-                        debug!(log, "Sending RPC");
-                        sender
-                            .swarm
-                            .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
-                    }
-                    _ => {} // Ignore other RPC messages
+            match sender.next_event().await {
+                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                    // Send a STATUS message
+                    debug!(log, "Sending RPC");
+                    sender
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
                 }
+                _ => {} // Ignore other RPC messages
             }
         }
     };
@@ -543,23 +512,21 @@ async fn test_goodbye_rpc() {
     // build the receiver future
     let receiver_future = async {
         loop {
-            while let Some(recv_event) = receiver.next().await {
-                match recv_event {
-                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(_peer_id, event)) => {
-                        match event {
-                            // Should receive sent RPC request
-                            RPCEvent::Request(id, request) => {
-                                if request == rpc_request {
-                                    assert_eq!(id, 0);
-                                    assert_eq!(rpc_request.clone(), request); // receives the goodbye. Nothing left to do
-                                    return;
-                                }
+            match receiver.next_event().await {
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(_peer_id, event)) => {
+                    match event {
+                        // Should receive sent RPC request
+                        RPCEvent::Request(id, request) => {
+                            if request == rpc_request {
+                                assert_eq!(id, 0);
+                                assert_eq!(rpc_request.clone(), request); // receives the goodbye. Nothing left to do
+                                return;
                             }
-                            _ => {} // Ignore other events
                         }
+                        _ => {} // Ignore other events
                     }
-                    _ => {} // Ignore other events
                 }
+                _ => {} // Ignore other events
             }
         }
     };

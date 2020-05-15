@@ -247,7 +247,7 @@ fn spawn_service<T: BeaconChainTypes>(
                     }
                 }
             }
-            Some(libp2p_event) = service.libp2p.next() => {
+            libp2p_event = service.libp2p.next_event() => {
                 // poll the swarm
                 match libp2p_event {
                     Libp2pEvent::Behaviour(event) => match event {

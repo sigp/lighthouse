@@ -17,7 +17,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use types::EthSpec;
 
-mod client;
+pub mod client;
 mod peer_info;
 mod peer_sync_status;
 mod peerdb;
@@ -26,7 +26,7 @@ pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 /// The minimum reputation before a peer is disconnected.
 // Most likely this needs tweaking.
-const MIN_REP_BEFORE_BAN: Rep = 10;
+const _MIN_REP_BEFORE_BAN: Rep = 10;
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
 /// The time in seconds between PING events. We do not send a ping if the other peer as PING'd us within
@@ -44,7 +44,7 @@ pub struct PeerManager<TSpec: EthSpec> {
     /// A collection of peers awaiting to be Status'd.
     status_peers: HashSetDelay<PeerId>,
     /// Last updated moment.
-    last_updated: Instant,
+    _last_updated: Instant,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 }
@@ -106,7 +106,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         PeerManager {
             network_globals,
             events: SmallVec::new(),
-            last_updated: Instant::now(),
+            _last_updated: Instant::now(),
             ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
             log: log.clone(),
@@ -204,7 +204,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Updates the state of the peer as disconnected.
     pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
-        self.update_reputations();
+        //self.update_reputations();
         self.network_globals.peers.write().disconnect(peer_id);
 
         // remove the ping and status timer for the peer
@@ -220,25 +220,31 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) -> bool {
-        self.connect_peer(peer_id, false)
+        self.connect_peer(peer_id, ConnectingType::IngoingConnected)
     }
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) -> bool {
-        self.connect_peer(peer_id, true)
+        self.connect_peer(peer_id, ConnectingType::OutgoingConnected)
+    }
+
+    /// Updates the database informing that a peer is being dialed.
+    pub fn dialing_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.connect_peer(peer_id, ConnectingType::Dialing)
     }
 
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        self.update_reputations();
+        //TODO: Check these. There are double disconnects for example
+        // self.update_reputations();
         self.network_globals
             .peers
             .write()
             .add_reputation(peer_id, action.rep_change());
-        self.update_reputations();
+        // self.update_reputations();
     }
 
     /// Updates `PeerInfo` with `identify` information.
@@ -252,7 +258,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
-        debug!(self.log, "RPCError"; "protocol" => protocol.to_string(), "err" => err.to_string());
+        let client = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| info.client.clone())
+            .unwrap_or_default();
+        debug!(self.log, "RPCError"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string());
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -318,9 +331,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This informs if the peer was accepted in to the db or not.
     // TODO: Drop peers if over max_peer limit
-    fn connect_peer(&mut self, peer_id: &PeerId, outgoing: bool) -> bool {
+    fn connect_peer(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
         // TODO: remove after timed updates
-        self.update_reputations();
+        //self.update_reputations();
 
         {
             let mut peerdb = self.network_globals.peers.write();
@@ -331,10 +344,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // return false;
             }
 
-            if outgoing {
-                peerdb.connect_outgoing(peer_id);
-            } else {
-                peerdb.connect_ingoing(peer_id);
+            match connection {
+                ConnectingType::Dialing => peerdb.dialing_peer(peer_id),
+                ConnectingType::IngoingConnected => peerdb.connect_outgoing(peer_id),
+                ConnectingType::OutgoingConnected => peerdb.connect_ingoing(peer_id),
             }
         }
 
@@ -365,10 +378,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// A banned(disconnected) peer that gets its rep above(below) MIN_REP_BEFORE_BAN is
     /// now considered a disconnected(banned) peer.
-    fn update_reputations(&mut self) {
+    fn _update_reputations(&mut self) {
         // avoid locking the peerdb too often
         // TODO: call this on a timer
-        if self.last_updated.elapsed().as_secs() < 30 {
+        if self._last_updated.elapsed().as_secs() < 30 {
             return;
         }
 
@@ -381,7 +394,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         /* Check how long have peers been in this state and update their reputations if needed */
         let mut pdb = self.network_globals.peers.write();
 
-        for (id, info) in pdb.peers_mut() {
+        for (id, info) in pdb._peers_mut() {
             // Update reputations
             match info.connection_status {
                 Connected { .. } => {
@@ -397,7 +410,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .as_secs()
                         / 3600;
                     let last_dc_hours = self
-                        .last_updated
+                        ._last_updated
                         .checked_duration_since(since)
                         .unwrap_or_else(|| Duration::from_secs(0))
                         .as_secs()
@@ -425,10 +438,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 Unknown => {} //TODO: Handle this case
             }
             // Check if the peer gets banned or unbanned and if it should be disconnected
-            if info.reputation < MIN_REP_BEFORE_BAN && !info.connection_status.is_banned() {
+            if info.reputation < _MIN_REP_BEFORE_BAN && !info.connection_status.is_banned() {
                 // This peer gets banned. Check if we should request disconnection
                 ban_queue.push(id.clone());
-            } else if info.reputation >= MIN_REP_BEFORE_BAN && info.connection_status.is_banned() {
+            } else if info.reputation >= _MIN_REP_BEFORE_BAN && info.connection_status.is_banned() {
                 // This peer gets unbanned
                 unban_queue.push(id.clone());
             }
@@ -444,7 +457,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             pdb.disconnect(&id);
         }
 
-        self.last_updated = Instant::now();
+        self._last_updated = Instant::now();
     }
 }
 
@@ -487,4 +500,13 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
 
         Poll::Pending
     }
+}
+
+enum ConnectingType {
+    /// We are in the process of dialing this peer.
+    Dialing,
+    /// A peer has dialed us.
+    IngoingConnected,
+    /// We have successfully dialed a peer.
+    OutgoingConnected,
 }

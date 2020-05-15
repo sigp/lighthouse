@@ -6,7 +6,7 @@ use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RequestId};
-use eth2_libp2p::PeerId;
+use eth2_libp2p::{Client, NetworkGlobals, PeerId};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -18,18 +18,37 @@ pub struct SyncNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
 
+    /// Access to the network global vars.
+    network_globals: Arc<NetworkGlobals<T>>,
+
+    /// A sequential ID for all RPC requests.
     request_id: RequestId,
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
 
 impl<T: EthSpec> SyncNetworkContext<T> {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<T>>, log: slog::Logger) -> Self {
+    pub fn new(
+        network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
+        network_globals: Arc<NetworkGlobals<T>>,
+        log: slog::Logger,
+    ) -> Self {
         Self {
             network_send,
+            network_globals,
             request_id: 1,
             log,
         }
+    }
+
+    /// Returns the Client type of the peer if known
+    pub fn client_type(&self, peer_id: &PeerId) -> Client {
+        self.network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| info.client.clone())
+            .unwrap_or_default()
     }
 
     pub fn status_peer<U: BeaconChainTypes>(

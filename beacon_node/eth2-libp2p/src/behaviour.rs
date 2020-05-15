@@ -6,14 +6,14 @@ use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash}
 use discv5::Discv5Event;
 use futures::prelude::*;
 use libp2p::{
-    core::{identity::Keypair, ConnectedPoint},
+    core::identity::Keypair,
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
     swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters},
     NetworkBehaviour, PeerId,
 };
 use lru::LruCache;
-use slog::{crit, debug, o, warn};
+use slog::{crit, debug, o};
 use std::{
     marker::PhantomData,
     sync::Arc,
@@ -306,10 +306,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         };
 
         let event = if is_request {
-            debug!(self.log, "Sending Ping"; "request_id" => id);
+            debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
             RPCEvent::Request(id, RPCRequest::Ping(ping))
         } else {
-            debug!(self.log, "Sending Pong"; "request_id" => id);
+            debug!(self.log, "Sending Pong"; "request_id" => id, "peer_id" => peer_id.to_string());
             RPCEvent::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)))
         };
         self.send_rpc(peer_id, event);
@@ -331,12 +331,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.send_rpc(peer_id, metadata_response);
     }
 
-    // Temporary function until the behaviour is upgraded
-    /// Notifies the behaviour that a peer has disconnected.
-    pub fn notify_peer_disconnect(&mut self, peer_id: PeerId, _endpoint: ConnectedPoint) {
-        self.peer_manager.notify_disconnect(&peer_id)
+    /// Returns a reference to the peer manager to allow the swarm to notify the manager of peer
+    /// status
+    pub fn peer_manager(&mut self) -> &mut PeerManager<TSpec> {
+        &mut self.peer_manager
     }
 
+    /* Address in the new behaviour. Connections are now maintained at the swarm level.
     /// Notifies the behaviour that a peer has connected.
     pub fn notify_peer_connect(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
         match endpoint {
@@ -368,6 +369,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .add_metadata(&peer_id, meta_data);
         }
     }
+    */
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour

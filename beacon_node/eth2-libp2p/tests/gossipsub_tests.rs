@@ -2,7 +2,6 @@
 use crate::types::GossipEncoding;
 use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
 use eth2_libp2p::*;
-use futures::prelude::*;
 use slog::{debug, Level};
 
 type E = MinimalEthSpec;
@@ -44,8 +43,8 @@ async fn test_gossipsub_forward() {
     let fut = async move {
         for node in nodes.iter_mut() {
             loop {
-                match node.next().await {
-                    Some(Libp2pEvent::Behaviour(b)) => match b {
+                match node.next_event().await {
+                    Libp2pEvent::Behaviour(b) => match b {
                         BehaviourEvent::PubsubMessage {
                             topics,
                             message,
@@ -126,11 +125,11 @@ async fn test_gossipsub_full_mesh_publish() {
     let mut received_count = 0;
     let fut = async move {
         for node in nodes.iter_mut() {
-            while let Some(Libp2pEvent::Behaviour(BehaviourEvent::PubsubMessage {
+            while let Libp2pEvent::Behaviour(BehaviourEvent::PubsubMessage {
                 topics,
                 message,
                 ..
-            })) = node.next().await
+            }) = node.next_event().await
             {
                 assert_eq!(topics.len(), 1);
                 // Assert topic is the published topic
@@ -146,8 +145,8 @@ async fn test_gossipsub_full_mesh_publish() {
                 }
             }
         }
-        while let Some(Libp2pEvent::Behaviour(BehaviourEvent::PeerSubscribed(_, topic))) =
-            publishing_node.next().await
+        while let Libp2pEvent::Behaviour(BehaviourEvent::PeerSubscribed(_, topic)) =
+            publishing_node.next_event().await
         {
             // Publish on beacon block topic
             if topic == TopicHash::from_raw(publishing_topic.clone()) {

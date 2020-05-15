@@ -203,7 +203,7 @@ pub fn spawn<T: BeaconChainTypes>(
             sync_send.clone(),
             log.clone(),
         ),
-        network: SyncNetworkContext::new(network_send, log.clone()),
+        network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
         chain: beacon_chain,
         network_globals,
         input_channel: sync_recv,
