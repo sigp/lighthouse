@@ -22,7 +22,7 @@ make install-lcli
 lcli new-testnet
 lcli interop-genesis 128
 lighthouse bn --testnet-dir ~/.lighthouse/testnet --dummy-eth1 --http --enr-match
-lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insecure 0 128
+lighthouse vc --testnet-dir ~/.lighthouse/testnet --auto-register --allow-unsynced testnet insecure 0 128
 ```
 
 Optionally update the genesis time to now:
@@ -98,10 +98,11 @@ Once the beacon node has started and begun trying to sync, start a validator
 client:
 
 ```bash
-lighthouse vc --testnet-dir ~/.lighthouse/testnet --allow-unsynced testnet insecure 0 128
+lighthouse vc --testnet-dir ~/.lighthouse/testnet --auto-register --allow-unsynced testnet insecure 0 128
 ```
 
 > - `--testnet-dir` instructs the validator client to use the spec we generated earlier.
+> - `--auto-register` enables slashing protection and signing for any new validator keys.
 > - `--allow-unsynced` stops the validator client checking to see if the beacon node is synced prior to producing blocks.
 > - `testnet insecure 0 128` instructs the validator client to use insecure
 >    testnet private keys and that it should control validators from `0` to
