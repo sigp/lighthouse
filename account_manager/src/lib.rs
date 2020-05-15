@@ -46,7 +46,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, mut env: Environment<T>) -> Res
     );
 
     match matches.subcommand() {
-        (wallet::CMD, Some(matches)) => wallet::cli_run(matches, env)?,
+        (wallet::CMD, Some(matches)) => wallet::cli_run(matches)?,
         (validator::CMD, Some(matches)) => validator::cli_run(matches, env)?,
         (unknown, _) => {
             return Err(format!(

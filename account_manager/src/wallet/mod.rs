@@ -1,9 +1,8 @@
 mod create;
+mod list;
 
 use crate::common::{base_wallet_dir, ensure_dir_exists};
 use clap::{App, Arg, ArgMatches};
-use environment::Environment;
-use types::EthSpec;
 
 pub const CMD: &str = "wallet";
 
@@ -18,14 +17,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .subcommand(create::cli_app())
+        .subcommand(list::cli_app())
 }
 
-pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
+pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let base_dir = base_wallet_dir(matches, "base-dir")?;
     ensure_dir_exists(&base_dir)?;
 
     match matches.subcommand() {
-        (create::CMD, Some(matches)) => create::cli_run::<T>(matches, base_dir),
+        (create::CMD, Some(matches)) => create::cli_run(matches, base_dir),
+        (list::CMD, Some(_)) => list::cli_run(base_dir),
         (unknown, _) => {
             return Err(format!(
                 "{} does not have a {} command. See --help",

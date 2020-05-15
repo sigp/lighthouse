@@ -150,7 +150,7 @@ impl WalletManager {
     /// This function is fairly strict, it will fail if any directory is found that does not obey
     /// the expected structure (e.g., there is a UUID directory that does not contain a valid JSON
     /// keystore with the same UUID).
-    fn wallets(&self) -> Result<HashMap<String, Uuid>, Error> {
+    pub fn wallets(&self) -> Result<HashMap<String, Uuid>, Error> {
         let mut wallets = HashMap::new();
 
         for f in read_dir(&self.dir).map_err(Error::UnableToReadDir)? {

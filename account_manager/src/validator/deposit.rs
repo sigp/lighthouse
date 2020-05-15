@@ -2,13 +2,12 @@ use clap::{App, Arg, ArgMatches};
 use clap_utils;
 use deposit_contract::DEPOSIT_GAS;
 use environment::Environment;
-use futures::{compat::Future01CompatExt, future::Future};
+use futures::compat::Future01CompatExt;
 use slog::{info, Logger};
 use std::path::PathBuf;
 use tokio::time::{delay_until, Duration, Instant};
 use types::EthSpec;
-use validator_client::validator_directory::ValidatorDirectoryBuilder;
-use validator_dir::{Manager as ValidatorManager, ValidatorDir};
+use validator_dir::Manager as ValidatorManager;
 use web3::{
     transports::Ipc,
     types::{Address, SyncInfo, SyncState, TransactionRequest, U256},
@@ -79,7 +78,6 @@ pub fn cli_run<T: EthSpec>(
     matches: &ArgMatches<'_>,
     mut env: Environment<T>,
 ) -> Result<(), String> {
-    let spec = env.core_context().eth2_config.spec;
     let log = env.core_context().log;
 
     let data_dir = clap_utils::parse_path_with_default_in_home_dir(
@@ -135,6 +133,12 @@ pub fn cli_run<T: EthSpec>(
         .map(|(_, d)| d.deposit_data.amount)
         .sum();
 
+    if eth1_deposit_datas.is_empty() {
+        info!(log, "No validators to deposit");
+
+        return Ok(());
+    }
+
     info!(
         log,
         "Starting deposits";
@@ -160,8 +164,8 @@ pub fn cli_run<T: EthSpec>(
     let deposits_fut = async {
         poll_until_synced(web3.clone(), log.clone()).await?;
 
-        for (valdiator_dir, eth1_deposit_data) in eth1_deposit_datas {
-            let result = web3
+        for (validator_dir, eth1_deposit_data) in eth1_deposit_datas {
+            let tx_hash = web3
                 .eth()
                 .send_transaction(TransactionRequest {
                     from: from_address,
@@ -176,9 +180,13 @@ pub fn cli_run<T: EthSpec>(
                 .compat()
                 .await
                 .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
+
+            validator_dir
+                .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
+                .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
         }
 
-        Ok(())
+        Ok::<(), String>(())
     };
 
     env.runtime().block_on(deposits_fut)?;
@@ -248,5 +256,6 @@ where
             }
         }
     }
+
     Ok(())
 }

@@ -15,8 +15,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about("Creates new validators from an existing wallet located in --base-dir.")
         .arg(
-            Arg::with_name("name")
-                .long("name")
+            Arg::with_name("wallet-name")
+                .long("wallet-name")
                 .value_name("WALLET_NAME")
                 .help("Use the wallet identified by this name")
                 .takes_value(true)
@@ -84,7 +84,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("AT_MOST_VALIDATORS")
                 .help(
                     "Observe the number of validators in --validator-dir, only creating enough to \
-                    ensure reach the given count. Never deletes an existing validator.",
+                    reach the given count. Never deletes an existing validator.",
                 )
                 .conflicts_with("count")
                 .takes_value(true),
@@ -99,7 +99,7 @@ pub fn cli_run<T: EthSpec>(
     let spec = env.core_context().eth2_config.spec;
     let log = env.core_context().log;
 
-    let name: String = clap_utils::parse_required(matches, "name")?;
+    let name: String = clap_utils::parse_required(matches, "wallet-name")?;
     let wallet_password_path: PathBuf = clap_utils::parse_required(matches, "wallet-password")?;
     let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
@@ -131,7 +131,7 @@ pub fn cli_run<T: EthSpec>(
     if n == 0 {
         info!(
             log,
-            "No need to produce and validators, exiting";
+            "No need to produce and validators";
             "--count" => count,
             "--at-most" => at_most,
             "existing_validators" => starting_validator_count,

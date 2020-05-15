@@ -9,7 +9,6 @@ use std::fs::{self, File};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use types::EthSpec;
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -63,7 +62,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<T: EthSpec>(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
+pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     let name: String = clap_utils::parse_required(matches, "name")?;
     let wallet_password_path: PathBuf = clap_utils::parse_required(matches, "wallet-password")?;
     let mnemonic_output_path: Option<PathBuf> =
