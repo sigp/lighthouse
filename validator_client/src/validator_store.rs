@@ -207,9 +207,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Check for slashing conditions.
-        let slashing_status = self
-            .slashing_protection
-            .check_and_insert_block_proposal(validator_pubkey, &block.block_header());
+        let domain = self.spec.get_domain(
+            block.epoch(),
+            Domain::BeaconProposer,
+            &self.fork()?,
+            self.genesis_validators_root,
+        );
+
+        let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
+            validator_pubkey,
+            &block.block_header(),
+            domain,
+        );
 
         match slashing_status {
             // We can safely sign this block.
@@ -249,9 +258,17 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
-        let slashing_status = self
-            .slashing_protection
-            .check_and_insert_attestation(validator_pubkey, &attestation.data);
+        let domain = self.spec.get_domain(
+            attestation.data.target.epoch,
+            Domain::BeaconAttester,
+            &self.fork()?,
+            self.genesis_validators_root,
+        );
+        let slashing_status = self.slashing_protection.check_and_insert_attestation(
+            validator_pubkey,
+            &attestation.data,
+            domain,
+        );
 
         match slashing_status {
             // We can safely sign this attestation.

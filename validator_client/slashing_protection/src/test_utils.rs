@@ -2,9 +2,12 @@
 
 use crate::*;
 use tempfile::tempdir;
-use types::{test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader};
+use types::{
+    test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader, Hash256,
+};
 
 pub const DEFAULT_VALIDATOR_INDEX: usize = 0;
+pub const DEFAULT_DOMAIN: Hash256 = Hash256::zero();
 
 pub fn pubkey(index: usize) -> PublicKey {
     generate_deterministic_keypair(index).pk
@@ -13,6 +16,7 @@ pub fn pubkey(index: usize) -> PublicKey {
 pub struct Test<T> {
     pubkey: PublicKey,
     data: T,
+    domain: Hash256,
     expected: Result<Safe, NotSafe>,
 }
 
@@ -25,8 +29,14 @@ impl<T> Test<T> {
         Self {
             pubkey,
             data,
+            domain: DEFAULT_DOMAIN,
             expected: Ok(Safe::Valid),
         }
+    }
+
+    pub fn with_domain(mut self, domain: Hash256) -> Self {
+        self.domain = domain;
+        self
     }
 
     pub fn expect_result(mut self, result: Result<Safe, NotSafe>) -> Self {
@@ -75,7 +85,7 @@ impl StreamTest<AttestationData> {
 
         for (i, test) in self.cases.iter().enumerate() {
             assert_eq!(
-                slashing_db.check_and_insert_attestation(&test.pubkey, &test.data),
+                slashing_db.check_and_insert_attestation(&test.pubkey, &test.data, test.domain),
                 test.expected,
                 "attestation {} not processed as expected",
                 i
@@ -96,7 +106,7 @@ impl StreamTest<BeaconBlockHeader> {
 
         for (i, test) in self.cases.iter().enumerate() {
             assert_eq!(
-                slashing_db.check_and_insert_block_proposal(&test.pubkey, &test.data),
+                slashing_db.check_and_insert_block_proposal(&test.pubkey, &test.data, test.domain),
                 test.expected,
                 "attestation {} not processed as expected",
                 i

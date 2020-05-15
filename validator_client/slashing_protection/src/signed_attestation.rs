@@ -1,12 +1,24 @@
-use std::convert::From;
-use tree_hash::TreeHash;
-use types::{AttestationData, Epoch, Hash256};
+use types::{AttestationData, Epoch, Hash256, SignedRoot};
 
+/// An attestation that has previously been signed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignedAttestation {
     pub source_epoch: Epoch,
     pub target_epoch: Epoch,
     pub signing_root: Hash256,
+}
+
+/// Reasons why an attestation may be slashable (or invalid).
+#[derive(PartialEq, Debug)]
+pub enum InvalidAttestation {
+    /// The attestation has the same target epoch as an attestation from the DB (enclosed).
+    DoubleVote(SignedAttestation),
+    /// The attestation surrounds an existing attestation from the database (`prev`).
+    NewSurroundsPrev { prev: SignedAttestation },
+    /// The attestation is surrounded by an existing attestation from the database (`prev`).
+    PrevSurroundsNew { prev: SignedAttestation },
+    /// The attestation is invalid because its source epoch is greater than its target epoch.
+    SourceExceedsTarget,
 }
 
 impl SignedAttestation {
@@ -15,6 +27,15 @@ impl SignedAttestation {
             source_epoch,
             target_epoch,
             signing_root,
+        }
+    }
+
+    /// Create a `SignedAttestation` from attestation data and a domain.
+    pub fn from_attestation(attestation: &AttestationData, domain: Hash256) -> Self {
+        Self {
+            source_epoch: attestation.source.epoch,
+            target_epoch: attestation.target.epoch,
+            signing_root: attestation.signing_root(domain),
         }
     }
 
@@ -29,22 +50,4 @@ impl SignedAttestation {
             Hash256::from_slice(&signing_root[..]),
         ))
     }
-}
-
-impl From<&AttestationData> for SignedAttestation {
-    fn from(attestation: &AttestationData) -> Self {
-        Self {
-            source_epoch: attestation.source.epoch,
-            target_epoch: attestation.target.epoch,
-            signing_root: attestation.tree_hash_root(),
-        }
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub enum InvalidAttestation {
-    DoubleVote(SignedAttestation),
-    NewSurroundsPrev { prev: SignedAttestation },
-    PrevSurroundsNew { prev: SignedAttestation },
-    SourceExceedsTarget,
 }

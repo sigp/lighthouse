@@ -82,8 +82,28 @@ fn invalid_double_block_proposal() {
         cases: vec![
             Test::single(first_block.clone()),
             Test::single(block(1)).expect_invalid_block(InvalidBlock::DoubleBlockProposal(
-                SignedBlock::from(&first_block),
+                SignedBlock::from_header(&first_block, DEFAULT_DOMAIN),
             )),
+        ],
+        ..StreamTest::default()
+    }
+    .run()
+}
+
+#[test]
+fn invalid_double_block_proposal_diff_domain() {
+    let first_block = block(1);
+    let domain1 = Hash256::from_low_u64_be(1);
+    let domain2 = Hash256::from_low_u64_be(2);
+    StreamTest {
+        cases: vec![
+            Test::single(first_block.clone()).with_domain(domain1),
+            Test::single(first_block.clone())
+                .with_domain(domain2)
+                .expect_invalid_block(InvalidBlock::DoubleBlockProposal(SignedBlock::from_header(
+                    &first_block,
+                    domain1,
+                ))),
         ],
         ..StreamTest::default()
     }

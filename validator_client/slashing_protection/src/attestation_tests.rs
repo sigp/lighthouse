@@ -26,6 +26,11 @@ pub fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
     }
 }
 
+/// Create a signed attestation from `attestation`, assuming the default domain.
+fn signed_att(attestation: &AttestationData) -> SignedAttestation {
+    SignedAttestation::from_attestation(attestation, DEFAULT_DOMAIN)
+}
+
 #[test]
 fn valid_empty_history() {
     StreamTest {
@@ -180,9 +185,8 @@ fn invalid_double_vote_diff_source() {
     StreamTest {
         cases: vec![
             Test::single(first.clone()),
-            Test::single(attestation_data_builder(1, 2)).expect_invalid_att(
-                InvalidAttestation::DoubleVote(SignedAttestation::from(&first)),
-            ),
+            Test::single(attestation_data_builder(1, 2))
+                .expect_invalid_att(InvalidAttestation::DoubleVote(signed_att(&first))),
         ],
         ..StreamTest::default()
     }
@@ -198,9 +202,28 @@ fn invalid_double_vote_diff_target() {
     StreamTest {
         cases: vec![
             Test::single(first.clone()),
-            Test::single(second).expect_invalid_att(InvalidAttestation::DoubleVote(
-                SignedAttestation::from(&first),
-            )),
+            Test::single(second)
+                .expect_invalid_att(InvalidAttestation::DoubleVote(signed_att(&first))),
+        ],
+        ..StreamTest::default()
+    }
+    .run()
+}
+
+#[test]
+fn invalid_double_vote_diff_domain() {
+    let first = attestation_data_builder(0, 2);
+    let domain1 = Hash256::from_low_u64_le(1);
+    let domain2 = Hash256::from_low_u64_le(2);
+
+    StreamTest {
+        cases: vec![
+            Test::single(first.clone()).with_domain(domain1),
+            Test::single(first.clone())
+                .with_domain(domain2)
+                .expect_invalid_att(InvalidAttestation::DoubleVote(
+                    SignedAttestation::from_attestation(&first, domain1),
+                )),
         ],
         ..StreamTest::default()
     }
@@ -217,15 +240,12 @@ fn invalid_double_vote_diff_source_multi() {
             Test::single(first.clone()),
             Test::single(second.clone()),
             Test::single(third.clone()),
-            Test::single(attestation_data_builder(1, 2)).expect_invalid_att(
-                InvalidAttestation::DoubleVote(SignedAttestation::from(&first)),
-            ),
-            Test::single(attestation_data_builder(2, 3)).expect_invalid_att(
-                InvalidAttestation::DoubleVote(SignedAttestation::from(&second)),
-            ),
-            Test::single(attestation_data_builder(3, 4)).expect_invalid_att(
-                InvalidAttestation::DoubleVote(SignedAttestation::from(&third)),
-            ),
+            Test::single(attestation_data_builder(1, 2))
+                .expect_invalid_att(InvalidAttestation::DoubleVote(signed_att(&first))),
+            Test::single(attestation_data_builder(2, 3))
+                .expect_invalid_att(InvalidAttestation::DoubleVote(signed_att(&second))),
+            Test::single(attestation_data_builder(3, 4))
+                .expect_invalid_att(InvalidAttestation::DoubleVote(signed_att(&third))),
         ],
         ..StreamTest::default()
     }
@@ -244,17 +264,17 @@ fn invalid_surrounding_single() {
             Test::single(third.clone()),
             Test::single(attestation_data_builder(1, 4)).expect_invalid_att(
                 InvalidAttestation::NewSurroundsPrev {
-                    prev: SignedAttestation::from(&first),
+                    prev: signed_att(&first),
                 },
             ),
             Test::single(attestation_data_builder(3, 6)).expect_invalid_att(
                 InvalidAttestation::NewSurroundsPrev {
-                    prev: SignedAttestation::from(&second),
+                    prev: signed_att(&second),
                 },
             ),
             Test::single(attestation_data_builder(5, 8)).expect_invalid_att(
                 InvalidAttestation::NewSurroundsPrev {
-                    prev: SignedAttestation::from(&third),
+                    prev: signed_att(&third),
                 },
             ),
         ],
@@ -273,7 +293,7 @@ fn invalid_surrounding_from_first_source() {
             Test::single(second.clone()),
             Test::single(attestation_data_builder(2, 5)).expect_invalid_att(
                 InvalidAttestation::NewSurroundsPrev {
-                    prev: SignedAttestation::from(&second),
+                    prev: signed_att(&second),
                 },
             ),
         ],
@@ -294,7 +314,7 @@ fn invalid_surrounding_multiple_votes() {
             Test::single(third.clone()),
             Test::single(attestation_data_builder(0, 4)).expect_invalid_att(
                 InvalidAttestation::NewSurroundsPrev {
-                    prev: SignedAttestation::from(&third),
+                    prev: signed_att(&third),
                 },
             ),
         ],
@@ -311,7 +331,7 @@ fn invalid_prev_surrounds_new() {
             Test::single(first.clone()),
             Test::single(attestation_data_builder(1, 6)).expect_invalid_att(
                 InvalidAttestation::PrevSurroundsNew {
-                    prev: SignedAttestation::from(&first),
+                    prev: signed_att(&first),
                 },
             ),
         ],
@@ -332,17 +352,17 @@ fn invalid_prev_surrounds_new_multiple() {
             Test::single(third.clone()),
             Test::single(attestation_data_builder(9, 9)).expect_invalid_att(
                 InvalidAttestation::PrevSurroundsNew {
-                    prev: SignedAttestation::from(&third),
+                    prev: signed_att(&third),
                 },
             ),
             Test::single(attestation_data_builder(2, 6)).expect_invalid_att(
                 InvalidAttestation::PrevSurroundsNew {
-                    prev: SignedAttestation::from(&second),
+                    prev: signed_att(&second),
                 },
             ),
             Test::single(attestation_data_builder(1, 2)).expect_invalid_att(
                 InvalidAttestation::PrevSurroundsNew {
-                    prev: SignedAttestation::from(&first),
+                    prev: signed_att(&first),
                 },
             ),
         ],

@@ -1,6 +1,7 @@
+//! Tests that stress the concurrency safety of the slashing protection DB.
 #![cfg(test)]
 
-use crate::attestation_tests::*;
+use crate::attestation_tests::attestation_data_builder;
 use crate::block_tests::block;
 use crate::test_utils::*;
 use crate::*;
@@ -21,7 +22,7 @@ fn block_same_slot() {
     let num_blocks = 10;
     let results = (0..num_blocks)
         .into_par_iter()
-        .map(|_| slashing_db.check_and_insert_block_proposal(&pk, &block(1)))
+        .map(|_| slashing_db.check_and_insert_block_proposal(&pk, &block(1), DEFAULT_DOMAIN))
         .collect::<Vec<_>>();
 
     let num_successes = results.iter().filter(|res| res.is_ok()).count();
@@ -43,8 +44,11 @@ fn attestation_same_target() {
     let results = (0..num_attestations)
         .into_par_iter()
         .map(|i| {
-            slashing_db
-                .check_and_insert_attestation(&pk, &attestation_data_builder(i, num_attestations))
+            slashing_db.check_and_insert_attestation(
+                &pk,
+                &attestation_data_builder(i, num_attestations),
+                DEFAULT_DOMAIN,
+            )
         })
         .collect::<Vec<_>>();
 
@@ -69,7 +73,7 @@ fn attestation_surround_fest() {
         .into_par_iter()
         .map(|i| {
             let att = attestation_data_builder(i, 2 * num_attestations - i);
-            slashing_db.check_and_insert_attestation(&pk, &att)
+            slashing_db.check_and_insert_attestation(&pk, &att, DEFAULT_DOMAIN)
         })
         .collect::<Vec<_>>();
 

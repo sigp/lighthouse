@@ -1,14 +1,16 @@
-use types::{BeaconBlockHeader, Hash256, Slot};
+use types::{BeaconBlockHeader, Hash256, SignedRoot, Slot};
 
-#[derive(PartialEq, Debug)]
-pub enum InvalidBlock {
-    DoubleBlockProposal(SignedBlock),
-}
-
+/// A block that has previously been signed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignedBlock {
     pub slot: Slot,
     pub signing_root: Hash256,
+}
+
+/// Reasons why a block may be slashable.
+#[derive(PartialEq, Debug)]
+pub enum InvalidBlock {
+    DoubleBlockProposal(SignedBlock),
 }
 
 impl SignedBlock {
@@ -16,10 +18,10 @@ impl SignedBlock {
         Self { slot, signing_root }
     }
 
-    pub fn from(header: &BeaconBlockHeader) -> Self {
+    pub fn from_header(header: &BeaconBlockHeader, domain: Hash256) -> Self {
         Self {
             slot: header.slot,
-            signing_root: header.canonical_root(),
+            signing_root: header.signing_root(domain),
         }
     }
 

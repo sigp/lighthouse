@@ -14,6 +14,28 @@ use std::io::{Error as IOError, ErrorKind};
 use std::string::ToString;
 use types::PublicKey;
 
+/// The attestation or block is not safe to sign.
+///
+/// This could be because it's slashable, or because an error occurred.
+#[derive(PartialEq, Debug)]
+pub enum NotSafe {
+    UnregisteredValidator(PublicKey),
+    InvalidBlock(InvalidBlock),
+    InvalidAttestation(InvalidAttestation),
+    IOError(ErrorKind),
+    SQLError(String),
+    SQLPoolError(String),
+}
+
+/// The attestation or block is safe to sign, and will not cause the signer to be slashed.
+#[derive(PartialEq, Debug)]
+pub enum Safe {
+    /// Casting the exact same data (block or attestation) twice is never slashable.
+    SameData,
+    /// Incoming data is safe from slashing, and is not a duplicate.
+    Valid,
+}
+
 impl From<IOError> for NotSafe {
     fn from(error: IOError) -> NotSafe {
         NotSafe::IOError(error.kind())
@@ -36,22 +58,4 @@ impl ToString for NotSafe {
     fn to_string(&self) -> String {
         format!("{:?}", self)
     }
-}
-
-#[derive(PartialEq, Debug)]
-pub enum NotSafe {
-    UnregisteredValidator(PublicKey),
-    InvalidBlock(InvalidBlock),
-    InvalidAttestation(InvalidAttestation),
-    IOError(ErrorKind),
-    SQLError(String),
-    SQLPoolError(String),
-}
-
-#[derive(PartialEq, Debug)]
-pub enum Safe {
-    /// Casting the exact same data (block or attestation) twice is never slashable.
-    SameData,
-    /// Incoming data is safe from slashing, and is not a duplicate.
-    Valid,
 }

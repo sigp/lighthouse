@@ -6,8 +6,7 @@ use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::time::Duration;
-use tree_hash::TreeHash;
-use types::{AttestationData, BeaconBlockHeader, Hash256, PublicKey};
+use types::{AttestationData, BeaconBlockHeader, Hash256, PublicKey, SignedRoot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 
@@ -177,6 +176,7 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
+        domain: Hash256,
     ) -> Result<Safe, NotSafe> {
         let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
 
@@ -193,7 +193,7 @@ impl SlashingDatabase {
             .optional()?;
 
         if let Some(existing_block) = existing_block {
-            if existing_block.signing_root == block_header.canonical_root() {
+            if existing_block.signing_root == block_header.signing_root(domain) {
                 // Same slot and same hash -> we're re-broadcasting a previously signed block
                 Ok(Safe::SameData)
             } else {
@@ -213,6 +213,7 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
+        domain: Hash256,
     ) -> Result<Safe, NotSafe> {
         let att_source_epoch = attestation.source.epoch;
         let att_target_epoch = attestation.target.epoch;
@@ -251,7 +252,7 @@ impl SlashingDatabase {
         if let Some(existing_attestation) = same_target_att {
             // If the new attestation is identical to the existing attestation, then we already
             // know that it is safe, and can return immediately.
-            if existing_attestation.signing_root == attestation.tree_hash_root() {
+            if existing_attestation.signing_root == attestation.signing_root(domain) {
                 return Ok(Safe::SameData);
             // Otherwise if the hashes are different, this is a double vote.
             } else {
@@ -318,6 +319,7 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
+        domain: Hash256,
     ) -> Result<(), NotSafe> {
         let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
 
@@ -327,7 +329,7 @@ impl SlashingDatabase {
             params![
                 validator_id,
                 block_header.slot,
-                block_header.canonical_root().as_bytes()
+                block_header.signing_root(domain).as_bytes()
             ],
         )?;
         Ok(())
@@ -342,6 +344,7 @@ impl SlashingDatabase {
         txn: &Transaction,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
+        domain: Hash256,
     ) -> Result<(), NotSafe> {
         let validator_id = Self::get_validator_id(txn, validator_pubkey)?;
 
@@ -352,7 +355,7 @@ impl SlashingDatabase {
                 validator_id,
                 attestation.source.epoch,
                 attestation.target.epoch,
-                attestation.tree_hash_root().as_bytes()
+                attestation.signing_root(domain).as_bytes()
             ],
         )?;
         Ok(())
@@ -368,14 +371,15 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         block_header: &BeaconBlockHeader,
+        domain: Hash256,
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
 
-        let safe = self.check_block_proposal(&txn, validator_pubkey, block_header)?;
+        let safe = self.check_block_proposal(&txn, validator_pubkey, block_header, domain)?;
 
         if safe != Safe::SameData {
-            self.insert_block_proposal(&txn, validator_pubkey, block_header)?;
+            self.insert_block_proposal(&txn, validator_pubkey, block_header, domain)?;
         }
 
         txn.commit()?;
@@ -392,14 +396,15 @@ impl SlashingDatabase {
         &self,
         validator_pubkey: &PublicKey,
         attestation: &AttestationData,
+        domain: Hash256,
     ) -> Result<Safe, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
 
-        let safe = self.check_attestation(&txn, validator_pubkey, attestation)?;
+        let safe = self.check_attestation(&txn, validator_pubkey, attestation, domain)?;
 
         if safe != Safe::SameData {
-            self.insert_attestation(&txn, validator_pubkey, attestation)?;
+            self.insert_attestation(&txn, validator_pubkey, attestation, domain)?;
         }
 
         txn.commit()?;
