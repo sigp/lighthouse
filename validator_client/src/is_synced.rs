@@ -3,8 +3,19 @@ use rest_types::SyncingResponse;
 use slog::{debug, error, Logger};
 use types::EthSpec;
 
+/// A distance in slots.
 const SYNC_TOLERANCE: u64 = 4;
 
+/// Returns `true` if the beacon node is synced and ready for action.
+///
+/// Returns `false` if:
+///
+///  - The beacon node is unreachable.
+///  - The beacon node indicates that it is syncing **AND** it is more than `SYNC_TOLERANCE` behind
+///  the highest known slot.
+///
+///  The second condition means the even if the beacon node thinks that it's syncing, we'll still
+///  try to use it if it's close enough to the head.
 pub async fn is_synced<E: EthSpec>(
     beacon_node: &RemoteBeaconNode<E>,
     log_opt: Option<&Logger>,
