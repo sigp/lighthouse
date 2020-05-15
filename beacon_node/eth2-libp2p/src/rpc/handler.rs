@@ -374,21 +374,9 @@ where
                 substream: out,
                 request,
             };
-            let response_chunk_count: Option<u64> = match protocol {
-                Protocol::BlocksByRange => {
-                    if let RPCRequest::BlocksByRange(req) = request {
-                        Some(req.count)
-                    } else {
-                        None
-                    }
-                }
-                Protocol::BlocksByRoot => {
-                    if let RPCRequest::BlocksByRoot(req) = request {
-                        Some(req.block_roots.len() as u64)
-                    } else {
-                        None
-                    }
-                }
+            let response_chunk_count: Option<u64> = match request {
+                RPCRequest::BlocksByRange(req) => Some(req.count),
+                RPCRequest::BlocksByRoot(req) => Some(req.block_roots.len() as u64),
                 _ => None,
             };
             if let Some(_) = self.outbound_substreams.insert(
@@ -840,18 +828,17 @@ where
                                             request,
                                         };
                                     let delay_key = &entry.get().1;
-                                    let remaining_number_of_chunks_for_this_stream: u64 =
-                                        match &entry.get().3 {
-                                            Some(count) => count - 1,
-                                            // There should always be a count here, but if not we can simply set it to 0 as this will close the stream later in this block
-                                            None => 0,
-                                        };
+                                    let remaining_number_of_chunks_for_this_stream = entry
+                                        .get()
+                                        .3
+                                        .map(|count| count.saturating_sub(1))
+                                        .unwrap_or_else(|| 0);
                                     // close the stream if all expected chunks have been received
                                     if remaining_number_of_chunks_for_this_stream == 0 {
                                         entry.get_mut().0 =
                                             OutboundSubstreamState::Closing(substream);
                                     } else {
-                                        // If the response chunk was expected increase the amount of received chunks and reset the Timeout
+                                        // If the response chunk was expected update the remaining number of chunks expected and reset the Timeout
                                         entry.get_mut().3 =
                                             Some(remaining_number_of_chunks_for_this_stream);
                                         self.outbound_substreams_delay.reset(
