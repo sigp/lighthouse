@@ -3,8 +3,8 @@ use crate::fork_service::ForkService;
 use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use slashing_protection::SlashingDatabase;
-use slog::{error, warn, Logger};
+use slashing_protection::{NotSafe, Safe, SlashingDatabase};
+use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fs::read_dir;
@@ -222,7 +222,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         match slashing_status {
             // We can safely sign this block.
-            Ok(_) => {
+            Ok(Safe::Valid) => {
                 let validators = self.validators.read();
                 let validator = validators.get(validator_pubkey)?;
                 let voting_keypair = validator.voting_keypair.as_ref()?;
@@ -234,8 +234,24 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     &self.spec,
                 ))
             }
-            Err(e) => {
+            Ok(Safe::SameData) => {
                 warn!(
+                    self.log,
+                    "Skipping signing of previously signed block";
+                );
+                None
+            }
+            Err(NotSafe::UnregisteredValidator(pk)) => {
+                warn!(
+                    self.log,
+                    "Not signing block for unregistered validator. \
+                     Carefully consider running with --auto-register (see --help)";
+                    "public_key" => format!("{:?}", pk)
+                );
+                None
+            }
+            Err(e) => {
+                crit!(
                     self.log,
                     "Not signing slashable block";
                     "error" => format!("{:?}", e)
@@ -272,7 +288,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         match slashing_status {
             // We can safely sign this attestation.
-            Ok(_) => {
+            Ok(Safe::Valid) => {
                 let validators = self.validators.read();
                 let validator = validators.get(validator_pubkey)?;
                 let voting_keypair = validator.voting_keypair.as_ref()?;
@@ -296,8 +312,24 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
                 Some(())
             }
-            Err(e) => {
+            Ok(Safe::SameData) => {
                 warn!(
+                    self.log,
+                    "Skipping signing of previously signed attestation"
+                );
+                None
+            }
+            Err(NotSafe::UnregisteredValidator(pk)) => {
+                warn!(
+                    self.log,
+                    "Not signing attestation for unregistered validator. \
+                     Carefully consider running with --auto-register (see --help)";
+                    "public_key" => format!("{:?}", pk)
+                );
+                None
+            }
+            Err(e) => {
+                crit!(
                     self.log,
                     "Not signing slashable attestation";
                     "attestation" => format!("{:?}", attestation.data),

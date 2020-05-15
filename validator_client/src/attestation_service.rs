@@ -392,7 +392,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                             let mut attestation = attestation.clone();
 
-                            if service
+                            service
                                 .validator_store
                                 .sign_attestation(
                                     duty.validator_pubkey(),
@@ -400,19 +400,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                     &mut attestation,
                                     current_epoch,
                                 )
-                                .is_none()
-                            {
-                                crit!(
-                                    log,
-                                    "Attestation signing refused";
-                                    "validator" => format!("{:?}", duty.validator_pubkey()),
-                                    "slot" => attestation.data.slot,
-                                    "index" => attestation.data.index,
-                                );
-                                None
-                            } else {
-                                Some(attestation)
-                            }
+                                .map(|_| attestation)
                         })
                         .collect::<Vec<_>>();
 
