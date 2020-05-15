@@ -2,7 +2,7 @@ use super::peer_info::{PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
-use slog::{crit, warn};
+use slog::{crit, debug, warn};
 use std::collections::{hash_map::Entry, HashMap};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
@@ -225,10 +225,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// A peer is being dialed.
     pub fn dialing_peer(&mut self, peer_id: &PeerId) {
+        debug!(self.log, "Peer dialing in db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
-            self.n_dc -= 1;
+            self.n_dc = self.n_dc.saturating_sub(1);
         }
         info.connection_status = PeerConnectionStatus::Dialing {
             since: Instant::now(),
@@ -237,26 +238,29 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets a peer as connected with an ingoing connection.
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) {
+        debug!(self.log, "Peer connected to db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
-            self.n_dc -= 1;
+            self.n_dc = self.n_dc.saturating_sub(1);
         }
         info.connection_status.connect_ingoing();
     }
 
     /// Sets a peer as connected with an outgoing connection.
     pub fn connect_outgoing(&mut self, peer_id: &PeerId) {
+        debug!(self.log, "Peer connected to db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
-            self.n_dc -= 1;
+            self.n_dc = self.n_dc.saturating_sub(1);
         }
         info.connection_status.connect_outgoing();
     }
 
     /// Sets the peer as disconnected. A banned peer remains banned
     pub fn disconnect(&mut self, peer_id: &PeerId) {
+        debug!(self.log, "Peer disconnected from db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Disconnecting unknown peer";
@@ -289,6 +293,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets a peer as banned
     pub fn ban(&mut self, peer_id: &PeerId) {
+        debug!(self.log, "Banning peer"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
