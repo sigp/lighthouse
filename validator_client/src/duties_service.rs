@@ -1,4 +1,4 @@
-use crate::validator_store::ValidatorStore;
+use crate::{is_synced::is_synced, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{FutureExt, StreamExt};
@@ -366,7 +366,7 @@ pub struct Inner<T, E: EthSpec> {
     store: Arc<DutiesStore>,
     validator_store: ValidatorStore<T, E>,
     pub(crate) slot_clock: T,
-    beacon_node: RemoteBeaconNode<E>,
+    pub(crate) beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
     /// If true, the duties service will poll for duties from the beacon node even if it is not
     /// synced.
@@ -475,6 +475,10 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     async fn do_update(self) -> Result<(), ()> {
         let log = &self.context.log;
 
+        if !is_synced(&self.beacon_node, None).await && !self.allow_unsynced_beacon_node {
+            return Ok(());
+        }
+
         let current_epoch = self
             .slot_clock
             .now()
@@ -500,49 +504,26 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                 epoch
             })?;
 
-        let beacon_head_epoch = self
-            .beacon_node
-            .http
-            .beacon()
-            .get_head()
+        let result = self.clone().update_epoch(current_epoch).await;
+        if let Err(e) = result {
+            error!(
+                log,
+                "Failed to get current epoch duties";
+                "http_error" => format!("{:?}", e)
+            );
+        }
+
+        self.clone()
+            .update_epoch(current_epoch + 1)
             .await
-            .map(|head| head.slot.epoch(E::slots_per_epoch()))
             .map_err(move |e| {
                 error!(
                     log,
-                    "Failed to contact beacon node";
-                    "error" => format!("{:?}", e)
-                )
-            })?;
-
-        if beacon_head_epoch + 1 < current_epoch && !self.allow_unsynced_beacon_node {
-            error!(
-                log,
-                "Beacon node is not synced";
-                "node_head_epoch" => format!("{}", beacon_head_epoch),
-                "current_epoch" => format!("{}", current_epoch),
-            );
-        } else {
-            let result = self.clone().update_epoch(current_epoch).await;
-            if let Err(e) = result {
-                error!(
-                    log,
-                    "Failed to get current epoch duties";
+                    "Failed to get next epoch duties";
                     "http_error" => format!("{:?}", e)
                 );
-            }
+            })?;
 
-            self.clone()
-                .update_epoch(current_epoch + 1)
-                .await
-                .map_err(move |e| {
-                    error!(
-                        log,
-                        "Failed to get next epoch duties";
-                        "http_error" => format!("{:?}", e)
-                    );
-                })?;
-        };
         Ok(())
     }
 
@@ -653,7 +634,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             warn!(
                 log,
                 "Duties changed during routine update";
-                "info" => "Chain re-org likely occurred."
+                "info" => "Chain re-org likely occurred"
             )
         }
 
