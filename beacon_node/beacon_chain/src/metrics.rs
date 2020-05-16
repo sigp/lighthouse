@@ -1,6 +1,7 @@
 use crate::{BeaconChain, BeaconChainTypes};
 pub use lighthouse_metrics::*;
-use types::{BeaconState, Epoch, Hash256, Slot};
+use slot_clock::SlotClock;
+use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
 
 lazy_static! {
     /*
@@ -267,6 +268,18 @@ lazy_static! {
         "beacon_participation_prev_epoch_head_attester",
         "Ratio of head-attesting balances to total balances"
     );
+
+    /*
+     * Attestation Observation Metrics
+     */
+    pub static ref ATTN_OBSERVATION_PREV_EPOCH_ATTESTERS: Result<IntGauge> = try_create_int_gauge(
+        "beacon_attn_observation_epoch_attesters",
+        "Count of attesters that have been seen by the beacon chain in the previous epoch"
+    );
+    pub static ref ATTN_OBSERVATION_PREV_EPOCH_AGGREGATORS: Result<IntGauge> = try_create_int_gauge(
+        "beacon_attn_observation_epoch_aggregators",
+        "Count of attesters that have been seen by the beacon chain in the previous epoch"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -274,6 +287,10 @@ lazy_static! {
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     if let Ok(head) = beacon_chain.head() {
         scrape_head_state::<T>(&head.beacon_state, head.beacon_state_root)
+    }
+
+    if let Some(slot) = beacon_chain.slot_clock.now() {
+        scrape_attestation_observation(slot, beacon_chain);
     }
 
     set_gauge_by_usize(
@@ -346,6 +363,24 @@ fn scrape_head_state<T: BeaconChainTypes>(state: &BeaconState<T::EthSpec>, state
             .count(),
     );
     set_gauge_by_u64(&HEAD_STATE_ETH1_DEPOSIT_INDEX, state.eth1_deposit_index);
+}
+
+fn scrape_attestation_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &BeaconChain<T>) {
+    let prev_epoch = slot_now.epoch(T::EthSpec::slots_per_epoch()) - 1;
+
+    if let Some(count) = chain
+        .observed_attesters
+        .observed_validator_count(prev_epoch)
+    {
+        set_gauge_by_usize(&ATTN_OBSERVATION_PREV_EPOCH_ATTESTERS, count);
+    }
+
+    if let Some(count) = chain
+        .observed_aggregators
+        .observed_validator_count(prev_epoch)
+    {
+        set_gauge_by_usize(&ATTN_OBSERVATION_PREV_EPOCH_AGGREGATORS, count);
+    }
 }
 
 fn set_gauge_by_slot(gauge: &Result<IntGauge>, value: Slot) {
