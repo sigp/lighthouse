@@ -83,13 +83,21 @@ lazy_static! {
     /*
      * Attestation Processing
      */
-    pub static ref ATTESTATION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_processing_requests_total",
-        "Count of all attestations submitted for processing"
+    pub static ref UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_unaggregated_attestation_processing_requests_total",
+        "Count of all unaggregated attestations submitted for processing"
     );
-    pub static ref ATTESTATION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_processing_successes_total",
-        "total_attestation_processing_successes"
+    pub static ref UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_unaggregated_attestation_processing_successes_total",
+        "Number of unaggregated attestations verified for gossip"
+    );
+    pub static ref AGGREGATED_ATTESTATION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_aggregated_attestation_processing_requests_total",
+        "Count of all aggregated attestations submitted for processing"
+    );
+    pub static ref AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_aggregated_attestation_processing_successes_total",
+        "Number of aggregated attestations verified for gossip"
     );
     pub static ref ATTESTATION_PROCESSING_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_seconds",
@@ -278,7 +286,7 @@ lazy_static! {
     );
     pub static ref ATTN_OBSERVATION_PREV_EPOCH_AGGREGATORS: Result<IntGauge> = try_create_int_gauge(
         "beacon_attn_observation_epoch_aggregators",
-        "Count of attesters that have been seen by the beacon chain in the previous epoch"
+        "Count of aggregators that have been seen by the beacon chain in the previous epoch"
     );
 }
 

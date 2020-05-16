@@ -863,7 +863,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
-        VerifiedUnaggregatedAttestation::verify(attestation, self)
+        metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
+
+        VerifiedUnaggregatedAttestation::verify(attestation, self).map(|v| {
+            metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
     /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
@@ -872,7 +877,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
-        VerifiedAggregatedAttestation::verify(signed_aggregate, self)
+        metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
+
+        VerifiedAggregatedAttestation::verify(signed_aggregate, self).map(|v| {
+            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
     /// Accepts some attestation-type object and attempts to verify it in the context of fork
