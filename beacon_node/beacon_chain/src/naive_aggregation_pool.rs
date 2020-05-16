@@ -233,7 +233,7 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         let lowest_permissible_slot = current_slot - Slot::from(SLOTS_RETAINED);
 
         // No need to prune if the lowest permissible slot has not changed.
-        if *self.lowest_permissible_slot.write() == lowest_permissible_slot {
+        if *self.lowest_permissible_slot.read() == lowest_permissible_slot {
             return;
         }
 
