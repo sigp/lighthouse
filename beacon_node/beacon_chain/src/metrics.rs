@@ -123,6 +123,10 @@ lazy_static! {
         "beacon_attestation_processing_apply_to_agg_pool",
         "Time spent applying an attestation to the naive aggregation pool"
     );
+    pub static ref ATTESTATION_PROCESSING_AGG_POOL_AGGREGATION: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_agg_pool_aggregation",
+        "Time spent doing signature aggregation when adding to the agg poll"
+    );
     pub static ref ATTESTATION_PROCESSING_APPLY_TO_OP_POOL: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_apply_to_op_pool",
         "Time spent applying an attestation to the block inclusion pool"

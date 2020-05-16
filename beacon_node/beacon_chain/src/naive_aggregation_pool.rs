@@ -1,3 +1,4 @@
+use crate::metrics;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use types::{Attestation, AttestationData, EthSpec, Slot};
@@ -93,6 +94,8 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
             {
                 Ok(InsertOutcome::SignatureAlreadyKnown { committee_index })
             } else {
+                let _timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_AGGREGATION);
                 existing_attestation.aggregate(a);
                 Ok(InsertOutcome::SignatureAggregated { committee_index })
             }
