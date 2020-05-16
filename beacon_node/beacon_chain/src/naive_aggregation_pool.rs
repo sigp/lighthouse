@@ -169,8 +169,9 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     /// The pool may be pruned if the given `attestation.data` has a slot higher than any
     /// previously seen.
     pub fn insert(&self, attestation: &Attestation<E>) -> Result<InsertOutcome, Error> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_INSERT);
         let slot = attestation.data.slot;
-        let lowest_permissible_slot = *self.lowest_permissible_slot.read();
+        let lowest_permissible_slot: Slot = *self.lowest_permissible_slot.read();
 
         // Reject any attestations that are too old.
         if slot < lowest_permissible_slot {
@@ -180,9 +181,10 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             });
         }
 
-        let timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK);
+        let lock_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK);
         let mut maps = self.maps.write();
-        drop(timer);
+        drop(lock_timer);
 
         let outcome = if let Some(map) = maps.get_mut(&slot) {
             map.insert(attestation)

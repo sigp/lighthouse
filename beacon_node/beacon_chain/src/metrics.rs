@@ -131,6 +131,10 @@ lazy_static! {
         "beacon_attestation_processing_agg_pool_prune",
         "Time spent for the agg pool to prune"
     );
+    pub static ref ATTESTATION_PROCESSING_AGG_POOL_INSERT: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_agg_pool_insert",
+        "Time spent for the outer pool.insert() function of agg pool"
+    );
     pub static ref ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_agg_pool_core_insert",
         "Time spent for the core map.insert() function of agg pool"
