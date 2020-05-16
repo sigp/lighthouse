@@ -187,6 +187,7 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         let outcome = if let Some(map) = maps.get_mut(&slot) {
             map.insert(attestation)
         } else {
+            let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CREATE_MAP);
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
             // by obtaining the mean size of all items in earlier epoch.
             let (count, sum) = maps
