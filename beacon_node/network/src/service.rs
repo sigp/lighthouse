@@ -1,10 +1,10 @@
-use crate::error;
 use crate::persisted_dht::{load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::{
     attestation_service::{AttServiceMessage, AttestationService},
     NetworkConfig,
 };
+use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{rpc::RPCRequest, BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
@@ -208,7 +208,13 @@ fn spawn_service<T: BeaconChainTypes>(
                                         topic_kinds.push(message.kind());
                                     }
                                 }
-                                debug!(service.log, "Sending pubsub messages"; "count" => messages.len(), "topics" => format!("{:?}", topic_kinds));
+                                debug!(
+                                    service.log,
+                                    "Sending pubsub messages";
+                                    "count" => messages.len(),
+                                    "topics" => format!("{:?}", topic_kinds)
+                                );
+                                expose_publish_metrics(&messages);
                                 service.libp2p.swarm.publish(messages);
                             }
                         }
@@ -386,4 +392,20 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Disconnect and bans a peer id.
     Disconnect { peer_id: PeerId },
+}
+
+/// Inspects the `messages` that were being sent to the network and updates Prometheus metrics.
+fn expose_publish_metrics<T: EthSpec>(messages: &[PubsubMessage<T>]) {
+    for message in messages {
+        match message {
+            PubsubMessage::BeaconBlock(_) => metrics::inc_counter(&metrics::GOSSIP_BLOCKS_TX),
+            PubsubMessage::Attestation(_) => {
+                metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_TX)
+            }
+            PubsubMessage::AggregateAndProofAttestation(_) => {
+                metrics::inc_counter(&metrics::GOSSIP_AGGREGATED_ATTESTATIONS_TX)
+            }
+            _ => {}
+        }
+    }
 }
