@@ -178,7 +178,11 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             });
         }
 
-        let mut maps = self.maps.write();
+        let mut maps = {
+            let _timer =
+                metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK);
+            self.maps.write()
+        };
 
         let outcome = if let Some(map) = maps.get_mut(&slot) {
             map.insert(attestation)
