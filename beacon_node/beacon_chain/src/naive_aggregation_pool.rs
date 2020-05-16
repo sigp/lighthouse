@@ -231,6 +231,12 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
 
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_slot = current_slot - Slot::from(SLOTS_RETAINED);
+
+        // No need to prune if the lowest permissible slot has not changed.
+        if *self.lowest_permissible_slot.write() == lowest_permissible_slot {
+            return;
+        }
+
         *self.lowest_permissible_slot.write() = lowest_permissible_slot;
         let mut maps = self.maps.write();
 
