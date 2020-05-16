@@ -1,8 +1,12 @@
+#[macro_use]
+extern crate lazy_static;
+
 /// This crate provides the network server for Lighthouse.
 pub mod error;
 pub mod service;
 
 mod attestation_service;
+mod metrics;
 mod persisted_dht;
 mod router;
 mod sync;

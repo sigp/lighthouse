@@ -7,6 +7,7 @@
 pub mod processor;
 
 use crate::error;
+use crate::metrics;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
@@ -250,6 +251,7 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
+                metrics::inc_counter(&metrics::GOSSIP_AGGREGATED_ATTESTATIONS_RX);
                 if let Some(gossip_verified) =
                     self.processor.verify_aggregated_attestation_for_gossip(
                         peer_id.clone(),
@@ -262,6 +264,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
             }
             PubsubMessage::Attestation(subnet_attestation) => {
+                metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_RX);
                 if let Some(gossip_verified) =
                     self.processor.verify_unaggregated_attestation_for_gossip(
                         peer_id.clone(),
@@ -274,6 +277,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
             }
             PubsubMessage::BeaconBlock(block) => {
+                metrics::inc_counter(&metrics::GOSSIP_BLOCKS_RX);
                 match self.processor.should_forward_block(&peer_id, block) {
                     Ok(verified_block) => {
                         info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
