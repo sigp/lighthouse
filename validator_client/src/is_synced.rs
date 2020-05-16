@@ -1,6 +1,7 @@
 use remote_beacon_node::RemoteBeaconNode;
 use rest_types::SyncingResponse;
 use slog::{debug, error, Logger};
+use slot_clock::SlotClock;
 use types::EthSpec;
 
 /// A distance in slots.
@@ -16,8 +17,9 @@ const SYNC_TOLERANCE: u64 = 4;
 ///
 ///  The second condition means the even if the beacon node thinks that it's syncing, we'll still
 ///  try to use it if it's close enough to the head.
-pub async fn is_synced<E: EthSpec>(
+pub async fn is_synced<T: SlotClock, E: EthSpec>(
     beacon_node: &RemoteBeaconNode<E>,
+    slot_clock: &T,
     log_opt: Option<&Logger>,
 ) -> bool {
     let resp = match beacon_node.http.node().syncing_status().await {
@@ -51,7 +53,15 @@ pub async fn is_synced<E: EthSpec>(
                 );
             }
 
-            if sync_status.current_slot + SYNC_TOLERANCE >= sync_status.highest_slot {
+            let now = if let Some(slot) = slot_clock.now() {
+                slot
+            } else {
+                // There's no good reason why we shouldn't be able to read the slot clock, so we'll
+                // indicate we're not synced if that's the case.
+                return false;
+            };
+
+            if sync_status.current_slot + SYNC_TOLERANCE >= now {
                 true
             } else {
                 if let Some(log) = log_opt {

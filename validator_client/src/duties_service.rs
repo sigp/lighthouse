@@ -475,7 +475,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     async fn do_update(self) -> Result<(), ()> {
         let log = &self.context.log;
 
-        if !is_synced(&self.beacon_node, None).await && !self.allow_unsynced_beacon_node {
+        if !is_synced(&self.beacon_node, &self.slot_clock, None).await
+            && !self.allow_unsynced_beacon_node
+        {
             return Ok(());
         }
 
