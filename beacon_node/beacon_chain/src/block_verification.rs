@@ -924,8 +924,11 @@ fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
 }
 
 fn participation_ratio(section: u64, total: u64) -> Option<f64> {
-    let section: f64 = u32::try_from(section).ok()?.into();
-    let total: f64 = u32::try_from(total).ok()?.into();
+    // Reduce the precision to 1/1,000th of an ETH (instead of 1/1,000,000,000 th).
+    const PRECISION: u64 = 1_000_000;
+
+    let section: f64 = u32::try_from(section / PRECISION).ok()?.into();
+    let total: f64 = u32::try_from(total / PRECISION).ok()?.into();
 
     if total > 0_f64 {
         Some(section / total)
