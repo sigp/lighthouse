@@ -90,11 +90,14 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Delete a block from the store.
     fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
-        self.delete::<SignedBeaconBlock<E>>(block_root)
+        self.key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())
     }
 
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
+
+    /// Execute either all of the operations in `batch` or none at all, returning an error.
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
 
     /// Store a state summary in the store.
     // NOTE: this is a hack for the HotColdDb, we could consider splitting this
@@ -178,6 +181,13 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
             Ok(None)
         }
     }
+}
+
+/// Reified key-value storage operation.  Helps in modifying the storage atomically.
+/// See also https://github.com/sigp/lighthouse/issues/692
+pub enum StoreOp {
+    DeleteBlock(SignedBeaconBlockHash),
+    DeleteState(BeaconStateHash, Slot),
 }
 
 /// A unique column identifier.

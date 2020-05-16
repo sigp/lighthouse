@@ -3,13 +3,12 @@ use crate::head_tracker::HeadTracker;
 use parking_lot::Mutex;
 use slog::{debug, warn, Logger};
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use store::iter::{ParentRootBlockIterator, RootsIterator};
-use store::{hot_cold_store::HotColdDBError, Error, SimpleDiskStore, Store};
+use store::{hot_cold_store::HotColdDBError, Error, SimpleDiskStore, Store, StoreOp};
 pub use store::{DiskStore, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
@@ -49,18 +48,21 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
 
         // Collect hashes from new_finalized_block back to old_finalized_block (inclusive)
         let mut found_block = false; // hack for `take_until`
-        let newly_finalized_blocks: HashMap<SignedBeaconBlockHash, Slot> = HashMap::from_iter(
+        let newly_finalized_blocks: HashMap<SignedBeaconBlockHash, Slot> =
             ParentRootBlockIterator::new(&*store, new_finalized_block_hash.into())
-                .take_while(|(block_hash, _)| {
-                    if found_block {
-                        false
-                    } else {
-                        found_block |= *block_hash == old_finalized_block_hash.into();
-                        true
+                .take_while(|result| match result {
+                    Ok((block_hash, _)) => {
+                        if found_block {
+                            false
+                        } else {
+                            found_block |= *block_hash == old_finalized_block_hash.into();
+                            true
+                        }
                     }
+                    Err(_) => true,
                 })
-                .map(|(block_hash, block)| (block_hash.into(), block.slot())),
-        );
+                .map(|result| result.map(|(block_hash, block)| (block_hash.into(), block.slot())))
+                .collect::<Result<_, _>>()?;
 
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
@@ -141,14 +143,16 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
             }
         }
 
-        // XXX Should be performed atomically, see
-        // https://github.com/sigp/lighthouse/issues/692
-        for block_hash in abandoned_blocks.into_iter() {
-            store.delete_block(&block_hash.into())?;
-        }
-        for (slot, state_hash) in abandoned_states.into_iter() {
-            store.delete_state(&state_hash.into(), slot)?;
-        }
+        let batch: Vec<StoreOp> = abandoned_blocks
+            .into_iter()
+            .map(|block_hash| StoreOp::DeleteBlock(block_hash))
+            .chain(
+                abandoned_states
+                    .into_iter()
+                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash, slot)),
+            )
+            .collect();
+        store.do_atomically(&batch)?;
         for head_hash in abandoned_heads.into_iter() {
             head_tracker.remove_head(head_hash);
         }

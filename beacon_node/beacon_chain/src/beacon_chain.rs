@@ -1482,7 +1482,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(fork_choice_register_timer);
 
-        self.head_tracker.register_block(block_root, &block);
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
             block.body.attestations.len() as f64,
@@ -1503,6 +1502,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.put_state(&block.state_root, &state)?;
         self.store.put_block(&block_root, signed_block.clone())?;
 
+        let parent_root = block.parent_root;
+        let slot = block.slot;
+
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut snapshot_cache| {
@@ -1521,6 +1523,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "task" => "process block"
                 );
             });
+
+        self.head_tracker
+            .register_block(block_root, parent_root, slot);
 
         metrics::stop_timer(db_write_timer);
 
@@ -2007,9 +2012,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         for (head_hash, _head_slot) in heads {
-            for (block_hash, signed_beacon_block) in
-                ParentRootBlockIterator::new(&*self.store, head_hash)
-            {
+            for maybe_pair in ParentRootBlockIterator::new(&*self.store, head_hash) {
+                let (block_hash, signed_beacon_block) = maybe_pair.unwrap();
                 if visited.contains(&block_hash) {
                     break;
                 }
