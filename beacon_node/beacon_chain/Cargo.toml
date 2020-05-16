@@ -5,7 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = "2018"
 
 [features]
+default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
+participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 
 [dependencies]
 eth2_config = { path = "../../eth2/utils/eth2_config" }

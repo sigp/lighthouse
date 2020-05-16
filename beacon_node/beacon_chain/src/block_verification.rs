@@ -54,10 +54,12 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    SlotProcessingError,
+    per_block_processing,
+    per_epoch_processing::EpochProcessingSummary,
+    per_slot_processing, BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
 };
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
 use store::{Error as DBError, StateBatch};
@@ -556,6 +558,8 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
             });
         }
 
+        let mut summaries = vec![];
+
         // Transition the parent state to the block slot.
         let mut state = parent.beacon_state;
         let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
@@ -571,8 +575,11 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
                 state_root
             };
 
-            per_slot_processing(&mut state, Some(state_root), &chain.spec)?;
+            per_slot_processing(&mut state, Some(state_root), &chain.spec)?
+                .map(|summary| summaries.push(summary));
         }
+
+        expose_participation_metrics(&summaries);
 
         metrics::stop_timer(catchup_timer);
 
@@ -889,6 +896,37 @@ fn get_signature_verifier<'a, E: EthSpec>(
         },
         spec,
     )
+}
+
+fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
+    if !cfg!(feature = "participation_metrics") {
+        return;
+    }
+
+    for summary in summaries {
+        let b = &summary.total_balances;
+
+        metrics::maybe_set_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_ATTESTER,
+            participation_ratio(b.previous_epoch_attesters(), b.previous_epoch()),
+        );
+
+        metrics::maybe_set_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
+            participation_ratio(b.previous_epoch_target_attesters(), b.previous_epoch()),
+        );
+
+        metrics::maybe_set_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
+            participation_ratio(b.previous_epoch_head_attesters(), b.previous_epoch()),
+        );
+    }
+}
+
+fn participation_ratio(section: u64, total: u64) -> Option<i64> {
+    let section = i64::try_from(section).ok()?;
+    let total = i64::try_from(total).ok()?;
+    section.checked_div(total)
 }
 
 fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {

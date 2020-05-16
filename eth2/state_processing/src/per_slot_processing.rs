@@ -18,18 +18,18 @@ pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,
     spec: &ChainSpec,
-) -> Result<Vec<EpochProcessingSummary>, Error> {
+) -> Result<Option<EpochProcessingSummary>, Error> {
     cache_state(state, state_root)?;
 
-    let mut summaries = vec![];
+    let mut summary = None;
 
     if state.slot > spec.genesis_slot && (state.slot + 1) % T::slots_per_epoch() == 0 {
-        summaries.push(per_epoch_processing(state, spec)?);
+        summary = Some(per_epoch_processing(state, spec)?);
     }
 
     state.slot += 1;
 
-    Ok(summaries)
+    Ok(summary)
 }
 
 fn cache_state<T: EthSpec>(

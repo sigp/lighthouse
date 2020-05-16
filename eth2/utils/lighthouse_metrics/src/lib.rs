@@ -124,6 +124,12 @@ pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     }
 }
 
+pub fn maybe_set_gauge(gauge: &Result<IntGauge>, value_opt: Option<i64>) {
+    if let Some(value) = value_opt {
+        set_gauge(gauge, value)
+    }
+}
+
 /// Sets the value of a `Histogram` manually.
 pub fn observe(histogram: &Result<Histogram>, value: f64) {
     if let Ok(histogram) = histogram {
