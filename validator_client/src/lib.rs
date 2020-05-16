@@ -7,8 +7,6 @@ mod fork_service;
 mod notifier;
 mod validator_store;
 
-pub mod validator_directory;
-
 pub use cli::cli_app;
 pub use config::Config;
 
