@@ -287,6 +287,8 @@ fn spawn_service<T: BeaconChainTypes>(
                             message,
                             ..
                         } => {
+                            // Update prometheus metrics.
+                            expose_receive_metrics(&message);
                             match message {
                                 // attestation information gets processed in the attestation service
                                 PubsubMessage::Attestation(ref subnet_and_attestation) => {
@@ -306,6 +308,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                             .map_err(|_| {
                                                 debug!(service.log, "Failed to send pubsub message to router");
                                             });
+                                    } else {
+                                        metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_IGNORED)
                                     }
                                 }
                                 _ => {
@@ -407,5 +411,19 @@ fn expose_publish_metrics<T: EthSpec>(messages: &[PubsubMessage<T>]) {
             }
             _ => {}
         }
+    }
+}
+
+/// Inspects a `message` received from the network and updates Prometheus metrics.
+fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
+    match message {
+        PubsubMessage::BeaconBlock(_) => metrics::inc_counter(&metrics::GOSSIP_BLOCKS_RX),
+        PubsubMessage::Attestation(_) => {
+            metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_RX)
+        }
+        PubsubMessage::AggregateAndProofAttestation(_) => {
+            metrics::inc_counter(&metrics::GOSSIP_AGGREGATED_ATTESTATIONS_RX)
+        }
+        _ => {}
     }
 }
