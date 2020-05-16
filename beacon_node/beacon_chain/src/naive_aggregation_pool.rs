@@ -69,6 +69,8 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     ///
     /// The given attestation (`a`) must only have one signature.
     pub fn insert(&mut self, a: &Attestation<E>) -> Result<InsertOutcome, Error> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
+
         let set_bits = a
             .aggregation_bits
             .iter()
@@ -226,6 +228,8 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     /// Removes any attestations with a slot lower than `current_slot` and bars any future
     /// attestations with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&self, current_slot: Slot) {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_PRUNE);
+
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_slot = current_slot - Slot::from(SLOTS_RETAINED);
         *self.lowest_permissible_slot.write() = lowest_permissible_slot;
