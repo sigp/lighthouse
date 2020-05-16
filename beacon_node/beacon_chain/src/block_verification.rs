@@ -906,27 +906,32 @@ fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
     for summary in summaries {
         let b = &summary.total_balances;
 
-        metrics::maybe_set_gauge(
+        metrics::maybe_set_float_gauge(
             &metrics::PARTICIPATION_PREV_EPOCH_ATTESTER,
             participation_ratio(b.previous_epoch_attesters(), b.previous_epoch()),
         );
 
-        metrics::maybe_set_gauge(
+        metrics::maybe_set_float_gauge(
             &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
             participation_ratio(b.previous_epoch_target_attesters(), b.previous_epoch()),
         );
 
-        metrics::maybe_set_gauge(
+        metrics::maybe_set_float_gauge(
             &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
             participation_ratio(b.previous_epoch_head_attesters(), b.previous_epoch()),
         );
     }
 }
 
-fn participation_ratio(section: u64, total: u64) -> Option<i64> {
-    let section = i64::try_from(section).ok()?;
-    let total = i64::try_from(total).ok()?;
-    section.checked_div(total)
+fn participation_ratio(section: u64, total: u64) -> Option<f64> {
+    let section: f64 = u32::try_from(section).ok()?.into();
+    let total: f64 = u32::try_from(total).ok()?.into();
+
+    if total > 0_f64 {
+        Some(section / total)
+    } else {
+        None
+    }
 }
 
 fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {

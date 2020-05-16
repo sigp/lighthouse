@@ -255,15 +255,15 @@ lazy_static! {
     /*
      * Participation Metrics
      */
-    pub static ref PARTICIPATION_PREV_EPOCH_ATTESTER: Result<IntGauge> = try_create_int_gauge(
+    pub static ref PARTICIPATION_PREV_EPOCH_ATTESTER: Result<Gauge> = try_create_float_gauge(
         "beacon_participation_prev_epoch_attester",
         "Ratio of attesting balances to total balances"
     );
-    pub static ref PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER: Result<IntGauge> = try_create_int_gauge(
+    pub static ref PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER: Result<Gauge> = try_create_float_gauge(
         "beacon_participation_prev_epoch_target_attester",
         "Ratio of target-attesting balances to total balances"
     );
-    pub static ref PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER: Result<IntGauge> = try_create_int_gauge(
+    pub static ref PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER: Result<Gauge> = try_create_float_gauge(
         "beacon_participation_prev_epoch_head_attester",
         "Ratio of head-attesting balances to total balances"
     );
