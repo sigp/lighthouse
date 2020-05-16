@@ -81,7 +81,7 @@ lazy_static! {
     );
 
     /*
-     * Attestation Processing
+     * Unaggregated Attestation Verification
      */
     pub static ref UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "beacon_unaggregated_attestation_processing_requests_total",
@@ -91,6 +91,14 @@ lazy_static! {
         "beacon_unaggregated_attestation_processing_successes_total",
         "Number of unaggregated attestations verified for gossip"
     );
+    pub static ref UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_unaggregated_attestation_gossip_verification_seconds",
+        "Full runtime of aggregated attestation gossip verification"
+    );
+
+    /*
+     * Aggregated Attestation Verification
+     */
     pub static ref AGGREGATED_ATTESTATION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "beacon_aggregated_attestation_processing_requests_total",
         "Count of all aggregated attestations submitted for processing"
@@ -99,14 +107,30 @@ lazy_static! {
         "beacon_aggregated_attestation_processing_successes_total",
         "Number of aggregated attestations verified for gossip"
     );
-    pub static ref ATTESTATION_PROCESSING_TIMES: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_seconds",
-        "Full runtime of attestation processing"
+    pub static ref AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_aggregated_attestation_gossip_verification_seconds",
+        "Full runtime of aggregated attestation gossip verification"
     );
-    pub static ref ATTESTATION_PROCESSING_INITIAL_VALIDATION_TIMES: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_initial_validation_seconds",
-        "Time spent on the initial_validation of attestation processing"
+
+    /*
+     * General Attestation Processing
+     */
+    pub static ref ATTESTATION_PROCESSING_APPLY_TO_FORK_CHOICE: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_apply_to_fork_choice",
+        "Time spent applying an attestation to fork choice"
     );
+    pub static ref ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_apply_to_agg_pool",
+        "Time spent applying an attestation to the naive aggregation pool"
+    );
+    pub static ref ATTESTATION_PROCESSING_APPLY_TO_OP_POOL: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_apply_to_op_pool",
+        "Time spent applying an attestation to the block inclusion pool"
+    );
+
+    /*
+     * Attestation Processing
+     */
     pub static ref ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_shuffling_cache_wait_seconds",
         "Time spent on waiting for the shuffling cache lock during attestation processing"
