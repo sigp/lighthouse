@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod is_synced;
 mod notifier;
 mod validator_store;
 
@@ -42,6 +43,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     exit_signals: Vec<Signal>,
+    config: Config,
 }
 
 impl<T: EthSpec> ProductionValidatorClient<T> {
@@ -217,6 +219,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             block_service,
             attestation_service,
             exit_signals: vec![],
+            config,
         })
     }
 
