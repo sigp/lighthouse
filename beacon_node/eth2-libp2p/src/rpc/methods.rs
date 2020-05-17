@@ -164,7 +164,7 @@ pub enum RPCResponse<T: EthSpec> {
 }
 
 /// Indicates which response is being terminated by a stream termination response.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ResponseTermination {
     /// Blocks by range stream termination.
     BlocksByRange,
@@ -175,7 +175,7 @@ pub enum ResponseTermination {
 
 /// The structured response containing a result/code indicating success or failure
 /// and the contents of the response
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RPCCodedResponse<T: EthSpec> {
     /// The response is a successful.
     Success(RPCResponse<T>),
@@ -194,7 +194,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RPCResponseErrorCode {
     InvalidRequest,
     ServerError,
@@ -268,14 +268,14 @@ impl<T: EthSpec> RPCCodedResponse<T> {
     }
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Debug, Clone)]
 pub struct ErrorMessage {
     /// The UTF-8 encoded Error message string.
     pub error_message: Vec<u8>,
 }
 
-impl ErrorMessage {
-    pub fn as_string(&self) -> String {
+impl std::string::ToString for ErrorMessage {
+    fn to_string(&self) -> String {
         String::from_utf8(self.error_message.clone()).unwrap_or_else(|_| "".into())
     }
 }

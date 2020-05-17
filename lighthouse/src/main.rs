@@ -209,9 +209,11 @@ fn run<E: EthSpec>(
             ))
             .map_err(|e| format!("Failed to init validator client: {}", e))?;
 
-        validator
-            .start_service()
-            .map_err(|e| format!("Failed to start validator client service: {}", e))?;
+        environment.core_context().runtime_handle.enter(|| {
+            validator
+                .start_service()
+                .map_err(|e| format!("Failed to start validator client service: {}", e))
+        })?;
 
         Some(validator)
     } else {
@@ -232,5 +234,5 @@ fn run<E: EthSpec>(
     drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
-    environment.shutdown_on_idle()
+    Ok(environment.shutdown_on_idle())
 }

@@ -56,8 +56,8 @@ pub fn download_deposit_contract(
     if abi_file.exists() {
         // Nothing to do.
     } else {
-        match reqwest::get(url) {
-            Ok(mut response) => {
+        match reqwest::blocking::get(url) {
+            Ok(response) => {
                 let mut abi_file = File::create(abi_file)
                     .map_err(|e| format!("Failed to create local abi file: {:?}", e))?;
                 let mut bytecode_file = File::create(bytecode_file)

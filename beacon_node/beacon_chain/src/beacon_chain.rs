@@ -553,7 +553,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
                     match per_slot_processing(&mut state, skip_state_root, &self.spec) {
-                        Ok(()) => (),
+                        Ok(_) => (),
                         Err(e) => {
                             warn!(
                                 self.log,
@@ -863,7 +863,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
-        VerifiedUnaggregatedAttestation::verify(attestation, self)
+        metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
+        let _timer =
+            metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
+
+        VerifiedUnaggregatedAttestation::verify(attestation, self).map(|v| {
+            metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
     /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
@@ -872,7 +879,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
-        VerifiedAggregatedAttestation::verify(signed_aggregate, self)
+        metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
+        let _timer =
+            metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
+
+        VerifiedAggregatedAttestation::verify(signed_aggregate, self).map(|v| {
+            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
     /// Accepts some attestation-type object and attempts to verify it in the context of fork
@@ -887,6 +901,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unverified_attestation: &'a impl IntoForkChoiceVerifiedAttestation<'a, T>,
     ) -> Result<ForkChoiceVerifiedAttestation<'a, T>, AttestationError> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_FORK_CHOICE);
+
         let verified = unverified_attestation.into_fork_choice_verified_attestation(self)?;
         let indexed_attestation = verified.indexed_attestation();
         self.fork_choice
@@ -907,6 +923,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unaggregated_attestation: VerifiedUnaggregatedAttestation<T>,
     ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
+
         let attestation = unaggregated_attestation.attestation();
 
         match self.naive_aggregation_pool.insert(attestation) {
@@ -950,6 +968,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_aggregate: VerifiedAggregatedAttestation<T>,
     ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
+
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {

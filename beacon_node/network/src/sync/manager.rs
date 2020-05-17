@@ -43,7 +43,6 @@ use eth2_libp2p::rpc::{methods::*, RequestId};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
-use futures::prelude::*;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::boxed::Box;
@@ -182,7 +181,7 @@ impl SingleBlockRequest {
 /// chain. This allows the chain to be
 /// dropped during the syncing process which will gracefully end the `SyncManager`.
 pub fn spawn<T: BeaconChainTypes>(
-    executor: &tokio::runtime::TaskExecutor,
+    runtime_handle: &tokio::runtime::Handle,
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -197,14 +196,14 @@ pub fn spawn<T: BeaconChainTypes>(
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
     // create an instance of the SyncManager
-    let sync_manager = SyncManager {
+    let mut sync_manager = SyncManager {
         range_sync: RangeSync::new(
             beacon_chain.clone(),
             network_globals.clone(),
             sync_send.clone(),
             log.clone(),
         ),
-        network: SyncNetworkContext::new(network_send, log.clone()),
+        network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
         chain: beacon_chain,
         network_globals,
         input_channel: sync_recv,
@@ -216,14 +215,10 @@ pub fn spawn<T: BeaconChainTypes>(
 
     // spawn the sync manager thread
     debug!(log, "Sync Manager started");
-    executor.spawn(
-        sync_manager
-            .select(exit_rx.then(|_| Ok(())))
-            .then(move |_| {
-                info!(log.clone(), "Sync Manager shutdown");
-                Ok(())
-            }),
-    );
+    runtime_handle.spawn(async move {
+        futures::future::select(Box::pin(sync_manager.main()), exit_rx).await;
+        info!(log.clone(), "Sync Manager shutdown");
+    });
     (sync_send, sync_exit)
 }
 
@@ -469,6 +464,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 return;
             }
         }
+
+        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => format!("{}", block.canonical_root()));
 
         let parent_request = ParentRequests {
             downloaded_blocks: vec![block],
@@ -730,17 +727,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.parent_queue.push(parent_request);
         }
     }
-}
 
-impl<T: BeaconChainTypes> Future for SyncManager<T> {
-    type Item = ();
-    type Error = String;
-
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+    /// The main driving future for the sync manager.
+    async fn main(&mut self) {
         // process any inbound messages
         loop {
-            match self.input_channel.poll() {
-                Ok(Async::Ready(Some(message))) => match message {
+            if let Some(sync_message) = self.input_channel.recv().await {
+                match sync_message {
                     SyncMessage::AddPeer(peer_id, info) => {
                         self.add_peer(peer_id, info);
                     }
@@ -792,17 +785,8 @@ impl<T: BeaconChainTypes> Future for SyncManager<T> {
                     SyncMessage::ParentLookupFailed(peer_id) => {
                         self.network.downvote_peer(peer_id);
                     }
-                },
-                Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) => {
-                    return Err("Sync manager channel closed".into());
-                }
-                Err(e) => {
-                    return Err(format!("Sync Manager channel error: {:?}", e));
                 }
             }
         }
-
-        Ok(Async::NotReady)
     }
 }

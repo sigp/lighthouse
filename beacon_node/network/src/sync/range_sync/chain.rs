@@ -31,6 +31,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// be downvoted.
 const INVALID_BATCH_LOOKUP_ATTEMPTS: u8 = 3;
 
+#[derive(PartialEq)]
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is
 /// required.
@@ -380,8 +381,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
             BatchProcessResult::Failed => {
-                warn!(self.log, "Batch processing failed";
-                    "chain_id" => self.id,"id" => *batch.id, "peer" => format!("{}", batch.current_peer));
+                debug!(self.log, "Batch processing failed";
+                    "chain_id" => self.id,"id" => *batch.id, "peer" => batch.current_peer.to_string(), "client" => network.client_type(&batch.current_peer).to_string());
                 // The batch processing failed
                 // This could be because this batch is invalid, or a previous invalidated batch
                 // is invalid. We need to find out which and downvote the peer that has sent us

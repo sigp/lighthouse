@@ -1,15 +1,11 @@
 use clap::{App, Arg, ArgMatches};
 use clap_utils;
 use environment::Environment;
-use futures::{
-    future::{self, loop_fn, Loop},
-    Future,
-};
+use futures::compat::Future01CompatExt;
 use slog::{info, Logger};
 use std::fs;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
-use tokio::timer::Delay;
+use tokio::time::{delay_until, Duration, Instant};
 use types::EthSpec;
 use validator_client::validator_directory::ValidatorDirectoryBuilder;
 use web3::{
@@ -80,7 +76,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Result<(), String> {
+pub fn cli_run<T: EthSpec>(
+    matches: &ArgMatches<'_>,
+    mut env: Environment<T>,
+) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
     let log = env.core_context().log;
 
@@ -138,12 +137,13 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
         let tx_hash_log = log.clone();
 
         env.runtime()
-            .block_on(
+            .block_on(async {
                 ValidatorDirectoryBuilder::default()
                     .spec(spec.clone())
                     .custom_deposit_amount(deposit_gwei)
                     .thread_random_keypairs()
                     .submit_eth1_deposit(web3.clone(), from_address, deposit_contract)
+                    .await
                     .map(move |(builder, tx_hash)| {
                         info!(
                             tx_hash_log,
@@ -152,8 +152,8 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
                             "index" => format!("{}/{}", i + 1, n),
                         );
                         builder
-                    }),
-            )?
+                    })
+            })?
             .create_directory(validator_dir.clone())?
             .write_keypair_files()?
             .write_eth1_data_file()?
@@ -183,73 +183,59 @@ fn existing_validator_count(validator_dir: &PathBuf) -> Result<usize, String> {
 }
 
 /// Run a poll on the `eth_syncing` endpoint, blocking until the node is synced.
-fn poll_until_synced<T>(web3: Web3<T>, log: Logger) -> impl Future<Item = (), Error = String> + Send
+async fn poll_until_synced<T>(web3: Web3<T>, log: Logger) -> Result<(), String>
 where
     T: Transport + Send + 'static,
     <T as Transport>::Out: Send,
 {
-    loop_fn((web3.clone(), log.clone()), move |(web3, log)| {
-        web3.clone()
+    loop {
+        let sync_state = web3
+            .clone()
             .eth()
             .syncing()
-            .map_err(|e| format!("Unable to read syncing state from eth1 node: {:?}", e))
-            .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(move |sync_state| {
-                match sync_state {
-                    SyncState::Syncing(SyncInfo {
-                        current_block,
-                        highest_block,
-                        ..
-                    }) => {
-                        info!(
-                            log,
-                            "Waiting for eth1 node to sync";
-                            "est_highest_block" => format!("{}", highest_block),
-                            "current_block" => format!("{}", current_block),
-                        );
+            .compat()
+            .await
+            .map_err(|e| format!("Unable to read syncing state from eth1 node: {:?}", e))?;
+        match sync_state {
+            SyncState::Syncing(SyncInfo {
+                current_block,
+                highest_block,
+                ..
+            }) => {
+                info!(
+                    log,
+                    "Waiting for eth1 node to sync";
+                    "est_highest_block" => format!("{}", highest_block),
+                    "current_block" => format!("{}", current_block),
+                );
 
-                        Box::new(
-                            Delay::new(Instant::now() + SYNCING_STATE_RETRY_DELAY)
-                                .map_err(|e| format!("Failed to trigger delay: {:?}", e))
-                                .and_then(|_| future::ok(Loop::Continue((web3, log)))),
-                        )
-                    }
-                    SyncState::NotSyncing => Box::new(
-                        web3.clone()
-                            .eth()
-                            .block_number()
-                            .map_err(|e| {
-                                format!("Unable to read block number from eth1 node: {:?}", e)
-                            })
-                            .and_then::<_, Box<dyn Future<Item = _, Error = _> + Send>>(
-                                |block_number| {
-                                    if block_number > 0.into() {
-                                        info!(
-                                            log,
-                                            "Eth1 node is synced";
-                                            "head_block" => format!("{}", block_number),
-                                        );
-                                        Box::new(future::ok(Loop::Break((web3, log))))
-                                    } else {
-                                        Box::new(
-                                            Delay::new(Instant::now() + SYNCING_STATE_RETRY_DELAY)
-                                                .map_err(|e| {
-                                                    format!("Failed to trigger delay: {:?}", e)
-                                                })
-                                                .and_then(|_| {
-                                                    info!(
-                                                        log,
-                                                        "Waiting for eth1 node to sync";
-                                                        "current_block" => 0,
-                                                    );
-                                                    future::ok(Loop::Continue((web3, log)))
-                                                }),
-                                        )
-                                    }
-                                },
-                            ),
-                    ),
+                delay_until(Instant::now() + SYNCING_STATE_RETRY_DELAY).await;
+            }
+            SyncState::NotSyncing => {
+                let block_number = web3
+                    .clone()
+                    .eth()
+                    .block_number()
+                    .compat()
+                    .await
+                    .map_err(|e| format!("Unable to read block number from eth1 node: {:?}", e))?;
+                if block_number > 0.into() {
+                    info!(
+                        log,
+                        "Eth1 node is synced";
+                        "head_block" => format!("{}", block_number),
+                    );
+                    break;
+                } else {
+                    delay_until(Instant::now() + SYNCING_STATE_RETRY_DELAY).await;
+                    info!(
+                        log,
+                        "Waiting for eth1 node to sync";
+                        "current_block" => 0,
+                    );
                 }
-            })
-    })
-    .map(|_| ())
+            }
+        }
+    }
+    Ok(())
 }

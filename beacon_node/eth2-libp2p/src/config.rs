@@ -1,6 +1,6 @@
 use crate::types::GossipKind;
 use crate::Enr;
-use libp2p::discv5::{Discv5Config, Discv5ConfigBuilder};
+use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};

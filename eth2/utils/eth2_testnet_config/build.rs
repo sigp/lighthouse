@@ -46,13 +46,18 @@ pub fn get_file(filename: &str) -> Result<(), String> {
     let mut file =
         File::create(path).map_err(|e| format!("Failed to create {}: {:?}", filename, e))?;
 
-    let mut response = reqwest::get(&url)
+    let request = reqwest::blocking::Client::builder()
+        .build()
+        .map_err(|_| "Could not build request client".to_string())?
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(120));
+
+    let contents = request
+        .send()
         .map_err(|e| format!("Failed to download {}: {}", filename, e))?
         .error_for_status()
-        .map_err(|e| format!("Error downloading {}: {}", filename, e))?;
-    let mut contents: Vec<u8> = vec![];
-    response
-        .copy_to(&mut contents)
+        .map_err(|e| format!("Error downloading {}: {}", filename, e))?
+        .bytes()
         .map_err(|e| format!("Failed to read {} response bytes: {}", filename, e))?;
 
     file.write(&contents)

@@ -3,20 +3,22 @@ use crate::peer_manager::{PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
+use discv5::Discv5Event;
 use futures::prelude::*;
 use libp2p::{
-    core::{identity::Keypair, ConnectedPoint},
-    discv5::Discv5Event,
+    core::identity::Keypair,
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
-    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess},
-    tokio_io::{AsyncRead, AsyncWrite},
+    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters},
     NetworkBehaviour, PeerId,
 };
 use lru::LruCache;
-use slog::{crit, debug, o, warn};
-use std::marker::PhantomData;
-use std::sync::Arc;
+use slog::{crit, debug, o};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use types::{EnrForkId, EthSpec, SubnetId};
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
@@ -26,17 +28,17 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 /// behaviours.
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "BehaviourEvent<TSpec>", poll_method = "poll")]
-pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
+pub struct Behaviour<TSpec: EthSpec> {
     /// The routing pub-sub mechanism for eth2.
-    gossipsub: Gossipsub<TSubstream>,
+    gossipsub: Gossipsub,
     /// The Eth2 RPC specified in the wire-0 protocol.
-    eth2_rpc: RPC<TSubstream, TSpec>,
+    eth2_rpc: RPC<TSpec>,
     /// Keep regular connection to peers and disconnect if absent.
     // TODO: Using id for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
-    identify: Identify<TSubstream>,
+    identify: Identify,
     /// Discovery behaviour.
-    discovery: Discovery<TSubstream, TSpec>,
+    discovery: Discovery<TSpec>,
     /// The peer manager that keeps track of peer's reputation and status.
     #[behaviour(ignore)]
     peer_manager: PeerManager<TSpec>,
@@ -65,7 +67,7 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> {
 }
 
 /// Implements the combined behaviour for the libp2p service.
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
+impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub fn new(
         local_key: &Keypair,
         net_conf: &NetworkConfig,
@@ -114,12 +116,12 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
     }
 
     /// Obtain a reference to the discovery protocol.
-    pub fn discovery(&self) -> &Discovery<TSubstream, TSpec> {
+    pub fn discovery(&self) -> &Discovery<TSpec> {
         &self.discovery
     }
 
     /// Obtain a reference to the gossipsub protocol.
-    pub fn gs(&self) -> &Gossipsub<TSubstream> {
+    pub fn gs(&self) -> &Gossipsub {
         &self.gossipsub
     }
 
@@ -304,8 +306,10 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         };
 
         let event = if is_request {
+            debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
             RPCEvent::Request(id, RPCRequest::Ping(ping))
         } else {
+            debug!(self.log, "Sending Pong"; "request_id" => id, "peer_id" => peer_id.to_string());
             RPCEvent::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)))
         };
         self.send_rpc(peer_id, event);
@@ -326,12 +330,50 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
         );
         self.send_rpc(peer_id, metadata_response);
     }
+
+    /// Returns a reference to the peer manager to allow the swarm to notify the manager of peer
+    /// status
+    pub fn peer_manager(&mut self) -> &mut PeerManager<TSpec> {
+        &mut self.peer_manager
+    }
+
+    /* Address in the new behaviour. Connections are now maintained at the swarm level.
+    /// Notifies the behaviour that a peer has connected.
+    pub fn notify_peer_connect(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
+        match endpoint {
+            ConnectedPoint::Dialer { .. } => self.peer_manager.connect_outgoing(&peer_id),
+            ConnectedPoint::Listener { .. } => self.peer_manager.connect_ingoing(&peer_id),
+        };
+
+        // Find ENR info about a peer if possible.
+        if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
+            let bitfield = match enr.bitfield::<TSpec>() {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(self.log, "Peer has invalid ENR bitfield";
+                                        "peer_id" => format!("{}", peer_id),
+                                        "error" => format!("{:?}", e));
+                    return;
+                }
+            };
+
+            // use this as a baseline, until we get the actual meta-data
+            let meta_data = MetaData {
+                seq_number: 0,
+                attnets: bitfield,
+            };
+            // TODO: Shift to the peer manager
+            self.network_globals
+                .peers
+                .write()
+                .add_metadata(&peer_id, meta_data);
+        }
+    }
+    */
 }
 
 // Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
-    NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<TSubstream, TSpec>
-{
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<TSpec> {
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(propagation_source, id, gs_msg) => {
@@ -358,7 +400,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
                             debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
                         }
                         Ok(msg) => {
-                            crit!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
+                            debug!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
                         }
                     }
                 }
@@ -372,112 +414,66 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec>
-    NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSubstream, TSpec>
-{
-    fn inject_event(&mut self, event: RPCMessage<TSpec>) {
-        match event {
-            // TODO: These are temporary methods to give access to injected behaviour
-            // events to the
-            // peer manager. After a behaviour re-write remove these:
-            RPCMessage::PeerConnectedHack(peer_id, connected_point) => {
-                match connected_point {
-                    ConnectedPoint::Dialer { .. } => self.peer_manager.connect_outgoing(&peer_id),
-                    ConnectedPoint::Listener { .. } => self.peer_manager.connect_ingoing(&peer_id),
-                };
-
-                // Find ENR info about a peer if possible.
-                if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
-                    let bitfield = match enr.bitfield::<TSpec>() {
-                        Ok(v) => v,
-                        Err(e) => {
-                            warn!(self.log, "Peer has invalid ENR bitfield";
-                                        "peer_id" => format!("{}", peer_id),
-                                        "error" => format!("{:?}", e));
-                            return;
-                        }
-                    };
-
-                    // use this as a baseline, until we get the actual meta-data
-                    let meta_data = MetaData {
-                        seq_number: 0,
-                        attnets: bitfield,
-                    };
-                    // TODO: Shift to the peer manager
-                    self.network_globals
-                        .peers
-                        .write()
-                        .add_metadata(&peer_id, meta_data);
-                }
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSpec> {
+    fn inject_event(&mut self, message: RPCMessage<TSpec>) {
+        let peer_id = message.peer_id;
+        // The METADATA and PING RPC responses are handled within the behaviour and not
+        // propagated
+        // TODO: Improve the RPC types to better handle this logic discrepancy
+        match message.event {
+            RPCEvent::Request(id, RPCRequest::Ping(ping)) => {
+                // inform the peer manager and send the response
+                self.peer_manager.ping_request(&peer_id, ping.data);
+                // send a ping response
+                self.send_ping(id, peer_id, false);
             }
-            RPCMessage::PeerDisconnectedHack(peer_id, _connected_point) => {
-                self.peer_manager.notify_disconnect(&peer_id)
+            RPCEvent::Request(id, RPCRequest::MetaData(_)) => {
+                // send the requested meta-data
+                self.send_meta_data_response(id, peer_id);
             }
-
-            RPCMessage::PeerDialed(peer_id) => {
-                self.events.push(BehaviourEvent::PeerDialed(peer_id))
+            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
+                self.peer_manager.pong_response(&peer_id, ping.data);
             }
-            RPCMessage::PeerDisconnected(peer_id) => {
-                self.events.push(BehaviourEvent::PeerDisconnected(peer_id))
+            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::MetaData(meta_data))) => {
+                self.peer_manager.meta_data_response(&peer_id, meta_data);
             }
-            RPCMessage::RPC(peer_id, rpc_event) => {
-                // The METADATA and PING RPC responses are handled within the behaviour and not
-                // propagated
-                // TODO: Improve the RPC types to better handle this logic discrepancy
-                match rpc_event {
-                    RPCEvent::Request(id, RPCRequest::Ping(ping)) => {
-                        // inform the peer manager and send the response
-                        self.peer_manager.ping_request(&peer_id, ping.data);
-                        // send a ping response
-                        self.send_ping(id, peer_id, false);
-                    }
-                    RPCEvent::Request(id, RPCRequest::MetaData(_)) => {
-                        // send the requested meta-data
-                        self.send_meta_data_response(id, peer_id);
-                    }
-                    RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
-                        self.peer_manager.pong_response(&peer_id, ping.data);
-                    }
-                    RPCEvent::Response(
-                        _,
-                        RPCCodedResponse::Success(RPCResponse::MetaData(meta_data)),
-                    ) => {
-                        self.peer_manager.meta_data_response(&peer_id, meta_data);
-                    }
-                    RPCEvent::Request(_, RPCRequest::Status(_))
-                    | RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
-                        // inform the peer manager that we have received a status from a peer
-                        self.peer_manager.peer_statusd(&peer_id);
-                        // propagate the STATUS message upwards
-                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event));
-                    }
-                    RPCEvent::Error(_, protocol, ref err) => {
-                        self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
-                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event));
-                    }
-                    _ => {
-                        // propagate all other RPC messages upwards
-                        self.events.push(BehaviourEvent::RPC(peer_id, rpc_event))
-                    }
-                }
+            RPCEvent::Request(_, RPCRequest::Status(_))
+            | RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
+                // inform the peer manager that we have received a status from a peer
+                self.peer_manager.peer_statusd(&peer_id);
+                // propagate the STATUS message upwards
+                self.events
+                    .push(BehaviourEvent::RPC(peer_id, message.event));
+            }
+            RPCEvent::Error(_, protocol, ref err) => {
+                self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
+                self.events
+                    .push(BehaviourEvent::RPC(peer_id, message.event));
+            }
+            _ => {
+                // propagate all other RPC messages upwards
+                self.events
+                    .push(BehaviourEvent::RPC(peer_id, message.event))
             }
         }
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, TSpec> {
+impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Consumes the events list when polled.
     fn poll<TBehaviourIn>(
         &mut self,
-    ) -> Async<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
+        cx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
         // check the peer manager for events
         loop {
-            match self.peer_manager.poll() {
-                Ok(Async::Ready(Some(event))) => match event {
+            match self.peer_manager.poll_next_unpin(cx) {
+                Poll::Ready(Some(event)) => match event {
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
                         // the network to send a status to this peer
-                        return Async::Ready(NetworkBehaviourAction::GenerateEvent(
+                        return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
                             BehaviourEvent::StatusPeer(peer_id),
                         ));
                     }
@@ -495,25 +491,20 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> Behaviour<TSubstream, T
                         //TODO: Implement
                     }
                 },
-                Ok(Async::NotReady) => break,
-                Ok(Async::Ready(None)) | Err(_) => {
-                    crit!(self.log, "Error polling peer manager");
-                    break;
-                }
+                Poll::Pending => break,
+                Poll::Ready(None) => break, // peer manager ended
             }
         }
 
         if !self.events.is_empty() {
-            return Async::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
         }
 
-        Async::NotReady
+        Poll::Pending
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent>
-    for Behaviour<TSubstream, TSpec>
-{
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<TSpec> {
     fn inject_event(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received {
@@ -545,9 +536,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventPr
     }
 }
 
-impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventProcess<Discv5Event>
-    for Behaviour<TSubstream, TSpec>
-{
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<Discv5Event> for Behaviour<TSpec> {
     fn inject_event(&mut self, _event: Discv5Event) {
         // discv5 has no events to inject
     }
@@ -558,11 +547,6 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSpec: EthSpec> NetworkBehaviourEventPr
 pub enum BehaviourEvent<TSpec: EthSpec> {
     /// A received RPC event and the peer that it was received from.
     RPC(PeerId, RPCEvent<TSpec>),
-    /// We have completed an initial connection to a new peer.
-    PeerDialed(PeerId),
-    /// A peer has disconnected.
-    PeerDisconnected(PeerId),
-    /// A gossipsub message has been received.
     PubsubMessage {
         /// The gossipsub message id. Used when propagating blocks after validation.
         id: MessageId,

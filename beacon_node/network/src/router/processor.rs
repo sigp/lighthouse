@@ -44,7 +44,7 @@ pub struct Processor<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> Processor<T> {
     /// Instantiate a `Processor` instance
     pub fn new(
-        executor: &tokio::runtime::TaskExecutor,
+        runtime_handle: &tokio::runtime::Handle,
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -54,7 +54,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // spawn the sync thread
         let (sync_send, _sync_exit) = crate::sync::manager::spawn(
-            executor,
+            runtime_handle,
             beacon_chain.clone(),
             network_globals,
             network_send.clone(),
@@ -71,7 +71,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     }
 
     fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
-        self.sync_send.try_send(message).unwrap_or_else(|_| {
+        self.sync_send.send(message).unwrap_or_else(|_| {
             warn!(
                 self.log,
                 "Could not send message to the sync service";
@@ -485,10 +485,9 @@ impl<T: BeaconChainTypes> Processor<T> {
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let result = self.chain.verify_block_for_gossip(*block.clone());
 
-        if let Err(BlockError::ParentUnknown(block_hash)) = result {
+        if let Err(BlockError::ParentUnknown(_)) = result {
             // if we don't know the parent, start a parent lookup
             // TODO: Modify the return to avoid the block clone.
-            debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => format!("{}", block_hash));
             self.send_to_sync(SyncMessage::UnknownBlock(peer_id.clone(), block));
         }
         result
@@ -929,7 +928,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         );
         self.send_rpc_request(peer_id.clone(), RPCRequest::Goodbye(reason));
         self.network_send
-            .try_send(NetworkMessage::Disconnect { peer_id })
+            .send(NetworkMessage::Disconnect { peer_id })
             .unwrap_or_else(|_| {
                 warn!(
                     self.log,
@@ -970,7 +969,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
 
     fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent<T>) {
         self.network_send
-            .try_send(NetworkMessage::RPC(peer_id, rpc_event))
+            .send(NetworkMessage::RPC(peer_id, rpc_event))
             .unwrap_or_else(|_| {
                 warn!(
                     self.log,

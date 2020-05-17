@@ -1,7 +1,6 @@
 use clap::ArgMatches;
 use environment::Environment;
 use eth2_testnet_config::Eth2TestnetConfig;
-use futures::Future;
 use genesis::{Eth1Config, Eth1GenesisService};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -10,7 +9,7 @@ use types::EthSpec;
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
     let endpoint = matches
         .value_of("eth1-endpoint")
         .ok_or_else(|| "eth1-endpoint not specified")?;
@@ -49,19 +48,19 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     let genesis_service = Eth1GenesisService::new(config, env.core_context().log.clone());
 
-    let future = genesis_service
-        .wait_for_genesis_state(ETH1_GENESIS_UPDATE_INTERVAL, spec)
-        .map(move |genesis_state| {
-            eth2_testnet_config.genesis_state = Some(genesis_state);
-            eth2_testnet_config.force_write_to_file(testnet_dir)
-        });
+    env.runtime().block_on(async {
+        let _ = genesis_service
+            .wait_for_genesis_state(ETH1_GENESIS_UPDATE_INTERVAL, spec)
+            .await
+            .map(move |genesis_state| {
+                eth2_testnet_config.genesis_state = Some(genesis_state);
+                eth2_testnet_config.force_write_to_file(testnet_dir)
+            })
+            .map_err(|e| format!("Failed to find genesis: {}", e))?;
 
-    info!("Starting service to produce genesis BeaconState from eth1");
-    info!("Connecting to eth1 http endpoint: {}", endpoint);
+        info!("Starting service to produce genesis BeaconState from eth1");
+        info!("Connecting to eth1 http endpoint: {}", endpoint);
 
-    env.runtime()
-        .block_on(future)
-        .map_err(|e| format!("Failed to find genesis: {}", e))??;
-
-    Ok(())
+        Ok(())
+    })
 }

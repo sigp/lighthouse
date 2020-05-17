@@ -1,7 +1,6 @@
 use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
-use futures::Future;
 use slog::{debug, error, trace, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -286,11 +285,10 @@ impl<T: EthSpec, S: Store<T>> CachingEth1Backend<T, S> {
     }
 
     /// Starts the routine which connects to the external eth1 node and updates the caches.
-    pub fn start(
-        &self,
-        exit: tokio::sync::oneshot::Receiver<()>,
-    ) -> impl Future<Item = (), Error = ()> {
-        self.core.auto_update(exit)
+    pub fn start(&self, exit: tokio::sync::oneshot::Receiver<()>) {
+        // don't need to spawn as a task is being spawned in auto_update
+        // TODO: check if this is correct
+        HttpService::auto_update(self.core.clone(), exit);
     }
 
     /// Instantiates `self` from an existing service.

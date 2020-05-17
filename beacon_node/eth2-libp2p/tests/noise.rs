@@ -1,39 +1,39 @@
 #![cfg(test)]
-use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::behaviour::Behaviour;
 use crate::multiaddr::Protocol;
 use ::types::{EnrForkId, MinimalEthSpec};
-use eth2_libp2p::discovery::build_enr;
+use eth2_libp2p::discovery::{build_enr, CombinedKey, CombinedKeyExt};
 use eth2_libp2p::*;
 use futures::prelude::*;
 use libp2p::core::identity::Keypair;
 use libp2p::{
     core,
-    core::{muxing::StreamMuxerBox, nodes::Substream, transport::boxed::Boxed},
-    secio, PeerId, Swarm, Transport,
+    core::{muxing::StreamMuxerBox, transport::boxed::Boxed},
+    secio,
+    swarm::{SwarmBuilder, SwarmEvent},
+    PeerId, Swarm, Transport,
 };
 use slog::{crit, debug, info, Level};
-use std::convert::TryInto;
 use std::io::{Error, ErrorKind};
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::prelude::*;
 
 type TSpec = MinimalEthSpec;
 
 mod common;
 
-type Libp2pStream = Boxed<(PeerId, StreamMuxerBox), Error>;
-type Libp2pBehaviour = Behaviour<Substream<StreamMuxerBox>, TSpec>;
+type Libp2pBehaviour = Behaviour<TSpec>;
 
 /// Build and return a eth2_libp2p Swarm with only secio support.
 fn build_secio_swarm(
     config: &NetworkConfig,
     log: slog::Logger,
-) -> error::Result<Swarm<Libp2pStream, Libp2pBehaviour>> {
+) -> error::Result<Swarm<Libp2pBehaviour>> {
     let local_keypair = Keypair::generate_secp256k1();
     let local_peer_id = PeerId::from(local_keypair.public());
-    let enr_key: libp2p::discv5::enr::CombinedKey = local_keypair.clone().try_into().unwrap();
+    let enr_key = CombinedKey::from_libp2p(&local_keypair).unwrap();
+
     let enr = build_enr::<TSpec>(&enr_key, config, EnrForkId::default()).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr,
@@ -47,7 +47,16 @@ fn build_secio_swarm(
         let transport = build_secio_transport(local_keypair.clone());
         // Lighthouse network behaviour
         let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
-        Swarm::new(transport, behaviour, local_peer_id.clone())
+        // requires a tokio runtime
+        struct Executor(tokio::runtime::Handle);
+        impl libp2p::core::Executor for Executor {
+            fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
+                self.0.spawn(f);
+            }
+        }
+        SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
+            .executor(Box::new(Executor(tokio::runtime::Handle::current())))
+            .build()
     };
 
     // listen on the specified address
@@ -101,7 +110,7 @@ fn build_secio_swarm(
 
 /// Build a simple TCP transport with secio, mplex/yamux.
 fn build_secio_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMuxerBox), Error> {
-    let transport = libp2p::tcp::TcpConfig::new().nodelay(true);
+    let transport = libp2p_tcp::TokioTcpConfig::new().nodelay(true);
     transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(secio::SecioConfig::new(local_private_key))
@@ -117,8 +126,8 @@ fn build_secio_transport(local_private_key: Keypair) -> Boxed<(PeerId, StreamMux
 }
 
 /// Test if the encryption falls back to secio if noise isn't available
-#[test]
-fn test_secio_noise_fallback() {
+#[tokio::test]
+async fn test_secio_noise_fallback() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
     let enable_logging = false;
@@ -127,7 +136,7 @@ fn test_secio_noise_fallback() {
 
     let port = common::unused_port("tcp").unwrap();
     let noisy_config = common::build_config(port, vec![], None);
-    let mut noisy_node = Service::new(&noisy_config, EnrForkId::default(), log.clone())
+    let mut noisy_node = Service::new(&noisy_config, EnrForkId::default(), &log)
         .expect("should build a libp2p instance")
         .1;
 
@@ -142,40 +151,31 @@ fn test_secio_noise_fallback() {
 
     let secio_log = log.clone();
 
-    let noisy_future = future::poll_fn(move || -> Poll<bool, ()> {
+    let noisy_future = async {
         loop {
-            match noisy_node.poll().unwrap() {
-                _ => return Ok(Async::NotReady),
-            }
+            noisy_node.next_event().await;
         }
-    });
+    };
 
-    let secio_future = future::poll_fn(move || -> Poll<bool, ()> {
+    let secio_future = async {
         loop {
-            match secio_swarm.poll().unwrap() {
-                Async::Ready(Some(BehaviourEvent::PeerDialed(peer_id))) => {
+            match secio_swarm.next_event().await {
+                SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                     // secio node negotiated a secio transport with
                     // the noise compatible node
                     info!(secio_log, "Connected to peer {}", peer_id);
-                    return Ok(Async::Ready(true));
+                    return;
                 }
-                _ => return Ok(Async::NotReady),
+                _ => {} // Ignore all other events
             }
         }
-    });
+    };
 
-    // execute the futures and check the result
-    let test_result = Arc::new(AtomicBool::new(false));
-    let error_result = test_result.clone();
-    let thread_result = test_result.clone();
-    tokio::run(
-        noisy_future
-            .select(secio_future)
-            .timeout(Duration::from_millis(1000))
-            .map_err(move |_| error_result.store(false, Relaxed))
-            .map(move |result| {
-                thread_result.store(result.0, Relaxed);
-            }),
-    );
-    assert!(test_result.load(Relaxed));
+    tokio::select! {
+        _ = noisy_future => {}
+        _ = secio_future => {}
+        _ = tokio::time::delay_for(Duration::from_millis(800)) => {
+            panic!("Future timed out");
+        }
+    }
 }

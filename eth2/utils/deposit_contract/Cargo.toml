@@ -7,11 +7,11 @@ edition = "2018"
 build = "build.rs"
 
 [build-dependencies]
-reqwest = "0.9.20"
-serde_json = "1.0"
+reqwest = { version = "0.10.4", features = ["blocking", "json"] }
+serde_json = "1.0.52"
 
 [dependencies]
 types = { path = "../../types"}
-eth2_ssz = { path = "../ssz"}
-tree_hash = { path = "../tree_hash"}
-ethabi = "12.0"
+eth2_ssz = "0.1.2"
+tree_hash = "0.1.0"
+ethabi = "12.0.0"

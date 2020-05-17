@@ -4,12 +4,11 @@
 //! direct peer-to-peer communication primarily for sending/receiving chain information for
 //! syncing.
 
-use futures::prelude::*;
 use handler::RPCHandler;
-use libp2p::core::ConnectedPoint;
+use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
-    protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-    SubstreamProtocol,
+    protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
+    PollParameters, SubstreamProtocol,
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{
@@ -19,8 +18,8 @@ pub use methods::{
 pub use protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use slog::{debug, o};
 use std::marker::PhantomData;
+use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite};
 use types::EthSpec;
 
 pub(crate) mod codec;
@@ -29,7 +28,7 @@ pub mod methods;
 mod protocol;
 
 /// The return type used in the behaviour and the resultant event from the protocols handler.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RPCEvent<T: EthSpec> {
     /// An inbound/outbound request for RPC protocol. The first parameter is a sequential
     /// id which tracks an awaiting substream for the response.
@@ -40,6 +39,14 @@ pub enum RPCEvent<T: EthSpec> {
     Response(RequestId, RPCCodedResponse<T>),
     /// An Error occurred.
     Error(RequestId, Protocol, RPCError),
+}
+
+/// Messages sent to the user from the RPC protocol.
+pub struct RPCMessage<TSpec: EthSpec> {
+    /// The peer that sent the message.
+    pub peer_id: PeerId,
+    /// The message that was sent.
+    pub event: RPCEvent<TSpec>,
 }
 
 impl<T: EthSpec> RPCEvent<T> {
@@ -68,21 +75,18 @@ impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-pub struct RPC<TSubstream, TSpec: EthSpec> {
+pub struct RPC<TSpec: EthSpec> {
     /// Queue of events to processed.
     events: Vec<NetworkBehaviourAction<RPCEvent<TSpec>, RPCMessage<TSpec>>>,
-    /// Pins the generic substream.
-    marker: PhantomData<TSubstream>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
-impl<TSubstream, TSpec: EthSpec> RPC<TSubstream, TSpec> {
+impl<TSpec: EthSpec> RPC<TSpec> {
     pub fn new(log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         RPC {
             events: Vec::new(),
-            marker: PhantomData,
             log,
         }
     }
@@ -91,19 +95,19 @@ impl<TSubstream, TSpec: EthSpec> RPC<TSubstream, TSpec> {
     ///
     /// The peer must be connected for this to succeed.
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
-        self.events.push(NetworkBehaviourAction::SendEvent {
+        self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
+            handler: NotifyHandler::Any,
             event: rpc_event,
         });
     }
 }
 
-impl<TSubstream, TSpec> NetworkBehaviour for RPC<TSubstream, TSpec>
+impl<TSpec> NetworkBehaviour for RPC<TSpec>
 where
-    TSubstream: AsyncRead + AsyncWrite,
     TSpec: EthSpec,
 {
-    type ProtocolsHandler = RPCHandler<TSubstream, TSpec>;
+    type ProtocolsHandler = RPCHandler<TSpec>;
     type OutEvent = RPCMessage<TSpec>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
@@ -121,75 +125,64 @@ where
         Vec::new()
     }
 
-    fn inject_connected(&mut self, peer_id: PeerId, connected_point: ConnectedPoint) {
-        // TODO: Remove this on proper peer discovery
-        self.events.push(NetworkBehaviourAction::GenerateEvent(
-            RPCMessage::PeerConnectedHack(peer_id.clone(), connected_point.clone()),
-        ));
-        // if initialised the connection, report this upwards to send the HELLO request
-        if let ConnectedPoint::Dialer { .. } = connected_point {
-            self.events.push(NetworkBehaviourAction::GenerateEvent(
-                RPCMessage::PeerDialed(peer_id.clone()),
-            ));
-        }
-
+    // Use connection established/closed instead of these currently
+    fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
         let rpc_event =
             RPCEvent::Request(RequestId::from(0usize), RPCRequest::MetaData(PhantomData));
-        self.events.push(NetworkBehaviourAction::SendEvent {
-            peer_id,
+        self.events.push(NetworkBehaviourAction::NotifyHandler {
+            peer_id: peer_id.clone(),
+            handler: NotifyHandler::Any,
             event: rpc_event,
         });
     }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId, connected_point: ConnectedPoint) {
-        // TODO: Remove this on proper peer discovery
-        self.events.push(NetworkBehaviourAction::GenerateEvent(
-            RPCMessage::PeerDisconnectedHack(peer_id.clone(), connected_point.clone()),
-        ));
+    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
 
-        // inform the rpc handler that the peer has disconnected
-        self.events.push(NetworkBehaviourAction::GenerateEvent(
-            RPCMessage::PeerDisconnected(peer_id.clone()),
-        ));
+    fn inject_connection_established(
+        &mut self,
+        _peer_id: &PeerId,
+        _: &ConnectionId,
+        _connected_point: &ConnectedPoint,
+    ) {
     }
 
-    fn inject_node_event(
+    fn inject_connection_closed(
+        &mut self,
+        _peer_id: &PeerId,
+        _: &ConnectionId,
+        _connected_point: &ConnectedPoint,
+    ) {
+    }
+
+    fn inject_event(
         &mut self,
         source: PeerId,
+        _: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         // send the event to the user
         self.events
-            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage::RPC(
-                source, event,
-            )));
+            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                peer_id: source,
+                event,
+            }));
     }
 
     fn poll(
         &mut self,
+        _cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Async<
+    ) -> Poll<
         NetworkBehaviourAction<
             <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
             Self::OutEvent,
         >,
     > {
         if !self.events.is_empty() {
-            return Async::Ready(self.events.remove(0));
+            return Poll::Ready(self.events.remove(0));
         }
-        Async::NotReady
+        Poll::Pending
     }
-}
-
-/// Messages sent to the user from the RPC protocol.
-pub enum RPCMessage<TSpec: EthSpec> {
-    RPC(PeerId, RPCEvent<TSpec>),
-    PeerDialed(PeerId),
-    PeerDisconnected(PeerId),
-    // TODO: This is a hack to give access to connections to peer manager. Remove this once
-    // behaviour is re-written
-    PeerConnectedHack(PeerId, ConnectedPoint),
-    PeerDisconnectedHack(PeerId, ConnectedPoint),
 }

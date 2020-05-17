@@ -1,9 +1,6 @@
-use futures::Future;
 use slog::{debug, error, info, warn, Logger};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
-use std::thread;
-use tokio::runtime::TaskExecutor;
 use types::EthSpec;
 use ws::{Sender, WebSocket};
 
@@ -38,7 +35,6 @@ impl<T: EthSpec> WebSocketSender<T> {
 
 pub fn start_server<T: EthSpec>(
     config: &Config,
-    executor: &TaskExecutor,
     log: &Logger,
 ) -> Result<
     (
@@ -76,30 +72,29 @@ pub fn start_server<T: EthSpec>(
 
         let log_inner = log.clone();
         let broadcaster_inner = server.broadcaster();
-        let exit_future = exit
-            .and_then(move |_| {
-                if let Err(e) = broadcaster_inner.shutdown() {
-                    warn!(
-                        log_inner,
-                        "Websocket server errored on shutdown";
-                        "error" => format!("{:?}", e)
-                    );
-                } else {
-                    info!(log_inner, "Websocket server shutdown");
-                }
-                Ok(())
-            })
-            .map_err(|_| ());
+        let exit_future = async move {
+            let _ = exit.await;
+            if let Err(e) = broadcaster_inner.shutdown() {
+                warn!(
+                    log_inner,
+                    "Websocket server errored on shutdown";
+                    "error" => format!("{:?}", e)
+                );
+            } else {
+                info!(log_inner, "Websocket server shutdown");
+            }
+        };
 
-        // Place a future on the executor that will shutdown the websocket server when the
+        // Place a future on the handle that will shutdown the websocket server when the
         // application exits.
-        executor.spawn(exit_future);
+        tokio::spawn(exit_future);
 
         exit_channel
     };
 
     let log_inner = log.clone();
-    let _handle = thread::spawn(move || match server.run() {
+
+    let _ = std::thread::spawn(move || match server.run() {
         Ok(_) => {
             debug!(
                 log_inner,

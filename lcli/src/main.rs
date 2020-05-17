@@ -465,7 +465,10 @@ fn main() {
     }
 }
 
-fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> Result<(), String> {
+fn run<T: EthSpec>(
+    env_builder: EnvironmentBuilder<T>,
+    matches: &ArgMatches<'_>,
+) -> Result<(), String> {
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?

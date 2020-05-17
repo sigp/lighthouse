@@ -1,4 +1,4 @@
-use futures::Future;
+use futures::compat::Future01CompatExt;
 use serde_json::json;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -98,28 +98,34 @@ impl GanacheInstance {
     }
 
     /// Increase the timestamp on future blocks by `increase_by` seconds.
-    pub fn increase_time(&self, increase_by: u64) -> impl Future<Item = (), Error = String> {
+    pub async fn increase_time(&self, increase_by: u64) -> Result<(), String> {
         self.web3
             .transport()
             .execute("evm_increaseTime", vec![json!(increase_by)])
+            .compat()
+            .await
             .map(|_json_value| ())
             .map_err(|e| format!("Failed to increase time on EVM (is this ganache?): {:?}", e))
     }
 
     /// Returns the current block number, as u64
-    pub fn block_number(&self) -> impl Future<Item = u64, Error = String> {
+    pub async fn block_number(&self) -> Result<u64, String> {
         self.web3
             .eth()
             .block_number()
+            .compat()
+            .await
             .map(|v| v.as_u64())
             .map_err(|e| format!("Failed to get block number: {:?}", e))
     }
 
     /// Mines a single block.
-    pub fn evm_mine(&self) -> impl Future<Item = (), Error = String> {
+    pub async fn evm_mine(&self) -> Result<(), String> {
         self.web3
             .transport()
             .execute("evm_mine", vec![])
+            .compat()
+            .await
             .map(|_| ())
             .map_err(|_| {
                 "utils should mine new block with evm_mine (only works with ganache-cli!)"
