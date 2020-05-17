@@ -236,6 +236,117 @@ async fn test_blocks_by_range_chunked_rpc() {
 }
 
 #[tokio::test]
+// Tests that a streamed BlocksByRange RPC Message terminates when all expected chunks were received
+async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Trace;
+    let enable_logging = false;
+
+    let messages_to_send = 10;
+
+    let log = common::build_log(log_level, enable_logging);
+
+    // get sender/receiver
+    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+
+    // BlocksByRange Request
+    let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
+        start_slot: 0,
+        count: messages_to_send,
+        step: 0,
+    });
+
+    // BlocksByRange Response
+    let spec = E::default_spec();
+    let empty_block = BeaconBlock::empty(&spec);
+    let empty_signed = SignedBeaconBlock {
+        message: empty_block,
+        signature: Signature::empty_signature(),
+    };
+    let rpc_response = RPCResponse::BlocksByRange(Box::new(empty_signed));
+
+    // keep count of the number of messages received
+    let mut messages_received: u64 = 0;
+    // build the sender future
+    let sender_future = async {
+        loop {
+            match sender.next_event().await {
+                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                    // Send a STATUS message
+                    debug!(log, "Sending RPC");
+                    sender
+                        .swarm
+                        .send_rpc(peer_id, RPCEvent::Request(10, rpc_request.clone()));
+                }
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(_, event)) => match event {
+                    // Should receive the RPC response
+                    RPCEvent::Response(id, response) => {
+                        if id == 10 {
+                            warn!(log, "Sender received a response");
+                            match response {
+                                RPCCodedResponse::Success(res) => {
+                                    assert_eq!(res, rpc_response.clone());
+                                    messages_received += 1;
+                                    warn!(log, "Chunk received");
+                                }
+                                _ => panic!("Invalid RPC received"),
+                            }
+                        }
+                    }
+                    RPCEvent::Error(id, protocol, error) => {
+                        if id == 10 {
+                            assert_eq!(messages_received, messages_to_send);
+                            return;
+                        }
+                    }
+                    _ => {} // Ignore other RPC messages
+                },
+                _ => {} // Ignore other behaviour events
+            }
+        }
+    };
+
+    // build the receiver future
+    let receiver_future = async {
+        loop {
+            match receiver.next_event().await {
+                Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
+                    match event {
+                        // Should receive sent RPC request
+                        RPCEvent::Request(id, request) => {
+                            if request == rpc_request {
+                                // send the response
+                                warn!(log, "Receiver got request");
+
+                                for _ in 1..=messages_to_send + 10 {
+                                    receiver.swarm.send_rpc(
+                                        peer_id.clone(),
+                                        RPCEvent::Response(
+                                            id,
+                                            RPCCodedResponse::Success(rpc_response.clone()),
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                        _ => {} // Ignore other events
+                    }
+                }
+                _ => {} // Ignore other events
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = sender_future => {}
+        _ = receiver_future => {}
+        _ = delay_for(Duration::from_millis(5000)) => {
+            panic!("Future timed out");
+        }
+    }
+}
+
+#[tokio::test]
 // Tests an empty response to a BlocksByRange RPC Message
 async fn test_blocks_by_range_single_empty_rpc() {
     // set up the logging. The level and enabled logging or not

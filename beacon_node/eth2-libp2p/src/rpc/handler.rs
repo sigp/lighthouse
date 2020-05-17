@@ -1,7 +1,9 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{ErrorMessage, RPCCodedResponse, RequestId, ResponseTermination};
+use super::methods::{
+    ErrorMessage, RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
+};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -827,34 +829,29 @@ where
                                     let delay_key = &substream_entry.1;
                                     let remaining_number_of_chunks_for_this_stream =
                                         substream_entry.3;
-                                    if remaining_number_of_chunks_for_this_stream == Some(0) {
-                                        // close the stream if all expected chunks have been received
-                                        substream_entry.0 =
-                                            OutboundSubstreamState::Closing(substream);
-                                        return Poll::Ready(ProtocolsHandlerEvent::Custom(
-                                            RPCEvent::Response(
-                                                request_id,
-                                                RPCCodedResponse::StreamTermination(
-                                                    request.stream_termination(),
-                                                ),
-                                            ),
-                                        ));
-                                    }
 
                                     let remaining_number_of_chunks_after_this_chunk =
                                         remaining_number_of_chunks_for_this_stream
                                             .map(|count| count.saturating_sub(1))
                                             .unwrap_or_else(|| 0);
-                                    // If the response chunk was expected update the remaining number of chunks expected and reset the Timeout
-                                    substream_entry.0 =
-                                        OutboundSubstreamState::RequestPendingResponse {
-                                            substream,
-                                            request,
-                                        };
-                                    substream_entry.3 =
-                                        Some(remaining_number_of_chunks_after_this_chunk);
-                                    self.outbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                    if remaining_number_of_chunks_after_this_chunk == 0 {
+                                        // close the stream if all expected chunks have been received
+                                        substream_entry.0 =
+                                            OutboundSubstreamState::Closing(substream);
+                                    } else {
+                                        // If the response chunk was expected update the remaining number of chunks expected and reset the Timeout
+                                        substream_entry.0 =
+                                            OutboundSubstreamState::RequestPendingResponse {
+                                                substream,
+                                                request,
+                                            };
+                                        substream_entry.3 =
+                                            Some(remaining_number_of_chunks_after_this_chunk);
+                                        self.outbound_substreams_delay.reset(
+                                            delay_key,
+                                            Duration::from_secs(RESPONSE_TIMEOUT),
+                                        );
+                                    }
                                 } else {
                                     // either this is a single response request or we received an
                                     // error
@@ -919,6 +916,7 @@ where
                                 Poll::Ready(_) => {
                                     // drop the stream - including if there is an error
                                     let delay_key = &entry.get().1;
+                                    let protocol = entry.get().2;
                                     self.outbound_substreams_delay.remove(delay_key);
                                     entry.remove_entry();
 
@@ -928,6 +926,31 @@ where
                                         self.keep_alive = KeepAlive::Until(
                                             Instant::now() + self.inactive_timeout,
                                         );
+                                    }
+                                    match protocol {
+                                        Protocol::BlocksByRange => {
+                                            return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                                RPCEvent::Error(
+                                                    request_id,
+                                                    protocol,
+                                                    RPCError::ErrorResponse(
+                                                        RPCResponseErrorCode::ServerError,
+                                                    ),
+                                                ),
+                                            ));
+                                        }
+                                        Protocol::BlocksByRoot => {
+                                            return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                                RPCEvent::Error(
+                                                    request_id,
+                                                    protocol,
+                                                    RPCError::ErrorResponse(
+                                                        RPCResponseErrorCode::ServerError,
+                                                    ),
+                                                ),
+                                            ));
+                                        }
+                                        _ => {}
                                     }
                                 }
                                 Poll::Pending => {
