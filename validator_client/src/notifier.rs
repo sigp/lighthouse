@@ -1,4 +1,4 @@
-use crate::ProductionValidatorClient;
+use crate::{is_synced::is_synced, ProductionValidatorClient};
 use exit_future::Signal;
 use futures::{FutureExt, StreamExt};
 use slog::{error, info};
@@ -12,10 +12,10 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let runtime_handle = context.runtime_handle.clone();
     let log = context.log.clone();
     let duties_service = client.duties_service.clone();
+    let allow_unsynced_beacon_node = client.config.allow_unsynced_beacon_node;
 
     let slot_duration = Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot);
-    let duration_to_next_slot = client
-        .duties_service
+    let duration_to_next_slot = duties_service
         .slot_clock
         .duration_to_next_slot()
         .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
@@ -28,6 +28,17 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
         let log = &context.log;
 
         while interval.next().await.is_some() {
+            if !is_synced(
+                &duties_service.beacon_node,
+                &duties_service.slot_clock,
+                Some(&log),
+            )
+            .await
+                && !allow_unsynced_beacon_node
+            {
+                continue;
+            }
+
             if let Some(slot) = duties_service.slot_clock.now() {
                 let epoch = slot.epoch(T::slots_per_epoch());
 
