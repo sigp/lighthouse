@@ -1,17 +1,67 @@
-use clap::ArgMatches;
+//! This command allows migrating from the old method of storing keys (serialize them, unencrypted
+//! as SSZ to a file) to the current method of using encrypted EIP-2335 keystores.
+//!
+//! This command should be completely removed once the `unencrypted_keys` feature is removed from
+//! the `validator_dir` command. This should hopefully be in mid-June 2020.
+//!
+//! ## Example
+//!
+//! This command will upgrade all keypairs in the `--validators-dir`, storing the newly-generate
+//! passwords in `--secrets-dir`.
+//!
+//! ```ignore
+//! lighthouse am upgrade-legacy-keypairs \
+//!     --validators-dir ~/.lighthouse/validators \
+//!     --secrets-dir ~/.lighthouse/secrets
+//! ```
+
+use crate::{SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use clap::{App, Arg, ArgMatches};
 use clap_utils::parse_required;
 use eth2_keystore::KeystoreBuilder;
 use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{read_dir, write, File};
+use std::fs::{create_dir_all, read_dir, write, File};
 use std::path::{Path, PathBuf};
-use types::{EthSpec, Keypair};
+use types::Keypair;
 use validator_dir::{
     unencrypted_keys::load_unencrypted_keypair, VOTING_KEYSTORE_FILE, WITHDRAWAL_KEYSTORE_FILE,
 };
 
-pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let validators_dir: PathBuf = parse_required(matches, "validators-dir")?;
-    let secrets_dir: PathBuf = parse_required(matches, "secrets-dir")?;
+pub const CMD: &str = "upgrade-legacy-keypairs";
+pub const VOTING_KEYPAIR_FILE: &str = "voting_keypair";
+pub const WITHDRAWAL_KEYPAIR_FILE: &str = "withdrawal_keypair";
+
+pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+    App::new(CMD)
+        .about(
+            "Converts legacy unencrypted SSZ keypairs into encrypted keystores.",
+        )
+        .arg(
+            Arg::with_name(VALIDATOR_DIR_FLAG)
+                .long(VALIDATOR_DIR_FLAG)
+                .value_name("VALIDATORS_DIRECTORY")
+                .takes_value(true)
+                .required(true)
+                .help("The directory containing legacy validators. Generally ~/.lighthouse/validators"),
+        )
+        .arg(
+            Arg::with_name(SECRETS_DIR_FLAG)
+                .long(SECRETS_DIR_FLAG)
+                .value_name("SECRETS_DIRECTORY")
+                .takes_value(true)
+                .required(true)
+                .help("The directory where keystore passwords will be stored. Generally ~/.lighthouse/secrets"),
+        )
+}
+
+pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
+    let validators_dir: PathBuf = parse_required(matches, VALIDATOR_DIR_FLAG)?;
+    let secrets_dir: PathBuf = parse_required(matches, SECRETS_DIR_FLAG)?;
+
+    if !secrets_dir.exists() {
+        create_dir_all(&secrets_dir)
+            .map_err(|e| format!("Failed to create secrets dir {:?}: {:?}", secrets_dir, e))?;
+    }
 
     read_dir(&validators_dir)
         .map_err(|e| {
@@ -26,9 +76,12 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
                 .path();
 
             if path.is_dir() {
-                if let Err(e) =
-                    upgrade_keypair(&path, &secrets_dir, "voting_keypair", VOTING_KEYSTORE_FILE)
-                {
+                if let Err(e) = upgrade_keypair(
+                    &path,
+                    &secrets_dir,
+                    VOTING_KEYPAIR_FILE,
+                    VOTING_KEYSTORE_FILE,
+                ) {
                     println!("Validator {:?}: {:?}", path, e);
                 } else {
                     println!("Validator {:?} voting keys: success", path);
@@ -37,7 +90,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
                 if let Err(e) = upgrade_keypair(
                     &path,
                     &secrets_dir,
-                    "withdrawal_keypair",
+                    WITHDRAWAL_KEYPAIR_FILE,
                     WITHDRAWAL_KEYSTORE_FILE,
                 ) {
                     println!("Validator {:?}: {:?}", path, e);

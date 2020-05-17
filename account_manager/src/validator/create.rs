@@ -1,6 +1,7 @@
 use crate::{
     common::{ensure_dir_exists, random_password},
     wallet::BASE_DIR_FLAG,
+    SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
 };
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
@@ -14,8 +15,6 @@ use validator_dir::Builder as ValidatorDirBuilder;
 pub const CMD: &str = "create";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
 pub const WALLET_PASSPHRASE_FLAG: &str = "wallet-passphrase";
-pub const VALIDATOR_DIR_FLAG: &str = "validator-dir";
-pub const SECRETS_DIR_FLAG: &str = "secrets-dir";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
 pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
 pub const COUNT_FLAG: &str = "count";

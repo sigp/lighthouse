@@ -1,18 +1,20 @@
 use account_manager::{
+    upgrade_legacy_keypairs::{CMD as UPGRADE_CMD, *},
     validator::{create::*, CMD as VALIDATOR_CMD},
     wallet::{
         create::{CMD as CREATE_CMD, *},
         list::CMD as LIST_CMD,
         BASE_DIR_FLAG, CMD as WALLET_CMD,
     },
-    CMD as ACCOUNT_CMD,
+    CMD as ACCOUNT_CMD, *,
 };
 use std::env;
-use std::fs::read_dir;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
+use types::Keypair;
 use validator_dir::ValidatorDir;
 
 // TODO: create tests for the `lighthouse account validator deposit` command. This involves getting
@@ -53,7 +55,7 @@ fn output_result(cmd: &mut Command) -> Result<Output, String> {
 
 /// Returns the number of nodes in a directory.
 fn dir_child_count<P: AsRef<Path>>(dir: P) -> usize {
-    read_dir(dir).expect("should read dir").count()
+    fs::read_dir(dir).expect("should read dir").count()
 }
 
 /// Uses `lighthouse account wallet list` to list all wallets.
@@ -328,4 +330,57 @@ fn validator_create() {
     );
 
     assert_eq!(dir_child_count(validator_dir.path()), 6);
+}
+
+fn write_legacy_keypair<P: AsRef<Path>>(name: &str, dir: P) -> Keypair {
+    let keypair = Keypair::random();
+
+    let mut keypair_bytes = keypair.pk.as_bytes();
+    keypair_bytes.extend_from_slice(&keypair.sk.as_raw().as_bytes());
+
+    fs::write(dir.as_ref().join(name), &keypair_bytes).unwrap();
+
+    keypair
+}
+
+#[test]
+fn upgrade_legacy_keypairs() {
+    let validators_dir = tempdir().unwrap();
+    let secrets_dir = tempdir().unwrap();
+
+    let validators = (0..2)
+        .into_iter()
+        .map(|i| {
+            let validator_dir = validators_dir.path().join(format!("myval{}", i));
+
+            fs::create_dir_all(&validator_dir).unwrap();
+
+            let voting_keypair = write_legacy_keypair(VOTING_KEYPAIR_FILE, &validator_dir);
+            let withdrawal_keypair = write_legacy_keypair(WITHDRAWAL_KEYPAIR_FILE, &validator_dir);
+
+            (validator_dir, voting_keypair, withdrawal_keypair)
+        })
+        .collect::<Vec<_>>();
+
+    account_cmd()
+        .arg(UPGRADE_CMD)
+        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        .arg(validators_dir.path().as_os_str())
+        .arg(format!("--{}", SECRETS_DIR_FLAG))
+        .arg(secrets_dir.path().as_os_str())
+        .output()
+        .unwrap();
+
+    for (validator_dir, voting_keypair, withdrawal_keypair) in validators {
+        let dir = ValidatorDir::open(&validator_dir).unwrap();
+
+        assert_eq!(
+            voting_keypair,
+            dir.voting_keypair(secrets_dir.path()).unwrap()
+        );
+        assert_eq!(
+            withdrawal_keypair,
+            dir.withdrawal_keypair(secrets_dir.path()).unwrap()
+        );
+    }
 }
