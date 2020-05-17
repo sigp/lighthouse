@@ -17,7 +17,7 @@ members = [
     "eth2/utils/eth2_wallet",
     "eth2/utils/logging",
     "eth2/utils/eth2_hashing",
-    "eth2/utils/hashmap_delay",
+    "eth2/utils/hashset_delay",
     "eth2/utils/lighthouse_metrics",
     "eth2/utils/merkle_proof",
     "eth2/utils/int_to_bytes",

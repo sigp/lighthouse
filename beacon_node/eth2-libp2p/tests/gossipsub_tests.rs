@@ -2,7 +2,6 @@
 use crate::types::GossipEncoding;
 use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
 use eth2_libp2p::*;
-use futures::prelude::*;
 use slog::{debug, Level};
 
 type E = MinimalEthSpec;
@@ -19,8 +18,8 @@ mod common;
 //
 // node1 <-> node2 <-> node3 ..... <-> node(n-1) <-> node(n)
 
-#[test]
-fn test_gossipsub_forward() {
+#[tokio::test]
+async fn test_gossipsub_forward() {
     // set up the logging. The level and enabled or not
     let log = common::build_log(Level::Info, false);
 
@@ -41,55 +40,64 @@ fn test_gossipsub_forward() {
         .clone()
         .into();
     let mut subscribed_count = 0;
-    tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
+    let fut = async move {
         for node in nodes.iter_mut() {
             loop {
-                match node.poll().unwrap() {
-                    Async::Ready(Some(BehaviourEvent::PubsubMessage {
-                        topics,
-                        message,
-                        source,
-                        id,
-                    })) => {
-                        assert_eq!(topics.len(), 1);
-                        // Assert topic is the published topic
-                        assert_eq!(
-                            topics.first().unwrap(),
-                            &TopicHash::from_raw(publishing_topic.clone())
-                        );
-                        // Assert message received is the correct one
-                        assert_eq!(message, pubsub_message.clone());
-                        received_count += 1;
-                        // Since `propagate_message` is false, need to propagate manually
-                        node.swarm.propagate_message(&source, id);
-                        // Test should succeed if all nodes except the publisher receive the message
-                        if received_count == num_nodes - 1 {
-                            debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
-                            return Ok(Async::Ready(()));
-                        }
-                    }
-                    Async::Ready(Some(BehaviourEvent::PeerSubscribed(_, topic))) => {
-                        // Publish on beacon block topic
-                        if topic == TopicHash::from_raw(publishing_topic.clone()) {
-                            subscribed_count += 1;
-                            // Every node except the corner nodes are connected to 2 nodes.
-                            if subscribed_count == (num_nodes * 2) - 2 {
-                                node.swarm.publish(vec![pubsub_message.clone()]);
+                match node.next_event().await {
+                    Libp2pEvent::Behaviour(b) => match b {
+                        BehaviourEvent::PubsubMessage {
+                            topics,
+                            message,
+                            source,
+                            id,
+                        } => {
+                            assert_eq!(topics.len(), 1);
+                            // Assert topic is the published topic
+                            assert_eq!(
+                                topics.first().unwrap(),
+                                &TopicHash::from_raw(publishing_topic.clone())
+                            );
+                            // Assert message received is the correct one
+                            assert_eq!(message, pubsub_message.clone());
+                            received_count += 1;
+                            // Since `propagate_message` is false, need to propagate manually
+                            node.swarm.propagate_message(&source, id);
+                            // Test should succeed if all nodes except the publisher receive the message
+                            if received_count == num_nodes - 1 {
+                                debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
+                                return;
                             }
                         }
-                    }
+                        BehaviourEvent::PeerSubscribed(_, topic) => {
+                            // Publish on beacon block topic
+                            if topic == TopicHash::from_raw(publishing_topic.clone()) {
+                                subscribed_count += 1;
+                                // Every node except the corner nodes are connected to 2 nodes.
+                                if subscribed_count == (num_nodes * 2) - 2 {
+                                    node.swarm.publish(vec![pubsub_message.clone()]);
+                                }
+                            }
+                        }
+                        _ => break,
+                    },
                     _ => break,
                 }
             }
         }
-        Ok(Async::NotReady)
-    }))
+    };
+
+    tokio::select! {
+        _ = fut => {}
+        _ = tokio::time::delay_for(tokio::time::Duration::from_millis(800)) => {
+            panic!("Future timed out");
+        }
+    }
 }
 
 // Test publishing of a message with a full mesh for the topic
 // Not very useful but this is the bare minimum functionality.
-#[test]
-fn test_gossipsub_full_mesh_publish() {
+#[tokio::test]
+async fn test_gossipsub_full_mesh_publish() {
     // set up the logging. The level and enabled or not
     let log = common::build_log(Level::Debug, false);
 
@@ -115,11 +123,13 @@ fn test_gossipsub_full_mesh_publish() {
         .into();
     let mut subscribed_count = 0;
     let mut received_count = 0;
-    tokio::run(futures::future::poll_fn(move || -> Result<_, ()> {
+    let fut = async move {
         for node in nodes.iter_mut() {
-            while let Async::Ready(Some(BehaviourEvent::PubsubMessage {
-                topics, message, ..
-            })) = node.poll().unwrap()
+            while let Libp2pEvent::Behaviour(BehaviourEvent::PubsubMessage {
+                topics,
+                message,
+                ..
+            }) = node.next_event().await
             {
                 assert_eq!(topics.len(), 1);
                 // Assert topic is the published topic
@@ -131,12 +141,12 @@ fn test_gossipsub_full_mesh_publish() {
                 assert_eq!(message, pubsub_message.clone());
                 received_count += 1;
                 if received_count == num_nodes - 1 {
-                    return Ok(Async::Ready(()));
+                    return;
                 }
             }
         }
-        while let Async::Ready(Some(BehaviourEvent::PeerSubscribed(_, topic))) =
-            publishing_node.poll().unwrap()
+        while let Libp2pEvent::Behaviour(BehaviourEvent::PeerSubscribed(_, topic)) =
+            publishing_node.next_event().await
         {
             // Publish on beacon block topic
             if topic == TopicHash::from_raw(publishing_topic.clone()) {
@@ -146,6 +156,11 @@ fn test_gossipsub_full_mesh_publish() {
                 }
             }
         }
-        Ok(Async::NotReady)
-    }))
+    };
+    tokio::select! {
+            _ = fut => {}
+            _ = tokio::time::delay_for(tokio::time::Duration::from_millis(800)) => {
+                panic!("Future timed out");
+            }
+    }
 }

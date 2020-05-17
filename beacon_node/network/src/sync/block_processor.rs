@@ -34,26 +34,38 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
     chain: Weak<BeaconChain<T>>,
     process_id: ProcessId,
     downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
-    mut sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
     std::thread::spawn(move || {
         match process_id {
             // this a request from the range sync
             ProcessId::RangeBatchId(chain_id, batch_id) => {
-                debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len());
+                let len = downloaded_blocks.len();
+                let start_slot = if len > 0 {
+                    downloaded_blocks[0].message.slot.as_u64()
+                } else {
+                    0
+                };
+                let end_slot = if len > 0 {
+                    downloaded_blocks[len - 1].message.slot.as_u64()
+                } else {
+                    0
+                };
+
+                debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len(),  "start_slot" => start_slot, "end_slot" => end_slot);
                 let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                     (_, Ok(_)) => {
-                        debug!(log, "Batch processed"; "id" => *batch_id );
+                        debug!(log, "Batch processed"; "id" => *batch_id , "start_slot" => start_slot, "end_slot" => end_slot);
                         BatchProcessResult::Success
                     }
                     (imported_blocks, Err(e)) if imported_blocks > 0 => {
-                        debug!(log, "Batch processing failed but imported some blocks";
+                        warn!(log, "Batch processing failed but imported some blocks";
                             "id" => *batch_id, "error" => e, "imported_blocks"=> imported_blocks);
                         BatchProcessResult::Partial
                     }
                     (_, Err(e)) => {
-                        debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
+                        warn!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
                         BatchProcessResult::Failed
                     }
                 };
@@ -64,7 +76,7 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                     downloaded_blocks,
                     result,
                 };
-                sync_send.try_send(msg).unwrap_or_else(|_| {
+                sync_send.send(msg).unwrap_or_else(|_| {
                     debug!(
                         log,
                         "Block processor could not inform range sync result. Likely shutting down."
@@ -84,7 +96,7 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                     (_, Err(e)) => {
                         warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
                         sync_send
-                        .try_send(SyncMessage::ParentLookupFailed(peer_id))
+                        .send(SyncMessage::ParentLookupFailed(peer_id))
                         .unwrap_or_else(|_| {
                             // on failure, inform to downvote the peer
                             debug!(

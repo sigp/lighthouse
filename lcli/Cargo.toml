@@ -9,23 +9,24 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33.0"
-hex = "0.3"
+hex = "0.4.2"
 log = "0.4.8"
-serde = "1.0.102"
+serde = "1.0.110"
 serde_yaml = "0.8.11"
-simple_logger = "1.3.0"
+simple_logger = "1.6.0"
 types = { path = "../eth2/types" }
 state_processing = { path = "../eth2/state_processing" }
 eth2_ssz = "0.1.2"
-regex = "1.3.1"
+regex = "1.3.7"
 eth1_test_rig = { path = "../tests/eth1_test_rig" }
-futures = "0.1.25"
+futures = { version = "0.3.5", features = ["compat"] }
 environment = { path = "../lighthouse/environment" }
 web3 = "0.10.0"
 eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
-dirs = "2.0"
+dirs = "2.0.2"
 genesis = { path = "../beacon_node/genesis" }
 deposit_contract = { path = "../eth2/utils/deposit_contract" }
-tree_hash = { path = "../eth2/utils/tree_hash" }
+tree_hash = "0.1.0"
+tokio = { version = "0.2.20", features = ["full"] }
 clap_utils = { path = "../eth2/utils/clap_utils" }
 eth2-libp2p = { path = "../beacon_node/eth2-libp2p" }

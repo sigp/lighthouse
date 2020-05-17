@@ -2,21 +2,18 @@ use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::Error as DepositCacheError,
-    http::{get_block, get_block_number, get_deposit_logs_in_range},
+    http::{get_block, get_block_number, get_deposit_logs_in_range, Log},
     inner::{DepositUpdater, Inner},
     DepositLog,
 };
-use futures::{
-    future::{loop_fn, Loop},
-    stream, Future, Stream,
-};
+use futures::{future::TryFutureExt, stream, stream::TryStreamExt, StreamExt};
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, Logger};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::timer::Delay;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::time::{interval_at, Duration, Instant};
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
@@ -241,63 +238,40 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn update(
-        &self,
-    ) -> impl Future<Item = (DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), Error = String>
-    {
-        let log_a = self.log.clone();
-        let log_b = self.log.clone();
-        let inner_1 = self.inner.clone();
-        let inner_2 = self.inner.clone();
+    pub async fn update(
+        service: Self,
+    ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
+        let update_deposit_cache = async {
+            let outcome = Service::update_deposit_cache(service.clone())
+                .await
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
-        let deposit_future = self
-            .update_deposit_cache()
-            .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-            .then(move |result| {
-                match &result {
-                    Ok(DepositCacheUpdateOutcome { logs_imported }) => trace!(
-                        log_a,
-                        "Updated eth1 deposit cache";
-                        "cached_deposits" => inner_1.deposit_cache.read().cache.len(),
-                        "logs_imported" => logs_imported,
-                        "last_processed_eth1_block" => inner_1.deposit_cache.read().last_processed_block,
-                    ),
-                    Err(e) => error!(
-                        log_a,
-                        "Failed to update eth1 deposit cache";
-                        "error" => e
-                    ),
-                };
+            trace!(
+                service.log,
+                "Updated eth1 deposit cache";
+                "cached_deposits" => service.inner.deposit_cache.read().cache.len(),
+                "logs_imported" => outcome.logs_imported,
+                "last_processed_eth1_block" => service.inner.deposit_cache.read().last_processed_block,
+            );
+            Ok(outcome)
+        };
 
-                result
-            });
+        let update_block_cache = async {
+            let outcome = Service::update_block_cache(service.clone())
+                .await
+                .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))?;
 
-        let block_future = self
-            .update_block_cache()
-            .map_err(|e| format!("Failed to update eth1 cache: {:?}", e))
-            .then(move |result| {
-                match &result {
-                    Ok(BlockCacheUpdateOutcome {
-                        blocks_imported,
-                        head_block_number,
-                    }) => trace!(
-                        log_b,
-                        "Updated eth1 block cache";
-                        "cached_blocks" => inner_2.block_cache.read().len(),
-                        "blocks_imported" => blocks_imported,
-                        "head_block" => head_block_number,
-                    ),
-                    Err(e) => error!(
-                        log_b,
-                        "Failed to update eth1 block cache";
-                        "error" => e
-                    ),
-                };
+            trace!(
+                service.log,
+                "Updated eth1 block cache";
+                "cached_blocks" => service.inner.block_cache.read().len(),
+                "blocks_imported" => outcome.blocks_imported,
+                "head_block" => outcome.head_block_number,
+            );
+            Ok(outcome)
+        };
 
-                result
-            });
-
-        deposit_future.join(block_future)
+        futures::try_join!(update_deposit_cache, update_block_cache)
     }
 
     /// A looping future that updates the cache, then waits `config.auto_update_interval` before
@@ -309,56 +283,42 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn auto_update(
-        &self,
-        exit: tokio::sync::oneshot::Receiver<()>,
-    ) -> impl Future<Item = (), Error = ()> {
-        let service = self.clone();
-        let log = self.log.clone();
-        let update_interval = Duration::from_millis(self.config().auto_update_interval_millis);
+    pub fn auto_update(service: Self, exit: tokio::sync::oneshot::Receiver<()>) {
+        let update_interval = Duration::from_millis(service.config().auto_update_interval_millis);
 
-        let loop_future = loop_fn((), move |()| {
-            let service = service.clone();
-            let log_a = log.clone();
-            let log_b = log.clone();
+        let mut interval = interval_at(Instant::now(), update_interval);
 
-            service
-                .update()
-                .then(move |update_result| {
-                    match update_result {
-                        Err(e) => error!(
-                            log_a,
-                            "Failed to update eth1 cache";
-                            "retry_millis" => update_interval.as_millis(),
-                            "error" => e,
-                        ),
-                        Ok((deposit, block)) => debug!(
-                            log_a,
-                            "Updated eth1 cache";
-                            "retry_millis" => update_interval.as_millis(),
-                            "blocks" => format!("{:?}", block),
-                            "deposits" => format!("{:?}", deposit),
-                        ),
-                    };
+        let update_future = async move {
+            while interval.next().await.is_some() {
+                Service::do_update(service.clone(), update_interval)
+                    .await
+                    .ok();
+            }
+        };
 
-                    // Do not break the loop if there is an update failure.
-                    Ok(())
-                })
-                .and_then(move |_| Delay::new(Instant::now() + update_interval))
-                .then(move |timer_result| {
-                    if let Err(e) = timer_result {
-                        error!(
-                            log_b,
-                            "Failed to trigger eth1 cache update delay";
-                            "error" => format!("{:?}", e),
-                        );
-                    }
-                    // Do not break the loop if there is an timer failure.
-                    Ok(Loop::Continue(()))
-                })
-        });
+        let future = futures::future::select(Box::pin(update_future), exit);
 
-        loop_future.select(exit).map(|_| ()).map_err(|_| ())
+        tokio::task::spawn(future);
+    }
+
+    async fn do_update(service: Self, update_interval: Duration) -> Result<(), ()> {
+        let update_result = Service::update(service.clone()).await;
+        match update_result {
+            Err(e) => error!(
+                service.log,
+                "Failed to update eth1 cache";
+                "retry_millis" => update_interval.as_millis(),
+                "error" => e,
+            ),
+            Ok((deposit, block)) => debug!(
+                service.log,
+                "Updated eth1 cache";
+                "retry_millis" => update_interval.as_millis(),
+                "blocks" => format!("{:?}", block),
+                "deposits" => format!("{:?}", deposit),
+            ),
+        };
+        Ok(())
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
@@ -373,135 +333,126 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn update_deposit_cache(
-        &self,
-    ) -> impl Future<Item = DepositCacheUpdateOutcome, Error = Error> {
-        let service_1 = self.clone();
-        let service_2 = self.clone();
-        let service_3 = self.clone();
-        let blocks_per_log_query = self.config().blocks_per_log_query;
-        let max_log_requests_per_update = self
+    pub async fn update_deposit_cache(service: Self) -> Result<DepositCacheUpdateOutcome, Error> {
+        let endpoint = service.config().endpoint.clone();
+        let follow_distance = service.config().follow_distance;
+        let deposit_contract_address = service.config().deposit_contract_address.clone();
+
+        let blocks_per_log_query = service.config().blocks_per_log_query;
+        let max_log_requests_per_update = service
             .config()
             .max_log_requests_per_update
             .unwrap_or_else(usize::max_value);
 
-        let next_required_block = self
+        let next_required_block = service
             .deposits()
             .read()
             .last_processed_block
             .map(|n| n + 1)
-            .unwrap_or_else(|| self.config().deposit_contract_deploy_block);
+            .unwrap_or_else(|| service.config().deposit_contract_deploy_block);
 
-        get_new_block_numbers(
-            &self.config().endpoint,
-            next_required_block,
-            self.config().follow_distance,
-        )
-        .map(move |range| {
+        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
+
+        let block_number_chunks = if let Some(range) = range {
             range
-                .map(|range| {
-                    range
-                        .collect::<Vec<u64>>()
-                        .chunks(blocks_per_log_query)
-                        .take(max_log_requests_per_update)
-                        .map(|vec| {
-                            let first = vec.first().cloned().unwrap_or_else(|| 0);
-                            let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
-                            first..last
-                        })
-                        .collect::<Vec<Range<u64>>>()
+                .collect::<Vec<u64>>()
+                .chunks(blocks_per_log_query)
+                .take(max_log_requests_per_update)
+                .map(|vec| {
+                    let first = vec.first().cloned().unwrap_or_else(|| 0);
+                    let last = vec.last().map(|n| n + 1).unwrap_or_else(|| 0);
+                    first..last
                 })
-                .unwrap_or_else(|| vec![])
-        })
-        .and_then(move |block_number_chunks| {
-            stream::unfold(
-                block_number_chunks.into_iter(),
-                move |mut chunks| match chunks.next() {
+                .collect::<Vec<Range<u64>>>()
+        } else {
+            Vec::new()
+        };
+
+        let logs: Vec<(Range<u64>, Vec<Log>)> =
+            stream::try_unfold(block_number_chunks.into_iter(), |mut chunks| async {
+                match chunks.next() {
                     Some(chunk) => {
                         let chunk_1 = chunk.clone();
-                        Some(
-                            get_deposit_logs_in_range(
-                                &service_1.config().endpoint,
-                                &service_1.config().deposit_contract_address,
-                                chunk,
-                                Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
-                            )
-                            .map_err(Error::GetDepositLogsFailed)
-                            .map(|logs| (chunk_1, logs))
-                            .map(|logs| (logs, chunks)),
+                        match get_deposit_logs_in_range(
+                            &endpoint,
+                            &deposit_contract_address,
+                            chunk,
+                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
                         )
+                        .await
+                        {
+                            Ok(logs) => Ok(Some(((chunk_1, logs), chunks))),
+                            Err(e) => Err(Error::GetDepositLogsFailed(e)),
+                        }
                     }
-                    None => None,
-                },
-            )
-            .fold(0, move |mut sum, (block_range, log_chunk)| {
-                let mut cache = service_2.deposits().write();
-
-                log_chunk
-                    .into_iter()
-                    .map(|raw_log| {
-                        DepositLog::from_log(&raw_log).map_err(|error| {
-                            Error::FailedToParseDepositLog {
-                                block_range: block_range.clone(),
-                                error,
-                            }
-                        })
-                    })
-                    // Return early if any of the logs cannot be parsed.
-                    //
-                    // This costs an additional `collect`, however it enforces that no logs are
-                    // imported if any one of them cannot be parsed.
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .map(|deposit_log| {
-                        cache
-                            .cache
-                            .insert_log(deposit_log)
-                            .map_err(Error::FailedToInsertDeposit)?;
-
-                        sum += 1;
-
-                        Ok(())
-                    })
-                    // Returns if a deposit is unable to be added to the cache.
-                    //
-                    // If this error occurs, the cache will no longer be guaranteed to hold either
-                    // none or all of the logs for each block (i.e., they may exist _some_ logs for
-                    // a block, but not _all_ logs for that block). This scenario can cause the
-                    // node to choose an invalid genesis state or propose an invalid block.
-                    .collect::<Result<_, _>>()?;
-
-                cache.last_processed_block = Some(block_range.end.saturating_sub(1));
-
-                metrics::set_gauge(&metrics::DEPOSIT_CACHE_LEN, cache.cache.len() as i64);
-                metrics::set_gauge(
-                    &metrics::HIGHEST_PROCESSED_DEPOSIT_BLOCK,
-                    cache.last_processed_block.unwrap_or_else(|| 0) as i64,
-                );
-
-                Ok(sum)
-            })
-            .map(move |logs_imported| {
-                if logs_imported > 0 {
-                    info!(
-                        service_3.log,
-                        "Imported deposit log(s)";
-                        "latest_block" => service_3.inner.deposit_cache.read().cache.latest_block_number(),
-                        "total" => service_3.deposit_cache_len(),
-                        "new" => logs_imported
-                    );
-                } else {
-                    debug!(
-                        service_3.log,
-                        "No new deposits found";
-                        "latest_block" => service_3.inner.deposit_cache.read().cache.latest_block_number(),
-                        "total_deposits" => service_3.deposit_cache_len(),
-                    );
+                    None => Ok(None),
                 }
-
-                DepositCacheUpdateOutcome { logs_imported }
             })
-        })
+            .try_collect()
+            .await?;
+
+        let mut logs_imported = 0;
+        for (block_range, log_chunk) in logs.iter() {
+            let mut cache = service.deposits().write();
+            log_chunk
+                .into_iter()
+                .map(|raw_log| {
+                    DepositLog::from_log(&raw_log).map_err(|error| Error::FailedToParseDepositLog {
+                        block_range: block_range.clone(),
+                        error,
+                    })
+                })
+                // Return early if any of the logs cannot be parsed.
+                //
+                // This costs an additional `collect`, however it enforces that no logs are
+                // imported if any one of them cannot be parsed.
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .map(|deposit_log| {
+                    cache
+                        .cache
+                        .insert_log(deposit_log)
+                        .map_err(Error::FailedToInsertDeposit)?;
+
+                    logs_imported += 1;
+
+                    Ok(())
+                })
+                // Returns if a deposit is unable to be added to the cache.
+                //
+                // If this error occurs, the cache will no longer be guaranteed to hold either
+                // none or all of the logs for each block (i.e., they may exist _some_ logs for
+                // a block, but not _all_ logs for that block). This scenario can cause the
+                // node to choose an invalid genesis state or propose an invalid block.
+                .collect::<Result<_, _>>()?;
+
+            cache.last_processed_block = Some(block_range.end.saturating_sub(1));
+
+            metrics::set_gauge(&metrics::DEPOSIT_CACHE_LEN, cache.cache.len() as i64);
+            metrics::set_gauge(
+                &metrics::HIGHEST_PROCESSED_DEPOSIT_BLOCK,
+                cache.last_processed_block.unwrap_or_else(|| 0) as i64,
+            );
+        }
+
+        if logs_imported > 0 {
+            info!(
+                service.log,
+                "Imported deposit log(s)";
+                "latest_block" => service.inner.deposit_cache.read().cache.latest_block_number(),
+                "total" => service.deposit_cache_len(),
+                "new" => logs_imported
+            );
+        } else {
+            debug!(
+                service.log,
+                "No new deposits found";
+                "latest_block" => service.inner.deposit_cache.read().cache.latest_block_number(),
+                "total_deposits" => service.deposit_cache_len(),
+            );
+        }
+
+        Ok(DepositCacheUpdateOutcome { logs_imported })
     }
 
     /// Contacts the remote eth1 node and attempts to import all blocks up to the configured
@@ -515,218 +466,249 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn update_block_cache(&self) -> impl Future<Item = BlockCacheUpdateOutcome, Error = Error> {
-        let cache_1 = self.inner.clone();
-        let cache_2 = self.inner.clone();
-        let cache_3 = self.inner.clone();
-        let cache_4 = self.inner.clone();
-        let cache_5 = self.inner.clone();
-        let cache_6 = self.inner.clone();
-
-        let service_1 = self.clone();
-
-        let block_cache_truncation = self.config().block_cache_truncation;
-        let max_blocks_per_update = self
+    pub async fn update_block_cache(service: Self) -> Result<BlockCacheUpdateOutcome, Error> {
+        let block_cache_truncation = service.config().block_cache_truncation;
+        let max_blocks_per_update = service
             .config()
             .max_blocks_per_update
             .unwrap_or_else(usize::max_value);
 
-        let next_required_block = cache_1
+        let next_required_block = service
+            .inner
             .block_cache
             .read()
             .highest_block_number()
             .map(|n| n + 1)
-            .unwrap_or_else(|| self.config().lowest_cached_block_number);
+            .unwrap_or_else(|| service.config().lowest_cached_block_number);
 
-        get_new_block_numbers(
-            &self.config().endpoint,
-            next_required_block,
-            self.config().follow_distance,
-        )
+        let endpoint = service.config().endpoint.clone();
+        let follow_distance = service.config().follow_distance;
+
+        let range = get_new_block_numbers(&endpoint, next_required_block, follow_distance).await?;
         // Map the range of required blocks into a Vec.
         //
         // If the required range is larger than the size of the cache, drop the exiting cache
         // because it's exipred and just download enough blocks to fill the cache.
-        .and_then(move |range| {
-            range
-                .map(|range| {
-                    if range.start() > range.end() {
-                        // Note: this check is not strictly necessary, however it remains to safe
-                        // guard against any regression which may cause an underflow in a following
-                        // subtraction operation.
-                        Err(Error::Internal("Range was not increasing".into()))
-                    } else {
-                        let range_size = range.end() - range.start();
-                        let max_size = block_cache_truncation
-                            .map(|n| n as u64)
-                            .unwrap_or_else(u64::max_value);
-                        if range_size > max_size {
-                            // If the range of required blocks is larger than `max_size`, drop all
-                            // existing blocks and download `max_size` count of blocks.
-                            let first_block = range.end() - max_size;
-                            (*cache_5.block_cache.write()) = BlockCache::default();
-                            Ok((first_block..=*range.end()).collect::<Vec<u64>>())
-                        } else {
-                            Ok(range.collect::<Vec<u64>>())
+        let required_block_numbers = if let Some(range) = range {
+            if range.start() > range.end() {
+                // Note: this check is not strictly necessary, however it remains to safe
+                // guard against any regression which may cause an underflow in a following
+                // subtraction operation.
+                return Err(Error::Internal("Range was not increasing".into()));
+            } else {
+                let range_size = range.end() - range.start();
+                let max_size = block_cache_truncation
+                    .map(|n| n as u64)
+                    .unwrap_or_else(u64::max_value);
+                if range_size > max_size {
+                    // If the range of required blocks is larger than `max_size`, drop all
+                    // existing blocks and download `max_size` count of blocks.
+                    let first_block = range.end() - max_size;
+                    (*service.inner.block_cache.write()) = BlockCache::default();
+                    (first_block..=*range.end()).collect::<Vec<u64>>()
+                } else {
+                    range.collect::<Vec<u64>>()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        // Download the range of blocks and sequentially import them into the cache.
+        // Last processed block in deposit cache
+        let latest_in_cache = service
+            .inner
+            .deposit_cache
+            .read()
+            .last_processed_block
+            .unwrap_or(0);
+
+        let required_block_numbers = required_block_numbers
+            .into_iter()
+            .filter(|x| *x <= latest_in_cache)
+            .take(max_blocks_per_update)
+            .collect::<Vec<_>>();
+        // Produce a stream from the list of required block numbers and return a future that
+        // consumes the it.
+
+        let eth1_blocks: Vec<Eth1Block> = stream::try_unfold(
+            required_block_numbers.into_iter(),
+            |mut block_numbers| async {
+                match block_numbers.next() {
+                    Some(block_number) => {
+                        match download_eth1_block(service.inner.clone(), block_number).await {
+                            Ok(eth1_block) => Ok(Some((eth1_block, block_numbers))),
+                            Err(e) => Err(e),
                         }
                     }
-                })
-                .unwrap_or_else(|| Ok(vec![]))
-        })
-        // Download the range of blocks and sequentially import them into the cache.
-        .and_then(move |required_block_numbers| {
-            // Last processed block in deposit cache
-            let latest_in_cache = cache_6
-                .deposit_cache
-                .read()
-                .last_processed_block
-                .unwrap_or(0);
+                    None => Ok(None),
+                }
+            },
+        )
+        .try_collect()
+        .await?;
 
-            let required_block_numbers = required_block_numbers
-                .into_iter()
-                .filter(|x| *x <= latest_in_cache)
-                .take(max_blocks_per_update)
-                .collect::<Vec<_>>();
-            // Produce a stream from the list of required block numbers and return a future that
-            // consumes the it.
-            stream::unfold(
-                required_block_numbers.into_iter(),
-                move |mut block_numbers| match block_numbers.next() {
-                    Some(block_number) => Some(
-                        download_eth1_block(cache_2.clone(), block_number)
-                            .map(|v| (v, block_numbers)),
-                    ),
-                    None => None,
-                },
-            )
-            .fold(0, move |sum, eth1_block| {
-                cache_3
-                    .block_cache
-                    .write()
-                    .insert_root_or_child(eth1_block)
-                    .map_err(Error::FailedToInsertEth1Block)?;
-
-                metrics::set_gauge(
-                    &metrics::BLOCK_CACHE_LEN,
-                    cache_3.block_cache.read().len() as i64,
-                );
-                metrics::set_gauge(
-                    &metrics::LATEST_CACHED_BLOCK_TIMESTAMP,
-                    cache_3
-                        .block_cache
-                        .read()
-                        .latest_block_timestamp()
-                        .unwrap_or_else(|| 0) as i64,
-                );
-
-                Ok(sum + 1)
-            })
-        })
-        .and_then(move |blocks_imported| {
-            // Prune the block cache, preventing it from growing too large.
-            cache_4.prune_blocks();
+        let mut blocks_imported = 0;
+        for eth1_block in eth1_blocks {
+            service
+                .inner
+                .block_cache
+                .write()
+                .insert_root_or_child(eth1_block)
+                .map_err(Error::FailedToInsertEth1Block)?;
 
             metrics::set_gauge(
                 &metrics::BLOCK_CACHE_LEN,
-                cache_4.block_cache.read().len() as i64,
+                service.inner.block_cache.read().len() as i64,
+            );
+            metrics::set_gauge(
+                &metrics::LATEST_CACHED_BLOCK_TIMESTAMP,
+                service
+                    .inner
+                    .block_cache
+                    .read()
+                    .latest_block_timestamp()
+                    .unwrap_or_else(|| 0) as i64,
             );
 
-            let block_cache = service_1.inner.block_cache.read();
-            let latest_block_mins = block_cache
-                .latest_block_timestamp()
-                .and_then(|timestamp| {
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .ok()
-                        .and_then(|now| now.checked_sub(Duration::from_secs(timestamp)))
-                })
-                .map(|duration| format!("{} mins", duration.as_secs() / 60))
-                .unwrap_or_else(|| "n/a".into());
+            blocks_imported += 1;
+        }
 
-            if blocks_imported > 0 {
-                debug!(
-                    service_1.log,
-                    "Imported eth1 block(s)";
-                    "latest_block_age" => latest_block_mins,
-                    "latest_block" => block_cache.highest_block_number(),
-                    "total_cached_blocks" => block_cache.len(),
-                    "new" => blocks_imported
-                );
-            } else {
-                debug!(
-                    service_1.log,
-                    "No new eth1 blocks imported";
-                    "latest_block" => block_cache.highest_block_number(),
-                    "cached_blocks" => block_cache.len(),
-                );
-            }
+        // Prune the block cache, preventing it from growing too large.
+        service.inner.prune_blocks();
 
-            Ok(BlockCacheUpdateOutcome {
-                blocks_imported,
-                head_block_number: cache_4.block_cache.read().highest_block_number(),
+        metrics::set_gauge(
+            &metrics::BLOCK_CACHE_LEN,
+            service.inner.block_cache.read().len() as i64,
+        );
+
+        let block_cache = service.inner.block_cache.read();
+        let latest_block_mins = block_cache
+            .latest_block_timestamp()
+            .and_then(|timestamp| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|now| now.checked_sub(Duration::from_secs(timestamp)))
             })
+            .map(|duration| format!("{} mins", duration.as_secs() / 60))
+            .unwrap_or_else(|| "n/a".into());
+
+        if blocks_imported > 0 {
+            info!(
+                service.log,
+                "Imported eth1 block(s)";
+                "latest_block_age" => latest_block_mins,
+                "latest_block" => block_cache.highest_block_number(),
+                "total_cached_blocks" => block_cache.len(),
+                "new" => blocks_imported
+            );
+        } else {
+            debug!(
+                service.log,
+                "No new eth1 blocks imported";
+                "latest_block" => block_cache.highest_block_number(),
+                "cached_blocks" => block_cache.len(),
+            );
+        }
+
+        let block_cache = service.inner.block_cache.read();
+        let latest_block_mins = block_cache
+            .latest_block_timestamp()
+            .and_then(|timestamp| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|now| now.checked_sub(Duration::from_secs(timestamp)))
+            })
+            .map(|duration| format!("{} mins", duration.as_secs() / 60))
+            .unwrap_or_else(|| "n/a".into());
+
+        if blocks_imported > 0 {
+            debug!(
+                service.log,
+                "Imported eth1 block(s)";
+                "latest_block_age" => latest_block_mins,
+                "latest_block" => block_cache.highest_block_number(),
+                "total_cached_blocks" => block_cache.len(),
+                "new" => blocks_imported
+            );
+        } else {
+            debug!(
+                service.log,
+                "No new eth1 blocks imported";
+                "latest_block" => block_cache.highest_block_number(),
+                "cached_blocks" => block_cache.len(),
+            );
+        }
+
+        Ok(BlockCacheUpdateOutcome {
+            blocks_imported,
+            head_block_number: service.inner.block_cache.read().highest_block_number(),
         })
     }
 }
 
 /// Determine the range of blocks that need to be downloaded, given the remotes best block and
 /// the locally stored best block.
-fn get_new_block_numbers<'a>(
+async fn get_new_block_numbers<'a>(
     endpoint: &str,
     next_required_block: u64,
     follow_distance: u64,
-) -> impl Future<Item = Option<RangeInclusive<u64>>, Error = Error> + 'a {
-    get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-        .map_err(Error::GetBlockNumberFailed)
-        .and_then(move |remote_highest_block| {
-            let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
+) -> Result<Option<RangeInclusive<u64>>, Error> {
+    let remote_highest_block =
+        get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
+            .map_err(Error::GetBlockNumberFailed)
+            .await?;
+    let remote_follow_block = remote_highest_block.saturating_sub(follow_distance);
 
-            if next_required_block <= remote_follow_block {
-                Ok(Some(next_required_block..=remote_follow_block))
-            } else if next_required_block > remote_highest_block + 1 {
-                // If this is the case, the node must have gone "backwards" in terms of it's sync
-                // (i.e., it's head block is lower than it was before).
-                //
-                // We assume that the `follow_distance` should be sufficient to ensure this never
-                // happens, otherwise it is an error.
-                Err(Error::RemoteNotSynced {
-                    next_required_block,
-                    remote_highest_block,
-                    follow_distance,
-                })
-            } else {
-                // Return an empty range.
-                Ok(None)
-            }
+    if next_required_block <= remote_follow_block {
+        Ok(Some(next_required_block..=remote_follow_block))
+    } else if next_required_block > remote_highest_block + 1 {
+        // If this is the case, the node must have gone "backwards" in terms of it's sync
+        // (i.e., it's head block is lower than it was before).
+        //
+        // We assume that the `follow_distance` should be sufficient to ensure this never
+        // happens, otherwise it is an error.
+        Err(Error::RemoteNotSynced {
+            next_required_block,
+            remote_highest_block,
+            follow_distance,
         })
+    } else {
+        // Return an empty range.
+        Ok(None)
+    }
 }
 
 /// Downloads the `(block, deposit_root, deposit_count)` tuple from an eth1 node for the given
 /// `block_number`.
 ///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
-fn download_eth1_block<'a>(
-    cache: Arc<Inner>,
-    block_number: u64,
-) -> impl Future<Item = Eth1Block, Error = Error> + 'a {
+async fn download_eth1_block(cache: Arc<Inner>, block_number: u64) -> Result<Eth1Block, Error> {
+    let endpoint = cache.config.read().endpoint.clone();
+
     let deposit_root = cache
         .deposit_cache
         .read()
         .cache
         .get_deposit_root_from_cache(block_number);
+
     let deposit_count = cache
         .deposit_cache
         .read()
         .cache
         .get_deposit_count_from_cache(block_number);
+
     // Performs a `get_blockByNumber` call to an eth1 node.
-    get_block(
-        &cache.config.read().endpoint,
+    let http_block = get_block(
+        &endpoint,
         block_number,
         Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
     )
     .map_err(Error::BlockDownloadFailed)
-    .map(move |http_block| Eth1Block {
+    .await?;
+
+    Ok(Eth1Block {
         hash: http_block.hash,
         number: http_block.number,
         timestamp: http_block.timestamp,

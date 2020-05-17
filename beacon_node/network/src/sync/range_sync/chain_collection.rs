@@ -369,7 +369,19 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .find_map(|(index, chain)| Some((index, func(chain)?)))
     }
 
-    /// Runs a function on all finalized chains.
+    /// Given a chain iterator, runs a given function on each chain and return all `Some` results.
+    fn request_function_all<'a, F, I, U>(chain: I, mut func: F) -> Vec<(usize, U)>
+    where
+        I: Iterator<Item = &'a mut SyncingChain<T>>,
+        F: FnMut(&'a mut SyncingChain<T>) -> Option<U>,
+    {
+        chain
+            .enumerate()
+            .filter_map(|(index, chain)| Some((index, func(chain)?)))
+            .collect()
+    }
+
+    /// Runs a function on finalized chains until we get the first `Some` result from `F`.
     pub fn finalized_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
         F: FnMut(&mut SyncingChain<T>) -> Option<U>,
@@ -377,7 +389,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         ChainCollection::request_function(self.finalized_chains.iter_mut(), func)
     }
 
-    /// Runs a function on all head chains.
+    /// Runs a function on head chains until we get the first `Some` result from `F`.
     pub fn head_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
         F: FnMut(&mut SyncingChain<T>) -> Option<U>,
@@ -385,12 +397,25 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         ChainCollection::request_function(self.head_chains.iter_mut(), func)
     }
 
-    /// Runs a function on all finalized and head chains.
+    /// Runs a function on finalized and head chains until we get the first `Some` result from `F`.
     pub fn head_finalized_request<F, U>(&mut self, func: F) -> Option<(usize, U)>
     where
         F: FnMut(&mut SyncingChain<T>) -> Option<U>,
     {
         ChainCollection::request_function(
+            self.finalized_chains
+                .iter_mut()
+                .chain(self.head_chains.iter_mut()),
+            func,
+        )
+    }
+
+    /// Runs a function on all finalized and head chains and collects all `Some` results from `F`.
+    pub fn head_finalized_request_all<F, U>(&mut self, func: F) -> Vec<(usize, U)>
+    where
+        F: FnMut(&mut SyncingChain<T>) -> Option<U>,
+    {
+        ChainCollection::request_function_all(
             self.finalized_chains
                 .iter_mut()
                 .chain(self.head_chains.iter_mut()),

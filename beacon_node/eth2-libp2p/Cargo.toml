@@ -5,38 +5,47 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
-hex = "0.3"
-# rust-libp2p is presently being sourced from a Sigma Prime fork of the
-# `libp2p/rust-libp2p` repository.
-libp2p =  { git = "https://github.com/SigP/rust-libp2p", rev = "71cf486b4d992862f5a05f9f4ef5e5c1631f4add" }
+hex = "0.4.2"
 types = { path =  "../../eth2/types" }
-hashmap_delay = { path = "../../eth2/utils/hashmap_delay" }
+hashset_delay = { path = "../../eth2/utils/hashset_delay" }
 eth2_ssz_types = { path =  "../../eth2/utils/ssz_types" }
-serde = { version = "1.0.102", features = ["derive"] }
-serde_derive = "1.0.102"
+serde = { version = "1.0.110", features = ["derive"] }
+serde_derive = "1.0.110"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 version = { path = "../version" }
-tokio = "0.1.22"
-futures = "0.1.29"
-error-chain = "0.12.1"
+tokio = { version = "0.2.20", features = ["time"] }
+futures = "0.3.5"
+error-chain = "0.12.2"
 dirs = "2.0.2"
 fnv = "1.0.6"
-unsigned-varint = "0.2.3"
+unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
-tokio-io-timeout = "0.3.1"
-smallvec = "1.0.0"
+smallvec = "1.4.0"
 lru = "0.4.3"
-parking_lot = "0.9.0"
-sha2 = "0.8.0"
-base64 = "0.11.0"
-snap = "1"
+parking_lot = "0.10.2"
+sha2 = "0.8.1"
+base64 = "0.12.1"
+snap = "1.0.0"
 void = "1.0.2"
+tokio-io-timeout = "0.4.0"
+tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
+# Patched for quick updates
+discv5 = { git = "https://github.com/sigp/discv5", rev = "7b3bd40591b62b8c002ffdb85de008aa9f82e2e5" }
+tiny-keccak = "2.0.2"
+libp2p-tcp = { version = "0.18.0", default-features = false, features = ["tokio"] } 
+
+[dependencies.libp2p]
+version = "0.18.1"
+default-features = false
+features = ["websocket", "identify", "mplex", "yamux", "noise", "secio", "gossipsub", "dns"]
+
 
 [dev-dependencies]
+tokio = { version = "0.2.20", features = ["full"] }
 slog-stdlog = "4.0.0"
-slog-term = "2.4.2"
-slog-async = "2.3.0"
-tempdir = "0.3"
+slog-term = "2.5.0"
+slog-async = "2.5.0"
+tempdir = "0.3.7"

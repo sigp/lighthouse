@@ -7,7 +7,7 @@ use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
-use tokio::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::UviBytes;
 
@@ -19,7 +19,7 @@ pub struct SSZInboundCodec<TSpec: EthSpec> {
     phantom: PhantomData<TSpec>,
 }
 
-impl<T: EthSpec> SSZInboundCodec<T> {
+impl<TSpec: EthSpec> SSZInboundCodec<TSpec> {
     pub fn new(protocol: ProtocolId, max_packet_size: usize) -> Self {
         let mut uvi_codec = UviBytes::default();
         uvi_codec.set_max_len(max_packet_size);
@@ -36,11 +36,14 @@ impl<T: EthSpec> SSZInboundCodec<T> {
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<TSpec: EthSpec> Encoder for SSZInboundCodec<TSpec> {
-    type Item = RPCCodedResponse<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZInboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: RPCCodedResponse<TSpec>,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
@@ -145,11 +148,10 @@ impl<TSpec: EthSpec> SSZOutboundCodec<TSpec> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<TSpec: EthSpec> Encoder for SSZOutboundCodec<TSpec> {
-    type Item = RPCRequest<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
@@ -201,7 +203,7 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
             match self.inner.decode(src).map_err(RPCError::from) {
                 Ok(Some(mut packet)) => {
                     // take the bytes from the buffer
-                    let raw_bytes = packet.take();
+                    let raw_bytes = packet.split();
 
                     match self.protocol.message_name {
                         Protocol::Status => match self.protocol.version {
@@ -239,7 +241,7 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> OutboundCodec for SSZOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
     type ErrorType = ErrorMessage;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {

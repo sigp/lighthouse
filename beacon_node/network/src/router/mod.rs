@@ -16,10 +16,9 @@ use eth2_libp2p::{
     },
     MessageId, NetworkGlobals, PeerId, PubsubMessage, RPCEvent,
 };
-use futures::future::Future;
-use futures::stream::Stream;
+use futures::prelude::*;
 use processor::Processor;
-use slog::{debug, o, trace, warn};
+use slog::{debug, info, o, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -60,7 +59,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        executor: &tokio::runtime::TaskExecutor,
+        runtime_handle: &tokio::runtime::Handle,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -70,7 +69,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
         // Initialise a message instance, which itself spawns the syncing thread.
         let processor = Processor::new(
-            executor,
+            runtime_handle,
             beacon_chain,
             network_globals,
             network_send.clone(),
@@ -85,13 +84,12 @@ impl<T: BeaconChainTypes> Router<T> {
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
-        executor.spawn(
+        runtime_handle.spawn(async move {
             handler_recv
-                .for_each(move |msg| Ok(handler.handle_message(msg)))
-                .map_err(move |_| {
-                    debug!(log, "Network message handler terminated.");
-                }),
-        );
+                .for_each(move |msg| future::ready(handler.handle_message(msg)))
+                .await;
+            debug!(log, "Network message handler terminated.");
+        });
 
         Ok(handler_send)
     }
@@ -172,7 +170,7 @@ impl<T: BeaconChainTypes> Router<T> {
         // an error could have occurred.
         match error_response {
             RPCCodedResponse::InvalidRequest(error) => {
-                warn!(self.log, "Peer indicated invalid request"; "peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
+                warn!(self.log, "RPC Invalid Request"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
                 self.handle_rpc_error(
                     peer_id,
                     request_id,
@@ -180,7 +178,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
             }
             RPCCodedResponse::ServerError(error) => {
-                warn!(self.log, "Peer internal server error"; "peer_id" => format!("{:?}", peer_id), "error" => error.as_string());
+                warn!(self.log, "RPC Server Error"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
                 self.handle_rpc_error(
                     peer_id,
                     request_id,
@@ -188,7 +186,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
             }
             RPCCodedResponse::Unknown(error) => {
-                warn!(self.log, "Unknown peer error"; "peer" => format!("{:?}", peer_id), "error" => error.as_string());
+                warn!(self.log, "RPC Unknown Error"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
                 self.handle_rpc_error(
                     peer_id,
                     request_id,
@@ -278,6 +276,7 @@ impl<T: BeaconChainTypes> Router<T> {
             PubsubMessage::BeaconBlock(block) => {
                 match self.processor.should_forward_block(&peer_id, block) {
                     Ok(verified_block) => {
+                        info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
                         self.propagate_message(id, peer_id.clone());
                         self.processor.on_block_gossip(peer_id, verified_block);
                     }
@@ -313,7 +312,7 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Informs the network service that the message should be forwarded to other peers.
     fn propagate_message(&mut self, message_id: MessageId, propagation_source: PeerId) {
         self.network_send
-            .try_send(NetworkMessage::Propagate {
+            .send(NetworkMessage::Propagate {
                 propagation_source,
                 message_id,
             })

@@ -54,10 +54,12 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    SlotProcessingError,
+    per_block_processing,
+    per_epoch_processing::EpochProcessingSummary,
+    per_slot_processing, BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
 };
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
 use store::{Error as DBError, StateBatch};
@@ -238,7 +240,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 /// the p2p network.
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
-    block_root: Hash256,
+    pub block_root: Hash256,
     parent: BeaconSnapshot<T::EthSpec>,
 }
 
@@ -556,6 +558,8 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
             });
         }
 
+        let mut summaries = vec![];
+
         // Transition the parent state to the block slot.
         let mut state = parent.beacon_state;
         let distance = block.slot().as_u64().saturating_sub(state.slot.as_u64());
@@ -571,8 +575,11 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
                 state_root
             };
 
-            per_slot_processing(&mut state, Some(state_root), &chain.spec)?;
+            per_slot_processing(&mut state, Some(state_root), &chain.spec)?
+                .map(|summary| summaries.push(summary));
         }
+
+        expose_participation_metrics(&summaries);
 
         metrics::stop_timer(catchup_timer);
 
@@ -889,6 +896,45 @@ fn get_signature_verifier<'a, E: EthSpec>(
         },
         spec,
     )
+}
+
+fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
+    if !cfg!(feature = "participation_metrics") {
+        return;
+    }
+
+    for summary in summaries {
+        let b = &summary.total_balances;
+
+        metrics::maybe_set_float_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_ATTESTER,
+            participation_ratio(b.previous_epoch_attesters(), b.previous_epoch()),
+        );
+
+        metrics::maybe_set_float_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
+            participation_ratio(b.previous_epoch_target_attesters(), b.previous_epoch()),
+        );
+
+        metrics::maybe_set_float_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
+            participation_ratio(b.previous_epoch_head_attesters(), b.previous_epoch()),
+        );
+    }
+}
+
+fn participation_ratio(section: u64, total: u64) -> Option<f64> {
+    // Reduce the precision to help ensure we fit inside a u32.
+    const PRECISION: u64 = 100_000_000;
+
+    let section: f64 = u32::try_from(section / PRECISION).ok()?.into();
+    let total: f64 = u32::try_from(total / PRECISION).ok()?.into();
+
+    if total > 0_f64 {
+        Some(section / total)
+    } else {
+        None
+    }
 }
 
 fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {

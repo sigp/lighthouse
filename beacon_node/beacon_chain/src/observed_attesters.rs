@@ -36,8 +36,11 @@ pub trait Item {
     /// The default capacity for self. Used when we can't guess a reasonable size.
     fn default_capacity() -> usize;
 
-    /// Returns the number of validator indices stored in `self`.
+    /// Returns the allocated size of `self`, measured by validator indices.
     fn len(&self) -> usize;
+
+    /// Returns the number of validators that have been observed by `self`.
+    fn validator_count(&self) -> usize;
 
     /// Store `validator_index` in `self`.
     fn insert(&mut self, validator_index: usize) -> bool;
@@ -65,6 +68,10 @@ impl Item for EpochBitfield {
 
     fn len(&self) -> usize {
         self.bitfield.len()
+    }
+
+    fn validator_count(&self) -> usize {
+        self.bitfield.iter().filter(|bit| **bit).count()
     }
 
     fn insert(&mut self, validator_index: usize) -> bool {
@@ -113,6 +120,10 @@ impl Item for EpochHashSet {
     }
 
     fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    fn validator_count(&self) -> usize {
         self.set.len()
     }
 
@@ -217,6 +228,15 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
             .map_or(false, |item| item.contains(validator_index));
 
         Ok(exists)
+    }
+
+    /// Returns the number of validators that have been observed at the given `epoch`. Returns
+    /// `None` if `self` does not have a cache for that epoch.
+    pub fn observed_validator_count(&self, epoch: Epoch) -> Option<usize> {
+        self.items
+            .read()
+            .get(&epoch)
+            .map(|item| item.validator_count())
     }
 
     fn sanitize_request(&self, a: &Attestation<E>, validator_index: usize) -> Result<(), Error> {

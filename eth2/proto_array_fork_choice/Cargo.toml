@@ -9,11 +9,11 @@ name = "proto_array_fork_choice"
 path = "src/bin.rs"
 
 [dependencies]
-parking_lot = "0.9.0"
+parking_lot = "0.10.2"
 types = { path = "../types" }
-itertools = "0.8.1"
+itertools = "0.9.0"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
-serde = "1.0.102"
-serde_derive = "1.0.102"
+serde = "1.0.110"
+serde_derive = "1.0.110"
 serde_yaml = "0.8.11"

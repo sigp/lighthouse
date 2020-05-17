@@ -1,9 +1,8 @@
 use clap::ArgMatches;
 use eth2_libp2p::{
-    discovery::{build_enr, CombinedKey, Keypair, ENR_FILENAME},
+    discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
     NetworkConfig, NETWORK_KEY_FILENAME,
 };
-use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -30,10 +29,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     config.enr_tcp_port = Some(tcp_port);
 
     let local_keypair = Keypair::generate_secp256k1();
-    let enr_key: CombinedKey = local_keypair
-        .clone()
-        .try_into()
-        .map_err(|e| format!("Unable to convert keypair: {:?}", e))?;
+    let enr_key = CombinedKey::from_libp2p(&local_keypair)?;
     let enr = build_enr::<T>(&enr_key, &config, EnrForkId::default())
         .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 

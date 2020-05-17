@@ -1,39 +1,43 @@
-use crate::ProductionValidatorClient;
+use crate::{is_synced::is_synced, ProductionValidatorClient};
 use exit_future::Signal;
-use futures::{Future, Stream};
+use futures::{FutureExt, StreamExt};
 use slog::{error, info};
 use slot_clock::SlotClock;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::time::{interval_at, Duration, Instant};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Result<Signal, String> {
     let context = client.context.service_context("notifier".into());
+    let runtime_handle = context.runtime_handle.clone();
+    let log = context.log.clone();
+    let duties_service = client.duties_service.clone();
+    let allow_unsynced_beacon_node = client.config.allow_unsynced_beacon_node;
 
     let slot_duration = Duration::from_millis(context.eth2_config.spec.milliseconds_per_slot);
-    let duration_to_next_slot = client
-        .duties_service
+    let duration_to_next_slot = duties_service
         .slot_clock
         .duration_to_next_slot()
         .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
 
-    // Run this half way through each slot.
+    // Run the notifier half way through each slot.
     let start_instant = Instant::now() + duration_to_next_slot + (slot_duration / 2);
+    let mut interval = interval_at(start_instant, slot_duration);
 
-    // Run this each slot.
-    let interval_duration = slot_duration;
+    let interval_fut = async move {
+        let log = &context.log;
 
-    let duties_service = client.duties_service.clone();
-    let log_1 = context.log.clone();
-    let log_2 = context.log.clone();
-
-    let interval_future = Interval::new(start_instant, interval_duration)
-        .map_err(
-            move |e| error!(log_1, "Slot notifier timer failed"; "error" => format!("{:?}", e)),
-        )
-        .for_each(move |_| {
-            let log = log_2.clone();
+        while interval.next().await.is_some() {
+            if !is_synced(
+                &duties_service.beacon_node,
+                &duties_service.slot_clock,
+                Some(&log),
+            )
+            .await
+                && !allow_unsynced_beacon_node
+            {
+                continue;
+            }
 
             if let Some(slot) = duties_service.slot_clock.now() {
                 let epoch = slot.epoch(T::slots_per_epoch());
@@ -46,7 +50,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                     error!(log, "No validators present")
                 } else if total_validators == attesting_validators {
                     info!(
-                        log_2,
+                        log,
                         "All validators active";
                         "proposers" => proposing_validators,
                         "active_validators" => attesting_validators,
@@ -56,7 +60,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                     );
                 } else if attesting_validators > 0 {
                     info!(
-                        log_2,
+                        log,
                         "Some validators active";
                         "proposers" => proposing_validators,
                         "active_validators" => attesting_validators,
@@ -66,7 +70,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
                     );
                 } else {
                     info!(
-                        log_2,
+                        log,
                         "Awaiting activation";
                         "validators" => total_validators,
                         "epoch" => format!("{}", epoch),
@@ -76,16 +80,15 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
             } else {
                 error!(log, "Unable to read slot clock");
             }
-
-            Ok(())
-        });
+        }
+    };
 
     let (exit_signal, exit) = exit_future::signal();
-    let log = context.log.clone();
-    client.context.executor.spawn(
-        exit.until(interval_future)
-            .map(move |_| info!(log, "Shutdown complete")),
+    let future = futures::future::select(
+        Box::pin(interval_fut),
+        exit.map(move |_| info!(log, "Shutdown complete")),
     );
+    runtime_handle.spawn(future);
 
     Ok(exit_signal)
 }

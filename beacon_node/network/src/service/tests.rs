@@ -5,7 +5,6 @@ mod tests {
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
     use eth2_libp2p::Enr;
-    use futures::{Future, IntoFuture};
     use slog::Logger;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
@@ -33,21 +32,20 @@ mod tests {
         let enrs = vec![enr1, enr2];
 
         let runtime = Runtime::new().unwrap();
-        let executor = runtime.executor();
+        let handle = runtime.handle().clone();
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;
         config.discovery_port = 21212;
         config.boot_nodes = enrs.clone();
-        runtime
-            .block_on_all(
-                // Create a new network service which implicitly gets dropped at the
-                // end of the block.
-                NetworkService::start(beacon_chain.clone(), &config, &executor, log.clone())
-                    .into_future()
-                    .and_then(move |(_globals, _service, _exit)| Ok(())),
-            )
-            .unwrap();
+        runtime.spawn(async move {
+            // Create a new network service which implicitly gets dropped at the
+            // end of the block.
+
+            let _ =
+                NetworkService::start(beacon_chain.clone(), &config, &handle, log.clone()).unwrap();
+        });
+        runtime.shutdown_timeout(tokio::time::Duration::from_millis(300));
 
         // Load the persisted dht from the store
         let persisted_enrs = load_dht(store);

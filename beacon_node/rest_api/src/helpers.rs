@@ -229,14 +229,14 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    mut chan: NetworkChannel<T::EthSpec>,
+    chan: NetworkChannel<T::EthSpec>,
     block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
     // send the block via SSZ encoding
     let messages = vec![PubsubMessage::BeaconBlock(Box::new(block))];
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = chan.try_send(NetworkMessage::Publish { messages }) {
+    if let Err(e) = chan.send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
             e

@@ -7,25 +7,26 @@ edition = "2018"
 [dev-dependencies]
 eth1_test_rig = { path = "../../tests/eth1_test_rig" }
 environment = { path = "../../lighthouse/environment" }
-toml = "^0.5"
+toml = "0.5.6"
 web3 = "0.10.0"
+sloggers = "1.0.0"
 
 [dependencies]
-reqwest = "0.9"
-futures = "0.1.25"
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-hex = "0.3"
+reqwest = "0.10.4"
+futures = { version = "0.3.5", features = ["compat"] }
+serde_json = "1.0.52"
+serde = { version = "1.0.110", features = ["derive"] }
+hex = "0.4.2"
 types = { path = "../../eth2/types"}
 merkle_proof = { path = "../../eth2/utils/merkle_proof"}
-eth2_ssz = { path = "../../eth2/utils/ssz"}
+eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
-tree_hash = { path = "../../eth2/utils/tree_hash"}
-eth2_hashing = { path = "../../eth2/utils/eth2_hashing"}
-parking_lot = "0.7"
-slog = "^2.2.3"
-tokio = "0.1.22"
+tree_hash = "0.1.0"
+eth2_hashing = "0.1.0"
+parking_lot = "0.10.2"
+slog = "2.5.2"
+tokio = { version = "0.2.20", features = ["full"] }
 state_processing = { path = "../../eth2/state_processing" }
-libflate = "0.1"
+libflate = "1.0.0"
 lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics"}
 lazy_static = "1.4.0"

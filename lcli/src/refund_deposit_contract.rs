@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 use environment::Environment;
-use futures::Future;
+use futures::compat::Future01CompatExt;
 use std::path::PathBuf;
 use types::EthSpec;
 use web3::{
@@ -12,7 +12,7 @@ use web3::{
 /// `keccak("steal()")[0..4]`
 pub const STEAL_FN_SIGNATURE: &[u8] = &[0xcf, 0x7a, 0x89, 0x65];
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
     let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
     let from: Address = clap_utils::parse_required(matches, "from-address")?;
     let contract_address: Address = clap_utils::parse_required(matches, "contract-address")?;
@@ -21,8 +21,9 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
     let web3 = Web3::new(transport);
 
-    env.runtime().block_on(
-        web3.eth()
+    env.runtime().block_on(async {
+        let _ = web3
+            .eth()
             .send_transaction(TransactionRequest {
                 from,
                 to: Some(contract_address),
@@ -33,8 +34,10 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 nonce: None,
                 condition: None,
             })
-            .map_err(|e| format!("Failed to call deposit fn: {:?}", e)),
-    )?;
+            .compat()
+            .await
+            .map_err(|e| format!("Failed to call steal fn: {:?}", e))?;
 
-    Ok(())
+        Ok(())
+    })
 }

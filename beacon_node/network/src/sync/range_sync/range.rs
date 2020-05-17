@@ -355,7 +355,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         peer_id: &PeerId,
     ) {
         // if the peer is in the awaiting head mapping, remove it
-        self.awaiting_head_peers.remove(&peer_id);
+        self.awaiting_head_peers.remove(peer_id);
 
         // remove the peer from any peer pool
         self.remove_peer(network, peer_id);
@@ -370,26 +370,26 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain and re-status all the peers.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T::EthSpec>, peer_id: &PeerId) {
-        if let Some((index, ProcessingResult::RemoveChain)) =
-            self.chains.head_finalized_request(|chain| {
-                if chain.peer_pool.remove(peer_id) {
-                    // this chain contained the peer
-                    while let Some(batch) = chain.pending_batches.remove_batch_by_peer(peer_id) {
-                        if let ProcessingResult::RemoveChain = chain.failed_batch(network, batch) {
-                            // a single batch failed, remove the chain
-                            return Some(ProcessingResult::RemoveChain);
-                        }
+        for (index, result) in self.chains.head_finalized_request_all(|chain| {
+            if chain.peer_pool.remove(peer_id) {
+                // this chain contained the peer
+                while let Some(batch) = chain.pending_batches.remove_batch_by_peer(peer_id) {
+                    if let ProcessingResult::RemoveChain = chain.failed_batch(network, batch) {
+                        // a single batch failed, remove the chain
+                        return Some(ProcessingResult::RemoveChain);
                     }
-                    // peer removed from chain, no batch failed
-                    Some(ProcessingResult::KeepChain)
-                } else {
-                    None
                 }
-            })
-        {
-            // the chain needed to be removed
-            debug!(self.log, "Chain being removed due to failed batch");
-            self.chains.remove_chain(network, index);
+                // peer removed from chain, no batch failed
+                Some(ProcessingResult::KeepChain)
+            } else {
+                None
+            }
+        }) {
+            if result == ProcessingResult::RemoveChain {
+                // the chain needed to be removed
+                debug!(self.log, "Chain being removed due to failed batch");
+                self.chains.remove_chain(network, index);
+            }
         }
     }
 

@@ -6,13 +6,17 @@
 const DEFAULT_DELAY: u64 = 30;
 
 use futures::prelude::*;
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use tokio_timer::delay_queue::{self, DelayQueue};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
+use tokio::time::delay_queue::{self, DelayQueue};
 
 pub struct HashSetDelay<K>
 where
-    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
+    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone + Unpin,
 {
     /// The given entries.
     entries: HashMap<K, MapEntry>,
@@ -32,7 +36,7 @@ struct MapEntry {
 
 impl<K> Default for HashSetDelay<K>
 where
-    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
+    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone + Unpin,
 {
     fn default() -> Self {
         HashSetDelay::new(Duration::from_secs(DEFAULT_DELAY))
@@ -41,7 +45,7 @@ where
 
 impl<K> HashSetDelay<K>
 where
-    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
+    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone + Unpin,
 {
     /// Creates a new instance of `HashSetDelay`.
     pub fn new(default_entry_timeout: Duration) -> Self {
@@ -134,30 +138,55 @@ where
     }
 
     /// Returns a vector of referencing all keys in the map.
-    pub fn keys_vec(&self) -> Vec<&K> {
-        self.entries.keys().collect()
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.entries.keys()
     }
 }
 
 impl<K> Stream for HashSetDelay<K>
 where
-    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone,
+    K: std::cmp::Eq + std::hash::Hash + std::clone::Clone + Unpin,
 {
-    type Item = K;
-    type Error = &'static str;
+    type Item = Result<K, String>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        match self.expirations.poll() {
-            Ok(Async::Ready(Some(key))) => {
-                let key = key.into_inner();
-                match self.entries.remove(&key) {
-                    Some(_) => Ok(Async::Ready(Some(key))),
-                    None => Err("Value no longer exists in expirations"),
-                }
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        match self.expirations.poll_expired(cx) {
+            Poll::Ready(Some(Ok(key))) => match self.entries.remove(key.get_ref()) {
+                Some(_) => Poll::Ready(Some(Ok(key.into_inner()))),
+                None => Poll::Ready(Some(Err("Value no longer exists in expirations".into()))),
+            },
+            Poll::Ready(Some(Err(e))) => {
+                Poll::Ready(Some(Err(format!("delay queue error: {:?}", e))))
             }
-            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(_) => Err("Error polling HashSetDelay"),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[cfg(test)]
+
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn should_not_panic() {
+        let key = 2u8;
+
+        let mut map = HashSetDelay::default();
+
+        map.insert(key);
+        map.update_timeout(&key, Duration::from_secs(100));
+
+        let fut = |cx: &mut Context| {
+            let _ = map.poll_next_unpin(cx);
+            let _ = map.poll_next_unpin(cx);
+            Poll::Ready(())
+        };
+
+        future::poll_fn(fut).await;
+
+        map.insert(key);
+        map.update_timeout(&key, Duration::from_secs(100));
     }
 }

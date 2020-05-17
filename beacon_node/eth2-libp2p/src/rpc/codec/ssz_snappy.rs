@@ -12,7 +12,7 @@ use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use tokio::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
 use unsigned_varint::codec::Uvi;
 
@@ -44,11 +44,14 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<TSpec: EthSpec> Encoder for SSZSnappyInboundCodec<TSpec> {
-    type Item = RPCCodedResponse<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: RPCCodedResponse<TSpec>,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
@@ -116,7 +119,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
                 self.len = None;
-                src.split_to(n as usize);
+                let _read_bytes = src.split_to(n as usize);
                 match self.protocol.message_name {
                     Protocol::Status => match self.protocol.version {
                         Version::V1 => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
@@ -193,11 +196,10 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<TSpec: EthSpec> Encoder for SSZSnappyOutboundCodec<TSpec> {
-    type Item = RPCRequest<TSpec>;
+impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
@@ -262,7 +264,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
                 self.len = None;
-                src.split_to(n as usize);
+                let _read_byts = src.split_to(n as usize);
                 match self.protocol.message_name {
                     Protocol::Status => match self.protocol.version {
                         Version::V1 => Ok(Some(RPCResponse::Status(
@@ -307,7 +309,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
     type ErrorType = ErrorMessage;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
@@ -334,7 +336,7 @@ impl<TSpec: EthSpec> OutboundCodec for SSZSnappyOutboundCodec<TSpec> {
                 // `n` is how many bytes the reader read in the compressed stream
                 let n = reader.get_ref().position();
                 self.len = None;
-                src.split_to(n as usize);
+                let _read_bytes = src.split_to(n as usize);
                 Ok(Some(ErrorMessage::from_ssz_bytes(&decoded_buffer)?))
             }
             Err(e) => match e.kind() {

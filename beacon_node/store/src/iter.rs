@@ -217,22 +217,29 @@ impl<'a, E: EthSpec, S: Store<E>> ParentRootBlockIterator<'a, E, S> {
             _phantom: PhantomData,
         }
     }
-}
 
-impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S> {
-    type Item = (Hash256, SignedBeaconBlock<E>);
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn do_next(&mut self) -> Result<Option<(Hash256, SignedBeaconBlock<E>)>, Error> {
         // Stop once we reach the zero parent, otherwise we'll keep returning the genesis
         // block forever.
         if self.next_block_root.is_zero() {
-            None
+            Ok(None)
         } else {
             let block_root = self.next_block_root;
-            let block = self.store.get_block(&block_root).ok()??;
+            let block = self
+                .store
+                .get_block(&block_root)?
+                .ok_or(Error::BlockNotFound(block_root))?;
             self.next_block_root = block.message.parent_root;
-            Some((block_root, block))
+            Ok(Some((block_root, block)))
         }
+    }
+}
+
+impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S> {
+    type Item = Result<(Hash256, SignedBeaconBlock<E>), Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.do_next().transpose()
     }
 }
 

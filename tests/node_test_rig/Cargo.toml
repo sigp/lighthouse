@@ -9,11 +9,11 @@ environment = { path = "../../lighthouse/environment" }
 beacon_node = { path = "../../beacon_node" }
 types = { path = "../../eth2/types" }
 eth2_config = { path = "../../eth2/utils/eth2_config" }
-tempdir = "0.3"
-reqwest = "0.9"
-url = "1.2"
-serde = "1.0"
-futures = "0.1.25"
+tempdir = "0.3.7"
+reqwest = "0.10.4"
+url = "2.1.1"
+serde = "1.0.110"
+futures = "0.3.5"
 genesis = { path = "../../beacon_node/genesis" }
 remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
 validator_client = { path = "../../validator_client" }
