@@ -1,4 +1,4 @@
-use crate::common::random_password;
+use crate::{common::random_password, wallet::BASE_DIR_FLAG};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
@@ -12,13 +12,17 @@ use std::path::{Path, PathBuf};
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
+pub const NAME_FLAG: &str = "name";
+pub const PASSPHRASE_FLAG: &str = "wallet-passphrase";
+pub const TYPE_FLAG: &str = "type";
+pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about("Creates a new HD (hierarchical-deterministic) wallet in the --wallet-dir.")
         .arg(
-            Arg::with_name("name")
-                .long("name")
+            Arg::with_name(NAME_FLAG)
+                .long(NAME_FLAG)
                 .value_name("WALLET_NAME")
                 .help(
                     "The wallet will be created with this name. It is not allowed to \
@@ -28,8 +32,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name("wallet-passphrase")
-                .long("wallet-passphrase")
+            Arg::with_name(PASSPHRASE_FLAG)
+                .long(PASSPHRASE_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
                 .help(
                     "A path to a file containing the password which will unlock the wallet. \
@@ -40,8 +44,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name("type")
-                .long("type")
+            Arg::with_name(TYPE_FLAG)
+                .long(TYPE_FLAG)
                 .value_name("WALLET_TYPE")
                 .help(
                     "The type of wallet to create. Only HD (hierarchical-deterministic) \
@@ -52,8 +56,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value(HD_TYPE),
         )
         .arg(
-            Arg::with_name("mnemonic-output-path")
-                .long("mnemonic-output-path")
+            Arg::with_name(MNEMONIC_FLAG)
+                .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
                 .help(
                     "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
@@ -63,19 +67,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
-    let name: String = clap_utils::parse_required(matches, "name")?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, "wallet-passphrase")?;
-    let mnemonic_output_path: Option<PathBuf> =
-        clap_utils::parse_optional(matches, "mnemonic-output-path")?;
-    let type_field: String = clap_utils::parse_required(matches, "type")?;
+    let name: String = clap_utils::parse_required(matches, NAME_FLAG)?;
+    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, PASSPHRASE_FLAG)?;
+    let mnemonic_output_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
+    let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
 
     let wallet_type = match type_field.as_ref() {
         HD_TYPE => WalletType::Hd,
-        unknown => return Err(format!("--type {} is not supported", unknown)),
+        unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),
     };
 
     let mgr = WalletManager::open(&base_dir)
-        .map_err(|e| format!("Unable to open --base-dir: {:?}", e))?;
+        .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
 
     // Create a new random mnemonic.
     //

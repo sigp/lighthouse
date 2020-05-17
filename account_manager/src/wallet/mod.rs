@@ -1,17 +1,18 @@
-mod create;
-mod list;
+pub mod create;
+pub mod list;
 
 use crate::common::{base_wallet_dir, ensure_dir_exists};
 use clap::{App, Arg, ArgMatches};
 
 pub const CMD: &str = "wallet";
+pub const BASE_DIR_FLAG: &str = "base-dir";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about("TODO")
         .arg(
-            Arg::with_name("base-dir")
-                .long("base-dir")
+            Arg::with_name(BASE_DIR_FLAG)
+                .long(BASE_DIR_FLAG)
                 .value_name("BASE_DIRECTORY")
                 .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/wallets")
                 .takes_value(true),
@@ -21,7 +22,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
-    let base_dir = base_wallet_dir(matches, "base-dir")?;
+    let base_dir = base_wallet_dir(matches, BASE_DIR_FLAG)?;
     ensure_dir_exists(&base_dir)?;
 
     match matches.subcommand() {

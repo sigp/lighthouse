@@ -1,6 +1,6 @@
 mod common;
-mod validator;
-mod wallet;
+pub mod validator;
+pub mod wallet;
 
 use clap::App;
 use clap::ArgMatches;

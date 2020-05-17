@@ -1,3 +1,11 @@
+use account_manager::{
+    wallet::{
+        create::{CMD as CREATE_CMD, *},
+        list::CMD as LIST_CMD,
+        BASE_DIR_FLAG, CMD as WALLET_CMD,
+    },
+    CMD as ACCOUNT_CMD,
+};
 use std::env;
 use std::fs::read_dir;
 use std::path::{Path, PathBuf};
@@ -5,9 +13,7 @@ use std::process::{Command, Output};
 use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
 
-const ACCOUNT_CMD: &str = "am";
-const WALLET_CMD: &str = "wallet";
-
+/// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
     let target_dir = env!("CARGO_BIN_EXE_lighthouse");
     let path = target_dir
@@ -19,12 +25,14 @@ fn account_cmd() -> Command {
     cmd
 }
 
+/// Returns the `lighthouse account wallet` command.
 fn wallet_cmd() -> Command {
     let mut cmd = account_cmd();
     cmd.arg(WALLET_CMD);
     cmd
 }
 
+/// Executes a `Command`, returning a `Result` based upon the success exit code of the command.
 fn output_result(cmd: &mut Command) -> Result<Output, String> {
     let output = cmd.output().expect("should run command");
 
@@ -37,16 +45,18 @@ fn output_result(cmd: &mut Command) -> Result<Output, String> {
     }
 }
 
+/// Returns the number of nodes in a directory.
 fn directory_children<P: AsRef<Path>>(dir: P) -> usize {
     read_dir(dir).expect("should read dir").count()
 }
 
+/// Uses `lighthouse account wallet list` to list all wallets.
 fn list_wallets<P: AsRef<Path>>(base_dir: P) -> Vec<String> {
     let output = output_result(
         wallet_cmd()
-            .arg("--base-dir")
+            .arg(format!("--{}", BASE_DIR_FLAG))
             .arg(base_dir.as_ref().as_os_str())
-            .arg("list"),
+            .arg(LIST_CMD),
     )
     .unwrap();
     let stdout = from_utf8(&output.stdout)
@@ -57,6 +67,7 @@ fn list_wallets<P: AsRef<Path>>(base_dir: P) -> Vec<String> {
     wallets[0..wallets.len() - 1].to_vec()
 }
 
+/// Helper struct for testing wallets.
 struct TestWallet {
     base_dir: PathBuf,
     password_dir: TempDir,
@@ -65,6 +76,7 @@ struct TestWallet {
 }
 
 impl TestWallet {
+    /// Creates a new wallet tester, without _actually_ creating it via the CLI.
     pub fn new<P: AsRef<Path>>(base_dir: P, name: &str) -> Self {
         Self {
             base_dir: base_dir.as_ref().into(),
@@ -86,22 +98,25 @@ impl TestWallet {
         self.mnemonic_dir.path().join("mnemonic")
     }
 
+    /// Actually create the wallet using the lighthosue CLI.
     pub fn create(&self) -> Result<Output, String> {
         output_result(
             wallet_cmd()
-                .arg("--base-dir")
+                .arg(format!("--{}", BASE_DIR_FLAG))
                 .arg(self.base_dir().into_os_string())
-                .arg("create")
-                .arg("--name")
+                .arg(CREATE_CMD)
+                .arg(format!("--{}", NAME_FLAG))
                 .arg(&self.name)
-                .arg("--wallet-passphrase")
+                .arg(format!("--{}", PASSPHRASE_FLAG))
                 .arg(self.password_path().into_os_string())
-                .arg("--mnemonic-output-path")
+                .arg(format!("--{}", MNEMONIC_FLAG))
                 .arg(self.mnemonic_path().into_os_string()),
         )
     }
 
-    pub fn ensure_exists(&self) {
+    /// Create a wallet, expecting it to succeed.
+    pub fn create_expect_success(&self) {
+        self.create().unwrap();
         assert!(self.password_path().exists(), "{} password", self.name);
         assert!(self.mnemonic_path().exists(), "{} mnemonic", self.name);
         assert!(list_wallets(self.base_dir()).contains(&self.name));
@@ -109,7 +124,7 @@ impl TestWallet {
 }
 
 #[test]
-fn new_wallet() {
+fn creating_wallets() {
     let base_temp_dir = tempdir().unwrap();
     let base_dir: PathBuf = base_temp_dir.path().into();
 
@@ -118,8 +133,7 @@ fn new_wallet() {
     assert_eq!(directory_children(&base_dir), 0);
 
     // Should create a wally.
-    wally.create().unwrap();
-    wally.ensure_exists();
+    wally.create_expect_success();
 
     assert_eq!(directory_children(&base_dir), 1);
     assert!(wally.password_path().exists());
@@ -131,8 +145,7 @@ fn new_wallet() {
     assert_eq!(list_wallets(wally.base_dir()).len(), 1);
 
     let wally2 = TestWallet::new(&base_dir, "wally2");
-    wally2.create().unwrap();
-    wally2.ensure_exists();
+    wally2.create_expect_success();
 
     assert_eq!(list_wallets(wally.base_dir()).len(), 2);
 }
