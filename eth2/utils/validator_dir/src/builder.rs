@@ -25,22 +25,16 @@ pub const ETH1_DEPOSIT_AMOUNT_FILE: &str = "eth1-deposit-gwei.txt";
 pub enum Error {
     DirectoryAlreadyExists(PathBuf),
     UnableToCreateDir(io::Error),
-    //
     UnableToEncodeDeposit(DepositError),
     DepositDataAlreadyExists(PathBuf),
     UnableToSaveDepositData(io::Error),
-    //
     DepositAmountAlreadyExists(PathBuf),
     UnableToSaveDepositAmount(io::Error),
-    //
     KeystoreAlreadyExists(PathBuf),
     UnableToSaveKeystore(io::Error),
-    //
     PasswordAlreadyExists(PathBuf),
     UnableToSavePassword(io::Error),
-    //
     KeystoreError(KeystoreError),
-    //
     UnableToOpenDir(DirError),
     #[cfg(feature = "insecure_keys")]
     InsecureKeysError(String),
@@ -52,6 +46,7 @@ impl From<KeystoreError> for Error {
     }
 }
 
+/// A builder for creating a `ValidatorDir`.
 pub struct Builder<'a> {
     base_validators_dir: PathBuf,
     password_dir: PathBuf,
@@ -62,6 +57,7 @@ pub struct Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
+    /// Instantiate a new builder.
     pub fn new(base_validators_dir: PathBuf, password_dir: PathBuf) -> Self {
         Self {
             base_validators_dir,
@@ -73,27 +69,56 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
+    ///
+    /// If this argument (or equivalent key specification argument) is not supplied a keystore will
+    /// be randomly generated.
     pub fn voting_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
         self.voting_keystore = Some((keystore, password.to_vec().into()));
         self
     }
 
+    /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
+    ///
+    /// If this argument (or equivalent key specification argument) is not supplied a keystore will
+    /// be randomly generated.
     pub fn withdrawal_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
         self.withdrawal_keystore = Some((keystore, password.to_vec().into()));
         self
     }
 
+    /// Upon build, create files in the `ValidatorDir` which will permit the submission of a
+    /// deposit to the eth1 deposit contract with the given `deposit_amount`.
     pub fn create_eth1_tx_data(mut self, deposit_amount: u64, spec: &'a ChainSpec) -> Self {
         self.deposit_info = Some((deposit_amount, spec));
         self
     }
 
+    /// If `should_store == true`, the validator keystore will be saved in the `ValidatorDir` (and
+    /// the password to it stored in the `password_dir`). If `should_store == false`, the
+    /// withdrawal keystore will be dropped after `Self::build`.
+    ///
+    /// ## Notes
+    ///
+    /// If `should_store == false`, it is important to ensure that the withdrawal keystore is
+    /// backed up. Backup can be via saving the files elsewhere, or in the case of HD key
+    /// derivation, ensuring the seed and path are known.
+    ///
+    /// If the builder is not specifically given a withdrawal keystore then one will be generated
+    /// randomly. When this random keystore is generated, calls to this function are ignored and
+    /// the withdrawal keystore is *always* stored to disk. This is to prevent data loss.
     pub fn store_withdrawal_keystore(mut self, should_store: bool) -> Self {
         self.store_withdrawal_keystore = should_store;
         self
     }
 
-    pub fn build(self) -> Result<ValidatorDir, Error> {
+    /// Consumes `self`, returning a `ValidatorDir` if no error is encountered.
+    pub fn build(mut self) -> Result<ValidatorDir, Error> {
+        // If the withdrawal keystore will be generated randomly, always store it.
+        if self.withdrawal_keystore.is_none() {
+            self.store_withdrawal_keystore = true;
+        }
+
         // Attempts to get `self.$keystore`, unwrapping it into a random keystore if it is `None`.
         // Then, decrypts the keypair from the keystore.
         macro_rules! expand_keystore {
@@ -204,6 +229,7 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// Writes a JSON keystore to file.
 fn write_keystore_to_file(path: PathBuf, keystore: &Keystore) -> Result<(), Error> {
     if path.exists() {
         Err(Error::KeystoreAlreadyExists(path))
@@ -244,6 +270,7 @@ pub fn write_password_to_file<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(
     Ok(())
 }
 
+/// Generates a random keystore with a random password.
 fn random_keystore() -> Result<(Keystore, PlainText), Error> {
     let keypair = Keypair::random();
     let password: PlainText = rand::thread_rng()

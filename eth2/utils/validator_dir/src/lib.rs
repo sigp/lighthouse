@@ -1,3 +1,12 @@
+//! Provides:
+//!
+//! - `ValidatorDir`: manages a directory containing validator keypairs, deposit info and other
+//! things.
+//! - `Manager`: manages a directory that contains multiple `ValidatorDir`.
+//!
+//! This crate is intended to be used by the account manager to create validators and the validator
+//! client to load those validators.
+
 mod builder;
 pub mod insecure_keys;
 mod manager;

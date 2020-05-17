@@ -1,3 +1,6 @@
+//! The functionality in this module is only required for backward compatibility with the old
+//! method of key generation (unencrypted, SSZ-encoded keypairs). It should be removed as soon as
+//! we're confident that no-one is using these keypairs anymore (hopefully mid-June 2020).
 #![cfg(feature = "unencrypted_keys")]
 
 use eth2_keystore::PlainText;
@@ -8,6 +11,11 @@ use std::io::Read;
 use std::path::Path;
 use types::{Keypair, PublicKey, SecretKey};
 
+/// Read a keypair from disk, using the old format where keys were stored as unencrypted
+/// SSZ-encoded keypairs.
+///
+/// This only exists as compatibility with the old scheme and should not be implemented on any new
+/// features.
 pub fn load_unencrypted_keypair<P: AsRef<Path>>(path: P) -> Result<Keypair, String> {
     let path = path.as_ref();
 
@@ -30,6 +38,9 @@ pub fn load_unencrypted_keypair<P: AsRef<Path>>(path: P) -> Result<Keypair, Stri
 }
 
 /// A helper struct to allow SSZ enc/dec for a `Keypair`.
+///
+/// This only exists as compatibility with the old scheme and should not be implemented on any new
+/// features.
 #[derive(Encode, Decode)]
 pub struct SszEncodableKeypair {
     pk: PublicKey,

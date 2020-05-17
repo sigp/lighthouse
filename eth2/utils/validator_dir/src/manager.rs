@@ -45,6 +45,8 @@ impl Manager {
         }
     }
 
+    /// Iterate the nodes in `self.dir`, filtering out things that are unlikely to be a validator
+    /// directory.
     fn iter_dir(&self) -> Result<Vec<PathBuf>, Error> {
         read_dir(&self.dir)
             .map_err(Error::UnableToReadBaseDir)?
@@ -56,13 +58,21 @@ impl Manager {
             .collect()
     }
 
+    /// Open a `ValidatorDir` at the given `path`.
+    ///
+    /// ## Note
+    ///
+    /// It is not enforced that `path` is contained in `self.dir`.
     pub fn open_validator<P: AsRef<Path>>(&self, path: P) -> Result<ValidatorDir, Error> {
         ValidatorDir::open(path).map_err(Error::ValidatorDirError)
     }
 
     /// Opens all the validator directories in `self`.
     ///
-    /// Returns an error if any of the directories is unable to be opened.
+    /// ## Errors
+    ///
+    /// Returns an error if any of the directories is unable to be opened, perhaps due to a
+    /// file-system error or directory with an active lockfile.
     pub fn open_all_validators(&self) -> Result<Vec<ValidatorDir>, Error> {
         self.iter_dir()?
             .into_iter()
@@ -71,6 +81,8 @@ impl Manager {
     }
 
     /// Opens all the validator directories in `self` and decrypts the validator keypairs.
+    ///
+    /// ## Errors
     ///
     /// Returns an error if any of the directories is unable to be opened.
     pub fn decrypt_all_validators(
@@ -87,9 +99,12 @@ impl Manager {
             .collect()
     }
 
-    /// Opens all the validator directories in `self`.
+    /// Returns a map of directory name to full directory path. E.g., `myval -> /home/vals/myval`.
+    /// Filters out nodes in `self.dir` that are unlikely to be a validator directory.
     ///
-    /// Returns an error if any of the directories is unable to be opened.
+    /// ## Errors
+    ///
+    /// Returns an error if a directory is unable to be read.
     pub fn directory_names(&self) -> Result<HashMap<String, PathBuf>, Error> {
         Ok(HashMap::from_iter(
             self.iter_dir()?
