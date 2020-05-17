@@ -230,6 +230,17 @@ impl DutiesStore {
             .collect()
     }
 
+    fn is_aggregator(&self, validator_pubkey: &PublicKey, epoch: &Epoch) -> Option<bool> {
+        Some(
+            self.store
+                .read()
+                .get(validator_pubkey)?
+                .get(epoch)?
+                .selection_proof
+                .is_some(),
+        )
+    }
+
     fn insert<T: SlotClock + 'static, E: EthSpec>(
         &self,
         epoch: Epoch,
@@ -572,6 +583,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .filter_map(|remote_duties| {
                 // Convert the remote duties into our local representation.
                 let duties: DutyAndProof = remote_duties
+                    .clone()
                     .try_into()
                     .map_err(|e| {
                         error!(
@@ -582,15 +594,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     })
                     .ok()?;
 
+                let validator_pubkey = duties.duty.validator_pubkey.clone();
+
                 // Attempt to update our local store.
                 let outcome = self
                     .store
-                    .insert(
-                        epoch,
-                        duties.clone(),
-                        E::slots_per_epoch(),
-                        &self.validator_store,
-                    )
+                    .insert(epoch, duties, E::slots_per_epoch(), &self.validator_store)
                     .map_err(|e| {
                         error!(
                             log,
@@ -605,9 +614,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         debug!(
                             log,
                             "First duty assignment for validator";
-                            "proposal_slots" => format!("{:?}", &duties.duty.block_proposal_slots),
-                            "attestation_slot" => format!("{:?}", &duties.duty.attestation_slot),
-                            "validator" => format!("{:?}", &duties.duty.validator_pubkey)
+                            "proposal_slots" => format!("{:?}", &remote_duties.block_proposal_slots),
+                            "attestation_slot" => format!("{:?}", &remote_duties.attestation_slot),
+                            "validator" => format!("{:?}", &remote_duties.validator_pubkey)
                         );
                         new_validator += 1;
                     }
@@ -617,12 +626,16 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     InsertOutcome::Invalid => invalid += 1,
                 };
 
+                // The selection proof is computed on `store.insert`, so it's necessary to check
+                // with the store that the validator is an aggregator.
+                let is_aggregator = self.store.is_aggregator(&validator_pubkey, &epoch)?;
+
                 if outcome.is_subscription_candidate() {
                     Some(ValidatorSubscription {
-                        validator_index: duties.duty.validator_index?,
-                        attestation_committee_index: duties.duty.attestation_committee_index?,
-                        slot: duties.duty.attestation_slot?,
-                        is_aggregator: duties.selection_proof.is_some(),
+                        validator_index: remote_duties.validator_index?,
+                        attestation_committee_index: remote_duties.attestation_committee_index?,
+                        slot: remote_duties.attestation_slot?,
+                        is_aggregator,
                     })
                 } else {
                     None
