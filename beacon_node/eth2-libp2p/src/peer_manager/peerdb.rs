@@ -267,9 +267,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerInfo::default()
         });
         if !info.connection_status.is_disconnected() && !info.connection_status.is_banned() {
+            info.connection_status.disconnect();
             self.n_dc += 1;
         }
-        info.connection_status.disconnect();
         debug!(self.log, "Peer disconnected from db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         self.shrink_to_fit();
     }
