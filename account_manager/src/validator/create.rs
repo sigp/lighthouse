@@ -73,7 +73,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(STORE_WITHDRAW_FLAG)
                 .long(STORE_WITHDRAW_FLAG)
-                .value_name("SHOULD_STORE_WITHDRAWAL_KEYSTORE")
                 .help(
                     "If present, the withdrawal keystore will be stored alongside the voting \
                     keypair. It is generally recommended to not store the withdrawal key and \

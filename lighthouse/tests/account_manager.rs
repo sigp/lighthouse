@@ -15,6 +15,10 @@ use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
 use validator_dir::ValidatorDir;
 
+// TODO: create tests for the `lighthouse account validator deposit` command. This involves getting
+// access to an IPC endpoint during testing or adding support for deposit submission via HTTP and
+// using ganache-cli.
+
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
     let target_dir = env!("CARGO_BIN_EXE_lighthouse");
@@ -176,31 +180,43 @@ impl TestValidator {
         }
     }
 
-    // TODO: test withdraw key.
+    /// Create validators, returning a list of validator pubkeys on success.
+    pub fn create(
+        &self,
+        quantity_flag: &str,
+        quantity: usize,
+        store_withdrawal_key: bool,
+    ) -> Result<Vec<String>, String> {
+        let mut cmd = validator_cmd();
+        cmd.arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(self.wallet.base_dir().into_os_string())
+            .arg(CREATE_CMD)
+            .arg(format!("--{}", WALLET_NAME_FLAG))
+            .arg(&self.wallet.name)
+            .arg(format!("--{}", WALLET_PASSPHRASE_FLAG))
+            .arg(self.wallet.password_path().into_os_string())
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(self.validator_dir.clone().into_os_string())
+            .arg(format!("--{}", SECRETS_DIR_FLAG))
+            .arg(self.secrets_dir.clone().into_os_string())
+            .arg(format!("--{}", DEPOSIT_GWEI_FLAG))
+            .arg("32000000000")
+            .arg(format!("--{}", quantity_flag))
+            .arg(format!("{}", quantity));
 
-    pub fn create(&self, quantity_flag: &str, quantity: usize) -> Result<Vec<String>, String> {
-        let output = output_result(
-            validator_cmd()
-                .arg(format!("--{}", BASE_DIR_FLAG))
-                .arg(self.wallet.base_dir().into_os_string())
-                .arg(CREATE_CMD)
-                .arg(format!("--{}", WALLET_NAME_FLAG))
-                .arg(&self.wallet.name)
-                .arg(format!("--{}", WALLET_PASSPHRASE_FLAG))
-                .arg(self.wallet.password_path().into_os_string())
-                .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-                .arg(self.validator_dir.clone().into_os_string())
-                .arg(format!("--{}", SECRETS_DIR_FLAG))
-                .arg(self.secrets_dir.clone().into_os_string())
-                .arg(format!("--{}", DEPOSIT_GWEI_FLAG))
-                .arg("32000000000")
-                .arg(format!("--{}", quantity_flag))
-                .arg(format!("{}", quantity)),
-        )?;
+        let output = if store_withdrawal_key {
+            output_result(cmd.arg(format!("--{}", STORE_WITHDRAW_FLAG))).unwrap()
+        } else {
+            output_result(&mut cmd).unwrap()
+        };
 
         let stdout = from_utf8(&output.stdout)
             .expect("stdout is not utf8")
             .to_string();
+
+        if stdout == "" {
+            return Ok(vec![]);
+        }
 
         let pubkeys = stdout[..stdout.len() - 1]
             .split("\n")
@@ -214,8 +230,16 @@ impl TestValidator {
         Ok(pubkeys)
     }
 
-    pub fn create_expect_success(&self, quantity_flag: &str, quantity: usize) -> Vec<ValidatorDir> {
-        let pubkeys = self.create(quantity_flag, quantity).unwrap();
+    /// Create a validators, expecting success.
+    pub fn create_expect_success(
+        &self,
+        quantity_flag: &str,
+        quantity: usize,
+        store_withdrawal_key: bool,
+    ) -> Vec<ValidatorDir> {
+        let pubkeys = self
+            .create(quantity_flag, quantity, store_withdrawal_key)
+            .unwrap();
 
         pubkeys
             .into_iter()
@@ -228,10 +252,16 @@ impl TestValidator {
                     .expect("should open validator dir");
 
                 // Validator dir should have a voting keypair.
-                dir.voting_keypair(&self.secrets_dir).unwrap();
+                let voting_keypair = dir.voting_keypair(&self.secrets_dir).unwrap();
 
                 // Validator dir should *not* have a withdrawal keypair.
-                dir.withdrawal_keypair(&self.secrets_dir).unwrap_err();
+                let withdrawal_result = dir.withdrawal_keypair(&self.secrets_dir);
+                if store_withdrawal_key {
+                    let withdrawal_keypair = withdrawal_result.unwrap();
+                    assert_ne!(voting_keypair.pk, withdrawal_keypair.pk);
+                } else {
+                    withdrawal_result.unwrap_err();
+                }
 
                 // Deposit tx file should not exist yet.
                 assert!(!dir.eth1_deposit_tx_hash_exists(), "deposit tx");
@@ -256,7 +286,46 @@ fn validator_create() {
     assert_eq!(dir_child_count(validator_dir.path()), 0);
 
     let validator = TestValidator::new(validator_dir.path(), secrets_dir.path(), wallet);
-    validator.create_expect_success(COUNT_FLAG, 1);
+
+    // Create a validator _without_ storing the withdraw key.
+    validator.create_expect_success(COUNT_FLAG, 1, false);
 
     assert_eq!(dir_child_count(validator_dir.path()), 1);
+
+    // Create a validator storing the withdraw key.
+    validator.create_expect_success(COUNT_FLAG, 1, true);
+
+    assert_eq!(dir_child_count(validator_dir.path()), 2);
+
+    // Use the at-most flag with less validators then are in the directory.
+    assert_eq!(
+        validator.create_expect_success(AT_MOST_FLAG, 1, true).len(),
+        0
+    );
+
+    assert_eq!(dir_child_count(validator_dir.path()), 2);
+
+    // Use the at-most flag with the same number of validators that are in the directory.
+    assert_eq!(
+        validator.create_expect_success(AT_MOST_FLAG, 2, true).len(),
+        0
+    );
+
+    assert_eq!(dir_child_count(validator_dir.path()), 2);
+
+    // Use the at-most flag with two more number of validators than are in the directory.
+    assert_eq!(
+        validator.create_expect_success(AT_MOST_FLAG, 4, true).len(),
+        2
+    );
+
+    assert_eq!(dir_child_count(validator_dir.path()), 4);
+
+    // Create multiple validators with the count flag.
+    assert_eq!(
+        validator.create_expect_success(COUNT_FLAG, 2, true).len(),
+        2
+    );
+
+    assert_eq!(dir_child_count(validator_dir.path()), 6);
 }
