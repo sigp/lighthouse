@@ -95,23 +95,30 @@ fn main() {
 
     macro_rules! run_with_spec {
         ($env_builder: expr) => {
-            match run($env_builder, &matches) {
-                Ok(()) => exit(0),
-                Err(e) => {
-                    println!("Failed to start Lighthouse: {}", e);
-                    exit(1)
-                }
-            }
+            run($env_builder, &matches)
         };
     }
 
-    match matches.value_of("spec") {
+    let result = match matches.value_of("spec") {
         Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
         Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
         Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);
+        }
+    };
+
+    // `std::process::exit` does not run destructors so we drop manually.
+    drop(matches);
+
+    // Return the appropriate error code.
+    match result {
+        Ok(()) => exit(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            drop(e);
+            exit(1)
         }
     }
 }
