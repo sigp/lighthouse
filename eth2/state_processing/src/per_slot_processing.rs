@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -18,16 +18,18 @@ pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<Option<EpochProcessingSummary>, Error> {
     cache_state(state, state_root)?;
 
+    let mut summary = None;
+
     if state.slot > spec.genesis_slot && (state.slot + 1) % T::slots_per_epoch() == 0 {
-        per_epoch_processing(state, spec)?;
+        summary = Some(per_epoch_processing(state, spec)?);
     }
 
     state.slot += 1;
 
-    Ok(())
+    Ok(summary)
 }
 
 fn cache_state<T: EthSpec>(

@@ -56,7 +56,7 @@
 
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
-pub use prometheus::{Encoder, Histogram, IntCounter, IntGauge, Result, TextEncoder};
+pub use prometheus::{Encoder, Gauge, Histogram, IntCounter, IntGauge, Result, TextEncoder};
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
@@ -77,6 +77,15 @@ pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
 pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     let opts = Opts::new(name, help);
     let gauge = IntGauge::with_opts(opts)?;
+    prometheus::register(Box::new(gauge.clone()))?;
+    Ok(gauge)
+}
+
+/// Attempts to crate a `Gauge`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_float_gauge(name: &str, help: &str) -> Result<Gauge> {
+    let opts = Opts::new(name, help);
+    let gauge = Gauge::with_opts(opts)?;
     prometheus::register(Box::new(gauge.clone()))?;
     Ok(gauge)
 }
@@ -121,6 +130,24 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
 pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     if let Ok(gauge) = gauge {
         gauge.set(value);
+    }
+}
+
+pub fn maybe_set_gauge(gauge: &Result<IntGauge>, value_opt: Option<i64>) {
+    if let Some(value) = value_opt {
+        set_gauge(gauge, value)
+    }
+}
+
+pub fn set_float_gauge(gauge: &Result<Gauge>, value: f64) {
+    if let Ok(gauge) = gauge {
+        gauge.set(value);
+    }
+}
+
+pub fn maybe_set_float_gauge(gauge: &Result<Gauge>, value_opt: Option<f64>) {
+    if let Some(value) = value_opt {
+        set_float_gauge(gauge, value)
     }
 }
 
