@@ -28,7 +28,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name("wallet-password")
+            Arg::with_name("wallet-passphrase")
                 .long("wallet-passphrase")
                 .value_name("WALLET_PASSWORD_PATH")
                 .help(
@@ -64,7 +64,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     let name: String = clap_utils::parse_required(matches, "name")?;
-    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, "wallet-password")?;
+    let wallet_password_path: PathBuf = clap_utils::parse_required(matches, "wallet-passphrase")?;
     let mnemonic_output_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, "mnemonic-output-path")?;
     let type_field: String = clap_utils::parse_required(matches, "type")?;

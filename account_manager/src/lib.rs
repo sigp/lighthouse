@@ -5,7 +5,6 @@ mod wallet;
 use clap::App;
 use clap::ArgMatches;
 use environment::Environment;
-use slog::info;
 use std::fs;
 use std::path::PathBuf;
 use types::EthSpec;
@@ -21,10 +20,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, mut env: Environment<T>) -> Result<(), String> {
-    let context = env.core_context();
-    let log = context.log.clone();
-
+pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
     // If the `datadir` was not provided, default to the home directory. If the home directory is
     // not known, use the current directory.
     let datadir = matches
@@ -38,12 +34,6 @@ pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, mut env: Environment<T>) -> Res
         });
 
     fs::create_dir_all(&datadir).map_err(|e| format!("Failed to create datadir: {}", e))?;
-
-    info!(
-        log,
-        "Located data directory";
-        "path" => format!("{:?}", datadir)
-    );
 
     match matches.subcommand() {
         (wallet::CMD, Some(matches)) => wallet::cli_run(matches)?,

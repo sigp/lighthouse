@@ -159,19 +159,6 @@ fn run<E: EthSpec>(
         return Err("Invalid CPU architecture".into());
     }
 
-    warn!(
-        log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
-    );
-
-    if !matches.is_present("testnet-dir") {
-        info!(
-            log,
-            "Using default testnet";
-            "default" => HARDCODED_TESTNET
-        )
-    }
-
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.
     //
@@ -187,6 +174,19 @@ fn run<E: EthSpec>(
         // Exit as soon as account manager returns control.
         return Ok(());
     };
+
+    warn!(
+        log,
+        "Ethereum 2.0 is pre-release. This software is experimental."
+    );
+
+    if !matches.is_present("testnet-dir") {
+        info!(
+            log,
+            "Using default testnet";
+            "default" => HARDCODED_TESTNET
+        )
+    }
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
         let runtime_context = environment.core_context();
