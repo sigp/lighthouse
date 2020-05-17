@@ -127,6 +127,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .duration_to_next_slot()
             .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
 
+        info!(
+            log,
+            "Attestation production service started";
+            "next_update_millis" => duration_to_next_slot.as_millis()
+        );
+
         let mut interval = {
             // Note: `interval_at` panics if `slot_duration` is 0
             interval_at(
