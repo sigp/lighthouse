@@ -2,7 +2,7 @@ use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::iter::FromIterator;
-use types::{BeaconBlock, EthSpec, Hash256, Slot};
+use types::{Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -23,10 +23,10 @@ impl HeadTracker {
     /// This function assumes that no block is imported without its parent having already been
     /// imported. It cannot detect an error if this is not the case, it is the responsibility of
     /// the upstream user.
-    pub fn register_block<E: EthSpec>(&self, block_root: Hash256, block: &BeaconBlock<E>) {
+    pub fn register_block(&self, block_root: Hash256, parent_root: Hash256, slot: Slot) {
         let mut map = self.0.write();
-        map.remove(&block.parent_root);
-        map.insert(block_root, block.slot);
+        map.remove(&parent_root);
+        map.insert(block_root, slot);
     }
 
     /// Removes abandoned head.
@@ -107,7 +107,7 @@ pub struct SszHeadTracker {
 mod test {
     use super::*;
     use ssz::{Decode, Encode};
-    use types::MainnetEthSpec;
+    use types::{BeaconBlock, EthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -118,7 +118,7 @@ mod test {
         let head_tracker = HeadTracker::default();
 
         for i in 0..16 {
-            let mut block = BeaconBlock::empty(spec);
+            let mut block: BeaconBlock<E> = BeaconBlock::empty(spec);
             let block_root = Hash256::from_low_u64_be(i);
 
             block.slot = Slot::new(i);
@@ -128,7 +128,7 @@ mod test {
                 Hash256::from_low_u64_be(i - 1)
             };
 
-            head_tracker.register_block::<E>(block_root, &block);
+            head_tracker.register_block(block_root, block.parent_root, block.slot);
         }
 
         assert_eq!(
@@ -137,11 +137,11 @@ mod test {
             "should only have one head"
         );
 
-        let mut block = BeaconBlock::empty(spec);
+        let mut block: BeaconBlock<E> = BeaconBlock::empty(spec);
         let block_root = Hash256::from_low_u64_be(42);
         block.slot = Slot::new(15);
         block.parent_root = Hash256::from_low_u64_be(14);
-        head_tracker.register_block::<E>(block_root, &block);
+        head_tracker.register_block(block_root, block.parent_root, block.slot);
 
         let heads = head_tracker.heads();
 

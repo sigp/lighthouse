@@ -8,6 +8,7 @@ use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::metrics;
 use crate::{
     leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
+    StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -200,6 +201,21 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
                 .key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())?;
         }
 
+        Ok(())
+    }
+
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+        let mut guard = self.block_cache.lock();
+        self.hot_db.do_atomically(batch)?;
+        for op in batch {
+            match op {
+                StoreOp::DeleteBlock(block_hash) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    guard.pop(&untyped_hash);
+                }
+                StoreOp::DeleteState(_, _) => (),
+            }
+        }
         Ok(())
     }
 
@@ -562,15 +578,24 @@ impl<E: EthSpec> HotColdDB<E> {
         end_slot: Slot,
         end_block_hash: Hash256,
     ) -> Result<Vec<SignedBeaconBlock<E>>, Error> {
-        let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
-            .map(|(_, block)| block)
-            // Include the block at the end slot (if any), it needs to be
-            // replayed in order to construct the canonical state at `end_slot`.
-            .filter(|block| block.message.slot <= end_slot)
-            // Include the block at the start slot (if any). Whilst it doesn't need to be applied
-            // to the state, it contains a potentially useful state root.
-            .take_while(|block| block.message.slot >= start_slot)
-            .collect::<Vec<_>>();
+        let mut blocks: Vec<SignedBeaconBlock<E>> =
+            ParentRootBlockIterator::new(self, end_block_hash)
+                .map(|result| result.map(|(_, block)| block))
+                // Include the block at the end slot (if any), it needs to be
+                // replayed in order to construct the canonical state at `end_slot`.
+                .filter(|result| {
+                    result
+                        .as_ref()
+                        .map_or(true, |block| block.message.slot <= end_slot)
+                })
+                // Include the block at the start slot (if any). Whilst it doesn't need to be applied
+                // to the state, it contains a potentially useful state root.
+                .take_while(|result| {
+                    result
+                        .as_ref()
+                        .map_or(true, |block| block.message.slot >= start_slot)
+                })
+                .collect::<Result<_, _>>()?;
         blocks.reverse();
         Ok(blocks)
     }

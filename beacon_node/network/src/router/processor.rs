@@ -359,13 +359,28 @@ impl<T: BeaconChainTypes> Processor<T> {
             }
         };
 
-        let mut block_roots = forwards_block_root_iter
+        // pick out the required blocks, ignoring skip-slots and stepping by the step parameter;
+        let mut last_block_root = None;
+        let block_roots = forwards_block_root_iter
             .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
+            // map skip slots to None
+            .map(|(root, _slot)| {
+                let result = if Some(root) == last_block_root {
+                    None
+                } else {
+                    Some(root)
+                };
+                last_block_root = Some(root);
+                result
+            })
             .step_by(req.step as usize)
-            .map(|(root, _slot)| root)
             .collect::<Vec<_>>();
 
-        block_roots.dedup();
+        // remove all skip slots
+        let block_roots = block_roots
+            .into_iter()
+            .filter_map(|root| root)
+            .collect::<Vec<_>>();
 
         let mut blocks_sent = 0;
         for root in block_roots {
