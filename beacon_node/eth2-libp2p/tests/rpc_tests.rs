@@ -289,13 +289,19 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                                     messages_received += 1;
                                     warn!(log, "Chunk received");
                                 }
+                                RPCCodedResponse::StreamTermination(_) => {
+                                    // should be exactly 10 messages, as requested
+                                    assert_eq!(messages_received, messages_to_send);
+                                }
                                 _ => panic!("Invalid RPC received"),
                             }
                         }
                     }
+                    // TODO: can the error be checked here?
                     RPCEvent::Error(id, protocol, error) => {
                         if id == 10 {
                             assert_eq!(messages_received, messages_to_send);
+                            // end the test
                             return;
                         }
                     }

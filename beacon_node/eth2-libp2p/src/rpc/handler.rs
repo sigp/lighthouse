@@ -834,10 +834,18 @@ where
                                         remaining_number_of_chunks_for_this_stream
                                             .map(|count| count.saturating_sub(1))
                                             .unwrap_or_else(|| 0);
-                                    if remaining_number_of_chunks_after_this_chunk == 0 {
-                                        // close the stream if all expected chunks have been received
+                                    if remaining_number_of_chunks_for_this_stream == Some(0) {
                                         substream_entry.0 =
                                             OutboundSubstreamState::Closing(substream);
+                                        return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                            RPCEvent::Response(
+                                                request_id,
+                                                RPCCodedResponse::StreamTermination(
+                                                    request.stream_termination(),
+                                                ),
+                                            ),
+                                        ));
+                                    // close the stream if all expected chunks have been received
                                     } else {
                                         // If the response chunk was expected update the remaining number of chunks expected and reset the Timeout
                                         substream_entry.0 =
