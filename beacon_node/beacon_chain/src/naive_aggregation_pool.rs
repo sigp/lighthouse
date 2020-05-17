@@ -234,8 +234,11 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_slot = current_slot - Slot::from(SLOTS_RETAINED);
 
-        // No need to prune if the lowest permissible slot has not changed.
-        if *self.lowest_permissible_slot.read() == lowest_permissible_slot {
+        // No need to prune if the lowest permissible slot has not changed and the queue length is
+        // less than the maximum
+        if *self.lowest_permissible_slot.read() == lowest_permissible_slot
+            && self.maps.read().len() <= SLOTS_RETAINED
+        {
             return;
         }
 
