@@ -27,3 +27,4 @@ eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
+validator_dir = { path = "../eth2/utils/validator_dir" }

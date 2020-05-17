@@ -2539,6 +2539,7 @@ dependencies = [
  "tokio 0.2.20",
  "types",
  "validator_client",
+ "validator_dir",
 ]
 
 [[package]]

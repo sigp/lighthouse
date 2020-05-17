@@ -1,5 +1,5 @@
-mod create;
-mod deposit;
+pub mod create;
+pub mod deposit;
 
 use crate::common::base_wallet_dir;
 use clap::{App, Arg, ArgMatches};
