@@ -4073,6 +4073,7 @@ dependencies = [
  "futures 0.3.5",
  "node_test_rig",
  "parking_lot 0.10.2",
+ "rayon",
  "tokio 0.2.20",
  "types",
  "validator_client",

@@ -5,6 +5,7 @@ use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
     ValidatorFiles,
 };
+use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -66,7 +67,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..node_count)
-        .into_iter()
+        .into_par_iter()
         .map(|i| {
             println!(
                 "Generating keystores for validator {} of {}",
