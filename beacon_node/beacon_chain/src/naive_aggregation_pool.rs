@@ -1,3 +1,4 @@
+use crate::metrics;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use types::{Attestation, AttestationData, EthSpec, Slot};
@@ -68,6 +69,8 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     ///
     /// The given attestation (`a`) must only have one signature.
     pub fn insert(&mut self, a: &Attestation<E>) -> Result<InsertOutcome, Error> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
+
         let set_bits = a
             .aggregation_bits
             .iter()
@@ -93,6 +96,8 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
             {
                 Ok(InsertOutcome::SignatureAlreadyKnown { committee_index })
             } else {
+                let _timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_AGGREGATION);
                 existing_attestation.aggregate(a);
                 Ok(InsertOutcome::SignatureAggregated { committee_index })
             }
@@ -164,8 +169,9 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     /// The pool may be pruned if the given `attestation.data` has a slot higher than any
     /// previously seen.
     pub fn insert(&self, attestation: &Attestation<E>) -> Result<InsertOutcome, Error> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_INSERT);
         let slot = attestation.data.slot;
-        let lowest_permissible_slot = *self.lowest_permissible_slot.read();
+        let lowest_permissible_slot: Slot = *self.lowest_permissible_slot.read();
 
         // Reject any attestations that are too old.
         if slot < lowest_permissible_slot {
@@ -175,11 +181,15 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             });
         }
 
+        let lock_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK);
         let mut maps = self.maps.write();
+        drop(lock_timer);
 
         let outcome = if let Some(map) = maps.get_mut(&slot) {
             map.insert(attestation)
         } else {
+            let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CREATE_MAP);
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
             // by obtaining the mean size of all items in earlier epoch.
             let (count, sum) = maps
@@ -219,8 +229,19 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     /// Removes any attestations with a slot lower than `current_slot` and bars any future
     /// attestations with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&self, current_slot: Slot) {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_PRUNE);
+
         // Taking advantage of saturating subtraction on `Slot`.
         let lowest_permissible_slot = current_slot - Slot::from(SLOTS_RETAINED);
+
+        // No need to prune if the lowest permissible slot has not changed and the queue length is
+        // less than the maximum
+        if *self.lowest_permissible_slot.read() == lowest_permissible_slot
+            && self.maps.read().len() <= SLOTS_RETAINED
+        {
+            return;
+        }
+
         *self.lowest_permissible_slot.write() = lowest_permissible_slot;
         let mut maps = self.maps.write();
 

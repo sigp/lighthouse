@@ -847,7 +847,7 @@ where
             // The state roots are not useful for the shuffling, so there's no need to
             // compute them.
             per_slot_processing(&mut state, Some(Hash256::zero()), &chain.spec)
-                .map_err(|e| BeaconChainError::from(e))?
+                .map_err(|e| BeaconChainError::from(e))?;
         }
 
         metrics::stop_timer(state_skip_timer);

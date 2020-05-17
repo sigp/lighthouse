@@ -2840,6 +2840,7 @@ dependencies = [
  "hashset_delay",
  "hex 0.4.2",
  "lazy_static",
+ "lighthouse_metrics",
  "matches",
  "parking_lot 0.10.2",
  "rand 0.7.3",

@@ -32,3 +32,5 @@ smallvec = "1.4.0"
 rand = "0.7.3"
 fnv = "1.0.6"
 rlp = "0.4.5"
+lazy_static = "1.4.0"
+lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
