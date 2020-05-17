@@ -606,7 +606,7 @@ where
         loop {
             match self.outbound_substreams_delay.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(stream_id))) => {
-                    if let Some((_id, _stream, protocol)) =
+                    if let Some((_id, _stream, protocol, _)) =
                         self.outbound_substreams.remove(stream_id.get_ref())
                     {
                         // notify the user
@@ -822,25 +822,28 @@ where
                         } => match substream.poll_next_unpin(cx) {
                             Poll::Ready(Some(Ok(response))) => {
                                 if request.multiple_responses() && !response.is_error() {
-                                    entry.get_mut().0 =
-                                        OutboundSubstreamState::RequestPendingResponse {
-                                            substream,
-                                            request,
-                                        };
-                                    let delay_key = &entry.get().1;
-                                    let remaining_number_of_chunks_for_this_stream = entry
-                                        .get()
-                                        .3
-                                        .map(|count| count.saturating_sub(1))
-                                        .unwrap_or_else(|| 0);
+                                    let substream_entry = entry.get_mut();
+                                    let delay_key = &substream_entry.1;
+                                    let remaining_number_of_chunks_for_this_stream =
+                                        substream_entry.3;
+
+                                    let remaining_number_of_chunks_after_this_chunk =
+                                        remaining_number_of_chunks_for_this_stream
+                                            .map(|count| count.saturating_sub(1))
+                                            .unwrap_or_else(|| 0);
                                     // close the stream if all expected chunks have been received
-                                    if remaining_number_of_chunks_for_this_stream == 0 {
-                                        entry.get_mut().0 =
+                                    if remaining_number_of_chunks_after_this_chunk == 0 {
+                                        substream_entry.0 =
                                             OutboundSubstreamState::Closing(substream);
                                     } else {
                                         // If the response chunk was expected update the remaining number of chunks expected and reset the Timeout
-                                        entry.get_mut().3 =
-                                            Some(remaining_number_of_chunks_for_this_stream);
+                                        substream_entry.0 =
+                                            OutboundSubstreamState::RequestPendingResponse {
+                                                substream,
+                                                request,
+                                            };
+                                        substream_entry.3 =
+                                            Some(remaining_number_of_chunks_after_this_chunk);
                                         self.outbound_substreams_delay.reset(
                                             delay_key,
                                             Duration::from_secs(RESPONSE_TIMEOUT),
