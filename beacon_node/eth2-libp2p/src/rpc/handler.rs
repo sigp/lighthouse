@@ -370,14 +370,15 @@ where
                 .outbound_substreams_delay
                 .insert(id, Duration::from_secs(RESPONSE_TIMEOUT));
             let protocol = request.protocol();
-            let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
-                substream: out,
-                request,
-            };
+            let request_copy = request.clone();
             let response_chunk_count: Option<u64> = match request {
                 RPCRequest::BlocksByRange(req) => Some(req.count),
                 RPCRequest::BlocksByRoot(req) => Some(req.block_roots.len() as u64),
                 _ => None,
+            };
+            let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
+                substream: out,
+                request: request_copy,
             };
             if let Some(_) = self.outbound_substreams.insert(
                 id,
