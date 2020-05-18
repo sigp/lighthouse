@@ -372,15 +372,14 @@ where
                 .outbound_substreams_delay
                 .insert(id, Duration::from_secs(RESPONSE_TIMEOUT));
             let protocol = request.protocol();
-            let request_copy = request.clone();
-            let response_chunk_count: Option<u64> = match request {
-                RPCRequest::BlocksByRange(req) => Some(req.count),
-                RPCRequest::BlocksByRoot(req) => Some(req.block_roots.len() as u64),
-                _ => None,
+            let response_chunk_count = match request {
+                RPCRequest::BlocksByRange(ref req) => Some(req.count),
+                RPCRequest::BlocksByRoot(ref req) => Some(req.block_roots.len() as u64),
+                _ => None, // Other requests do not have a known response chunk length,
             };
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: out,
-                request: request_copy,
+                request: request,
             };
             if let Some(_) = self.outbound_substreams.insert(
                 id,
