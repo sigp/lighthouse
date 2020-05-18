@@ -164,7 +164,7 @@ pub fn cli_run<T: EthSpec>(
     let deposits_fut = async {
         poll_until_synced(web3.clone(), log.clone()).await?;
 
-        for (validator_dir, eth1_deposit_data) in eth1_deposit_datas {
+        for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
             let tx_hash = web3
                 .eth()
                 .send_transaction(TransactionRequest {
