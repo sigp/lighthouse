@@ -143,7 +143,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Start the processes that will run checks on the network as it runs.
          */
 
-        let _err = futures::join!(
+        let (finalization, validator_count, onboarding) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
             // Check that the chain starts with the expected validator count.
@@ -160,6 +160,10 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 total_validator_count,
             )
         );
+
+        finalization?;
+        validator_count?;
+        onboarding?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `end_after_checks`.
