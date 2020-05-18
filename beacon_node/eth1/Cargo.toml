@@ -1,6 +1,6 @@
 [package]
 name = "eth1"
-version = "0.2.0"
+version = "0.1.2"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
