@@ -61,11 +61,12 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.min_genesis_active_validator_count = 64;
     spec.seconds_per_eth1_block = 1;
 
+    let genesis_delay = Duration::from_secs(5);
     let genesis_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "should get system time")?
-        + Duration::from_secs(5);
-    let genesis_instant = Instant::now() + Duration::from_secs(5);
+        + genesis_delay;
+    let genesis_instant = Instant::now() + genesis_delay;
 
     let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
     let total_validator_count = validators_per_node * node_count;
@@ -97,7 +98,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Create a future that will add validator clients to the network. Each validator client is
          * attached to a single corresponding beacon node.
          */
-        let add_validators = async {
+        let add_validators_fut = async {
             for (i, files) in validator_files.into_iter().enumerate() {
                 network
                     .add_validator_client(ValidatorConfig::default(), i, files)
@@ -110,14 +111,16 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * The processes that will run checks on the network as it runs.
          */
-        // Check that the chain finalizes at the first given opportunity.
-        let start_checks = async {
+        let checks_fut = async {
             delay_until(genesis_instant).await;
+
+            // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration).await?;
+
             Ok::<(), String>(())
         };
 
-        let (add_validators, start_checks) = futures::join!(add_validators, start_checks);
+        let (add_validators, start_checks) = futures::join!(add_validators_fut, checks_fut);
 
         add_validators?;
         start_checks?;
