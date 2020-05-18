@@ -10,7 +10,7 @@ pub const CMD: &str = "validator";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about("TODO")
+        .about("Provides commands for managing Eth2 validators.")
         .arg(
             Arg::with_name("base-dir")
                 .long("base-dir")
