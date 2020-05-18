@@ -9,7 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
 
-/// The `Alphanumeric` crate only generates a-Z, A-Z, 0-9, therefore it has a range of 62
+/// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
 /// characters.
 ///
 /// 62**48 is greater than 255**32, therefore this password has more bits of entropy than a byte
@@ -237,7 +237,7 @@ fn write_keystore_to_file(path: PathBuf, keystore: &Keystore) -> Result<(), Erro
         let file = OpenOptions::new()
             .write(true)
             .read(true)
-            .create(true)
+            .create_new(true)
             .open(path.clone())
             .map_err(Error::UnableToSaveKeystore)?;
 

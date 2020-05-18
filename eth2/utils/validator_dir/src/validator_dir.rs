@@ -4,7 +4,7 @@ use crate::builder::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
-use std::fs::{read, remove_file, write, File, OpenOptions};
+use std::fs::{read, remove_file, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
@@ -80,7 +80,11 @@ impl ValidatorDir {
         if lockfile.exists() {
             return Err(Error::DirectoryLocked(dir));
         } else {
-            File::create(lockfile).map_err(Error::UnableToCreateLockfile)?;
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(lockfile)
+                .map_err(Error::UnableToCreateLockfile)?;
         }
 
         Ok(Self { dir })

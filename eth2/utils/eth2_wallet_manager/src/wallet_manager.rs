@@ -142,7 +142,7 @@ impl WalletManager {
 
     /// Iterates all wallets in `self.dir` and returns a mapping of their name to their UUID.
     ///
-    /// Ignores and items in `self.dir` that:
+    /// Ignores any items in `self.dir` that:
     ///
     /// - Are files.
     /// - Are directories, but their file-name does not parse as a UUID.

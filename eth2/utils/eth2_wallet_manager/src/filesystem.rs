@@ -81,7 +81,7 @@ pub fn create<P: AsRef<Path>>(wallet_dir: P, wallet: &Wallet) -> Result<(), Erro
     } else {
         OpenOptions::new()
             .write(true)
-            .create(true)
+            .create_new(true)
             .open(json_path)
             .map_err(Error::UnableToCreateWallet)
             .and_then(|f| wallet.to_json_writer(f).map_err(Error::JsonWriteError))

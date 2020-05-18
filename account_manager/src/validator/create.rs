@@ -77,8 +77,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(STORE_WITHDRAW_FLAG)
                 .help(
                     "If present, the withdrawal keystore will be stored alongside the voting \
-                    keypair. It is generally recommended to not store the withdrawal key and \
-                    instead generated them from the wallet seed when required, after phase 0.",
+                    keypair. It is generally recommended to *not* store the withdrawal key and \
+                    instead generate them from the wallet seed when required.",
                 ),
         )
         .arg(

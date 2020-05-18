@@ -3,7 +3,7 @@ use crate::{
     Error,
 };
 use eth2_wallet::{Uuid, ValidatorKeystores, Wallet};
-use std::fs::{remove_file, File};
+use std::fs::{remove_file, OpenOptions};
 use std::path::{Path, PathBuf};
 
 pub const LOCK_FILE: &str = ".lock";
@@ -53,7 +53,11 @@ impl LockedWallet {
         if lockfile.exists() {
             return Err(Error::WalletIsLocked(wallet_dir));
         } else {
-            File::create(lockfile).map_err(Error::UnableToCreateLockfile)?;
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(lockfile)
+                .map_err(Error::UnableToCreateLockfile)?;
         }
 
         Ok(Self {

@@ -4,7 +4,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 
-/// The `Alphanumeric` crate only generates a-Z, A-Z, 0-9, therefore it has a range of 62
+/// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
 /// characters.
 ///
 /// 62**48 is greater than 255**32, therefore this password has more bits of entropy than a byte

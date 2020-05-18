@@ -8,7 +8,7 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::time::{delay_until, Instant};
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
@@ -132,7 +132,14 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let add_validators_fut = async {
             for (i, files) in validator_files.into_iter().enumerate() {
                 network
-                    .add_validator_client(ValidatorConfig::default(), i, files)
+                    .add_validator_client(
+                        ValidatorConfig {
+                            auto_register: true,
+                            ..ValidatorConfig::default()
+                        },
+                        i,
+                        files,
+                    )
                     .await?;
             }
 
