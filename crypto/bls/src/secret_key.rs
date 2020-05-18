@@ -17,6 +17,10 @@ impl SecretKey {
         SecretKey(RawSecretKey::random(&mut rand::thread_rng()))
     }
 
+    pub fn from_raw(raw: RawSecretKey) -> Self {
+        Self(raw)
+    }
+
     /// Returns the secret key as a byte array (wrapped in `PlainText` wrapper so it is zeroized on
     /// `Drop`).
     ///
