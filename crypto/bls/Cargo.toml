@@ -1,0 +1,21 @@
+[package]
+name = "bls"
+version = "0.2.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[dependencies]
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.0.1" }
+eth2_hashing = "0.1.0"
+hex = "0.4.2"
+rand = "0.7.3"
+serde = "1.0.110"
+serde_derive = "1.0.110"
+serde_hex = { path = "../../consensus/serde_hex" }
+eth2_ssz = "0.1.2"
+eth2_ssz_types = { path = "../../consensus/ssz_types" }
+tree_hash = "0.1.0"
+arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
+
+[features]
+fake_crypto = []

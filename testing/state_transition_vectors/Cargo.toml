@@ -1,17 +1,12 @@
 [package]
-name = "websocket_server"
-version = "0.1.2"
+name = "state_transition_vectors"
+version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures = "0.3.5"
-serde = "1.0.110"
-serde_derive = "1.0.110"
-serde_json = "1.0.52"
-slog = "2.5.2"
-tokio = { version = "0.2.20", features = ["full"] }
+state_processing = { path = "../../consensus/state_processing" }
 types = { path = "../../consensus/types" }
-ws = "0.9.1"
+eth2_ssz = "0.1.2"

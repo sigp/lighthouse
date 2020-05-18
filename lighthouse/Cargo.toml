@@ -12,19 +12,19 @@ beacon_node = { "path" = "../beacon_node" }
 tokio = "0.2.20"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.0"
-types = { "path" = "../eth2/types" }
+types = { "path" = "../consensus/types" }
 clap = "2.33.0"
 env_logger = "0.7.1"
-logging = { path = "../eth2/utils/logging" }
+logging = { path = "../common/logging" }
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 environment = { path = "./environment" }
 futures = "0.3.5"
 validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }
-clap_utils = { path = "../eth2/utils/clap_utils" }
-eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
+clap_utils = { path = "../common/clap_utils" }
+eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
-validator_dir = { path = "../eth2/utils/validator_dir" }
+validator_dir = { path = "../common/validator_dir" }

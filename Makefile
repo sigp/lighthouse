@@ -1,7 +1,7 @@
 .PHONY: tests
 
-EF_TESTS = "tests/ef_tests"
-STATE_TRANSITION_VECTORS = "tests/state_transition_vectors"
+EF_TESTS = "testing/ef_tests"
+STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -65,7 +65,7 @@ make-ef-tests:
 
 # Verifies that state_processing feature arbitrary-fuzz will compile
 arbitrary-fuzz:
-	cargo check --manifest-path=eth2/state_processing/Cargo.toml --features arbitrary-fuzz
+	cargo check --manifest-path=consensus/state_processing/Cargo.toml --features arbitrary-fuzz
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:

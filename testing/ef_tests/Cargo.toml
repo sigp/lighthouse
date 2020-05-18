@@ -1,0 +1,30 @@
+[package]
+name = "ef_tests"
+version = "0.2.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[features]
+# `ef_tests` feature must be enabled to actually run the tests
+ef_tests = []
+fake_crypto = ["bls/fake_crypto"]
+
+[dependencies]
+bls = { path = "../../crypto/bls" }
+compare_fields = { path = "../../common/compare_fields" }
+ethereum-types = "0.9.1"
+hex = "0.4.2"
+rayon = "1.3.0"
+serde = "1.0.110"
+serde_derive = "1.0.110"
+serde_repr = "0.1.5"
+serde_yaml = "0.8.11"
+eth2_ssz = "0.1.2"
+eth2_ssz_derive = "0.1.0"
+tree_hash = "0.1.0"
+tree_hash_derive = "0.2.0"
+cached_tree_hash = { path = "../../consensus/cached_tree_hash" }
+state_processing = { path = "../../consensus/state_processing" }
+swap_or_not_shuffle = { path = "../../consensus/swap_or_not_shuffle" }
+types = { path = "../../consensus/types" }
+walkdir = "2.3.1"

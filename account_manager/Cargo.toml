@@ -8,28 +8,28 @@ edition = "2018"
 tempdir = "0.3.7"
 
 [dependencies]
-bls = { path = "../eth2/utils/bls" }
+bls = { path = "../crypto/bls" }
 clap = "2.33.0"
 slog = "2.5.2"
 slog-term = "2.5.0"
 slog-async = "2.5.0"
-types = { path = "../eth2/types" }
+types = { path = "../consensus/types" }
 dirs = "2.0.2"
 environment = { path = "../lighthouse/environment" }
-deposit_contract = { path = "../eth2/utils/deposit_contract" }
+deposit_contract = { path = "../common/deposit_contract" }
 libc = "0.2.65"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 hex = "0.4.2"
 validator_client = { path = "../validator_client" }
 rayon = "1.3.0"
-eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
+eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 web3 = "0.10.0"
 futures = { version = "0.3.5", features = ["compat"] }
-clap_utils = { path = "../eth2/utils/clap_utils" }
-eth2_wallet = { path = "../eth2/utils/eth2_wallet" }
-eth2_wallet_manager = { path = "../eth2/utils/eth2_wallet_manager" }
+clap_utils = { path = "../common/clap_utils" }
+eth2_wallet = { path = "../crypto/eth2_wallet" }
+eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.2"
-validator_dir = { path = "../eth2/utils/validator_dir", features = ["unencrypted_keys"] }
+validator_dir = { path = "../common/validator_dir", features = ["unencrypted_keys"] }
 tokio = {version = "0.2.20", features = ["full"]}
-eth2_keystore = { path = "../eth2/utils/eth2_keystore" }
+eth2_keystore = { path = "../crypto/eth2_keystore" }

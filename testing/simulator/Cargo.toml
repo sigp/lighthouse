@@ -1,0 +1,19 @@
+[package]
+name = "simulator"
+version = "0.2.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+node_test_rig = { path = "../node_test_rig" }
+types = { path = "../../consensus/types" }
+validator_client = { path = "../../validator_client" }
+parking_lot = "0.10.2"
+futures = "0.3.5"
+tokio = "0.2.20"
+eth1_test_rig = { path = "../eth1_test_rig" }
+env_logger = "0.7.1"
+clap = "2.33.0"
+rayon = "1.3.0"

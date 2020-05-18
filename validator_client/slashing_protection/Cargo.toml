@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 tempfile = "3.1.0"
-types = { path = "../../eth2/types" }
-tree_hash = { path = "../../eth2/utils/tree_hash" }
+types = { path = "../../consensus/types" }
+tree_hash = { path = "../../consensus/tree_hash" }
 rusqlite = { version = "0.22.0", features = ["bundled"] }
 r2d2 = "0.8.8"
 r2d2_sqlite = "0.15"

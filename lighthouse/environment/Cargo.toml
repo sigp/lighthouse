@@ -9,11 +9,11 @@ clap = "2.33.0"
 tokio = "0.2.20"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.0"
-types = { "path" = "../../eth2/types" }
-eth2_config = { "path" = "../../eth2/utils/eth2_config" }
-eth2_testnet_config = { path = "../../eth2/utils/eth2_testnet_config" }
+types = { "path" = "../../consensus/types" }
+eth2_config = { "path" = "../../common/eth2_config" }
+eth2_testnet_config = { path = "../../common/eth2_testnet_config" }
 env_logger = "0.7.1"
-logging = { path = "../../eth2/utils/logging" }
+logging = { path = "../../common/logging" }
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 ctrlc = { version = "3.1.4", features = ["termination"] }

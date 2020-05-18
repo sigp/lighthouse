@@ -14,22 +14,22 @@ log = "0.4.8"
 serde = "1.0.110"
 serde_yaml = "0.8.11"
 simple_logger = "1.6.0"
-types = { path = "../eth2/types" }
-state_processing = { path = "../eth2/state_processing" }
+types = { path = "../consensus/types" }
+state_processing = { path = "../consensus/state_processing" }
 eth2_ssz = "0.1.2"
 regex = "1.3.7"
-eth1_test_rig = { path = "../tests/eth1_test_rig" }
+eth1_test_rig = { path = "../testing/eth1_test_rig" }
 futures = { version = "0.3.5", features = ["compat"] }
 environment = { path = "../lighthouse/environment" }
 web3 = "0.10.0"
-eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
+eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 dirs = "2.0.2"
 genesis = { path = "../beacon_node/genesis" }
-deposit_contract = { path = "../eth2/utils/deposit_contract" }
+deposit_contract = { path = "../common/deposit_contract" }
 tree_hash = "0.1.0"
 tokio = { version = "0.2.20", features = ["full"] }
-clap_utils = { path = "../eth2/utils/clap_utils" }
+clap_utils = { path = "../common/clap_utils" }
 eth2-libp2p = { path = "../beacon_node/eth2-libp2p" }
-validator_dir = { path = "../eth2/utils/validator_dir", features = ["unencrypted_keys"] }
+validator_dir = { path = "../common/validator_dir", features = ["unencrypted_keys"] }
 rand = "0.7.2"
-eth2_keystore = { path = "../eth2/utils/eth2_keystore" }
+eth2_keystore = { path = "../crypto/eth2_keystore" }

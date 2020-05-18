@@ -5,16 +5,16 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dev-dependencies]
-eth1_test_rig = { path = "../../tests/eth1_test_rig" }
+eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 
 [dependencies]
 futures = "0.3.5"
-types = { path = "../../eth2/types"}
+types = { path = "../../consensus/types"}
 environment = { path = "../../lighthouse/environment"}
 eth1 = { path = "../eth1"}
 rayon = "1.3.0"
-state_processing = { path = "../../eth2/state_processing" }
-merkle_proof = { path = "../../eth2/utils/merkle_proof" }
+state_processing = { path = "../../consensus/state_processing" }
+merkle_proof = { path = "../../consensus/merkle_proof" }
 eth2_ssz = "0.1.2"
 eth2_hashing = "0.1.0"
 tree_hash = "0.1.0"
@@ -24,4 +24,4 @@ slog = "2.5.2"
 exit-future = "0.2.0"
 serde = "1.0.110"
 serde_derive = "1.0.110"
-int_to_bytes = { path = "../../eth2/utils/int_to_bytes" }
+int_to_bytes = { path = "../../consensus/int_to_bytes" }
