@@ -4,6 +4,10 @@ use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
+pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
+pub const DEFAULT_SECRETS_DIR: &str = ".lighthouse/secrets";
+/// Path to the slashing protection database within the datadir.
+pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
@@ -19,22 +23,25 @@ pub struct Config {
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
+    /// If true, register new validator keys with the slashing protection database.
+    pub auto_register: bool,
 }
 
 impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
-        let base_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".lighthouse");
-        let data_dir = base_dir.join("validators");
-        let secrets_dir = base_dir.join("secrets");
-
+        let data_dir = dirs::home_dir()
+            .map(|home| home.join(DEFAULT_DATA_DIR))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let secrets_dir = dirs::home_dir()
+            .map(|home| home.join(DEFAULT_SECRETS_DIR))
+            .unwrap_or_else(|| PathBuf::from("."));
         Self {
             data_dir,
             secrets_dir,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
+            auto_register: false,
         }
     }
 }
@@ -63,6 +70,7 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        config.auto_register = cli_args.is_present("auto-register");
 
         if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
             config.secrets_dir = secrets_dir;

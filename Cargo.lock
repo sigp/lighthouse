@@ -250,7 +250,7 @@ checksum = "53d1ccbaf7d9ec9537465a97bf19edc1a4e158ecb49fc16178202238c569cc42"
 
 [[package]]
 name = "beacon_chain"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "bitvec",
  "bls",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "dirs",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "environment"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "eth1"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "environment",
  "eth1_test_rig",
@@ -1180,7 +1180,7 @@ dependencies = [
 
 [[package]]
 name = "eth2-libp2p"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "base64 0.12.1",
  "dirs",
@@ -1433,6 +1433,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 
 [[package]]
+name = "fallible-iterator"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
 name = "fixed-hash"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1655,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "genesis"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "environment",
  "eth1",
@@ -2508,6 +2520,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "libsqlite3-sys"
+version = "0.17.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d90181c2904c287e5390186be820e5ef311a3c62edebb7d6ca3d6a48ce041d"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "libz-sys"
 version = "1.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2521,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "account_manager",
  "beacon_node",
@@ -2601,6 +2624,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0609345ddee5badacf857d4f547e0e5a2e987db77085c24cd887f73573a04237"
 dependencies = [
  "hashbrown",
+]
+
+[[package]]
+name = "lru-cache"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31e24f1ad8321ca0e8a1e0ac13f23cb668e6f5466c2c57319f6a5cf1cc8e3b1c"
+dependencies = [
+ "linked-hash-map",
 ]
 
 [[package]]
@@ -2830,7 +2862,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "error-chain",
@@ -3386,6 +3418,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "r2d2"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1497e40855348e4a8a40767d8e55174bce1e445a3ac9254ad44ad468ee0485af"
+dependencies = [
+ "log 0.4.8",
+ "parking_lot 0.10.2",
+ "scheduled-thread-pool",
+]
+
+[[package]]
+name = "r2d2_sqlite"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e15ff794e7c8bb8ae20ccac5bac6a93a4a3af708dd801d4094f80da41196f33"
+dependencies = [
+ "r2d2",
+ "rusqlite",
+]
+
+[[package]]
 name = "radium"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3634,7 +3687,7 @@ dependencies = [
 
 [[package]]
 name = "rest_api"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "bls",
@@ -3714,6 +3767,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a7d3f9bed94764eac15b8f14af59fac420c236adaff743b7bcc88e265cb4345"
 dependencies = [
  "rustc-hex",
+]
+
+[[package]]
+name = "rusqlite"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57edf4c4cea4d7e0fab069acb5da9e8e8e5403c78abc81b1f37d83af02148ea5"
+dependencies = [
+ "bitflags 1.2.1",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "libsqlite3-sys",
+ "lru-cache",
+ "memchr",
+ "time",
 ]
 
 [[package]]
@@ -3831,6 +3899,15 @@ checksum = "8f05ba609c234e60bee0d547fe94a4c7e9da733d1c962cf6e59efa4cd9c8bc75"
 dependencies = [
  "lazy_static",
  "winapi 0.3.8",
+]
+
+[[package]]
+name = "scheduled-thread-pool"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0988d7fdf88d5e5fcf5923a0f1e8ab345f3e98ab4bc6bc45a2d5ff7f7458fbf6"
+dependencies = [
+ "parking_lot 0.10.2",
 ]
 
 [[package]]
@@ -4092,6 +4169,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c111b5bd5695e56cffe5129854aa230b39c93a305372fdbb2668ca2394eea9f8"
 
 [[package]]
+name = "slashing_protection"
+version = "0.1.0"
+dependencies = [
+ "parking_lot 0.9.0",
+ "r2d2",
+ "r2d2_sqlite",
+ "rayon",
+ "rusqlite",
+ "tempfile",
+ "tree_hash",
+ "types",
+]
+
+[[package]]
 name = "slog"
 version = "2.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4319,7 +4410,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "criterion",
  "db-key",
@@ -4525,7 +4616,7 @@ dependencies = [
 
 [[package]]
 name = "timer"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "futures 0.3.5",
@@ -5017,6 +5108,7 @@ dependencies = [
  "rand 0.7.3",
  "rand_xorshift",
  "rayon",
+ "rusqlite",
  "safe_arith",
  "serde",
  "serde_derive",
@@ -5156,7 +5248,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "bincode",
  "bls",
@@ -5182,6 +5274,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "slashing_protection",
  "slog",
  "slog-async",
  "slog-term",
@@ -5225,7 +5318,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "version"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "target_info",
 ]
@@ -5488,7 +5581,7 @@ dependencies = [
 
 [[package]]
 name = "websocket_server"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "futures 0.3.5",
  "serde",

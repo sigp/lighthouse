@@ -128,6 +128,7 @@ impl TryInto<DutyAndProof> for ValidatorDutyBytes {
 }
 
 /// The outcome of inserting some `ValidatorDuty` into the `DutiesStore`.
+#[derive(PartialEq, Debug, Clone)]
 enum InsertOutcome {
     /// These are the first duties received for this validator.
     NewValidator,
@@ -425,8 +426,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Returns the pubkeys of the validators which are assigned to propose in the given slot.
-    ///
-    /// In normal cases, there should be 0 or 1 validators returned. In extreme cases (i.e., deep forking)
     ///
     /// It is possible that multiple validators have an identical proposal slot, however that is
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
