@@ -2,6 +2,7 @@
 use crate::peer_manager::PeerDB;
 use crate::rpc::methods::MetaData;
 use crate::types::SyncState;
+use crate::Client;
 use crate::EnrExt;
 use crate::{discovery::enr::Eth2Enr, Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
@@ -97,6 +98,15 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     /// Returns the current sync state of the peer.
     pub fn sync_state(&self) -> SyncState {
         self.sync_state.read().clone()
+    }
+
+    /// Returns a `Client` type if one is known for the `PeerId`.
+    pub fn client(&self, peer_id: &PeerId) -> Client {
+        self.peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| info.client.clone())
+            .unwrap_or_default()
     }
 
     /// Updates the syncing state of the node.

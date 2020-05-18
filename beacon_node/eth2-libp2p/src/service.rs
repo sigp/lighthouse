@@ -18,7 +18,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
-use slog::{crit, debug, error, info, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{Error, ErrorKind};
@@ -220,7 +220,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
     /// Adds a peer to be banned for a period of time, specified by a timeout.
     pub fn disconnect_and_ban_peer(&mut self, peer_id: PeerId, timeout: Duration) {
-        error!(self.log, "Disconnecting and banning peer"; "peer_id" => format!("{:?}", peer_id), "timeout" => format!("{:?}", timeout));
+        warn!(self.log, "Disconnecting and banning peer"; "peer_id" => peer_id.to_string(), "timeout" => format!("{:?}", timeout));
         self.peers_to_ban.insert(
             peer_id.clone(),
             Duration::from_millis(BAN_PEER_WAIT_TIMEOUT),
