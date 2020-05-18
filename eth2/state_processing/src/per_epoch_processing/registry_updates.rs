@@ -30,7 +30,7 @@ pub fn process_registry_updates<T: EthSpec>(
         if state.validators[index].is_eligible_for_activation_queue(spec) {
             state.validators[index].activation_eligibility_epoch = current_epoch + 1;
         }
-        if is_ejectable(validator) {
+        if is_ejectable(state.validators[index]) {
             initiate_validator_exit(state, index, spec)?;
         }
     }
