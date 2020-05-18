@@ -211,6 +211,23 @@ fn invalid_double_vote_diff_target() {
 }
 
 #[test]
+fn invalid_double_vote_diff_data() {
+    let first = attestation_data_builder(0, 2);
+    let mut second = attestation_data_builder(0, 2);
+    second.beacon_block_root = Hash256::random();
+    assert_ne!(first, second);
+    StreamTest {
+        cases: vec![
+            Test::single(first.clone()),
+            Test::single(second)
+                .expect_invalid_att(InvalidAttestation::DoubleVote(signed_att(&first))),
+        ],
+        ..StreamTest::default()
+    }
+    .run()
+}
+
+#[test]
 fn invalid_double_vote_diff_domain() {
     let first = attestation_data_builder(0, 2);
     let domain1 = Hash256::from_low_u64_le(1);
