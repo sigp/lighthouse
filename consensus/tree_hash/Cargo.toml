@@ -14,7 +14,7 @@ harness = false
 criterion = "0.3.2"
 rand = "0.7.3"
 tree_hash_derive = "0.2.0"
-types = { path = "../../types" }
+types = { path = "../types" }
 lazy_static = "1.4.0"
 
 [dependencies]

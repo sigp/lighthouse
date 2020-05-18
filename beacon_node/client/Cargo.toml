@@ -18,10 +18,10 @@ rest_api = { path = "../rest_api" }
 parking_lot = "0.10.2"
 websocket_server = { path = "../websocket_server" }
 prometheus = "0.8.0"
-types = { path = "../../eth2/types" }
+types = { path = "../../consensus/types" }
 tree_hash = "0.1.0"
-eth2_config = { path = "../../eth2/utils/eth2_config" }
-slot_clock = { path = "../../eth2/utils/slot_clock" }
+eth2_config = { path = "../../common/eth2_config" }
+slot_clock = { path = "../../common/slot_clock" }
 serde = "1.0.110"
 serde_derive = "1.0.110"
 error-chain = "0.12.2"
@@ -38,4 +38,4 @@ genesis = { path = "../genesis" }
 environment = { path = "../../lighthouse/environment" }
 eth2_ssz = "0.1.2"
 lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+lighthouse_metrics = { path = "../../common/lighthouse_metrics" }

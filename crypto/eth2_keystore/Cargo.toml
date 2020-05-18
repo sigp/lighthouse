@@ -15,7 +15,7 @@ serde = "1.0.110"
 serde_repr = "0.1"
 hex = "0.3"
 bls = { path = "../bls" }
-eth2_ssz = { path = "../ssz" }
+eth2_ssz = { path = "../../consensus/ssz" }
 serde_json = "1.0.41"
 
 [dev-dependencies]

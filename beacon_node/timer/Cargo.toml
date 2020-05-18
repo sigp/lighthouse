@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
-types = { path = "../../eth2/types" }
-slot_clock = { path = "../../eth2/utils/slot_clock" }
+types = { path = "../../consensus/types" }
+slot_clock = { path = "../../common/slot_clock" }
 tokio = { version = "0.2.20", features = ["full"] }
 slog = "2.5.2"
 parking_lot = "0.10.2"

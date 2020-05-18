@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 node_test_rig = { path = "../node_test_rig" }
-types = { path = "../../eth2/types" }
+types = { path = "../../consensus/types" }
 validator_client = { path = "../../validator_client" }
 parking_lot = "0.10.2"
 futures = "0.3.5"

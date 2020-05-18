@@ -5,12 +5,12 @@ authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dependencies]
-types = { path = "../../types" }
+types = { path = "../../consensus/types" }
 eth2_ssz_derive = "0.1.0"
 eth2_ssz = "0.1.2"
 eth2_hashing = "0.1.0"
 tree_hash = "0.1.0"
-state_processing = { path = "../../state_processing" }
-bls = { path = "../bls" }
+state_processing = { path = "../../consensus/state_processing" }
+bls = { path = "../../crypto/bls" }
 serde = { version = "1.0.110", features = ["derive"] }
 rayon = "1.3.0"

@@ -15,6 +15,6 @@ tempdir = "0.3.7"
 [dependencies]
 serde = "1.0.110"
 serde_yaml = "0.8.11"
-types = { path = "../../types"}
-eth2-libp2p = { path = "../../../beacon_node/eth2-libp2p"}
+types = { path = "../../consensus/types"}
+eth2-libp2p = { path = "../../beacon_node/eth2-libp2p"}
 eth2_ssz = "0.1.2"

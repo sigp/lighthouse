@@ -8,4 +8,4 @@ edition = "2018"
 serde = "1.0.110"
 serde_derive = "1.0.110"
 toml = "0.5.6"
-types = { path = "../../types" }
+types = { path = "../../consensus/types" }

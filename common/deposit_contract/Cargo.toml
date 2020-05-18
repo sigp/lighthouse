@@ -11,7 +11,7 @@ reqwest = { version = "0.10.4", features = ["blocking", "json"] }
 serde_json = "1.0.52"
 
 [dependencies]
-types = { path = "../../types"}
+types = { path = "../../consensus/types"}
 eth2_ssz = "0.1.2"
 tree_hash = "0.1.0"
 ethabi = "12.0.0"

@@ -6,9 +6,9 @@ edition = "2018"
 
 [dependencies]
 hex = "0.4.2"
-types = { path =  "../../eth2/types" }
-hashset_delay = { path = "../../eth2/utils/hashset_delay" }
-eth2_ssz_types = { path =  "../../eth2/utils/ssz_types" }
+types = { path =  "../../consensus/types" }
+hashset_delay = { path = "../../common/hashset_delay" }
+eth2_ssz_types = { path =  "../../consensus/ssz_types" }
 serde = { version = "1.0.110", features = ["derive"] }
 serde_derive = "1.0.110"
 eth2_ssz = "0.1.2"
@@ -22,7 +22,7 @@ dirs = "2.0.2"
 fnv = "1.0.6"
 unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../../eth2/utils/lighthouse_metrics" }
+lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 smallvec = "1.4.0"
 lru = "0.4.3"
 parking_lot = "0.10.2"
@@ -35,7 +35,7 @@ tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
 # Patched for quick updates
 discv5 = { git = "https://github.com/sigp/discv5", rev = "7b3bd40591b62b8c002ffdb85de008aa9f82e2e5" }
 tiny-keccak = "2.0.2"
-libp2p-tcp = { version = "0.18.0", default-features = false, features = ["tokio"] } 
+libp2p-tcp = { version = "0.18.0", default-features = false, features = ["tokio"] }
 
 [dependencies.libp2p]
 version = "0.18.1"
