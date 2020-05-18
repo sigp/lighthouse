@@ -20,7 +20,7 @@ pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet in the --wallet-dir.")
+        .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
         .arg(
             Arg::with_name(NAME_FLAG)
                 .long(NAME_FLAG)
@@ -84,7 +84,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
     // Create a new random mnemonic.
     //
-    // TODO: what entropy does this use?
+    // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
     let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
 
     // Create a random password if the file does not exist.
