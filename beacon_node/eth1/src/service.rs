@@ -594,36 +594,6 @@ impl Service {
             .unwrap_or_else(|| "n/a".into());
 
         if blocks_imported > 0 {
-            info!(
-                service.log,
-                "Imported eth1 block(s)";
-                "latest_block_age" => latest_block_mins,
-                "latest_block" => block_cache.highest_block_number(),
-                "total_cached_blocks" => block_cache.len(),
-                "new" => blocks_imported
-            );
-        } else {
-            debug!(
-                service.log,
-                "No new eth1 blocks imported";
-                "latest_block" => block_cache.highest_block_number(),
-                "cached_blocks" => block_cache.len(),
-            );
-        }
-
-        let block_cache = service.inner.block_cache.read();
-        let latest_block_mins = block_cache
-            .latest_block_timestamp()
-            .and_then(|timestamp| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .ok()
-                    .and_then(|now| now.checked_sub(Duration::from_secs(timestamp)))
-            })
-            .map(|duration| format!("{} mins", duration.as_secs() / 60))
-            .unwrap_or_else(|| "n/a".into());
-
-        if blocks_imported > 0 {
             debug!(
                 service.log,
                 "Imported eth1 block(s)";
