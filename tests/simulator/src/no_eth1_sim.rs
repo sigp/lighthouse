@@ -26,6 +26,22 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" validators_per_node:{}", validators_per_node);
     println!(" end_after_checks:{}", end_after_checks);
 
+    // Generate the directories and keystores required for the validator clients.
+    let validator_files = (0..node_count)
+        .into_par_iter()
+        .map(|i| {
+            println!(
+                "Generating keystores for validator {} of {}",
+                i + 1,
+                node_count
+            );
+
+            let indices =
+                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+            ValidatorFiles::with_keystores(&indices).unwrap()
+        })
+        .collect::<Vec<_>>();
+
     let log_level = "debug";
     let log_format = None;
 
@@ -67,22 +83,6 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
-    // Generate the directories and keystores required for the validator clients.
-    let validator_files = (0..node_count)
-        .into_par_iter()
-        .map(|i| {
-            println!(
-                "Generating keystores for validator {} of {}",
-                i + 1,
-                node_count
-            );
-
-            let indices =
-                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
-            ValidatorFiles::with_keystores(&indices).unwrap()
-        })
-        .collect::<Vec<_>>();
-
     let main_future = async {
         let network = LocalNetwork::new(context, beacon_config.clone()).await?;
         /*
@@ -94,8 +94,8 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         }
 
         /*
-         * One by one, add validator clients to the network. Each validator client is attached to
-         * a single corresponding beacon node.
+         * Create a future that will add validator clients to the network. Each validator client is
+         * attached to a single corresponding beacon node.
          */
         let add_validators = async {
             for (i, files) in validator_files.into_iter().enumerate() {

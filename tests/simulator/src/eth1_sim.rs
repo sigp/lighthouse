@@ -26,6 +26,22 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" validators_per_node:{}", validators_per_node);
     println!(" end_after_checks:{}", end_after_checks);
 
+    // Generate the directories and keystores required for the validator clients.
+    let validator_files = (0..node_count)
+        .into_par_iter()
+        .map(|i| {
+            println!(
+                "Generating keystores for validator {} of {}",
+                i + 1,
+                node_count
+            );
+
+            let indices =
+                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+            ValidatorFiles::with_keystores(&indices).unwrap()
+        })
+        .collect::<Vec<_>>();
+
     let log_level = "debug";
     let log_format = None;
 
@@ -49,22 +65,6 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
     let total_validator_count = validators_per_node * node_count;
     let deposit_amount = env.eth2_config.spec.max_effective_balance;
-
-    // Generate the directories and keystores required for the validator clients.
-    let validator_files = (0..node_count)
-        .into_par_iter()
-        .map(|i| {
-            println!(
-                "Generating keystores for validator {} of {}",
-                i + 1,
-                node_count
-            );
-
-            let indices =
-                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
-            ValidatorFiles::with_keystores(&indices).unwrap()
-        })
-        .collect::<Vec<_>>();
 
     let context = env.core_context();
 
