@@ -1,9 +1,8 @@
 use super::{PublicKey, SecretKey};
-use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Keypair {
     pub sk: SecretKey,
     pub pk: PublicKey,

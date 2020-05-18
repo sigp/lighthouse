@@ -16,6 +16,7 @@ eth2_ssz = "0.1.2"
 eth2_ssz_types = { path = "../../consensus/ssz_types" }
 tree_hash = "0.1.0"
 arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
+zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
 
 [features]
 fake_crypto = []
