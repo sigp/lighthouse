@@ -75,8 +75,16 @@ where
 
     /// Map of outbound substreams that need to be driven to completion. The `RequestId` is
     /// maintained by the application sending the request.
-    outbound_substreams:
-        FnvHashMap<OutboundRequestId, (OutboundSubstreamState<TSpec>, delay_queue::Key, Protocol)>,
+    /// For Responses with multiple expected response chunks a counter is added to be able to terminate the stream when the expected number has been received
+    outbound_substreams: FnvHashMap<
+        OutboundRequestId,
+        (
+            OutboundSubstreamState<TSpec>,
+            delay_queue::Key,
+            Protocol,
+            Option<u64>,
+        ),
+    >,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<OutboundRequestId>,
@@ -360,14 +368,19 @@ where
                 .outbound_substreams_delay
                 .insert(id, Duration::from_secs(RESPONSE_TIMEOUT));
             let protocol = request.protocol();
+            let response_chunk_count = match request {
+                RPCRequest::BlocksByRange(ref req) => Some(req.count),
+                RPCRequest::BlocksByRoot(ref req) => Some(req.block_roots.len() as u64),
+                _ => None, // Other requests do not have a known response chunk length,
+            };
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: out,
-                request,
+                request: request,
             };
-            if let Some(_) = self
-                .outbound_substreams
-                .insert(id, (awaiting_stream, delay_key, protocol))
-            {
+            if let Some(_) = self.outbound_substreams.insert(
+                id,
+                (awaiting_stream, delay_key, protocol, response_chunk_count),
+            ) {
                 crit!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", id));
             }
         }
@@ -591,7 +604,7 @@ where
         loop {
             match self.outbound_substreams_delay.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(stream_id))) => {
-                    if let Some((_id, _stream, protocol)) =
+                    if let Some((_id, _stream, protocol, _)) =
                         self.outbound_substreams.remove(stream_id.get_ref())
                     {
                         // notify the user
@@ -807,18 +820,33 @@ where
                         } => match substream.poll_next_unpin(cx) {
                             Poll::Ready(Some(Ok(response))) => {
                                 if request.multiple_responses() && !response.is_error() {
-                                    entry.get_mut().0 =
-                                        OutboundSubstreamState::RequestPendingResponse {
-                                            substream,
-                                            request,
-                                        };
-                                    let delay_key = &entry.get().1;
-                                    self.outbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                    let substream_entry = entry.get_mut();
+                                    let delay_key = &substream_entry.1;
+                                    // chunks left after this one
+                                    let remaining_chunks = substream_entry
+                                        .3
+                                        .map(|count| count.saturating_sub(1))
+                                        .unwrap_or_else(|| 0);
+                                    if remaining_chunks == 0 {
+                                        // this is the last expected message, close the stream as all expected chunks have been received
+                                        substream_entry.0 =
+                                            OutboundSubstreamState::Closing(substream);
+                                    } else {
+                                        // If the response chunk was expected update the remaining number of chunks expected and reset the Timeout
+                                        substream_entry.0 =
+                                            OutboundSubstreamState::RequestPendingResponse {
+                                                substream,
+                                                request,
+                                            };
+                                        substream_entry.3 = Some(remaining_chunks);
+                                        self.outbound_substreams_delay.reset(
+                                            delay_key,
+                                            Duration::from_secs(RESPONSE_TIMEOUT),
+                                        );
+                                    }
                                 } else {
                                     // either this is a single response request or we received an
                                     // error
-                                    //trace!(self.log, "Closing single stream request");
                                     // only expect a single response, close the stream
                                     entry.get_mut().0 = OutboundSubstreamState::Closing(substream);
                                 }
@@ -875,19 +903,50 @@ where
                         },
                         OutboundSubstreamState::Closing(mut substream) => {
                             match Sink::poll_close(Pin::new(&mut substream), cx) {
-                                // TODO: check if this is supposed to be a stream
                                 Poll::Ready(_) => {
-                                    // drop the stream - including if there is an error
+                                    // drop the stream and its corresponding timeout
                                     let delay_key = &entry.get().1;
+                                    let protocol = entry.get().2;
                                     self.outbound_substreams_delay.remove(delay_key);
                                     entry.remove_entry();
 
+                                    // adjust the RPC keep-alive
                                     if self.outbound_substreams.is_empty()
                                         && self.inbound_substreams.is_empty()
                                     {
                                         self.keep_alive = KeepAlive::Until(
                                             Instant::now() + self.inactive_timeout,
                                         );
+                                    }
+
+                                    // report the stream termination to the user
+                                    //
+                                    // Streams can be terminated here if a responder tries to
+                                    // continue sending responses beyond what we would expect. Here
+                                    // we simply terminate the stream and report a stream
+                                    // termination to the application
+                                    match protocol {
+                                        Protocol::BlocksByRange => {
+                                            return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                                RPCEvent::Response(
+                                                    request_id,
+                                                    RPCCodedResponse::StreamTermination(
+                                                        ResponseTermination::BlocksByRange,
+                                                    ),
+                                                ),
+                                            ));
+                                        }
+                                        Protocol::BlocksByRoot => {
+                                            return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                                RPCEvent::Response(
+                                                    request_id,
+                                                    RPCCodedResponse::StreamTermination(
+                                                        ResponseTermination::BlocksByRoot,
+                                                    ),
+                                                ),
+                                            ));
+                                        }
+                                        _ => {} // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
                                     }
                                 }
                                 Poll::Pending => {
