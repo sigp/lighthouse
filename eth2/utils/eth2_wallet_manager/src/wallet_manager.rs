@@ -308,6 +308,17 @@ mod tests {
                 i
             );
         }
+
+        drop(w);
+
+        // Check that we can open the wallet by name.
+        let by_name = mgr.wallet_by_name(&name).unwrap();
+        assert_eq!(by_name.wallet().name(), name);
+
+        drop(by_name);
+
+        let wallets = mgr.wallets().unwrap().into_iter().collect::<Vec<_>>();
+        assert_eq!(wallets, vec![(name, uuid)]);
     }
 
     #[test]
