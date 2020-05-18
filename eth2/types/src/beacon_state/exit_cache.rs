@@ -18,7 +18,7 @@ impl ExitCache {
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         if self.initialized {
-            return Ok(())
+            return Ok(());
         }
 
         self.initialized = true;
@@ -57,7 +57,11 @@ impl ExitCache {
     /// Get number of validators with the given exit epoch. (Return 0 for the default exit epoch.)
     pub fn get_churn_at(&self, exit_epoch: Epoch) -> Result<u64, BeaconStateError> {
         self.check_initialized()?;
-        Ok(self.exit_epoch_counts.get(&exit_epoch).cloned().unwrap_or(0))
+        Ok(self
+            .exit_epoch_counts
+            .get(&exit_epoch)
+            .cloned()
+            .unwrap_or(0))
     }
 }
 
