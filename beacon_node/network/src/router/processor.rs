@@ -151,7 +151,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         debug!(
             self.log,
             "Received Status Response";
-            "peer" => format!("{:?}", peer_id),
+            "peer_id" => peer_id.to_string(),
             "fork_digest" => format!("{:?}", status.fork_digest),
             "finalized_root" => format!("{:?}", status.finalized_root),
             "finalized_epoch" => format!("{:?}", status.finalized_epoch),
@@ -185,7 +185,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             // The node is on a different network/fork, disconnect them.
             debug!(
                 self.log, "Handshake Failure";
-                "peer" => format!("{:?}", peer_id),
+                "peer_id" => peer_id.to_string(),
                 "reason" => "incompatible forks",
                 "our_fork" => hex::encode(local.fork_digest),
                 "their_fork" => hex::encode(remote.fork_digest)

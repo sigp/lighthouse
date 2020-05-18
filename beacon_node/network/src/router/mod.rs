@@ -10,10 +10,7 @@ use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
-    rpc::{
-        RPCCodedResponse, RPCError, RPCRequest, RPCResponse, RPCResponseErrorCode, RequestId,
-        ResponseTermination,
-    },
+    rpc::{RPCCodedResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
     MessageId, NetworkGlobals, PeerId, PubsubMessage, RPCEvent,
 };
 use futures::prelude::*;
@@ -30,6 +27,8 @@ use types::EthSpec;
 pub struct Router<T: BeaconChainTypes> {
     /// A channel to the network service to allow for gossip propagation.
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    /// Access to the peer db for logging.
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// Processes validated and decoded messages from the network. Has direct access to the
     /// sync manager.
     processor: Processor<T>,
@@ -71,7 +70,7 @@ impl<T: BeaconChainTypes> Router<T> {
         let processor = Processor::new(
             runtime_handle,
             beacon_chain,
-            network_globals,
+            network_globals.clone(),
             network_send.clone(),
             &log,
         );
@@ -79,6 +78,7 @@ impl<T: BeaconChainTypes> Router<T> {
         // generate the Message handler
         let mut handler = Router {
             network_send,
+            network_globals,
             processor,
             log: message_handler_log,
         };
@@ -124,7 +124,11 @@ impl<T: BeaconChainTypes> Router<T> {
         match rpc_message {
             RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
             RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
-            RPCEvent::Error(id, _protocol, error) => self.handle_rpc_error(peer_id, id, error),
+            RPCEvent::Error(id, _protocol, error) => {
+                warn!(self.log, "RPC Error"; "peer_id" => peer_id.to_string(), "request_id" => id, "error" => error.to_string(),
+                    "client" => self.network_globals.client(&peer_id).to_string());
+                self.processor.on_rpc_error(peer_id, id);
+            }
         }
     }
 
@@ -142,9 +146,10 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             RPCRequest::Goodbye(goodbye_reason) => {
                 debug!(
-                    self.log, "PeerGoodbye";
-                    "peer" => format!("{:?}", peer_id),
+                    self.log, "Peer sent Goodbye";
+                    "peer_id" => peer_id.to_string(),
                     "reason" => format!("{:?}", goodbye_reason),
+                    "client" => self.network_globals.client(&peer_id).to_string(),
                 );
                 self.processor.on_disconnect(peer_id);
             }
@@ -170,28 +175,28 @@ impl<T: BeaconChainTypes> Router<T> {
         // an error could have occurred.
         match error_response {
             RPCCodedResponse::InvalidRequest(error) => {
-                warn!(self.log, "RPC Invalid Request"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
-                self.handle_rpc_error(
-                    peer_id,
-                    request_id,
-                    RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest),
-                );
+                warn!(self.log, "RPC Invalid Request";
+                    "peer_id" => peer_id.to_string(),
+                    "request_id" => request_id, 
+                    "error" => error.to_string(),
+                    "client" => self.network_globals.client(&peer_id).to_string());
+                self.processor.on_rpc_error(peer_id, request_id);
             }
             RPCCodedResponse::ServerError(error) => {
-                warn!(self.log, "RPC Server Error"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
-                self.handle_rpc_error(
-                    peer_id,
-                    request_id,
-                    RPCError::ErrorResponse(RPCResponseErrorCode::ServerError),
-                );
+                warn!(self.log, "RPC Server Error" ;
+                    "peer_id" => peer_id.to_string(),
+                    "request_id" => request_id, 
+                    "error" => error.to_string(),
+                    "client" => self.network_globals.client(&peer_id).to_string());
+                self.processor.on_rpc_error(peer_id, request_id);
             }
             RPCCodedResponse::Unknown(error) => {
-                warn!(self.log, "RPC Unknown Error"; "peer_id" => peer_id.to_string(), "request_id" => request_id, "error" => error.to_string());
-                self.handle_rpc_error(
-                    peer_id,
-                    request_id,
-                    RPCError::ErrorResponse(RPCResponseErrorCode::Unknown),
-                );
+                warn!(self.log, "RPC Unknown Error";
+                    "peer_id" => peer_id.to_string(),
+                    "request_id" => request_id, 
+                    "error" => error.to_string(),
+                    "client" => self.network_globals.client(&peer_id).to_string());
+                self.processor.on_rpc_error(peer_id, request_id);
             }
             RPCCodedResponse::Success(response) => match response {
                 RPCResponse::Status(status_message) => {
@@ -232,12 +237,6 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
             }
         }
-    }
-
-    /// Handle various RPC errors
-    fn handle_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
-        warn!(self.log, "RPC Error"; "Peer" => format!("{:?}", peer_id), "request_id" => format!("{}", request_id), "Error" => format!("{:?}", error));
-        self.processor.on_rpc_error(peer_id, request_id);
     }
 
     /// Handle RPC messages
