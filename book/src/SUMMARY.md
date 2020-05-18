@@ -8,7 +8,7 @@
     * [Docker](./docker.md)
 * [Key Management](./key-managment.md)
     * [Create a wallet](./wallet-create.md)
-    * [Create a validator](./wallet-validator.md)
+    * [Create a validator](./validator-create.md)
 * [Local Testnets](./local-testnets.md)
 * [API](./api.md)
 	* [HTTP (RESTful JSON)](./http.md)
