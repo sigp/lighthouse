@@ -509,7 +509,11 @@ async fn test_blocks_by_root_chunked_rpc() {
 
     // BlocksByRoot Request
     let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
-        block_roots: vec![Hash256::from_low_u64_be(0), Hash256::from_low_u64_be(0)],
+        block_roots: vec![
+            Hash256::from_low_u64_be(0),
+            Hash256::from_low_u64_be(0),
+            Hash256::from_low_u64_be(0),
+        ],
     });
 
     // BlocksByRoot Response
