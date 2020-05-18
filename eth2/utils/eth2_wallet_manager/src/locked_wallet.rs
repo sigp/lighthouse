@@ -101,7 +101,7 @@ impl Drop for LockedWallet {
     fn drop(&mut self) {
         let lockfile = self.wallet_dir.clone().join(LOCK_FILE);
         if let Err(e) = remove_file(&lockfile) {
-            panic!("Unable to remove {:?}: {:?}", lockfile, e);
+            eprintln!("Unable to remove {:?}: {:?}", lockfile, e);
         }
     }
 }
