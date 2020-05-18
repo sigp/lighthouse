@@ -27,5 +27,9 @@ eth2_testnet_config = { path = "../eth2/utils/eth2_testnet_config" }
 web3 = "0.10.0"
 futures = { version = "0.3.5", features = ["compat"] }
 clap_utils = { path = "../eth2/utils/clap_utils" }
-# reduce feature set
+eth2_wallet = { path = "../eth2/utils/eth2_wallet" }
+eth2_wallet_manager = { path = "../eth2/utils/eth2_wallet_manager" }
+rand = "0.7.2"
+validator_dir = { path = "../eth2/utils/validator_dir", features = ["unencrypted_keys"] }
 tokio = {version = "0.2.20", features = ["full"]}
+eth2_keystore = { path = "../eth2/utils/eth2_keystore" }

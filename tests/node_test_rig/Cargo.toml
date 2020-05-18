@@ -17,3 +17,4 @@ futures = "0.3.5"
 genesis = { path = "../../beacon_node/genesis" }
 remote_beacon_node = { path = "../../eth2/utils/remote_beacon_node" }
 validator_client = { path = "../../validator_client" }
+validator_dir = { path = "../../eth2/utils/validator_dir", features = ["insecure_keys"] }

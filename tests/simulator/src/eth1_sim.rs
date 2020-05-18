@@ -4,9 +4,12 @@ use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
     environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorConfig,
+    ValidatorFiles,
 };
+use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
+use tokio::time::{delay_until, Instant};
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -23,6 +26,24 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" nodes:{}", node_count);
     println!(" validators_per_node:{}", validators_per_node);
     println!(" end_after_checks:{}", end_after_checks);
+
+    // Generate the directories and keystores required for the validator clients.
+    let validator_files = (0..node_count)
+        .into_par_iter()
+        .map(|i| {
+            println!(
+                "Generating keystores for validator {} of {}",
+                i + 1,
+                node_count
+            );
+
+            let indices =
+                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
+            ValidatorFiles::with_keystores(&indices).unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let expected_genesis_instant = Instant::now() + Duration::from_secs(60);
 
     let log_level = "debug";
     let log_format = None;
@@ -103,54 +124,64 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         for _ in 0..node_count - 1 {
             network.add_beacon_node(beacon_config.clone()).await?;
         }
+
         /*
-         * One by one, add validator clients to the network. Each validator client is attached to
-         * a single corresponding beacon node.
+         * Create a future that will add validator clients to the network. Each validator client is
+         * attached to a single corresponding beacon node.
          */
+        let add_validators_fut = async {
+            for (i, files) in validator_files.into_iter().enumerate() {
+                network
+                    .add_validator_client(
+                        ValidatorConfig {
+                            auto_register: true,
+                            ..ValidatorConfig::default()
+                        },
+                        i,
+                        files,
+                    )
+                    .await?;
+            }
 
-        // Note: presently the validator client future will only resolve once genesis time
-        // occurs. This is great for this scenario, but likely to change in the future.
-        //
-        // If the validator client future behaviour changes, we would need to add a new future
-        // that delays until genesis. Otherwise, all of the checks that start in the next
-        // future will start too early.
-
-        for i in 0..node_count {
-            let indices =
-                (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
-            network
-                .add_validator_client(
-                    ValidatorConfig {
-                        auto_register: true,
-                        ..ValidatorConfig::default()
-                    },
-                    i,
-                    indices,
-                )
-                .await?;
-        }
+            Ok::<(), String>(())
+        };
 
         /*
          * Start the processes that will run checks on the network as it runs.
          */
 
-        let _err = futures::join!(
-            // Check that the chain finalizes at the first given opportunity.
-            checks::verify_first_finalization(network.clone(), slot_duration),
-            // Check that the chain starts with the expected validator count.
-            checks::verify_initial_validator_count(
-                network.clone(),
-                slot_duration,
-                initial_validator_count,
-            ),
-            // Check that validators greater than `spec.min_genesis_active_validator_count` are
-            // onboarded at the first possible opportunity.
-            checks::verify_validator_onboarding(
-                network.clone(),
-                slot_duration,
-                total_validator_count,
-            )
-        );
+        let checks_fut = async {
+            delay_until(expected_genesis_instant).await;
+
+            let (finalization, validator_count, onboarding) = futures::join!(
+                // Check that the chain finalizes at the first given opportunity.
+                checks::verify_first_finalization(network.clone(), slot_duration),
+                // Check that the chain starts with the expected validator count.
+                checks::verify_initial_validator_count(
+                    network.clone(),
+                    slot_duration,
+                    initial_validator_count,
+                ),
+                // Check that validators greater than `spec.min_genesis_active_validator_count` are
+                // onboarded at the first possible opportunity.
+                checks::verify_validator_onboarding(
+                    network.clone(),
+                    slot_duration,
+                    total_validator_count,
+                )
+            );
+
+            finalization?;
+            validator_count?;
+            onboarding?;
+
+            Ok::<(), String>(())
+        };
+
+        let (add_validators, checks) = futures::join!(add_validators_fut, checks_fut);
+
+        add_validators?;
+        checks?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `end_after_checks`.

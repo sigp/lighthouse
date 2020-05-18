@@ -1,26 +1,29 @@
 use crate::config::SLASHING_PROTECTION_FILENAME;
-use crate::fork_service::ForkService;
-use crate::validator_directory::{ValidatorDirectory, ValidatorDirectoryBuilder};
+use crate::{config::Config, fork_service::ForkService};
 use parking_lot::RwLock;
-use rayon::prelude::*;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
-use std::fs::read_dir;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
-    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, PublicKey,
+    Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
+use validator_dir::{Manager as ValidatorManager, ValidatorDir};
+
+#[derive(PartialEq)]
+struct LocalValidator {
+    validator_dir: ValidatorDir,
+    voting_keypair: Keypair,
+}
 
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
-    validators: Arc<RwLock<HashMap<PublicKey, ValidatorDirectory>>>,
+    validators: Arc<RwLock<HashMap<PublicKey, LocalValidator>>>,
     slashing_protection: SlashingDatabase,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
@@ -32,13 +35,13 @@ pub struct ValidatorStore<T, E: EthSpec> {
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn load_from_disk(
-        base_dir: PathBuf,
+        config: &Config,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
         fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Result<Self, String> {
-        let slashing_db_path = base_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_db_path = config.data_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection =
             SlashingDatabase::open_or_create(&slashing_db_path).map_err(|e| {
                 format!(
@@ -47,92 +50,28 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 )
             })?;
 
-        let validator_key_values = read_dir(&base_dir)
-            .map_err(|e| format!("Failed to read base directory {:?}: {:?}", base_dir, e))?
-            .collect::<Vec<_>>()
-            .into_par_iter()
-            .filter_map(|validator_dir| {
-                let path = validator_dir.ok()?.path();
-
-                if path.is_dir() {
-                    match ValidatorDirectory::load_for_signing(path.clone()) {
-                        Ok(validator_directory) => Some(validator_directory),
-                        Err(e) => {
-                            error!(
-                                log,
-                                "Failed to load a validator directory";
-                                "error" => e,
-                                "path" => path.to_str(),
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .filter_map(|validator_directory| {
-                validator_directory
-                    .voting_keypair
-                    .clone()
-                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
+        let validator_key_values = ValidatorManager::open(&config.data_dir)
+            .map_err(|e| format!("unable to read data_dir: {:?}", e))?
+            .decrypt_all_validators(config.secrets_dir.clone())
+            .map_err(|e| format!("unable to decrypt all validator directories: {:?}", e))?
+            .into_iter()
+            .map(|(kp, dir)| {
+                (
+                    kp.pk.clone(),
+                    LocalValidator {
+                        validator_dir: dir,
+                        voting_keypair: kp,
+                    },
+                )
             });
 
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_par_iter(validator_key_values))),
+            validators: Arc::new(RwLock::new(HashMap::from_iter(validator_key_values))),
             slashing_protection,
             genesis_validators_root,
             spec: Arc::new(spec),
             log,
             temp_dir: None,
-            fork_service,
-            _phantom: PhantomData,
-        })
-    }
-
-    pub fn insecure_ephemeral_validators(
-        validator_indices: &[usize],
-        genesis_validators_root: Hash256,
-        spec: ChainSpec,
-        fork_service: ForkService<T, E>,
-        log: Logger,
-    ) -> Result<Self, String> {
-        let temp_dir = TempDir::new("insecure_validator")
-            .map_err(|e| format!("Unable to create temp dir: {:?}", e))?;
-        let data_dir = PathBuf::from(temp_dir.path());
-
-        let slashing_db_path = data_dir.join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection = SlashingDatabase::create(&slashing_db_path)
-            .map_err(|e| format!("Failed to create slashing protection database: {:?}", e))?;
-
-        let validators = validator_indices
-            .par_iter()
-            .map(|index| {
-                ValidatorDirectoryBuilder::default()
-                    .spec(spec.clone())
-                    .full_deposit_amount()?
-                    .insecure_keypairs(*index)
-                    .create_directory(data_dir.clone())?
-                    .write_keypair_files()?
-                    .write_eth1_data_file()?
-                    .build()
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter_map(|validator_directory| {
-                validator_directory
-                    .voting_keypair
-                    .clone()
-                    .map(|voting_keypair| (voting_keypair.pk, validator_directory))
-            });
-
-        Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(validators))),
-            slashing_protection,
-            genesis_validators_root,
-            spec: Arc::new(spec),
-            log,
-            temp_dir: Some(Arc::new(temp_dir)),
             fork_service,
             _phantom: PhantomData,
         })
@@ -175,8 +114,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .get(validator_pubkey)
-            .and_then(|validator_dir| {
-                let voting_keypair = validator_dir.voting_keypair.as_ref()?;
+            .and_then(|local_validator| {
+                let voting_keypair = &local_validator.voting_keypair;
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
@@ -226,7 +165,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 let validators = self.validators.read();
                 let validator = validators.get(validator_pubkey)?;
-                let voting_keypair = validator.voting_keypair.as_ref()?;
+                let voting_keypair = &validator.voting_keypair;
 
                 Some(block.sign(
                     &voting_keypair.sk,
@@ -294,7 +233,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 let validators = self.validators.read();
                 let validator = validators.get(validator_pubkey)?;
-                let voting_keypair = validator.voting_keypair.as_ref()?;
+                let voting_keypair = &validator.voting_keypair;
 
                 attestation
                     .sign(
@@ -355,7 +294,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         selection_proof: SelectionProof,
     ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
-        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+        let voting_keypair = &validators.get(validator_pubkey)?.voting_keypair;
 
         Some(SignedAggregateAndProof::from_aggregate(
             validator_index,
@@ -376,7 +315,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot: Slot,
     ) -> Option<SelectionProof> {
         let validators = self.validators.read();
-        let voting_keypair = validators.get(validator_pubkey)?.voting_keypair.as_ref()?;
+        let voting_keypair = &validators.get(validator_pubkey)?.voting_keypair;
 
         Some(SelectionProof::new::<E>(
             slot,

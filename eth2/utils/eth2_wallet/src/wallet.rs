@@ -12,11 +12,11 @@ use eth2_keystore::{
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
-use uuid::Uuid;
 
 pub use bip39::{Mnemonic, Seed as Bip39Seed};
 pub use eth2_key_derivation::DerivedKey;
 pub use eth2_keystore::{Error as KeystoreError, PlainText};
+pub use uuid::Uuid;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -112,7 +112,7 @@ impl<'a> WalletBuilder<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Wallet {
     json: JsonWallet,

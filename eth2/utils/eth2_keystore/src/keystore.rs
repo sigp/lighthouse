@@ -203,6 +203,11 @@ impl Keystore {
         &self.json.path
     }
 
+    /// Returns the pubkey for the keystore.
+    pub fn pubkey(&self) -> &str {
+        &self.json.pubkey
+    }
+
     /// Encodes `self` as a JSON object.
     pub fn to_json_string(&self) -> Result<String, Error> {
         serde_json::to_string(self).map_err(|e| Error::UnableToSerialize(format!("{}", e)))

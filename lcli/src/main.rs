@@ -405,7 +405,7 @@ fn main() {
         .subcommand(
             SubCommand::with_name("generate-bootnode-enr")
                 .about(
-                    "Generates an ENR address to be used as a pre-genesis boot node..",
+                    "Generates an ENR address to be used as a pre-genesis boot node.",
                 )
                 .arg(
                     Arg::with_name("ip")

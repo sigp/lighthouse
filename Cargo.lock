@@ -10,12 +10,16 @@ dependencies = [
  "deposit_contract",
  "dirs",
  "environment",
+ "eth2_keystore",
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_testnet_config",
+ "eth2_wallet",
+ "eth2_wallet_manager",
  "futures 0.3.5",
  "hex 0.4.2",
  "libc",
+ "rand 0.7.3",
  "rayon",
  "slog",
  "slog-async",
@@ -24,6 +28,7 @@ dependencies = [
  "tokio 0.2.20",
  "types",
  "validator_client",
+ "validator_dir",
  "web3",
 ]
 
@@ -1341,6 +1346,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eth2_wallet_manager"
+version = "0.1.0"
+dependencies = [
+ "eth2_keystore",
+ "eth2_wallet",
+ "tempfile",
+]
+
+[[package]]
 name = "ethabi"
 version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2164,12 +2178,14 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2-libp2p",
+ "eth2_keystore",
  "eth2_ssz",
  "eth2_testnet_config",
  "futures 0.3.5",
  "genesis",
  "hex 0.4.2",
  "log 0.4.8",
+ "rand 0.7.3",
  "regex",
  "serde",
  "serde_yaml",
@@ -2178,6 +2194,7 @@ dependencies = [
  "tokio 0.2.20",
  "tree_hash",
  "types",
+ "validator_dir",
  "web3",
 ]
 
@@ -2542,9 +2559,11 @@ dependencies = [
  "slog-async",
  "slog-term",
  "sloggers",
+ "tempfile",
  "tokio 0.2.20",
  "types",
  "validator_client",
+ "validator_dir",
 ]
 
 [[package]]
@@ -2901,6 +2920,7 @@ dependencies = [
  "types",
  "url 2.1.1",
  "validator_client",
+ "validator_dir",
 ]
 
 [[package]]
@@ -4130,6 +4150,7 @@ dependencies = [
  "futures 0.3.5",
  "node_test_rig",
  "parking_lot 0.10.2",
+ "rayon",
  "tokio 0.2.20",
  "types",
  "validator_client",
@@ -5232,6 +5253,7 @@ dependencies = [
  "bincode",
  "bls",
  "clap",
+ "clap_utils",
  "deposit_contract",
  "dirs",
  "environment",
@@ -5261,7 +5283,25 @@ dependencies = [
  "tokio 0.2.20",
  "tree_hash",
  "types",
+ "validator_dir",
  "web3",
+]
+
+[[package]]
+name = "validator_dir"
+version = "0.1.0"
+dependencies = [
+ "bls",
+ "deposit_contract",
+ "eth2_keystore",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "eth2_wallet",
+ "rand 0.7.3",
+ "rayon",
+ "tempfile",
+ "tree_hash",
+ "types",
 ]
 
 [[package]]

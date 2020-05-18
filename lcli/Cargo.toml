@@ -30,3 +30,6 @@ tree_hash = "0.1.0"
 tokio = { version = "0.2.20", features = ["full"] }
 clap_utils = { path = "../eth2/utils/clap_utils" }
 eth2-libp2p = { path = "../beacon_node/eth2-libp2p" }
+validator_dir = { path = "../eth2/utils/validator_dir", features = ["unencrypted_keys"] }
+rand = "0.7.2"
+eth2_keystore = { path = "../eth2/utils/eth2_keystore" }

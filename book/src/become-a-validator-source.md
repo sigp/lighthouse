@@ -27,7 +27,7 @@ Since Eth2 relies upon the Eth1 chain for validator on-boarding, all Eth2 valida
 
 We provide instructions for using Geth (the Eth1 client that, by chance, we ended up testing with), but you could use any client that implements the JSON RPC via HTTP. A fast-synced node should be sufficient.
 
-### Installing Geth 
+### Installing Geth
 If you're using a Mac, follow the instructions [listed here](https://github.com/ethereum/go-ethereum/wiki/Installation-Instructions-for-Mac) to install geth. Otherwise [see here](https://github.com/ethereum/go-ethereum/wiki/Installing-Geth).
 
 ### Starting Geth
@@ -73,30 +73,71 @@ slot: 16835, ...
 
 ## 4. Generate your validator key
 
-Generate new validator BLS keypairs using:
+First, [create a wallet](./wallet-create) that can be used to generate
+validator keys. Then, from that wallet [create a
+validator](./validator-create). A two-step example follows:
+
+### 4.1 Create a Wallet
+
+Create a wallet with:
 
 ```bash
- lighthouse account validator new random
+lighthouse account wallet create --name my-validators --passphrase-file my-validators.pass
 ```
 
-Take note of the `voting_pubkey` of the new validator:
+The output will look like this:
 
 ```
-INFO Saved new validator to disk 
-voting_pubkey: 0xa1625249d80...
+Your wallet's 12-word BIP-39 mnemonic is:
+
+	thank beach essence clerk gun library key grape hotel wise dutch segment
+
+This mnemonic can be used to fully restore your wallet, should
+you lose the JSON file or your password.
+
+It is very important that you DO NOT SHARE this mnemonic as it will
+reveal the private keys of all validators and keys generated with
+this wallet. That would be catastrophic.
+
+It is also import to store a backup of this mnemonic so you can
+recover your private keys in the case of data loss. Writing it on
+a piece of paper and storing it in a safe place would be prudent.
+
+Your wallet's UUID is:
+
+	e762671a-2a33-4922-901b-62a43dbd5227
+
+You do not need to backup your UUID or keep it secret.
 ```
 
-It's the validator's primary identifier, and will be used to find your validator in block explorers.
+**Don't forget to make a backup** of the 12-word BIP-39 mnemonic. It can be
+used to restore your validator if there is a data loss.
 
-You've completed this step when you see something like the following line:
+### 4.2 Create a Validator from the Wallet
 
+Create a validator from the wallet with:
+
+```bash
+lighthouse account validator create --wallet-name my-validators --wallet-passphrase my-validators.pass
 ```
-Dec 02 21:42:01.337 INFO Generated validator directories         count: 1, base_path: "/home/karl/.lighthouse/validators"
+
+The output will look like this:
+
+```bash
+1/1	0x80f3dce8d6745a725d8442c9bc3ca0852e772394b898c95c134b94979ebb0af6f898d5c5f65b71be6889185c486918a7
 ```
 
-This means you've successfully generated a new sub-directory for your validator in the `.lighthouse/validators` directory. The sub-directory is identified by your validator's public key (`voting_pubkey`). And is used to store your validator's deposit data, along with its voting and withdrawal keys.
+Take note of the _validator public key_ (the `0x` and 64 characters following
+it). It's the validator's primary identifier, and will be used to find your
+validator in block explorers. (The `1/1` at the start is saying it's one-of-one
+keys generated).
 
-> Note: these keypairs are good enough for the Lighthouse testnet, however they shouldn't be considered secure until we've undergone a security audit (planned March/April).
+Once you've observed the validator public key, you've successfully generated a
+new sub-directory for your validator in the `.lighthouse/validators` directory.
+The sub-directory is identified by your validator's public key . And is used to
+store your validator's deposit data, along with its voting keys and other
+information.
+
 
 ## 5. Start your validator client
 
@@ -148,7 +189,7 @@ However, since it generally takes somewhere between [4 and 8 hours](./faq.md) af
 
 In the [next step](become-a-validator.html#2-submit-your-deposit-to-goerli) you'll need to upload your validator's deposit data. This data is stored in a file called `eth1_deposit_data.rlp`. 
 
-You'll find it in `/home/.lighthouse/validators` -- in the sub-directory that corresponds to your validator's public key (`voting_pubkey`).
+You'll find it in `/home/.lighthouse/validators` -- in the sub-directory that corresponds to your validator's public key.
 
 > For example, if your username is `karlm`, and your validator's public key (aka `voting_pubkey`) is `0x8592c7..`, then you'll find your `eth1_deposit_data.rlp` file in the following directory:
 >

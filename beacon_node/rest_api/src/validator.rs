@@ -407,9 +407,11 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 
     match beacon_chain.get_aggregated_attestation(&attestation_data) {
         Ok(Some(attestation)) => ResponseBuilder::new(&req)?.body(&attestation),
-        Ok(None) => Err(ApiError::NotFound(
-            "No matching aggregate attestation is known".into(),
-        )),
+        Ok(None) => Err(ApiError::NotFound(format!(
+            "No matching aggregate attestation for slot {:?} is known in slot {:?}",
+            attestation_data.slot,
+            beacon_chain.slot()
+        ))),
         Err(e) => Err(ApiError::ServerError(format!(
             "Unable to obtain attestation: {:?}",
             e

@@ -56,7 +56,7 @@ impl DutyAndProof {
 
         let selection_proof = validator_store
             .produce_selection_proof(&self.duty.validator_pubkey, slot)
-            .ok_or_else(|| "Validator pubkey missing from store".to_string())?;
+            .ok_or_else(|| "Failed to produce selection proof".to_string())?;
 
         self.selection_proof = selection_proof
             .is_aggregator_from_modulo(modulo)

@@ -1,0 +1,26 @@
+[package]
+name = "validator_dir"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+[features]
+unencrypted_keys = []
+insecure_keys = []
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eth2_wallet = { path = "../eth2_wallet" }
+bls = { path = "../bls" }
+eth2_keystore = { path = "../eth2_keystore" }
+types = { path = "../../types" }
+rand = "0.7.2"
+deposit_contract = { path = "../deposit_contract" }
+eth2_ssz = { path = "../ssz" }
+eth2_ssz_derive = { path = "../ssz_derive" }
+rayon = "1.3.0"
+tree_hash = { path = "../tree_hash" }
+
+[dev-dependencies]
+tempfile = "3.1.0"
