@@ -43,7 +43,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let expected_genesis_instant = Instant::now() + Duration::from_secs(30);
+    let expected_genesis_instant = Instant::now() + Duration::from_secs(60);
 
     let log_level = "debug";
     let log_format = None;
