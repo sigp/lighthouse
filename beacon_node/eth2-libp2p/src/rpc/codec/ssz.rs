@@ -3,7 +3,7 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version},
 };
-use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
+use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
@@ -52,9 +52,9 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZInboundCodec<TSpec>
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) => res.as_ssz_bytes(),
             },
-            RPCCodedResponse::InvalidRequest(err) => err.as_ssz_bytes(),
-            RPCCodedResponse::ServerError(err) => err.as_ssz_bytes(),
-            RPCCodedResponse::Unknown(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::InvalidRequest(err) => err.into_bytes().as_ssz_bytes(),
+            RPCCodedResponse::ServerError(err) => err.into_bytes().as_ssz_bytes(),
+            RPCCodedResponse::Unknown(err) => err.into_bytes().as_ssz_bytes(),
             RPCCodedResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
@@ -242,11 +242,13 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
 }
 
 impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
-    type ErrorType = ErrorMessage;
+    type ErrorType = String;
 
     fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<Self::ErrorType>, RPCError> {
         match self.inner.decode(src).map_err(RPCError::from) {
-            Ok(Some(packet)) => Ok(Some(ErrorMessage::from_ssz_bytes(&packet)?)),
+            Ok(Some(packet)) => Ok(Some(
+                String::from_utf8_lossy(&<Vec<u8>>::from_ssz_bytes(&packet)?).into(),
+            )),
             Ok(None) => Ok(None),
             Err(e) => Err(e),
         }

@@ -181,13 +181,13 @@ pub enum RPCCodedResponse<T: EthSpec> {
     Success(RPCResponse<T>),
 
     /// The response was invalid.
-    InvalidRequest(ErrorMessage),
+    InvalidRequest(String),
 
     /// The response indicates a server error.
-    ServerError(ErrorMessage),
+    ServerError(String),
 
     /// There was an unknown response.
-    Unknown(ErrorMessage),
+    Unknown(String),
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
@@ -222,7 +222,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
     }
 
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
-    pub fn from_error(response_code: u8, err: ErrorMessage) -> Self {
+    pub fn from_error(response_code: u8, err: String) -> Self {
         match response_code {
             1 => RPCCodedResponse::InvalidRequest(err),
             2 => RPCCodedResponse::ServerError(err),
@@ -265,18 +265,6 @@ impl<T: EthSpec> RPCCodedResponse<T> {
             RPCCodedResponse::ServerError(_) => Some(RPCResponseErrorCode::ServerError),
             RPCCodedResponse::Unknown(_) => Some(RPCResponseErrorCode::Unknown),
         }
-    }
-}
-
-#[derive(Encode, Decode, Debug, Clone)]
-pub struct ErrorMessage {
-    /// The UTF-8 encoded Error message string.
-    pub error_message: Vec<u8>,
-}
-
-impl std::string::ToString for ErrorMessage {
-    fn to_string(&self) -> String {
-        String::from_utf8(self.error_message.clone()).unwrap_or_else(|_| "".into())
     }
 }
 
