@@ -5206,6 +5206,7 @@ dependencies = [
  "eth2_wallet",
  "rand 0.7.3",
  "rayon",
+ "tempfile",
  "tree_hash",
  "types",
 ]

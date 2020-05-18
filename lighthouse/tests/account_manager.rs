@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))]
+
 use account_manager::{
     upgrade_legacy_keypairs::{CMD as UPGRADE_CMD, *},
     validator::{create::*, CMD as VALIDATOR_CMD},

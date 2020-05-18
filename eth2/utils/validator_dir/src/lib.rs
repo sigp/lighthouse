@@ -13,7 +13,7 @@ mod manager;
 pub mod unencrypted_keys;
 mod validator_dir;
 
-pub use crate::validator_dir::{Error, Eth1DepositData, ValidatorDir};
+pub use crate::validator_dir::{Error, Eth1DepositData, ValidatorDir, ETH1_DEPOSIT_TX_HASH_FILE};
 pub use builder::{
     Builder, Error as BuilderError, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE,

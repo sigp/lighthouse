@@ -43,6 +43,7 @@ pub enum Error {
 }
 
 /// Information required to submit a deposit to the Eth1 deposit contract.
+#[derive(Debug, PartialEq)]
 pub struct Eth1DepositData {
     /// An RLP encoded Eth1 transaction.
     pub rlp: Vec<u8>,
@@ -125,13 +126,14 @@ impl ValidatorDir {
         self.dir.join(ETH1_DEPOSIT_TX_HASH_FILE).exists()
     }
 
-    /// Saves the `tx_hash` to a file in `self.dir`.
+    /// Saves the `tx_hash` to a file in `self.dir`. Artificially requires `mut self` to prevent concurrent
+    /// calls.
     ///
     /// ## Errors
     ///
     /// If there is a file-system error, or if there is already a transaction hash stored in
     /// `self.dir`.
-    pub fn save_eth1_deposit_tx_hash(&self, tx_hash: &str) -> Result<(), Error> {
+    pub fn save_eth1_deposit_tx_hash(&mut self, tx_hash: &str) -> Result<(), Error> {
         let path = self.dir.join(ETH1_DEPOSIT_TX_HASH_FILE);
 
         if path.exists() {
