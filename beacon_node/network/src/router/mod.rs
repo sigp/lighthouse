@@ -125,7 +125,8 @@ impl<T: BeaconChainTypes> Router<T> {
             RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
             RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
             RPCEvent::Error(id, _protocol, error) => {
-                warn!(self.log, "RPC Error"; "peer_id" => peer_id.to_string(), "request_id" => id, "error" => error.to_string());
+                warn!(self.log, "RPC Error"; "peer_id" => peer_id.to_string(), "request_id" => id, "error" => error.to_string(),
+                    "client" => self.network_globals.client(&peer_id).to_string());
                 self.processor.on_rpc_error(peer_id, id);
             }
         }
