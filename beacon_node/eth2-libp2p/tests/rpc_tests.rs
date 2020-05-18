@@ -239,7 +239,7 @@ async fn test_blocks_by_range_chunked_rpc() {
 // Tests that a streamed BlocksByRange RPC Message terminates when all expected chunks were received
 async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     // set up the logging. The level and enabled logging or not
-    let log_level = Level::Trace;
+    let log_level = Level::Debug;
     let enable_logging = false;
 
     let messages_to_send = 10;
@@ -283,12 +283,11 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                     // Should receive the RPC response
                     RPCEvent::Response(id, response) => {
                         if id == 10 {
-                            warn!(log, "Sender received a response");
+                            debug!(log, "Sender received a response");
                             match response {
                                 RPCCodedResponse::Success(res) => {
                                     assert_eq!(res, rpc_response.clone());
                                     messages_received += 1;
-                                    warn!(log, "Chunk received");
                                 }
                                 RPCCodedResponse::StreamTermination(_) => {
                                     // should be exactly 10 messages, as requested
@@ -305,8 +304,6 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
         }
     };
 
-    // build the receiver future
-    let mut errors_received = 0;
     // determine messages to send (PeerId, RequestId). If some, indicates we still need to send
     // messages
     let mut message_info = None;
@@ -322,7 +319,10 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
             )
             .await
             {
-                (Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)), _) => {
+                futures::future::Either::Left((
+                    Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)),
+                    _,
+                )) => {
                     match event {
                         // Should receive sent RPC request
                         RPCEvent::Request(id, request) => {
@@ -330,26 +330,20 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                                 // send the response
                                 warn!(log, "Receiver got request");
                                 message_info = Some((peer_id, id));
+                            } else {
+                                continue;
                             }
                         }
-                        // drive the sending and check for errors
-                        RPCEvent::Error(err_id, _protocol, e) => {
-                            debug!(log, "Error"; "e" => e.to_string());
-                            errors_received += 1;
-                            if errors_received == extra_messages_to_send {
-                                // we have received the expected errors from an early
-                                // stream termination
-                                return;
-                            }
-                        }
-                        _ => {} // Ignore other events
+                        _ => continue, // Ignore other events, don't send messages until ready
                     }
                 }
-                _ => {} // Ignore other events
+                futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
+                _ => continue,
             }
 
             // if we need to send messages send them here. This will happen after a delay
             if message_info.is_some() {
+                messages_sent += 1;
                 receiver.swarm.send_rpc(
                     message_info.as_ref().unwrap().0.clone(),
                     RPCEvent::Response(
@@ -357,10 +351,10 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                         RPCCodedResponse::Success(rpc_response.clone()),
                     ),
                 );
-                messages_sent += 1;
+                debug!(log, "Sending message {}", messages_sent);
                 if messages_sent == messages_to_send + extra_messages_to_send {
                     // stop sending messages
-                    message_info = None;
+                    return;
                 }
             }
         }
@@ -369,7 +363,7 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(5000)) => {
+        _ = delay_for(Duration::from_millis(50000)) => {
             panic!("Future timed out");
         }
     }
