@@ -4,14 +4,12 @@ extern crate ssz;
 #[macro_use]
 mod macros;
 mod keypair;
-mod plain_text;
 mod public_key_bytes;
 mod secret_key;
 mod signature_bytes;
 mod signature_set;
 
 pub use crate::keypair::Keypair;
-pub use crate::plain_text::PlainText;
 pub use crate::public_key_bytes::PublicKeyBytes;
 pub use crate::secret_key::SecretKey;
 pub use crate::signature_bytes::SignatureBytes;

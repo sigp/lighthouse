@@ -5,11 +5,9 @@ const TREE_HASH_LOOPS: usize = 1_000;
 const VALIDATOR_COUNT: usize = 1_000;
 
 fn build_state<T: EthSpec>(validator_count: usize) -> BeaconState<T> {
-    let (state, _keypairs) = TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(
-        validator_count,
-        &T::default_spec(),
-    )
-    .build();
+    let (state, _keypairs) =
+        TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, &T::default_spec())
+            .build();
 
     assert_eq!(state.validators.len(), validator_count);
     assert_eq!(state.balances.len(), validator_count);

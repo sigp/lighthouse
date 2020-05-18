@@ -4,7 +4,6 @@ use eth2_wallet::{
     bip39::{Language, Mnemonic, Seed},
     recover_validator_secret, DerivedKey, Error, KeyType, KeystoreError, Wallet, WalletBuilder,
 };
-use ssz::Encode;
 use std::fs::OpenOptions;
 use tempfile::tempdir;
 
@@ -243,13 +242,13 @@ fn key_derivation_from_seed() {
             .expect("should decrypt voting keypair");
 
         assert_eq!(
-            voting_keypair.sk.as_ssz_bytes(),
+            voting_keypair.sk.as_raw().as_bytes(),
             manually_derived_voting_key(i),
             "voting secret should match manually derived"
         );
 
         assert_eq!(
-            voting_keypair.sk.as_ssz_bytes(),
+            voting_keypair.sk.as_raw().as_bytes(),
             recovered_voting_key(&wallet, i),
             "voting secret should match recovered"
         );
@@ -260,20 +259,20 @@ fn key_derivation_from_seed() {
             .expect("should decrypt withdrawal keypair");
 
         assert_eq!(
-            withdrawal_keypair.sk.as_ssz_bytes(),
+            withdrawal_keypair.sk.as_raw().as_bytes(),
             manually_derived_withdrawal_key(i),
             "withdrawal secret should match manually derived"
         );
 
         assert_eq!(
-            withdrawal_keypair.sk.as_ssz_bytes(),
+            withdrawal_keypair.sk.as_raw().as_bytes(),
             recovered_withdrawal_key(&wallet, i),
             "withdrawal secret should match recovered"
         );
 
         assert_ne!(
-            withdrawal_keypair.sk.as_ssz_bytes(),
-            voting_keypair.sk.as_ssz_bytes(),
+            withdrawal_keypair.sk.as_raw().as_bytes(),
+            voting_keypair.sk.as_raw().as_bytes(),
             "voting and withdrawal keypairs should be distinct"
         );
 

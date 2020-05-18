@@ -15,7 +15,7 @@ pub struct BlockProcessingBuilder<'a, T: EthSpec> {
 impl<'a, T: EthSpec> BlockProcessingBuilder<'a, T> {
     pub fn new(num_validators: usize, state_slot: Slot, spec: &'a ChainSpec) -> Self {
         let mut state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, &spec);
+            TestingBeaconStateBuilder::from_deterministic_keypairs(num_validators, &spec);
         state_builder.teleport_to_slot(state_slot);
         let (state, keypairs) = state_builder.build();
         let block_builder = TestingBeaconBlockBuilder::new(spec);

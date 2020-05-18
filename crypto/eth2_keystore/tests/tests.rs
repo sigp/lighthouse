@@ -38,8 +38,8 @@ fn string_round_trip() {
     );
 
     assert_eq!(
-        decoded.decrypt_keypair(GOOD_PASSWORD).unwrap(),
-        keypair,
+        decoded.decrypt_keypair(GOOD_PASSWORD).unwrap().pk,
+        keypair.pk,
         "should decrypt with good password"
     );
 }
@@ -77,8 +77,8 @@ fn file() {
     );
 
     assert_eq!(
-        decoded.decrypt_keypair(GOOD_PASSWORD).unwrap(),
-        keypair,
+        decoded.decrypt_keypair(GOOD_PASSWORD).unwrap().pk,
+        keypair.pk,
         "should decrypt with good password"
     );
 }
@@ -102,8 +102,8 @@ fn scrypt_params() {
     );
 
     assert_eq!(
-        decoded.decrypt_keypair(GOOD_PASSWORD).unwrap(),
-        keypair,
+        decoded.decrypt_keypair(GOOD_PASSWORD).unwrap().pk,
+        keypair.pk,
         "should decrypt with good password"
     );
 }

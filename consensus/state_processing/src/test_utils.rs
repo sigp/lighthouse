@@ -22,7 +22,7 @@ pub struct BlockBuilder<T: EthSpec> {
 impl<T: EthSpec> BlockBuilder<T> {
     pub fn new(num_validators: usize, spec: &ChainSpec) -> Self {
         let state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, &spec);
+            TestingBeaconStateBuilder::from_deterministic_keypairs(num_validators, &spec);
         let block_builder = TestingBeaconBlockBuilder::new(spec);
 
         Self {

@@ -479,7 +479,7 @@ mod release_tests {
         let num_validators =
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
         let mut state_builder =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(num_validators, &spec);
+            TestingBeaconStateBuilder::from_deterministic_keypairs(num_validators, &spec);
         let slot_offset = 1000 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
         let slot = spec.genesis_slot + slot_offset;
         state_builder.teleport_to_slot(slot);
@@ -897,7 +897,7 @@ mod release_tests {
         let spec = MainnetEthSpec::default_spec();
         let num_validators = 32;
         let mut state_builder =
-            TestingBeaconStateBuilder::<MainnetEthSpec>::from_default_keypairs_file_if_exists(
+            TestingBeaconStateBuilder::<MainnetEthSpec>::from_deterministic_keypairs(
                 num_validators,
                 &spec,
             );

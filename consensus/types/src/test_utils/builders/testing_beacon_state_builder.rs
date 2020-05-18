@@ -1,10 +1,10 @@
-use super::super::{generate_deterministic_keypairs, KeypairsFile};
+use super::super::generate_deterministic_keypairs;
 use crate::test_utils::{AttestationTestTask, TestingPendingAttestationBuilder};
 use crate::*;
 use bls::get_withdrawal_credentials;
 use log::debug;
 use rayon::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const KEYPAIRS_FILE: &str = "keypairs.raw_keypairs";
 
@@ -29,44 +29,6 @@ pub struct TestingBeaconStateBuilder<T: EthSpec> {
 }
 
 impl<T: EthSpec> TestingBeaconStateBuilder<T> {
-    /// Attempts to load validators from a file in `$HOME/.lighthouse/keypairs.raw_keypairs`. If
-    /// the file is unavailable, it generates the keys at runtime.
-    ///
-    /// If the `$HOME` environment variable is not set, the local directory is used.
-    ///
-    /// See the `Self::from_keypairs_file` method for more info.
-    ///
-    /// # Panics
-    ///
-    /// If the file does not contain enough keypairs or is invalid.
-    pub fn from_default_keypairs_file_if_exists(validator_count: usize, spec: &ChainSpec) -> Self {
-        let dir = dirs::home_dir()
-            .map(|home| home.join(".lighthouse"))
-            .unwrap_or_else(|| PathBuf::from(""));
-        let file = dir.join(KEYPAIRS_FILE);
-
-        if file.exists() {
-            TestingBeaconStateBuilder::from_keypairs_file(validator_count, &file, spec)
-        } else {
-            TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, spec)
-        }
-    }
-
-    /// Loads the initial validator keypairs from a file on disk.
-    ///
-    /// Loading keypairs from file is ~10x faster than generating them. Use the `gen_keys` command
-    /// on the  `test_harness` binary to generate the keys. In the `test_harness` dir, run `cargo
-    /// run -- gen_keys -h` for help.
-    ///
-    /// # Panics
-    ///
-    /// If the file does not exist, is invalid or does not contain enough keypairs.
-    pub fn from_keypairs_file(validator_count: usize, path: &Path, spec: &ChainSpec) -> Self {
-        debug!("Loading {} keypairs from file...", validator_count);
-        let keypairs = Vec::from_raw_file(path, validator_count).unwrap();
-        TestingBeaconStateBuilder::from_keypairs(keypairs, spec)
-    }
-
     /// Generates the validator keypairs deterministically.
     pub fn from_deterministic_keypairs(validator_count: usize, spec: &ChainSpec) -> Self {
         debug!("Generating {} deterministic keypairs...", validator_count);

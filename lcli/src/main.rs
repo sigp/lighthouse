@@ -553,7 +553,7 @@ fn genesis_yaml<T: EthSpec>(validator_count: usize, genesis_time: u64, output: P
     let spec = &T::default_spec();
 
     let builder: TestingBeaconStateBuilder<T> =
-        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, spec);
+        TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, spec);
 
     let (mut state, _keypairs) = builder.build();
     state.genesis_time = genesis_time;
