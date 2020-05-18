@@ -1,12 +1,12 @@
-//! This command allows migrating from the old method of storing keys (serialize them, unencrypted
-//! as SSZ to a file) to the current method of using encrypted EIP-2335 keystores.
+//! This command allows migrating from the old method of storing keys (unencrypted SSZ) to the
+//! current method of using encrypted EIP-2335 keystores.
 //!
 //! This command should be completely removed once the `unencrypted_keys` feature is removed from
 //! the `validator_dir` command. This should hopefully be in mid-June 2020.
 //!
 //! ## Example
 //!
-//! This command will upgrade all keypairs in the `--validators-dir`, storing the newly-generate
+//! This command will upgrade all keypairs in the `--validators-dir`, storing the newly-generated
 //! passwords in `--secrets-dir`.
 //!
 //! ```ignore

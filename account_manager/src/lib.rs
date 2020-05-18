@@ -6,13 +6,12 @@ pub mod wallet;
 use clap::App;
 use clap::ArgMatches;
 use environment::Environment;
-use std::fs;
-use std::path::PathBuf;
 use types::EthSpec;
 
 pub const CMD: &str = "account_manager";
 pub const SECRETS_DIR_FLAG: &str = "secrets-dir";
 pub const VALIDATOR_DIR_FLAG: &str = "validator-dir";
+pub const BASE_DIR_FLAG: &str = "base-dir";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -25,20 +24,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 /// Run the account manager, returning an error if the operation did not succeed.
 pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
-    // If the `datadir` was not provided, default to the home directory. If the home directory is
-    // not known, use the current directory.
-    let datadir = matches
-        .value_of("datadir")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".lighthouse")
-                .join("validators")
-        });
-
-    fs::create_dir_all(&datadir).map_err(|e| format!("Failed to create datadir: {}", e))?;
-
     match matches.subcommand() {
         (wallet::CMD, Some(matches)) => wallet::cli_run(matches)?,
         (validator::CMD, Some(matches)) => validator::cli_run(matches, env)?,

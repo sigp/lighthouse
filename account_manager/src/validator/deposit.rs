@@ -1,3 +1,4 @@
+use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
 use clap_utils;
 use deposit_contract::DEPOSIT_GAS;
@@ -15,6 +16,10 @@ use web3::{
 };
 
 pub const CMD: &str = "deposit";
+pub const VALIDATOR_FLAG: &str = "validator";
+pub const ETH1_IPC_FLAG: &str = "eth1-ipc";
+pub const FROM_ADDRESS_FLAG: &str = "from-address";
+
 const GWEI: u64 = 1_000_000_000;
 
 const SYNCING_STATE_RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -22,20 +27,20 @@ const SYNCING_STATE_RETRY_DELAY: Duration = Duration::from_secs(2);
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("deposit")
         .about(
-            "Submits a deposit to an Eth1 validator registration contract via IPC endpoint \
+            "Submits a deposit to an Eth1 validator registration contract via an IPC endpoint \
             of an Eth1 client (e.g., Geth, OpenEthereum, etc.). The validators must already \
-            have been created and exist on the filesystem. The process will exit immediately \
+            have been created and exist on the file-system. The process will exit immediately \
             with an error if any error occurs. After each deposit is submitted to the Eth1 \
-            node a file will be saved in the validator directory with the transaction hash. \
+            node, a file will be saved in the validator directory with the transaction hash. \
             The application does not wait for confirmations so there is not guarantee that \
-            the transaction is included in the Eth1 chain, use a block explorer and your \
+            the transaction is included in the Eth1 chain; use a block explorer and the \
             transaction hash to check for confirmations. The deposit contract address will \
             be determined by the --testnet-dir flag on the primary Lighthouse binary.",
         )
         .arg(
-            Arg::with_name("data-dir")
-                .long("data-dir")
-                .value_name("DATA_DIRECTORY")
+            Arg::with_name(VALIDATOR_DIR_FLAG)
+                .long(VALIDATOR_DIR_FLAG)
+                .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path the validator client data directory. \
                     Defaults to ~/.lighthouse/validators",
@@ -43,8 +48,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("validator")
-                .long("validator")
+            Arg::with_name(VALIDATOR_FLAG)
+                .long(VALIDATOR_FLAG)
                 .value_name("VALIDATOR_NAME")
                 .help(
                     "The name of the directory in --data-dir for which to deposit. \
@@ -54,16 +59,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true),
         )
         .arg(
-            Arg::with_name("eth1-ipc")
-                .long("eth1-ipc")
+            Arg::with_name(ETH1_IPC_FLAG)
+                .long(ETH1_IPC_FLAG)
                 .value_name("ETH1_IPC_PATH")
                 .help("Path to an Eth1 JSON-RPC IPC endpoint")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
-            Arg::with_name("from-address")
-                .long("from-address")
+            Arg::with_name(FROM_ADDRESS_FLAG)
+                .long(FROM_ADDRESS_FLAG)
                 .value_name("FROM_ETH1_ADDRESS")
                 .help(
                     "The address that will submit the eth1 deposit. \
@@ -82,15 +87,15 @@ pub fn cli_run<T: EthSpec>(
 
     let data_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
-        "data_dir",
+        VALIDATOR_DIR_FLAG,
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
-    let validator: String = clap_utils::parse_required(matches, "validator")?;
-    let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, "eth1-ipc")?;
-    let from_address: Address = clap_utils::parse_required(matches, "from-address")?;
+    let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
+    let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, ETH1_IPC_FLAG)?;
+    let from_address: Address = clap_utils::parse_required(matches, FROM_ADDRESS_FLAG)?;
 
     let manager = ValidatorManager::open(&data_dir)
-        .map_err(|e| format!("Unable to read --datadir: {:?}", e))?;
+        .map_err(|e| format!("Unable to read --{}: {:?}", VALIDATOR_DIR_FLAG, e))?;
 
     let validators = match validator.as_ref() {
         "all" => manager
@@ -99,7 +104,12 @@ pub fn cli_run<T: EthSpec>(
         name => {
             let path = manager
                 .directory_names()
-                .map_err(|e| format!("Unable to read --datadir directory names: {:?}", e))?
+                .map_err(|e| {
+                    format!(
+                        "Unable to read --{} directory names: {:?}",
+                        VALIDATOR_DIR_FLAG, e
+                    )
+                })?
                 .get(name)
                 .ok_or_else(|| format!("Unknown validator:  {}", name))?
                 .clone();

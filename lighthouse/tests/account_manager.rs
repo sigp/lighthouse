@@ -6,9 +6,9 @@ use account_manager::{
     wallet::{
         create::{CMD as CREATE_CMD, *},
         list::CMD as LIST_CMD,
-        BASE_DIR_FLAG, CMD as WALLET_CMD,
+        CMD as WALLET_CMD,
     },
-    CMD as ACCOUNT_CMD, *,
+    BASE_DIR_FLAG, CMD as ACCOUNT_CMD, *,
 };
 use std::env;
 use std::fs;

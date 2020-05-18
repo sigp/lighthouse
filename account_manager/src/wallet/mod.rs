@@ -1,11 +1,13 @@
 pub mod create;
 pub mod list;
 
-use crate::common::{base_wallet_dir, ensure_dir_exists};
+use crate::{
+    common::{base_wallet_dir, ensure_dir_exists},
+    BASE_DIR_FLAG,
+};
 use clap::{App, Arg, ArgMatches};
 
 pub const CMD: &str = "wallet";
-pub const BASE_DIR_FLAG: &str = "base-dir";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
