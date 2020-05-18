@@ -5,6 +5,7 @@ use eth2_wallet::{
     PlainText,
 };
 use eth2_wallet_manager::{WalletManager, WalletType};
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
 pub const NAME_FLAG: &str = "name";
-pub const PASSPHRASE_FLAG: &str = "wallet-passphrase";
+pub const PASSPHRASE_FLAG: &str = "passphrase-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 
@@ -37,8 +38,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("WALLET_PASSWORD_PATH")
                 .help(
                     "A path to a file containing the password which will unlock the wallet. \
-                            If the file does not exist, a random password will be generated and \
-                            saved at that path.",
+                    If the file does not exist, a random password will be generated and \
+                    saved at that path. To avoid confusion, if the file does not already \
+                    exist it must include a '.pass' suffix.",
                 )
                 .takes_value(true)
                 .required(true),
@@ -87,6 +89,15 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
     // Create a random password if the file does not exist.
     if !wallet_password_path.exists() {
+        // To prevent users from accidentally supplying their password to the PASSPHRASE_FLAG and
+        // create a file with that name, we require that the password has a .pass suffix.
+        if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
+            return Err(format!(
+                "Only creates a password file if that file ends in .pass: {:?}",
+                wallet_password_path
+            ));
+        }
+
         create_with_600_perms(&wallet_password_path, random_password().as_bytes())
             .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
     }

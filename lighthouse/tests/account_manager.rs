@@ -79,6 +79,27 @@ fn list_wallets<P: AsRef<Path>>(base_dir: P) -> Vec<String> {
         .collect()
 }
 
+/// Create a wallet using the lighthouse CLI.
+fn create_wallet<P: AsRef<Path>>(
+    name: &str,
+    base_dir: P,
+    password: P,
+    mnemonic: P,
+) -> Result<Output, String> {
+    output_result(
+        wallet_cmd()
+            .arg(format!("--{}", BASE_DIR_FLAG))
+            .arg(base_dir.as_ref().as_os_str())
+            .arg(CREATE_CMD)
+            .arg(format!("--{}", NAME_FLAG))
+            .arg(&name)
+            .arg(format!("--{}", PASSPHRASE_FLAG))
+            .arg(password.as_ref().as_os_str())
+            .arg(format!("--{}", MNEMONIC_FLAG))
+            .arg(mnemonic.as_ref().as_os_str()),
+    )
+}
+
 /// Helper struct for testing wallets.
 struct TestWallet {
     base_dir: PathBuf,
@@ -103,26 +124,20 @@ impl TestWallet {
     }
 
     pub fn password_path(&self) -> PathBuf {
-        self.password_dir.path().join("pass")
+        self.password_dir.path().join("password.pass")
     }
 
     pub fn mnemonic_path(&self) -> PathBuf {
         self.mnemonic_dir.path().join("mnemonic")
     }
 
-    /// Actually create the wallet using the lighthosue CLI.
+    /// Actually create the wallet using the lighthouse CLI.
     pub fn create(&self) -> Result<Output, String> {
-        output_result(
-            wallet_cmd()
-                .arg(format!("--{}", BASE_DIR_FLAG))
-                .arg(self.base_dir().into_os_string())
-                .arg(CREATE_CMD)
-                .arg(format!("--{}", NAME_FLAG))
-                .arg(&self.name)
-                .arg(format!("--{}", PASSPHRASE_FLAG))
-                .arg(self.password_path().into_os_string())
-                .arg(format!("--{}", MNEMONIC_FLAG))
-                .arg(self.mnemonic_path().into_os_string()),
+        create_wallet(
+            &self.name,
+            self.base_dir(),
+            self.password_path(),
+            self.mnemonic_path(),
         )
     }
 
@@ -133,6 +148,23 @@ impl TestWallet {
         assert!(self.mnemonic_path().exists(), "{} mnemonic", self.name);
         assert!(list_wallets(self.base_dir()).contains(&self.name));
     }
+}
+
+#[test]
+fn without_pass_extension() {
+    let base_dir = tempdir().unwrap();
+    let password_dir = tempdir().unwrap();
+    let mnemonic_dir = tempdir().unwrap();
+
+    let err = create_wallet(
+        "bad_extension",
+        base_dir.path(),
+        &password_dir.path().join("password"),
+        &mnemonic_dir.path().join("mnemonic"),
+    )
+    .unwrap_err();
+
+    assert!(err.contains("ends in .pass"));
 }
 
 #[test]
