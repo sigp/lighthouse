@@ -23,7 +23,7 @@ pub const AT_MOST_FLAG: &str = "at-most";
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about(
-            "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key\
+            "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
             derivation scheme.",
         )
         .arg(
