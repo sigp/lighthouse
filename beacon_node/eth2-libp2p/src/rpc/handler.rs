@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{ErrorMessage, RPCCodedResponse, RequestId, ResponseTermination};
+use super::methods::{RPCCodedResponse, RequestId, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use super::RPCEvent;
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -163,9 +163,7 @@ where
     pub fn close(&mut self, outbound_queue: &mut Vec<RPCCodedResponse<TSpec>>) {
         // When terminating a stream, report the stream termination to the requesting user via
         // an RPC error
-        let error = RPCCodedResponse::ServerError(ErrorMessage {
-            error_message: b"Request timed out".to_vec(),
-        });
+        let error = RPCCodedResponse::ServerError("Request timed out".into());
 
         // The stream termination type is irrelevant, this will terminate the
         // stream

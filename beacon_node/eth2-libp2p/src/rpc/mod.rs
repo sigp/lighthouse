@@ -12,8 +12,8 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{
-    ErrorMessage, MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId,
-    ResponseTermination, StatusMessage,
+    MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
+    StatusMessage,
 };
 pub use protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use slog::{debug, o};

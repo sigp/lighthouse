@@ -1,6 +1,6 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
-use crate::rpc::{ErrorMessage, RPCCodedResponse, RPCRequest, RPCResponse};
+use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use std::marker::PhantomData;
@@ -130,8 +130,8 @@ where
 impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec: OutboundCodec<RPCRequest<TSpec>, ErrorType = ErrorMessage>
-        + Decoder<Item = RPCResponse<TSpec>>,
+    TCodec:
+        OutboundCodec<RPCRequest<TSpec>, ErrorType = String> + Decoder<Item = RPCResponse<TSpec>>,
 {
     type Item = RPCCodedResponse<TSpec>;
     type Error = <TCodec as Decoder>::Error;
