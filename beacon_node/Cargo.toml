@@ -9,7 +9,7 @@ name = "beacon_node"
 path = "src/lib.rs"
 
 [dev-dependencies]
-node_test_rig = { path = "../tests/node_test_rig" }
+node_test_rig = { path = "../testing/node_test_rig" }
 
 [features]
 write_ssz_files = ["beacon_chain/write_ssz_files"]  # Writes debugging .ssz files to /tmp during block processing.

@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dev-dependencies]
-eth1_test_rig = { path = "../../tests/eth1_test_rig" }
+eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 
 [dependencies]
 futures = "0.3.5"
