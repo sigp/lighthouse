@@ -243,6 +243,7 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     let enable_logging = false;
 
     let messages_to_send = 10;
+    let extra_messages_to_send = 10;
 
     let log = common::build_log(log_level, enable_logging);
 
@@ -297,14 +298,6 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                             }
                         }
                     }
-                    // TODO: can the error be checked here?
-                    RPCEvent::Error(id, protocol, error) => {
-                        if id == 10 {
-                            assert_eq!(messages_received, messages_to_send);
-                            // end the test
-                            return;
-                        }
-                    }
                     _ => {} // Ignore other RPC messages
                 },
                 _ => {} // Ignore other behaviour events
@@ -313,32 +306,62 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     };
 
     // build the receiver future
+    let mut errors_received = 0;
+    // determine messages to send (PeerId, RequestId). If some, indicates we still need to send
+    // messages
+    let mut message_info = None;
+    // the number of messages we've sent
+    let mut messages_sent = 0;
     let receiver_future = async {
         loop {
-            match receiver.next_event().await {
-                Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)) => {
+            // this future either drives the sending/receiving or times out allowing messages to be
+            // sent in the timeout
+            match futures::future::select(
+                Box::pin(receiver.next_event()),
+                tokio::time::delay_for(Duration::from_millis(50)),
+            )
+            .await
+            {
+                (Libp2pEvent::Behaviour(BehaviourEvent::RPC(peer_id, event)), _) => {
                     match event {
                         // Should receive sent RPC request
                         RPCEvent::Request(id, request) => {
                             if request == rpc_request {
                                 // send the response
                                 warn!(log, "Receiver got request");
-
-                                for _ in 1..=messages_to_send + 10 {
-                                    receiver.swarm.send_rpc(
-                                        peer_id.clone(),
-                                        RPCEvent::Response(
-                                            id,
-                                            RPCCodedResponse::Success(rpc_response.clone()),
-                                        ),
-                                    );
-                                }
+                                message_info = Some((peer_id, id));
+                            }
+                        }
+                        // drive the sending and check for errors
+                        RPCEvent::Error(err_id, _protocol, e) => {
+                            debug!(log, "Error"; "e" => e.to_string());
+                            errors_received += 1;
+                            if errors_received == extra_messages_to_send {
+                                // we have received the expected errors from an early
+                                // stream termination
+                                return;
                             }
                         }
                         _ => {} // Ignore other events
                     }
                 }
                 _ => {} // Ignore other events
+            }
+
+            // if we need to send messages send them here. This will happen after a delay
+            if message_info.is_some() {
+                receiver.swarm.send_rpc(
+                    message_info.as_ref().unwrap().0.clone(),
+                    RPCEvent::Response(
+                        message_info.as_ref().unwrap().1.clone(),
+                        RPCCodedResponse::Success(rpc_response.clone()),
+                    ),
+                );
+                messages_sent += 1;
+                if messages_sent == messages_to_send + extra_messages_to_send {
+                    // stop sending messages
+                    message_info = None;
+                }
             }
         }
     };
