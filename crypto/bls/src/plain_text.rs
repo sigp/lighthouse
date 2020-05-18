@@ -32,3 +32,9 @@ impl From<Vec<u8>> for PlainText {
         Self(vec)
     }
 }
+
+impl AsRef<[u8]> for PlainText {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}

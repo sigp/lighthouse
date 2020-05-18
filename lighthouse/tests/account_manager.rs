@@ -370,7 +370,7 @@ fn write_legacy_keypair<P: AsRef<Path>>(name: &str, dir: P) -> Keypair {
     let keypair = Keypair::random();
 
     let mut keypair_bytes = keypair.pk.as_bytes();
-    keypair_bytes.extend_from_slice(&keypair.sk.as_raw().as_bytes());
+    keypair_bytes.extend_from_slice(keypair.sk.as_bytes().as_ref());
 
     fs::write(dir.as_ref().join(name), &keypair_bytes).unwrap();
 
