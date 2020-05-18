@@ -12,7 +12,7 @@ Once you have Rust installed, you can install Lighthouse with the following comm
 
 1.  `git clone https://github.com/sigp/lighthouse.git`
 2.  `cd lighthouse`
-3.  `git checkout master`
+3.  `git checkout v0.1.2`
 4.  `make`
 
 You may need to open a new terminal window before running `make`.
