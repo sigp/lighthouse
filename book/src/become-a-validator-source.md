@@ -108,8 +108,13 @@ stake.
 Start the validator client with:
 
 ```bash
- lighthouse validator
+ lighthouse validator --auto-register
 ```
+
+The `--auto-register` flag registers your signing key with the slashing protection database, which
+keeps track of all the messages your validator signs. This flag should be used sparingly,
+as reusing the same key on multiple nodes can lead to your validator getting slashed. On subsequent
+runs you should leave off the `--auto-register` flag.
 
 You know that your validator client is running and has found your validator keys from [step 3](become-a-validator-source.html#3-start-your-beacon-node) when you see the following logs:
 

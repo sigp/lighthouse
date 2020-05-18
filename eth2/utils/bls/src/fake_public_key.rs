@@ -41,8 +41,6 @@ impl FakePublicKey {
     }
 
     /// Returns the underlying point as compressed bytes.
-    ///
-    /// Identical to `self.as_uncompressed_bytes()`.
     pub fn as_bytes(&self) -> Vec<u8> {
         self.bytes.clone()
     }

@@ -49,6 +49,9 @@ pub mod slot_epoch;
 pub mod subnet_id;
 mod tree_hash_impls;
 
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+
 use ethereum_types::{H160, H256};
 
 pub use crate::aggregate_and_proof::AggregateAndProof;

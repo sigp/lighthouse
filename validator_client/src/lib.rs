@@ -188,6 +188,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
+        if config.auto_register {
+            info!(log, "Registering all validators for slashing protection");
+            validator_store.register_all_validators_for_slashing_protection()?;
+            info!(log, "Validator auto-registration complete");
+        }
+
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())

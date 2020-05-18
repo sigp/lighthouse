@@ -35,7 +35,7 @@ fn dir_name(voting_pubkey: &PublicKey) -> String {
 /// Represents the files/objects for each dedicated lighthouse validator directory.
 ///
 /// Generally lives in `~/.lighthouse/validators/`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ValidatorDirectory {
     pub directory: PathBuf,
     pub voting_keypair: Option<Keypair>,
@@ -147,11 +147,13 @@ pub struct ValidatorDirectoryBuilder {
 }
 
 impl ValidatorDirectoryBuilder {
+    /// Set the specification for this validator.
     pub fn spec(mut self, spec: ChainSpec) -> Self {
         self.spec = Some(spec);
         self
     }
 
+    /// Use the `MAX_EFFECTIVE_BALANCE` as this validator's deposit.
     pub fn full_deposit_amount(mut self) -> Result<Self, String> {
         let spec = self
             .spec
@@ -161,17 +163,24 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
+    /// Use a validator deposit of `gwei`.
     pub fn custom_deposit_amount(mut self, gwei: u64) -> Self {
         self.amount = Some(gwei);
         self
     }
 
+    /// Generate keypairs using `Keypair::random()`.
     pub fn thread_random_keypairs(mut self) -> Self {
         self.voting_keypair = Some(Keypair::random());
         self.withdrawal_keypair = Some(Keypair::random());
         self
     }
 
+    /// Generate insecure, deterministic keypairs.
+    ///
+    ///
+    /// ## Warning
+    /// Only for use in testing. Do not store value in these keys.
     pub fn insecure_keypairs(mut self, index: usize) -> Self {
         let keypair = generate_deterministic_keypair(index);
         self.voting_keypair = Some(keypair.clone());
@@ -203,6 +212,7 @@ impl ValidatorDirectoryBuilder {
         Ok(self)
     }
 
+    /// Write the validators keypairs to disk.
     pub fn write_keypair_files(self) -> Result<Self, String> {
         let voting_keypair = self
             .voting_keypair
@@ -285,7 +295,7 @@ impl ValidatorDirectoryBuilder {
             .directory
             .as_ref()
             .map(|directory| directory.join(ETH1_DEPOSIT_DATA_FILE))
-            .ok_or_else(|| "write_eth1_data_filer requires a directory")?;
+            .ok_or_else(|| "write_eth1_data_file requires a directory")?;
 
         let (deposit_data, _) = self.get_deposit_data()?;
 
@@ -328,8 +338,10 @@ impl ValidatorDirectoryBuilder {
     }
 
     pub fn build(self) -> Result<ValidatorDirectory, String> {
+        let directory = self.directory.ok_or_else(|| "build requires a directory")?;
+
         Ok(ValidatorDirectory {
-            directory: self.directory.ok_or_else(|| "build requires a directory")?,
+            directory,
             voting_keypair: self.voting_keypair,
             withdrawal_keypair: self.withdrawal_keypair,
             deposit_data: self.deposit_data,

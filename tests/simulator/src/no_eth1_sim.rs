@@ -88,7 +88,14 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             let indices =
                 (i * validators_per_node..(i + 1) * validators_per_node).collect::<Vec<_>>();
             network
-                .add_validator_client(ValidatorConfig::default(), i, indices)
+                .add_validator_client(
+                    ValidatorConfig {
+                        auto_register: true,
+                        ..ValidatorConfig::default()
+                    },
+                    i,
+                    indices,
+                )
                 .await?;
         }
         /*

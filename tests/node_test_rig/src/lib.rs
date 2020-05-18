@@ -15,7 +15,7 @@ pub use environment;
 pub use remote_beacon_node::RemoteBeaconNode;
 pub use validator_client::Config as ValidatorConfig;
 
-/// Provids a beacon node that is running in the current process on a given tokio executor (it
+/// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.

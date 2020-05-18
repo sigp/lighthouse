@@ -51,6 +51,7 @@ members = [
     "tests/state_transition_vectors",
     "lcli",
     "validator_client",
+    "validator_client/slashing_protection",
     "account_manager",
     "lighthouse",
     "lighthouse/environment"

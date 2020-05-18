@@ -210,6 +210,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
         let log = &self.context.log;
 
+        let current_slot = self
+            .slot_clock
+            .now()
+            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?;
+
         let randao_reveal = self
             .validator_store
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
@@ -225,7 +230,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let signed_block = self
             .validator_store
-            .sign_block(&validator_pubkey, block)
+            .sign_block(&validator_pubkey, block, current_slot)
             .ok_or_else(|| "Unable to sign block".to_string())?;
 
         let publish_status = self

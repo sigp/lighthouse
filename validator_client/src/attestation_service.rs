@@ -320,6 +320,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             return Ok(None);
         }
 
+        let current_epoch = self
+            .slot_clock
+            .now()
+            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?
+            .epoch(E::slots_per_epoch());
+
         let attestation = self
             .beacon_node
             .http
@@ -366,26 +372,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 let mut attestation = attestation.clone();
 
-                if self
-                    .validator_store
+                self.validator_store
                     .sign_attestation(
                         duty.validator_pubkey(),
                         validator_committee_position,
                         &mut attestation,
+                        current_epoch,
                     )
-                    .is_none()
-                {
-                    crit!(
-                        log,
-                        "Attestation signing refused";
-                        "validator" => format!("{:?}", duty.validator_pubkey()),
-                        "slot" => attestation.data.slot,
-                        "index" => attestation.data.index,
-                    );
-                    None
-                } else {
-                    Some(attestation)
-                }
+                    .map(|_| attestation)
             })
             .collect::<Vec<_>>();
 
