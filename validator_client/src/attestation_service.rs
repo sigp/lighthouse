@@ -323,7 +323,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let current_epoch = self
             .slot_clock
             .now()
-            .expect("should return the current slot")
+            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?
             .epoch(E::slots_per_epoch());
 
         let attestation = self
@@ -372,8 +372,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 let mut attestation = attestation.clone();
 
-                self
-                    .validator_store
+                self.validator_store
                     .sign_attestation(
                         duty.validator_pubkey(),
                         validator_committee_position,

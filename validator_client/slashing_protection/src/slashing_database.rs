@@ -236,17 +236,10 @@ impl SlashingDatabase {
                  FROM signed_attestations
                  WHERE validator_id = ?1 AND target_epoch = ?2",
             )?
-            .query_row(params![validator_id, att_target_epoch], |row| {
-                let source_epoch = row.get(0)?;
-                let target_epoch = row.get(1)?;
-                let root: Vec<u8> = row.get(2)?;
-                let signing_root = Hash256::from_slice(&root[..]);
-                Ok(SignedAttestation::new(
-                    source_epoch,
-                    target_epoch,
-                    signing_root,
-                ))
-            })
+            .query_row(
+                params![validator_id, att_target_epoch],
+                SignedAttestation::from_row,
+            )
             .optional()?;
 
         if let Some(existing_attestation) = same_target_att {

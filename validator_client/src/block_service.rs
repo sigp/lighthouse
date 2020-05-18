@@ -213,7 +213,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let current_slot = self
             .slot_clock
             .now()
-            .expect("should return the current slot");
+            .ok_or_else(|| "Unable to determine current slot from clock".to_string())?;
 
         let randao_reveal = self
             .validator_store

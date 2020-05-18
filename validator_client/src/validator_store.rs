@@ -199,18 +199,19 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         if block.slot > current_slot {
             warn!(
                 self.log,
-                "Not signing block at slot {} > {}",
-                block.slot.as_u64(),
-                current_slot.as_u64()
+                "Not signing block with slot greater than current slot";
+                "block_slot" => block.slot.as_u64(),
+                "current_slot" => current_slot.as_u64()
             );
             return None;
         }
 
         // Check for slashing conditions.
+        let fork = self.fork()?;
         let domain = self.spec.get_domain(
             block.epoch(),
             Domain::BeaconProposer,
-            &self.fork()?,
+            &fork,
             self.genesis_validators_root,
         );
 
@@ -229,7 +230,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
                 Some(block.sign(
                     &voting_keypair.sk,
-                    &self.fork()?,
+                    &fork,
                     self.genesis_validators_root,
                     &self.spec,
                 ))
@@ -244,8 +245,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
                     self.log,
-                    "Not signing block for unregistered validator. \
-                     Carefully consider running with --auto-register (see --help)";
+                    "Not signing block for unregistered validator";
+                    "msg" => "Carefully consider running with --auto-register (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None
@@ -274,10 +275,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
+        let fork = self.fork()?;
+
         let domain = self.spec.get_domain(
             attestation.data.target.epoch,
             Domain::BeaconAttester,
-            &self.fork()?,
+            &fork,
             self.genesis_validators_root,
         );
         let slashing_status = self.slashing_protection.check_and_insert_attestation(
@@ -297,7 +300,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .sign(
                         &voting_keypair.sk,
                         validator_committee_position,
-                        &self.fork()?,
+                        &fork,
                         self.genesis_validators_root,
                         &self.spec,
                     )
@@ -322,8 +325,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
                     self.log,
-                    "Not signing attestation for unregistered validator. \
-                     Carefully consider running with --auto-register (see --help)";
+                    "Not signing attestation for unregistered validator";
+                    "msg" => "Carefully consider running with --auto-register (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
                 None

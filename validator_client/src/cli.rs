@@ -25,7 +25,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("auto-register")
                 .help("If present, the validator client will register any new signing keys with \
                        the slashing protection database so that they may be used. WARNING: \
-                       enabling the same signing key on multiple Lighthouse instances WILL lead to \
+                       enabling the same signing key on multiple validator clients WILL lead to \
                        that validator getting slashed. Only use this flag the first time you run \
                        the validator client, or if you're certain there are no other \
                        nodes using the same key.")
