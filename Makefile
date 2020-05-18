@@ -1,7 +1,7 @@
 .PHONY: tests
 
-EF_TESTS = "tests/ef_tests"
-STATE_TRANSITION_VECTORS = "tests/state_transition_vectors"
+EF_TESTS = "testing/ef_tests"
+STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 
 # Builds the Lighthouse binary in release (optimized).
 #
