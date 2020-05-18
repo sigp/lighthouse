@@ -12,12 +12,9 @@ use ssz::DecodeError;
 pub struct SecretKey(RawSecretKey);
 
 impl SecretKey {
+    /// Generate a new `Self` using `rand::thread_rng`.
     pub fn random() -> Self {
         SecretKey(RawSecretKey::random(&mut rand::thread_rng()))
-    }
-
-    pub fn from_raw(raw: RawSecretKey) -> Self {
-        Self(raw)
     }
 
     /// Returns the secret key as a byte array (wrapped in `PlainText` wrapper so it is zeroized on
