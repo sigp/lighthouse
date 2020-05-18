@@ -245,7 +245,7 @@ checksum = "53d1ccbaf7d9ec9537465a97bf19edc1a4e158ecb49fc16178202238c569cc42"
 
 [[package]]
 name = "beacon_chain"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "bitvec",
  "bls",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "dirs",
@@ -1102,7 +1102,7 @@ dependencies = [
 
 [[package]]
 name = "environment"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1134,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "eth1"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "environment",
  "eth1_test_rig",
@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "eth2-libp2p"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "base64 0.12.1",
  "dirs",
@@ -1641,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "genesis"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "environment",
  "eth1",
@@ -2504,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "account_manager",
  "beacon_node",
@@ -2811,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "error-chain",
@@ -3614,7 +3614,7 @@ dependencies = [
 
 [[package]]
 name = "rest_api"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "bls",
@@ -4298,7 +4298,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "criterion",
  "db-key",
@@ -4504,7 +4504,7 @@ dependencies = [
 
 [[package]]
 name = "timer"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "beacon_chain",
  "futures 0.3.5",
@@ -5135,7 +5135,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "bincode",
  "bls",
@@ -5185,7 +5185,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "version"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "target_info",
 ]
@@ -5448,7 +5448,7 @@ dependencies = [
 
 [[package]]
 name = "websocket_server"
-version = "0.2.0"
+version = "0.1.2"
 dependencies = [
  "futures 0.3.5",
  "serde",
