@@ -251,9 +251,7 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let timer_exit = context
-            .runtime_handle
-            .enter(|| timer::spawn(beacon_chain, milliseconds_per_slot))
+        let timer_exit = timer::spawn(&context.runtime_handle, beacon_chain, milliseconds_per_slot)
             .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         self.exit_channels.push(timer_exit);
@@ -291,22 +289,21 @@ where
         };
 
         let log = context.log.clone();
-        let (exit_channel, listening_addr) = context.runtime_handle.enter(|| {
-            rest_api::start_server(
-                &client_config.rest_api,
-                beacon_chain,
-                network_info,
-                client_config
-                    .create_db_path()
-                    .map_err(|_| "unable to read data dir")?,
-                client_config
-                    .create_freezer_db_path()
-                    .map_err(|_| "unable to read freezer DB dir")?,
-                eth2_config.clone(),
-                log,
-            )
-            .map_err(|e| format!("Failed to start HTTP API: {:?}", e))
-        })?;
+        let (exit_channel, listening_addr) = rest_api::start_server(
+            &context.runtime_handle,
+            &client_config.rest_api,
+            beacon_chain,
+            network_info,
+            client_config
+                .create_db_path()
+                .map_err(|_| "unable to read data dir")?,
+            client_config
+                .create_freezer_db_path()
+                .map_err(|_| "unable to read freezer DB dir")?,
+            eth2_config.clone(),
+            log,
+        )
+        .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 
         self.exit_channels.push(exit_channel);
         self.http_listen_addr = Some(listening_addr);
@@ -335,17 +332,14 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let exit_channel = context
-            .runtime_handle
-            .enter(|| {
-                spawn_notifier(
-                    beacon_chain,
-                    network_globals,
-                    milliseconds_per_slot,
-                    context.log.clone(),
-                )
-            })
-            .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
+        let exit_channel = spawn_notifier(
+            &context.runtime_handle,
+            beacon_chain,
+            network_globals,
+            milliseconds_per_slot,
+            context.log.clone(),
+        )
+        .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
         self.exit_channels.push(exit_channel);
 
@@ -441,9 +435,8 @@ where
             Option<_>,
             Option<_>,
         ) = if config.enabled {
-            let (sender, exit, listening_addr) = context
-                .runtime_handle
-                .enter(|| websocket_server::start_server(&config, &context.log))?;
+            let (sender, exit, listening_addr) =
+                websocket_server::start_server(&context.runtime_handle, &config, &context.log)?;
             (sender, Some(exit), Some(listening_addr))
         } else {
             (WebSocketSender::dummy(), None, None)
@@ -662,7 +655,7 @@ where
         };
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
-        context.runtime_handle.enter(|| backend.start(exit));
+        backend.start(&context.runtime_handle, exit);
 
         self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
 

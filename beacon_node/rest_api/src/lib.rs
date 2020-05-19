@@ -35,6 +35,7 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use url_query::UrlQuery;
 
@@ -51,6 +52,7 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
 // Allowing more than 7 arguments.
 #[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
+    handle: &Handle,
     config: &Config,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
@@ -125,7 +127,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    tokio::spawn(server_future);
+    handle.spawn(server_future);
 
     Ok((exit_signal, actual_listen_addr))
 }

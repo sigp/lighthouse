@@ -34,6 +34,7 @@ impl<T: EthSpec> WebSocketSender<T> {
 }
 
 pub fn start_server<T: EthSpec>(
+    handle: &tokio::runtime::Handle,
     config: &Config,
     log: &Logger,
 ) -> Result<
@@ -87,7 +88,7 @@ pub fn start_server<T: EthSpec>(
 
         // Place a future on the handle that will shutdown the websocket server when the
         // application exits.
-        tokio::spawn(exit_future);
+        handle.spawn(exit_future);
 
         exit_channel
     };

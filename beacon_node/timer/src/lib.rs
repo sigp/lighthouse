@@ -8,13 +8,12 @@ use futures::stream::StreamExt;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime::Handle;
 use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
-/// TODO: We might not need a `Handle` to the runtime since this function should be
-/// called from the context of a runtime and we can simply spawn using task::spawn.
-/// Check for issues without the Handle.
 pub fn spawn<T: BeaconChainTypes>(
+    handle: &Handle,
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,
 ) -> Result<tokio::sync::oneshot::Sender<()>, &'static str> {
@@ -34,7 +33,7 @@ pub fn spawn<T: BeaconChainTypes>(
         });
 
     let future = futures::future::select(timer_future, exit);
-    tokio::spawn(future);
+    handle.spawn(future);
 
     Ok(exit_signal)
 }

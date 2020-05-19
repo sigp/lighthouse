@@ -84,6 +84,7 @@ pub struct Service<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
+        handle: &tokio::runtime::Handle,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
@@ -130,7 +131,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             }
             SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
                 .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
-                .executor(Box::new(Executor(tokio::runtime::Handle::current())))
+                .executor(Box::new(Executor(handle.clone())))
                 .build()
         };
 

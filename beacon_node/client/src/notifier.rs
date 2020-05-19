@@ -25,6 +25,7 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: BeaconChainTypes>(
+    handle: &tokio::runtime::Handle,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
@@ -149,7 +150,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let (exit_signal, exit) = tokio::sync::oneshot::channel();
 
     // run the notifier on the current executor
-    tokio::spawn(futures::future::select(Box::pin(interval_future), exit));
+    handle.spawn(futures::future::select(Box::pin(interval_future), exit));
 
     Ok(exit_signal)
 }

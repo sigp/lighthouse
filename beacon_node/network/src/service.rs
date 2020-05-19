@@ -75,7 +75,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
-            runtime_handle.enter(|| LibP2PService::new(config, enr_fork_id, &network_log))?;
+            LibP2PService::new(runtime_handle, config, enr_fork_id, &network_log)?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -111,19 +111,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             propagation_percentage,
         };
 
-        let network_exit = runtime_handle.enter(|| spawn_service(network_service))?;
+        let network_exit = spawn_service(runtime_handle, network_service)?;
 
         Ok((network_globals, network_send, network_exit))
     }
 }
 
 fn spawn_service<T: BeaconChainTypes>(
+    handle: &tokio::runtime::Handle,
     mut service: NetworkService<T>,
 ) -> error::Result<tokio::sync::oneshot::Sender<()>> {
     let (network_exit, mut exit_rx) = tokio::sync::oneshot::channel();
 
     // spawn on the current executor
-    tokio::spawn(async move {
+    handle.spawn(async move {
         loop {
             // build the futures to check simultaneously
             tokio::select! {
