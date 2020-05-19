@@ -23,11 +23,16 @@ struct LocalValidator {
 /// We derive our own `PartialEq` to avoid doing equality checks between secret keys.
 ///
 /// It's nice to avoid secret key comparisons from a security perspective, but it's also a little
-/// risk when it comes to `HashMap` integrity (that's why we need `PartialEq`).
+/// risky when it comes to `HashMap` integrity (that's why we need `PartialEq`).
 ///
 /// Currently, we obtain keypairs from keystores where we derive the `PublicKey` from a `SecretKey`
-/// cryptographically. As long as there's never multiple pubkeys for the same privkey then we're
-/// safe here. If that is the case, we have bigger problems!
+/// via a hash function. In order to have two equal `PublicKey` with different `SecretKey` we would
+/// need to have either:
+///
+/// - A serious upstream integrity error.
+/// - A hash collision.
+///
+/// It seems reasonable to make these two assumptions in order to avoid the equality checks.
 impl PartialEq for LocalValidator {
     fn eq(&self, other: &Self) -> bool {
         self.validator_dir == other.validator_dir
