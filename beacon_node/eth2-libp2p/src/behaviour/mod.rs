@@ -5,12 +5,13 @@ use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use discv5::Discv5Event;
 use futures::prelude::*;
+use handler::BehaviourHandler;
 use libp2p::{
-    core::identity::Keypair,
+    core::{connection::ConnectionId, either::EitherOutput, identity::Keypair, Multiaddr},
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
-    swarm::{NetworkBehaviourAction, NetworkBehaviourEventProcess, PollParameters},
-    NetworkBehaviour, PeerId,
+    swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler},
+    PeerId,
 };
 use lru::LruCache;
 use slog::{crit, debug, o};
@@ -20,6 +21,8 @@ use std::{
     task::{Context, Poll},
 };
 use types::{EnrForkId, EthSpec, SubnetId};
+
+mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
@@ -48,7 +51,6 @@ pub struct Behaviour<TSpec: EthSpec> {
     // TODO: Remove this
     seen_gossip_messages: LruCache<MessageId, ()>,
     /// A collections of variables accessible outside the network service.
-    #[behaviour(ignore)]
     network_globals: Arc<NetworkGlobals<TSpec>>,
     /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
     // NOTE: This can be accessed via the network_globals ENR. However we keep it here for quick
@@ -57,53 +59,20 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
-impl<TSpec: EthSpec> ::libp2p::swarm::NetworkBehaviour for Behaviour<TSpec>
-where
-    Gossipsub: ::libp2p::swarm::NetworkBehaviour,
-    Self: ::libp2p::swarm::NetworkBehaviourEventProcess<
-        <Gossipsub as ::libp2p::swarm::NetworkBehaviour>::OutEvent,
-    >,
-    RPC<TSpec>: ::libp2p::swarm::NetworkBehaviour,
-    Self: ::libp2p::swarm::NetworkBehaviourEventProcess<
-        <RPC<TSpec> as ::libp2p::swarm::NetworkBehaviour>::OutEvent,
-    >,
-    Identify: ::libp2p::swarm::NetworkBehaviour,
-    Self: ::libp2p::swarm::NetworkBehaviourEventProcess<
-        <Identify as ::libp2p::swarm::NetworkBehaviour>::OutEvent,
-    >,
-    Discovery<TSpec>: ::libp2p::swarm::NetworkBehaviour,
-    Self: ::libp2p::swarm::NetworkBehaviourEventProcess<
-        <Discovery<TSpec> as ::libp2p::swarm::NetworkBehaviour>::OutEvent,
-    >,
-{
-    type ProtocolsHandler = ::libp2p::swarm::IntoProtocolsHandlerSelect<
-        ::libp2p::swarm::IntoProtocolsHandlerSelect<
-            ::libp2p::swarm::IntoProtocolsHandlerSelect<
-                <Gossipsub as ::libp2p::swarm::NetworkBehaviour>::ProtocolsHandler,
-                <RPC<TSpec> as ::libp2p::swarm::NetworkBehaviour>::ProtocolsHandler,
-            >,
-            <Identify as ::libp2p::swarm::NetworkBehaviour>::ProtocolsHandler,
-        >,
-        <Discovery<TSpec> as ::libp2p::swarm::NetworkBehaviour>::ProtocolsHandler,
-    >;
+impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
+    type ProtocolsHandler = BehaviourHandler<TSpec>;
     type OutEvent = BehaviourEvent<TSpec>;
+
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        use ::libp2p::swarm::IntoProtocolsHandler;
-        ::libp2p::swarm::IntoProtocolsHandler::select(
-            ::libp2p::swarm::IntoProtocolsHandler::select(
-                ::libp2p::swarm::IntoProtocolsHandler::select(
-                    self.gossipsub.new_handler(),
-                    self.eth2_rpc.new_handler(),
-                ),
-                self.identify.new_handler(),
-            ),
-            self.discovery.new_handler(),
+        BehaviourHandler::new(
+            &mut self.gossipsub,
+            &mut self.eth2_rpc,
+            &mut self.identify,
+            &mut self.discovery,
         )
     }
-    fn addresses_of_peer(
-        &mut self,
-        peer_id: &::libp2p::core::PeerId,
-    ) -> Vec<::libp2p::core::Multiaddr> {
+
+    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
         let mut out = Vec::new();
         out.extend(self.gossipsub.addresses_of_peer(peer_id));
         out.extend(self.eth2_rpc.addresses_of_peer(peer_id));
@@ -111,347 +80,169 @@ where
         out.extend(self.discovery.addresses_of_peer(peer_id));
         out
     }
-    fn inject_connected(&mut self, peer_id: &::libp2p::core::PeerId) {
+
+    fn inject_connected(&mut self, peer_id: &PeerId) {
         self.gossipsub.inject_connected(peer_id);
         self.eth2_rpc.inject_connected(peer_id);
         self.identify.inject_connected(peer_id);
         self.discovery.inject_connected(peer_id);
     }
-    fn inject_disconnected(&mut self, peer_id: &::libp2p::core::PeerId) {
+
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
         self.gossipsub.inject_disconnected(peer_id);
         self.eth2_rpc.inject_disconnected(peer_id);
         self.identify.inject_disconnected(peer_id);
         self.discovery.inject_disconnected(peer_id);
     }
-    fn inject_connection_established(
-        &mut self,
-        peer_id: &::libp2p::core::PeerId,
-        connection_id: &::libp2p::core::connection::ConnectionId,
-        endpoint: &::libp2p::core::ConnectedPoint,
-    ) {
-        self.gossipsub
-            .inject_connection_established(peer_id, connection_id, endpoint);
-        self.eth2_rpc
-            .inject_connection_established(peer_id, connection_id, endpoint);
-        self.identify
-            .inject_connection_established(peer_id, connection_id, endpoint);
-        self.discovery
-            .inject_connection_established(peer_id, connection_id, endpoint);
-    }
-    fn inject_connection_closed(
-        &mut self,
-        peer_id: &::libp2p::core::PeerId,
-        connection_id: &::libp2p::core::connection::ConnectionId,
-        endpoint: &::libp2p::core::ConnectedPoint,
-    ) {
-        self.gossipsub
-            .inject_connection_closed(peer_id, connection_id, endpoint);
-        self.eth2_rpc
-            .inject_connection_closed(peer_id, connection_id, endpoint);
-        self.identify
-            .inject_connection_closed(peer_id, connection_id, endpoint);
-        self.discovery
-            .inject_connection_closed(peer_id, connection_id, endpoint);
-    }
-    fn inject_addr_reach_failure(
-        &mut self,
-        peer_id: Option<&::libp2p::core::PeerId>,
-        addr: &::libp2p::core::Multiaddr,
-        error: &dyn std::error::Error,
-    ) {
-        self.gossipsub
-            .inject_addr_reach_failure(peer_id, addr, error);
-        self.eth2_rpc
-            .inject_addr_reach_failure(peer_id, addr, error);
-        self.identify
-            .inject_addr_reach_failure(peer_id, addr, error);
-        self.discovery
-            .inject_addr_reach_failure(peer_id, addr, error);
-    }
-    fn inject_dial_failure(&mut self, peer_id: &::libp2p::core::PeerId) {
-        self.gossipsub.inject_dial_failure(peer_id);
-        self.eth2_rpc.inject_dial_failure(peer_id);
-        self.identify.inject_dial_failure(peer_id);
-        self.discovery.inject_dial_failure(peer_id);
-    }
-    fn inject_new_listen_addr(&mut self, addr: &::libp2p::core::Multiaddr) {
-        self.gossipsub.inject_new_listen_addr(addr);
-        self.eth2_rpc.inject_new_listen_addr(addr);
-        self.identify.inject_new_listen_addr(addr);
-        self.discovery.inject_new_listen_addr(addr);
-    }
-    fn inject_expired_listen_addr(&mut self, addr: &::libp2p::core::Multiaddr) {
-        self.gossipsub.inject_expired_listen_addr(addr);
-        self.eth2_rpc.inject_expired_listen_addr(addr);
-        self.identify.inject_expired_listen_addr(addr);
-        self.discovery.inject_expired_listen_addr(addr);
-    }
-    fn inject_new_external_addr(&mut self, addr: &::libp2p::core::Multiaddr) {
-        self.gossipsub.inject_new_external_addr(addr);
-        self.eth2_rpc.inject_new_external_addr(addr);
-        self.identify.inject_new_external_addr(addr);
-        self.discovery.inject_new_external_addr(addr);
-    }
-    fn inject_listener_error(
-        &mut self,
-        id: ::libp2p::core::connection::ListenerId,
-        err: &(dyn std::error::Error + 'static),
-    ) {
-        self.gossipsub.inject_listener_error(id, err);
-        self.eth2_rpc.inject_listener_error(id, err);
-        self.identify.inject_listener_error(id, err);
-        self.discovery.inject_listener_error(id, err);
-    }
-    fn inject_listener_closed(
-        &mut self,
-        id: ::libp2p::core::connection::ListenerId,
-        reason: Result<(), &std::io::Error>,
-    ) {
-        self.gossipsub.inject_listener_closed(id, reason);
-        self.eth2_rpc.inject_listener_closed(id, reason);
-        self.identify.inject_listener_closed(id, reason);
-        self.discovery.inject_listener_closed(id, reason);
-    }
+
     fn inject_event(
         &mut self,
-        peer_id: ::libp2p::core::PeerId,
-        connection_id: ::libp2p::core::connection::ConnectionId,
-        event : < < Self :: ProtocolsHandler as :: libp2p :: swarm :: IntoProtocolsHandler > :: Handler as :: libp2p :: swarm :: ProtocolsHandler > :: OutEvent,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         match event {
-            ::libp2p::core::either::EitherOutput::First(
-                ::libp2p::core::either::EitherOutput::First(
-                    ::libp2p::core::either::EitherOutput::First(ev),
-                ),
-            ) => ::libp2p::swarm::NetworkBehaviour::inject_event(
-                &mut self.gossipsub,
-                peer_id,
-                connection_id,
-                ev,
-            ),
-            ::libp2p::core::either::EitherOutput::First(
-                ::libp2p::core::either::EitherOutput::First(
-                    ::libp2p::core::either::EitherOutput::Second(ev),
-                ),
-            ) => ::libp2p::swarm::NetworkBehaviour::inject_event(
-                &mut self.eth2_rpc,
-                peer_id,
-                connection_id,
-                ev,
-            ),
-            ::libp2p::core::either::EitherOutput::First(
-                ::libp2p::core::either::EitherOutput::Second(ev),
-            ) => ::libp2p::swarm::NetworkBehaviour::inject_event(
-                &mut self.identify,
-                peer_id,
-                connection_id,
-                ev,
-            ),
-            ::libp2p::core::either::EitherOutput::Second(ev) => {
-                ::libp2p::swarm::NetworkBehaviour::inject_event(
-                    &mut self.discovery,
-                    peer_id,
-                    connection_id,
-                    ev,
-                )
+            EitherOutput::First(EitherOutput::First(EitherOutput::First(ev))) => {
+                self.gossipsub.inject_event(peer_id, connection_id, ev)
             }
+            EitherOutput::First(EitherOutput::First(EitherOutput::Second(ev))) => {
+                self.eth2_rpc.inject_event(peer_id, connection_id, ev)
+            }
+            EitherOutput::First(EitherOutput::Second(ev)) => {
+                self.identify.inject_event(peer_id, connection_id, ev)
+            }
+            EitherOutput::Second(ev) => self.discovery.inject_event(peer_id, connection_id, ev),
         }
-    }fn poll ( & mut self , cx : & mut std :: task :: Context , poll_params : & mut impl :: libp2p :: swarm :: PollParameters ) -> std :: task :: Poll < :: libp2p :: swarm :: NetworkBehaviourAction < < < Self :: ProtocolsHandler as :: libp2p :: swarm :: IntoProtocolsHandler > :: Handler as :: libp2p :: swarm :: ProtocolsHandler > :: InEvent , Self :: OutEvent > >{
-        use libp2p::futures::prelude::*;
+    }
+
+    fn poll(
+        &mut self,
+        cx: &mut Context,
+        poll_params: &mut impl PollParameters,
+    ) -> Poll<
+        NetworkBehaviourAction<
+            <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
+            Self::OutEvent,
+        >,
+    > {
         loop {
             match self.gossipsub.poll(cx, poll_params) {
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::GenerateEvent(
-                    event,
-                )) => ::libp2p::swarm::NetworkBehaviourEventProcess::inject_event(self, event),
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialAddress {
-                    address,
-                }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialAddress { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
+                    self.on_gossip_event(event)
                 }
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialPeer {
+                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
+                }
+                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
+                }
+                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                     peer_id,
-                    condition,
+                    handler,
+                    event,
                 }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialPeer { peer_id, condition },
-                    );
-                }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                         peer_id,
                         handler,
-                        event,
-                    },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
-                            peer_id,
-                            handler,
-                            event: ::libp2p::core::either::EitherOutput::First(
-                                ::libp2p::core::either::EitherOutput::First(
-                                    ::libp2p::core::either::EitherOutput::First(event),
-                                ),
-                            ),
-                        },
-                    );
+                        event: EitherOutput::First(EitherOutput::First(EitherOutput::First(event))),
+                    });
                 }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
                 }
-                std::task::Poll::Pending => break,
+                Poll::Pending => break,
             }
         }
         loop {
             match self.eth2_rpc.poll(cx, poll_params) {
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::GenerateEvent(
-                    event,
-                )) => ::libp2p::swarm::NetworkBehaviourEventProcess::inject_event(self, event),
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialAddress {
-                    address,
-                }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialAddress { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
+                    self.on_rpc_event(event)
                 }
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialPeer {
+                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
+                }
+                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
+                }
+                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                     peer_id,
-                    condition,
+                    handler,
+                    event,
                 }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialPeer { peer_id, condition },
-                    );
-                }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                         peer_id,
                         handler,
-                        event,
-                    },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
-                            peer_id,
-                            handler,
-                            event: ::libp2p::core::either::EitherOutput::First(
-                                ::libp2p::core::either::EitherOutput::First(
-                                    ::libp2p::core::either::EitherOutput::Second(event),
-                                ),
-                            ),
-                        },
-                    );
+                        event: EitherOutput::First(EitherOutput::First(EitherOutput::Second(
+                            event,
+                        ))),
+                    });
                 }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
                 }
-                std::task::Poll::Pending => break,
+                Poll::Pending => break,
             }
         }
         loop {
             match self.identify.poll(cx, poll_params) {
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::GenerateEvent(
-                    event,
-                )) => ::libp2p::swarm::NetworkBehaviourEventProcess::inject_event(self, event),
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialAddress {
-                    address,
-                }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialAddress { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
+                    self.on_identify_event(event)
                 }
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialPeer {
+                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
+                }
+                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
+                }
+                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                     peer_id,
-                    condition,
+                    handler,
+                    event,
                 }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialPeer { peer_id, condition },
-                    );
-                }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                         peer_id,
                         handler,
-                        event,
-                    },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
-                            peer_id,
-                            handler,
-                            event: ::libp2p::core::either::EitherOutput::First(
-                                ::libp2p::core::either::EitherOutput::Second(event),
-                            ),
-                        },
-                    );
+                        event: EitherOutput::First(EitherOutput::Second(event)),
+                    });
                 }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
                 }
-                std::task::Poll::Pending => break,
+                Poll::Pending => break,
             }
         }
         loop {
             match self.discovery.poll(cx, poll_params) {
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::GenerateEvent(
-                    event,
-                )) => ::libp2p::swarm::NetworkBehaviourEventProcess::inject_event(self, event),
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialAddress {
-                    address,
-                }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialAddress { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
+                    self.on_discovery_event(event)
                 }
-                std::task::Poll::Ready(::libp2p::swarm::NetworkBehaviourAction::DialPeer {
+                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
+                }
+                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
+                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
+                }
+                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                     peer_id,
-                    condition,
+                    handler,
+                    event,
                 }) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::DialPeer { peer_id, condition },
-                    );
-                }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
+                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
                         peer_id,
                         handler,
-                        event,
-                    },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::NotifyHandler {
-                            peer_id,
-                            handler,
-                            event: ::libp2p::core::either::EitherOutput::Second(event),
-                        },
-                    );
+                        event: EitherOutput::Second(event),
+                    });
                 }
-                std::task::Poll::Ready(
-                    ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                ) => {
-                    return std::task::Poll::Ready(
-                        ::libp2p::swarm::NetworkBehaviourAction::ReportObservedAddr { address },
-                    );
+                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
+                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
                 }
-                std::task::Poll::Pending => break,
+                Poll::Pending => break,
             }
         }
-        let f : std :: task :: Poll < :: libp2p :: swarm :: NetworkBehaviourAction < < < Self :: ProtocolsHandler as :: libp2p :: swarm :: IntoProtocolsHandler > :: Handler as :: libp2p :: swarm :: ProtocolsHandler > :: InEvent , Self :: OutEvent > > = Behaviour :: poll ( self , cx , poll_params ) ;
-        f
+        self.custom_poll(cx)
     }
 }
+
 /// Implements the combined behaviour for the libp2p service.
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub fn new(
@@ -756,11 +547,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
     */
-}
 
-// Implement the NetworkBehaviourEventProcess trait so that we can derive NetworkBehaviour for Behaviour
-impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<TSpec> {
-    fn inject_event(&mut self, event: GossipsubEvent) {
+    fn on_gossip_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(propagation_source, id, gs_msg) => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
@@ -798,10 +586,8 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             GossipsubEvent::Unsubscribed { .. } => {}
         }
     }
-}
 
-impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSpec> {
-    fn inject_event(&mut self, message: RPCMessage<TSpec>) {
+    fn on_rpc_event(&mut self, message: RPCMessage<TSpec>) {
         let peer_id = message.peer_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not
         // propagated
@@ -843,14 +629,11 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behavio
             }
         }
     }
-}
 
-impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Consumes the events list when polled.
-    fn poll<TBehaviourIn>(
+    fn custom_poll<TBehaviourIn>(
         &mut self,
         cx: &mut Context,
-        _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
         // check the peer manager for events
         loop {
@@ -888,10 +671,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         Poll::Pending
     }
-}
 
-impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<TSpec> {
-    fn inject_event(&mut self, event: IdentifyEvent) {
+    fn on_identify_event(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received {
                 peer_id,
@@ -920,10 +701,8 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<T
             IdentifyEvent::Error { .. } => {}
         }
     }
-}
 
-impl<TSpec: EthSpec> NetworkBehaviourEventProcess<Discv5Event> for Behaviour<TSpec> {
-    fn inject_event(&mut self, _event: Discv5Event) {
+    fn on_discovery_event(&mut self, _event: Discv5Event) {
         // discv5 has no events to inject
     }
 }
