@@ -10,7 +10,9 @@ use libp2p::{
     core::{connection::ConnectionId, either::EitherOutput, identity::Keypair, Multiaddr},
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
-    swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler},
+    swarm::{
+        NetworkBehaviour, NetworkBehaviourAction as NBAction, PollParameters, ProtocolsHandler,
+    },
     PeerId,
 };
 use lru::LruCache;
@@ -59,6 +61,7 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
+
 impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     type ProtocolsHandler = BehaviourHandler<TSpec>;
     type OutEvent = BehaviourEvent<TSpec>;
@@ -119,126 +122,66 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         &mut self,
         cx: &mut Context,
         poll_params: &mut impl PollParameters,
-    ) -> Poll<
-        NetworkBehaviourAction<
-            <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
-            Self::OutEvent,
-        >,
-    > {
-        loop {
-            match self.gossipsub.poll(cx, poll_params) {
-                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
-                    self.on_gossip_event(event)
+    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
+        // TODO: move where it's less distracting
+        macro_rules! poll_behaviour {
+            /* $behaviour:  The sub-behaviour being polled.
+             * $on_event_fn:  Function to call if we get an event from the sub-behaviour.
+             * $notify_handler_event_closure:  Closure mapping the received event type to
+             *     the one that the handler should get.
+             */
+            ($self: ident, $behaviour: ident, $on_event_fn: ident, $notify_handler_event_closure: expr) => {
+                loop {
+                    // poll the sub-behaviour
+                    match $self.$behaviour.poll(cx, poll_params) {
+                        Poll::Ready(action) => match action {
+                            // call the designated function to handle the event from sub-behaviour
+                            NBAction::GenerateEvent(event) => $self.$on_event_fn(event),
+                            NBAction::DialAddress { address } => {
+                                return Poll::Ready(NBAction::DialAddress { address })
+                            }
+                            NBAction::DialPeer { peer_id, condition } => {
+                                return Poll::Ready(NBAction::DialPeer { peer_id, condition })
+                            }
+                            NBAction::NotifyHandler {
+                                peer_id,
+                                handler,
+                                event,
+                            } => {
+                                return Poll::Ready(NBAction::NotifyHandler {
+                                    peer_id,
+                                    handler,
+                                    // call the closure mapping the received event to the needed one
+                                    // in order to notify the handler
+                                    event: $notify_handler_event_closure(event),
+                                });
+                            }
+                            NBAction::ReportObservedAddr { address } => {
+                                return Poll::Ready(NBAction::ReportObservedAddr { address })
+                            }
+                        },
+                        Poll::Pending => break,
+                    }
                 }
-                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
-                }
-                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
-                }
-                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                }) => {
-                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event: EitherOutput::First(EitherOutput::First(EitherOutput::First(event))),
-                    });
-                }
-                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
-                }
-                Poll::Pending => break,
-            }
+            };
         }
-        loop {
-            match self.eth2_rpc.poll(cx, poll_params) {
-                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
-                    self.on_rpc_event(event)
-                }
-                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
-                }
-                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
-                }
-                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                }) => {
-                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event: EitherOutput::First(EitherOutput::First(EitherOutput::Second(
-                            event,
-                        ))),
-                    });
-                }
-                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
-                }
-                Poll::Pending => break,
-            }
-        }
-        loop {
-            match self.identify.poll(cx, poll_params) {
-                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
-                    self.on_identify_event(event)
-                }
-                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
-                }
-                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
-                }
-                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                }) => {
-                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event: EitherOutput::First(EitherOutput::Second(event)),
-                    });
-                }
-                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
-                }
-                Poll::Pending => break,
-            }
-        }
-        loop {
-            match self.discovery.poll(cx, poll_params) {
-                Poll::Ready(NetworkBehaviourAction::GenerateEvent(event)) => {
-                    self.on_discovery_event(event)
-                }
-                Poll::Ready(NetworkBehaviourAction::DialAddress { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialAddress { address });
-                }
-                Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition }) => {
-                    return Poll::Ready(NetworkBehaviourAction::DialPeer { peer_id, condition });
-                }
-                Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                    peer_id,
-                    handler,
-                    event,
-                }) => {
-                    return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
-                        peer_id,
-                        handler,
-                        event: EitherOutput::Second(event),
-                    });
-                }
-                Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address }) => {
-                    return Poll::Ready(NetworkBehaviourAction::ReportObservedAddr { address });
-                }
-                Poll::Pending => break,
-            }
-        }
+
+        poll_behaviour!(self, gossipsub, on_gossip_event, |ev| EitherOutput::First(
+            EitherOutput::First(EitherOutput::First(ev))
+        ));
+
+        poll_behaviour!(self, eth2_rpc, on_rpc_event, |ev| EitherOutput::First(
+            EitherOutput::First(EitherOutput::Second(ev))
+        ));
+
+        poll_behaviour!(self, identify, on_identify_event, |ev| EitherOutput::First(
+            EitherOutput::Second(ev)
+        ));
+
+        poll_behaviour!(self, discovery, on_discovery_event, |ev| {
+            EitherOutput::Second(ev)
+        });
+
         self.custom_poll(cx)
     }
 }
@@ -634,7 +577,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     fn custom_poll<TBehaviourIn>(
         &mut self,
         cx: &mut Context,
-    ) -> Poll<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
+    ) -> Poll<NBAction<TBehaviourIn, BehaviourEvent<TSpec>>> {
         // check the peer manager for events
         loop {
             match self.peer_manager.poll_next_unpin(cx) {
@@ -642,9 +585,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
                         // the network to send a status to this peer
-                        return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
-                            BehaviourEvent::StatusPeer(peer_id),
-                        ));
+                        return Poll::Ready(NBAction::GenerateEvent(BehaviourEvent::StatusPeer(
+                            peer_id,
+                        )));
                     }
                     PeerManagerEvent::Ping(peer_id) => {
                         // send a ping request to this peer
@@ -666,7 +609,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
 
         if !self.events.is_empty() {
-            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+            return Poll::Ready(NBAction::GenerateEvent(self.events.remove(0)));
         }
 
         Poll::Pending
