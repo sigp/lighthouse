@@ -18,7 +18,7 @@ pub fn run_parse_hex<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
 
     let hex = hex::decode(&hex).map_err(|e| format!("Failed to parse hex: {:?}", e))?;
 
-    info!("Using minimal spec");
+    info!("Using {} spec", T::spec_name());
     info!("Type: {:?}", type_str);
 
     match type_str {

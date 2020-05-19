@@ -225,7 +225,9 @@ fn get_attestation_delta<T: EthSpec>(
         delta.penalize(spec.base_rewards_per_epoch.safe_mul(base_reward)?)?;
 
         // Additionally, all validators whose FFG target didn't match are penalized extra
-        if !validator.is_previous_epoch_target_attester {
+        // This condition is equivalent to this condition from the spec:
+        // `index not in get_unslashed_attesting_indices(state, matching_target_attestations)`
+        if validator.is_slashed || !validator.is_previous_epoch_target_attester {
             delta.penalize(
                 validator
                     .current_epoch_effective_balance

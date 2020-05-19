@@ -56,6 +56,8 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
 
     fn default_spec() -> ChainSpec;
 
+    fn spec_name() -> &'static str;
+
     fn genesis_epoch() -> Epoch {
         Epoch::new(Self::GenesisEpoch::to_u64())
     }
@@ -159,6 +161,10 @@ impl EthSpec for MainnetEthSpec {
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
     }
+
+    fn spec_name() -> &'static str {
+        "mainnet"
+    }
 }
 
 pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
@@ -196,6 +202,10 @@ impl EthSpec for MinimalEthSpec {
     fn default_spec() -> ChainSpec {
         ChainSpec::minimal()
     }
+
+    fn spec_name() -> &'static str {
+        "minimal"
+    }
 }
 
 pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
@@ -230,6 +240,10 @@ impl EthSpec for InteropEthSpec {
 
     fn default_spec() -> ChainSpec {
         ChainSpec::interop()
+    }
+
+    fn spec_name() -> &'static str {
+        "interop"
     }
 }
 
