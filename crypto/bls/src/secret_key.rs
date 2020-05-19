@@ -1,21 +1,18 @@
 extern crate rand;
 
-use super::BLS_SECRET_KEY_BYTE_SIZE;
-use hex::encode as hex_encode;
+use crate::PlainText;
 use milagro_bls::SecretKey as RawSecretKey;
-use serde::de::{Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
-use serde_hex::PrefixedHexVisitor;
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use ssz::DecodeError;
 
 /// A single BLS signature.
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Clone)]
 pub struct SecretKey(RawSecretKey);
 
 impl SecretKey {
+    /// Generate a new `Self` using `rand::thread_rng`.
     pub fn random() -> Self {
         SecretKey(RawSecretKey::random(&mut rand::thread_rng()))
     }
@@ -24,9 +21,13 @@ impl SecretKey {
         Self(raw)
     }
 
-    /// Returns the underlying point as compressed bytes.
-    fn as_bytes(&self) -> Vec<u8> {
-        self.as_raw().as_bytes()
+    /// Returns the secret key as a byte array (wrapped in `PlainText` wrapper so it is zeroized on
+    /// `Drop`).
+    ///
+    /// Extreme care should be taken not to leak these bytes as they are the unencrypted secret
+    /// key.
+    pub fn as_bytes(&self) -> PlainText {
+        self.as_raw().as_bytes().into()
     }
 
     /// Instantiate a SecretKey from existing bytes.
@@ -42,40 +43,14 @@ impl SecretKey {
     }
 
     /// Returns the underlying secret key.
-    pub fn as_raw(&self) -> &RawSecretKey {
+    pub(crate) fn as_raw(&self) -> &RawSecretKey {
         &self.0
-    }
-}
-
-impl_ssz!(SecretKey, BLS_SECRET_KEY_BYTE_SIZE, "SecretKey");
-
-impl_tree_hash!(SecretKey, BLS_SECRET_KEY_BYTE_SIZE);
-
-impl Serialize for SecretKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&hex_encode(ssz_encode(self)))
-    }
-}
-
-impl<'de> Deserialize<'de> for SecretKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let secret_key = SecretKey::from_ssz_bytes(&bytes[..])
-            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
-        Ok(secret_key)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz::ssz_encode;
 
     #[test]
     pub fn test_ssz_round_trip() {
@@ -85,9 +60,9 @@ mod tests {
         ];
         let original = SecretKey::from_bytes(&byte_key).unwrap();
 
-        let bytes = ssz_encode(&original);
-        let decoded = SecretKey::from_ssz_bytes(&bytes).unwrap();
+        let bytes = original.as_bytes();
+        let decoded = SecretKey::from_bytes(bytes.as_ref()).unwrap();
 
-        assert_eq!(original, decoded);
+        assert!(original.as_bytes() == decoded.as_bytes());
     }
 }

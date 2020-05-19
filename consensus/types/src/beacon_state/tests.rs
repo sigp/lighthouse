@@ -11,7 +11,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // Build a state for testing.
     let build_state = |validator_count: usize| -> BeaconState<T> {
         let builder: TestingBeaconStateBuilder<T> =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(validator_count, &spec);
+            TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, &spec);
         let (mut state, _keypairs) = builder.build();
         state.build_committee_cache(relative_epoch, &spec).unwrap();
 
@@ -114,7 +114,7 @@ fn cache_initialization() {
     let spec = MinimalEthSpec::default_spec();
 
     let builder: TestingBeaconStateBuilder<MinimalEthSpec> =
-        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
+        TestingBeaconStateBuilder::from_deterministic_keypairs(16, &spec);
     let (mut state, _keypairs) = builder.build();
 
     state.slot =
@@ -176,7 +176,7 @@ fn clone_config() {
     let spec = MinimalEthSpec::default_spec();
 
     let builder: TestingBeaconStateBuilder<MinimalEthSpec> =
-        TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
+        TestingBeaconStateBuilder::from_deterministic_keypairs(16, &spec);
     let (mut state, _keypairs) = builder.build();
 
     state.build_all_caches(&spec).unwrap();
@@ -374,7 +374,7 @@ mod get_outstanding_deposit_len {
     fn state() -> BeaconState<MinimalEthSpec> {
         let spec = MinimalEthSpec::default_spec();
         let builder: TestingBeaconStateBuilder<MinimalEthSpec> =
-            TestingBeaconStateBuilder::from_default_keypairs_file_if_exists(16, &spec);
+            TestingBeaconStateBuilder::from_deterministic_keypairs(16, &spec);
         let (state, _keypairs) = builder.build();
 
         state

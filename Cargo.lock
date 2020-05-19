@@ -433,6 +433,7 @@ dependencies = [
  "serde_derive",
  "serde_hex",
  "tree_hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -1334,7 +1335,6 @@ version = "0.1.0"
 dependencies = [
  "eth2_key_derivation",
  "eth2_keystore",
- "eth2_ssz",
  "hex 0.3.2",
  "rand 0.7.3",
  "serde",
@@ -5294,8 +5294,6 @@ dependencies = [
  "bls",
  "deposit_contract",
  "eth2_keystore",
- "eth2_ssz",
- "eth2_ssz_derive",
  "eth2_wallet",
  "rand 0.7.3",
  "rayon",

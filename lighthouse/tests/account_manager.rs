@@ -296,7 +296,7 @@ impl TestValidator {
                     let withdrawal_keypair = withdrawal_result.unwrap();
                     assert_ne!(voting_keypair.pk, withdrawal_keypair.pk);
                 } else {
-                    withdrawal_result.unwrap_err();
+                    withdrawal_result.err().unwrap();
                 }
 
                 // Deposit tx file should not exist yet.
@@ -370,7 +370,7 @@ fn write_legacy_keypair<P: AsRef<Path>>(name: &str, dir: P) -> Keypair {
     let keypair = Keypair::random();
 
     let mut keypair_bytes = keypair.pk.as_bytes();
-    keypair_bytes.extend_from_slice(&keypair.sk.as_raw().as_bytes());
+    keypair_bytes.extend_from_slice(keypair.sk.as_bytes().as_ref());
 
     fs::write(dir.as_ref().join(name), &keypair_bytes).unwrap();
 
@@ -409,12 +409,12 @@ fn upgrade_legacy_keypairs() {
         let dir = ValidatorDir::open(&validator_dir).unwrap();
 
         assert_eq!(
-            voting_keypair,
-            dir.voting_keypair(secrets_dir.path()).unwrap()
+            voting_keypair.pk,
+            dir.voting_keypair(secrets_dir.path()).unwrap().pk
         );
         assert_eq!(
-            withdrawal_keypair,
-            dir.withdrawal_keypair(secrets_dir.path()).unwrap()
+            withdrawal_keypair.pk,
+            dir.withdrawal_keypair(secrets_dir.path()).unwrap().pk
         );
     }
 }

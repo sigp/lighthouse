@@ -118,7 +118,7 @@ impl Harness {
             check_keystore(&validator.dir().join(VOTING_KEYSTORE_FILE), &password_dir);
 
         if !config.random_voting_keystore {
-            assert_eq!(voting_keypair, generate_deterministic_keypair(0))
+            assert_eq!(voting_keypair.pk, generate_deterministic_keypair(0).pk)
         }
 
         // Use OR here instead of AND so we *always* check for the withdrawal keystores if random
@@ -128,11 +128,11 @@ impl Harness {
             let withdrawal_keypair = check_keystore(&withdrawal_keystore_path, &password_dir);
 
             if !config.random_withdrawal_keystore {
-                assert_eq!(withdrawal_keypair, generate_deterministic_keypair(1))
+                assert_eq!(withdrawal_keypair.pk, generate_deterministic_keypair(1).pk)
             }
 
             // The withdrawal keys should be distinct from the voting keypairs.
-            assert_ne!(withdrawal_keypair, voting_keypair);
+            assert_ne!(withdrawal_keypair.pk, voting_keypair.pk);
         }
 
         if !config.store_withdrawal_keystore && !config.random_withdrawal_keystore {

@@ -17,8 +17,6 @@ eth2_keystore = { path = "../../crypto/eth2_keystore" }
 types = { path = "../../consensus/types" }
 rand = "0.7.2"
 deposit_contract = { path = "../deposit_contract" }
-eth2_ssz = { path = "../../consensus/ssz" }
-eth2_ssz_derive = { path = "../../consensus/ssz_derive" }
 rayon = "1.3.0"
 tree_hash = { path = "../../consensus/tree_hash" }
 
