@@ -26,7 +26,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse output path: {}", e))?;
 
-    info!("Using minimal spec");
+    info!("Using {} spec", T::spec_name());
     info!("Pre-state path: {:?}", pre_state_path);
     info!("Slots: {:?}", slots);
 
