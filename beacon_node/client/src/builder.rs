@@ -222,7 +222,7 @@ where
             .clone();
 
         let (network_globals, network_send) =
-            NetworkService::start(beacon_chain, config, context.runtime_handle, context.log)
+            NetworkService::start(beacon_chain, config, context.executor, context.log)
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
@@ -249,7 +249,7 @@ where
             .milliseconds_per_slot;
 
         let _ = timer::spawn(
-            context.runtime_handle,
+            context.executor,
             beacon_chain,
             milliseconds_per_slot,
             context.log.clone(),
@@ -290,7 +290,7 @@ where
 
         let log = context.log.clone();
         let listening_addr = rest_api::start_server(
-            context.runtime_handle,
+            context.executor,
             &client_config.rest_api,
             beacon_chain,
             network_info,
@@ -332,7 +332,7 @@ where
             .milliseconds_per_slot;
 
         let _ = spawn_notifier(
-            context.runtime_handle,
+            context.executor,
             beacon_chain,
             network_globals,
             milliseconds_per_slot,
@@ -428,7 +428,7 @@ where
 
         let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
             let (sender, listening_addr) =
-                websocket_server::start_server(context.runtime_handle, &config, &context.log)?;
+                websocket_server::start_server(context.executor, &config, &context.log)?;
             (sender, Some(listening_addr))
         } else {
             (WebSocketSender::dummy(), None)
@@ -638,7 +638,7 @@ where
         self.eth1_service = None;
 
         // Starts the service that connects to an eth1 node and periodically updates caches.
-        backend.start(context.runtime_handle);
+        backend.start(context.executor);
 
         self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
 

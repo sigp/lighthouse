@@ -3,7 +3,7 @@ use crate::{
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
-use futures::{StreamExt, TryFutureExt};
+use futures::StreamExt;
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, debug, info, trace};
 use slot_clock::SlotClock;
@@ -140,7 +140,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             )
         };
 
-        let runtime_handle = self.context.runtime_handle.clone();
+        let executor = self.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
@@ -161,7 +161,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
         };
 
-        runtime_handle.spawn(interval_fut, "attestation_service");
+        executor.spawn(interval_fut, "attestation_service");
         Ok(())
     }
 
@@ -206,16 +206,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.runtime_handle.spawn(
-                    self.clone()
-                        .publish_attestations_and_aggregates(
-                            slot,
-                            committee_index,
-                            validator_duties,
-                            aggregate_production_instant,
-                        )
-                        .unwrap_or_else(|_| ()),
-                    "duties_by_committee_index",
+                self.inner.context.executor.runtime_handle().spawn(
+                    self.clone().publish_attestations_and_aggregates(
+                        slot,
+                        committee_index,
+                        validator_duties,
+                        aggregate_production_instant,
+                    ),
                 );
             });
 

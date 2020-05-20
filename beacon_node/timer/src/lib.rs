@@ -13,13 +13,11 @@ use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
 pub fn spawn<T: BeaconChainTypes>(
-    handle: environment::TaskExecutor,
+    executor: environment::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,
     log: slog::Logger,
-) -> Result<tokio::sync::oneshot::Sender<()>, &'static str> {
-    let (exit_signal, exit) = tokio::sync::oneshot::channel();
-
+) -> Result<(), &'static str> {
     let start_instant = Instant::now()
         + beacon_chain
             .slot_clock
@@ -34,8 +32,8 @@ pub fn spawn<T: BeaconChainTypes>(
         }
     };
 
-    handle.spawn(timer_future, "timer_service");
+    executor.spawn(timer_future, "timer_service");
     info!(log, "Timer service started");
 
-    Ok(exit_signal)
+    Ok(())
 }

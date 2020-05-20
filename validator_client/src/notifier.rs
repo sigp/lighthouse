@@ -8,7 +8,7 @@ use types::EthSpec;
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Result<(), String> {
     let context = client.context.service_context("notifier".into());
-    let runtime_handle = context.runtime_handle.clone();
+    let executor = context.executor.clone();
     let duties_service = client.duties_service.clone();
     let allow_unsynced_beacon_node = client.config.allow_unsynced_beacon_node;
 
@@ -81,6 +81,6 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
         }
     };
 
-    runtime_handle.spawn(interval_fut, "validator_notifier");
+    executor.spawn(interval_fut, "validator_notifier");
     Ok(())
 }

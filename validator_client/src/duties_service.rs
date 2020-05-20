@@ -456,11 +456,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         // Run an immediate update before starting the updater service.
         self.inner
             .context
-            .runtime_handle
+            .executor
             .runtime_handle()
             .spawn(self.clone().do_update());
 
-        let runtime_handle = self.inner.context.runtime_handle.clone();
+        let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
@@ -468,7 +468,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             }
         };
 
-        runtime_handle.spawn(interval_fut, "duties_service");
+        executor.spawn(interval_fut, "duties_service");
 
         Ok(())
     }

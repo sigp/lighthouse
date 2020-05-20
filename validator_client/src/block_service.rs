@@ -135,7 +135,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         };
 
-        let runtime_handle = self.inner.context.runtime_handle.clone();
+        let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
@@ -143,7 +143,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             }
         };
 
-        runtime_handle.spawn(interval_fut, "block_service");
+        executor.spawn(interval_fut, "block_service");
 
         Ok(())
     }
@@ -184,7 +184,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             let service = self.clone();
             let log = log.clone();
             // TODO: run this task with a `spawn_without_name`
-            self.inner.context.runtime_handle.spawn(
+            self.inner.context.executor.spawn(
                 service
                     .publish_block(slot, validator_pubkey)
                     .map_err(move |e| {

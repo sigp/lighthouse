@@ -34,7 +34,7 @@ impl<T: EthSpec> WebSocketSender<T> {
 }
 
 pub fn start_server<T: EthSpec>(
-    handle: environment::TaskExecutor,
+    executor: environment::TaskExecutor,
     config: &Config,
     log: &Logger,
 ) -> Result<(WebSocketSender<T>, SocketAddr), String> {
@@ -61,7 +61,7 @@ pub fn start_server<T: EthSpec>(
     let broadcaster = server.broadcaster();
 
     // Produce a signal/channel that can gracefully shutdown the websocket server.
-    let exit = handle.exit();
+    let exit = executor.exit();
     let log_inner = log.clone();
     let broadcaster_inner = server.broadcaster();
     let exit_future = async move {
@@ -79,7 +79,7 @@ pub fn start_server<T: EthSpec>(
 
     // Place a future on the handle that will shutdown the websocket server when the
     // application exits.
-    handle.runtime_handle().spawn(exit_future);
+    executor.runtime_handle().spawn(exit_future);
 
     let log_inner = log.clone();
 

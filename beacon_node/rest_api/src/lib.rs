@@ -52,7 +52,7 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
 // Allowing more than 7 arguments.
 #[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
-    handle: environment::TaskExecutor,
+    executor: environment::TaskExecutor,
     config: &Config,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
@@ -100,7 +100,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let exit = handle.exit();
+    let exit = executor.exit();
     let inner_log = log.clone();
     let server_exit = async move {
         let _ = exit.await;
@@ -127,7 +127,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    handle.runtime_handle().spawn(server_future);
+    executor.runtime_handle().spawn(server_future);
 
     Ok(actual_listen_addr)
 }

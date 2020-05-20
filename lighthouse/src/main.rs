@@ -218,7 +218,7 @@ fn run<E: EthSpec>(
 
         environment
             .core_context()
-            .runtime_handle
+            .executor
             .runtime_handle()
             .enter(|| {
                 validator

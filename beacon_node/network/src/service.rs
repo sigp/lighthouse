@@ -53,7 +53,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        handle: environment::TaskExecutor,
+        executor: environment::TaskExecutor,
         network_log: slog::Logger,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
@@ -74,7 +74,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
-            LibP2PService::new(handle.runtime_handle(), config, enr_fork_id, &network_log)?;
+            LibP2PService::new(executor.runtime_handle(), config, enr_fork_id, &network_log)?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_send.clone(),
-            handle.clone(),
+            executor.clone(),
             network_log.clone(),
         )?;
 
@@ -110,21 +110,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             propagation_percentage,
         };
 
-        let _ = spawn_service(handle, network_service)?;
+        let _ = spawn_service(executor, network_service)?;
 
         Ok((network_globals, network_send))
     }
 }
 
 fn spawn_service<T: BeaconChainTypes>(
-    handle: environment::TaskExecutor,
+    executor: environment::TaskExecutor,
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
-    let mut exit_rx = handle.exit();
-    let handle = handle.runtime_handle();
+    let mut exit_rx = executor.exit();
 
     // spawn on the current executor
-    handle.spawn(async move {
+    executor.runtime_handle().spawn(async move {
         loop {
             // build the futures to check simultaneously
             tokio::select! {

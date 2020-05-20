@@ -198,7 +198,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 /// `Runtime`, instead it only has access to a `Runtime`.
 #[derive(Clone)]
 pub struct RuntimeContext<E: EthSpec> {
-    pub runtime_handle: TaskExecutor,
+    pub executor: TaskExecutor,
     // TODO: remove if TaskExecutor contains log
     pub log: Logger,
     pub eth_spec_instance: E,
@@ -211,7 +211,7 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// The generated service will have the `service_name` in all it's logs.
     pub fn service_context(&self, service_name: String) -> Self {
         Self {
-            runtime_handle: self.runtime_handle.clone(),
+            executor: self.executor.clone(),
             log: self.log.new(o!("service" => service_name)),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
@@ -302,7 +302,7 @@ impl<E: EthSpec> Environment<E> {
     /// Returns a `Context` where no "service" has been added to the logger output.
     pub fn core_context(&mut self) -> RuntimeContext<E> {
         RuntimeContext {
-            runtime_handle: TaskExecutor {
+            executor: TaskExecutor {
                 exit: self.exit.clone(),
                 handle: self.runtime().handle().clone(),
                 log: self.log.clone(),
@@ -316,7 +316,7 @@ impl<E: EthSpec> Environment<E> {
     /// Returns a `Context` where the `service_name` is added to the logger output.
     pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
-            runtime_handle: TaskExecutor {
+            executor: TaskExecutor {
                 exit: self.exit.clone(),
                 handle: self.runtime().handle().clone(),
                 log: self.log.new(o!("service" => service_name.clone())),
