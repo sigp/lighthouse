@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33.0"
-tokio = "0.2.20"
+tokio = "0.2.21"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.0"
 types = { "path" = "../../consensus/types" }
@@ -20,6 +20,9 @@ ctrlc = { version = "3.1.4", features = ["termination"] }
 futures = "0.3.5"
 parking_lot = "0.10.2"
 slog-json = "2.3.0"
+exit-future = "0.2.0"
+lazy_static = "1.4.0"
+lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 
 [dev-dependencies]
 beacon_node = { path = "../../beacon_node" }
