@@ -5,7 +5,6 @@ fact, if you already have Rust installed all you need is:
 
 - `git clone https://github.com/sigp/lighthouse.git`
 - `cd lighthouse`
-- `git checkout v0.1.2`
 - `make`
 
 If this doesn't work or is not clear enough, see the [Detailed Instructions](#detailed-instructions). If you have further issues, see [Troubleshooting](#troubleshooting). If you'd prefer to use Docker, see the [Docker Guide](./docker.md).
