@@ -42,7 +42,7 @@ use store::iter::{
     BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
     ReverseStateRootIterator, StateRootsIterator,
 };
-use store::{Error as DBError, Store};
+use store::{Error as DBError, Store, StoreOp};
 use types::*;
 
 // Text included in blocks.
@@ -1514,13 +1514,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         intermediate_states.commit(&*self.store)?;
 
         // Store the block and state.
-        // NOTE: we store the block *after* the state to guard against inconsistency in the event of
-        // a crash, as states are usually looked up from blocks, not the other way around. A better
-        // solution would be to use a database transaction (once our choice of database and API
-        // settles down).
-        // See: https://github.com/sigp/lighthouse/issues/692
-        self.store.put_state(&block.state_root, &state)?;
-        self.store.put_block(&block_root, signed_block.clone())?;
+        let db_batch: Vec<StoreOp<T::EthSpec>> = vec![
+            StoreOp::PutState(block.state_root.into(), state.clone()),
+            StoreOp::PutBlock(block_root.into(), signed_block.clone()),
+        ];
+        self.store.do_atomically(&db_batch)?;
 
         let parent_root = block.parent_root;
         let slot = block.slot;

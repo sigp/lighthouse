@@ -204,11 +204,17 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         Ok(())
     }
 
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+    fn do_atomically(&self, batch: &[StoreOp<E>]) -> Result<(), Error> {
         let mut guard = self.block_cache.lock();
         self.hot_db.do_atomically(batch)?;
         for op in batch {
             match op {
+                StoreOp::PutBlock(block_hash, block) => {
+                    guard.put((*block_hash).into(), block.clone());
+                }
+
+                StoreOp::PutState(_, _) => (),
+
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
                     guard.pop(&untyped_hash);

@@ -1,6 +1,7 @@
 use super::{DBColumn, Error, Store, StoreOp};
 use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
+use crate::SimpleStoreItem;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -89,9 +90,23 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         get_full_state(self, state_root)
     }
 
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+    fn do_atomically(&self, batch: &[StoreOp<E>]) -> Result<(), Error> {
         for op in batch {
             match op {
+                StoreOp::PutBlock(block_hash, block) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    let value = block.as_store_bytes();
+                    self.put_bytes(
+                        DBColumn::BeaconBlock.into(),
+                        untyped_hash.as_bytes(),
+                        &value,
+                    )?;
+                }
+
+                StoreOp::PutState(state_hash, state) => {
+                    self.put_state(&(*state_hash).into(), state)?;
+                }
+
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
                     self.key_delete(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes())?;

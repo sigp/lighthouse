@@ -97,7 +97,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
     /// Execute either all of the operations in `batch` or none at all, returning an error.
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
+    fn do_atomically(&self, batch: &[StoreOp<E>]) -> Result<(), Error>;
 
     /// Store a state summary in the store.
     // NOTE: this is a hack for the HotColdDb, we could consider splitting this
@@ -185,7 +185,9 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
-pub enum StoreOp {
+pub enum StoreOp<E: EthSpec> {
+    PutBlock(SignedBeaconBlockHash, SignedBeaconBlock<E>),
+    PutState(BeaconStateHash, BeaconState<E>),
     DeleteBlock(SignedBeaconBlockHash),
     DeleteState(BeaconStateHash, Slot),
 }

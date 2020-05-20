@@ -143,7 +143,7 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
             }
         }
 
-        let batch: Vec<StoreOp> = abandoned_blocks
+        let batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
             .map(|block_hash| StoreOp::DeleteBlock(block_hash))
             .chain(

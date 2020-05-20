@@ -1,6 +1,6 @@
 use super::*;
 use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
-use crate::impls::beacon_state::{get_full_state, store_full_state};
+use crate::impls::beacon_state::{get_full_state, store_full_state, StorageContainer};
 use crate::metrics;
 use db_key::Key;
 use leveldb::database::batch::{Batch, Writebatch};
@@ -8,6 +8,7 @@ use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
+use ssz::Encode;
 use std::marker::PhantomData;
 use std::path::Path;
 
@@ -147,10 +148,30 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
         SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
     }
 
-    fn do_atomically(&self, ops_batch: &[StoreOp]) -> Result<(), Error> {
+    fn do_atomically(&self, ops_batch: &[StoreOp<E>]) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
         for op in ops_batch {
             match op {
+                StoreOp::PutBlock(block_hash, block) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    let key = Self::get_key_for_col(
+                        DBColumn::BeaconBlock.into(),
+                        untyped_hash.as_bytes(),
+                    );
+                    let value = block.as_store_bytes();
+                    leveldb_batch.put(key, &value);
+                }
+
+                StoreOp::PutState(state_hash, state) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    let key = Self::get_key_for_col(
+                        DBColumn::BeaconState.into(),
+                        untyped_hash.as_bytes(),
+                    );
+                    let value = StorageContainer::new(state).as_ssz_bytes();
+                    leveldb_batch.put(key, &value);
+                }
+
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
                     let key = Self::get_key_for_col(
