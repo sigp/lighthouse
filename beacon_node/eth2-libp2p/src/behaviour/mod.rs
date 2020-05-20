@@ -5,7 +5,7 @@ use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use discv5::Discv5Event;
 use futures::prelude::*;
-use handler::BehaviourHandler;
+use handler::{BHInEvent, BehaviourHandler, DelegateIn};
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
@@ -168,6 +168,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
+        // Events comming from the handler, redirected to each handler?
         match event {
             EitherOutput::First(EitherOutput::First(EitherOutput::First(ev))) => {
                 self.gossipsub.inject_event(peer_id, conn_id, ev)
@@ -217,7 +218,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                                     handler,
                                     // call the closure mapping the received event to the needed one
                                     // in order to notify the handler
-                                    event: $notify_handler_event_closure(event),
+                                    event: BHInEvent::Delegate($notify_handler_event_closure(
+                                        event,
+                                    )),
                                 });
                             }
                             NBAction::ReportObservedAddr { address } => {
@@ -230,20 +233,24 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             };
         }
 
-        poll_behaviour!(self, gossipsub, on_gossip_event, |ev| EitherOutput::First(
-            EitherOutput::First(EitherOutput::First(ev))
-        ));
+        poll_behaviour!(
+            self,
+            gossipsub,
+            on_gossip_event,
+            |ev| DelegateIn::Gossipsub(ev)
+        );
 
-        poll_behaviour!(self, eth2_rpc, on_rpc_event, |ev| EitherOutput::First(
-            EitherOutput::First(EitherOutput::Second(ev))
-        ));
+        poll_behaviour!(self, eth2_rpc, on_rpc_event, |ev| DelegateIn::RPC(ev));
 
-        poll_behaviour!(self, identify, on_identify_event, |ev| EitherOutput::First(
-            EitherOutput::Second(ev)
-        ));
+        poll_behaviour!(
+            self,
+            identify,
+            on_identify_event,
+            |ev| DelegateIn::Identify(ev)
+        );
 
         poll_behaviour!(self, discovery, on_discovery_event, |ev| {
-            EitherOutput::Second(ev)
+            DelegateIn::Discovery(ev)
         });
 
         self.custom_poll(cx)
