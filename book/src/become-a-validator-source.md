@@ -99,7 +99,7 @@ It is very important that you DO NOT SHARE this mnemonic as it will
 reveal the private keys of all validators and keys generated with
 this wallet. That would be catastrophic.
 
-It is also import to store a backup of this mnemonic so you can
+It is also important to store a backup of this mnemonic so you can
 recover your private keys in the case of data loss. Writing it on
 a piece of paper and storing it in a safe place would be prudent.
 

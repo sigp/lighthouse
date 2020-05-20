@@ -126,7 +126,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     println!("reveal the private keys of all validators and keys generated with  ");
     println!("this wallet. That would be catastrophic.");
     println!("");
-    println!("It is also import to store a backup of this mnemonic so you can ");
+    println!("It is also important to store a backup of this mnemonic so you can ");
     println!("recover your private keys in the case of data loss. Writing it on ");
     println!("a piece of paper and storing it in a safe place would be prudent.");
     println!("");
