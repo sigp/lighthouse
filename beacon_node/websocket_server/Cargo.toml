@@ -15,3 +15,4 @@ slog = "2.5.2"
 tokio = { version = "0.2.21", features = ["full"] }
 types = { path = "../../consensus/types" }
 ws = "0.9.1"
+environment = { path = "../../lighthouse/environment" }

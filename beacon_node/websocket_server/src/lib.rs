@@ -34,17 +34,10 @@ impl<T: EthSpec> WebSocketSender<T> {
 }
 
 pub fn start_server<T: EthSpec>(
-    handle: &tokio::runtime::Handle,
+    handle: environment::TaskExecutor,
     config: &Config,
     log: &Logger,
-) -> Result<
-    (
-        WebSocketSender<T>,
-        tokio::sync::oneshot::Sender<()>,
-        SocketAddr,
-    ),
-    String,
-> {
+) -> Result<(WebSocketSender<T>, SocketAddr), String> {
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
     // Create a server that simply ignores any incoming messages.
@@ -68,30 +61,25 @@ pub fn start_server<T: EthSpec>(
     let broadcaster = server.broadcaster();
 
     // Produce a signal/channel that can gracefully shutdown the websocket server.
-    let exit_channel = {
-        let (exit_channel, exit) = tokio::sync::oneshot::channel();
-
-        let log_inner = log.clone();
-        let broadcaster_inner = server.broadcaster();
-        let exit_future = async move {
-            let _ = exit.await;
-            if let Err(e) = broadcaster_inner.shutdown() {
-                warn!(
-                    log_inner,
-                    "Websocket server errored on shutdown";
-                    "error" => format!("{:?}", e)
-                );
-            } else {
-                info!(log_inner, "Websocket server shutdown");
-            }
-        };
-
-        // Place a future on the handle that will shutdown the websocket server when the
-        // application exits.
-        handle.spawn(exit_future);
-
-        exit_channel
+    let exit = handle.exit();
+    let log_inner = log.clone();
+    let broadcaster_inner = server.broadcaster();
+    let exit_future = async move {
+        let _ = exit.await;
+        if let Err(e) = broadcaster_inner.shutdown() {
+            warn!(
+                log_inner,
+                "Websocket server errored on shutdown";
+                "error" => format!("{:?}", e)
+            );
+        } else {
+            info!(log_inner, "Websocket server shutdown");
+        }
     };
+
+    // Place a future on the handle that will shutdown the websocket server when the
+    // application exits.
+    handle.runtime_handle().spawn(exit_future);
 
     let log_inner = log.clone();
 
@@ -123,7 +111,6 @@ pub fn start_server<T: EthSpec>(
             sender: Some(broadcaster),
             _phantom: PhantomData,
         },
-        exit_channel,
         actual_listen_addr,
     ))
 }

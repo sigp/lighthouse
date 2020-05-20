@@ -53,12 +53,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        runtime_handle: &Handle,
+        handle: environment::TaskExecutor,
         network_log: slog::Logger,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        oneshot::Sender<()>,
     )> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
@@ -75,7 +74,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
-            LibP2PService::new(runtime_handle, config, enr_fork_id, &network_log)?;
+            LibP2PService::new(handle.runtime_handle(), config, enr_fork_id, &network_log)?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -88,7 +87,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_send.clone(),
-            runtime_handle,
+            handle.clone(),
             network_log.clone(),
         )?;
 
@@ -111,17 +110,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             propagation_percentage,
         };
 
-        let network_exit = spawn_service(runtime_handle, network_service)?;
+        let _ = spawn_service(handle, network_service)?;
 
-        Ok((network_globals, network_send, network_exit))
+        Ok((network_globals, network_send))
     }
 }
 
 fn spawn_service<T: BeaconChainTypes>(
-    handle: &tokio::runtime::Handle,
+    handle: environment::TaskExecutor,
     mut service: NetworkService<T>,
-) -> error::Result<tokio::sync::oneshot::Sender<()>> {
-    let (network_exit, mut exit_rx) = tokio::sync::oneshot::channel();
+) -> error::Result<()> {
+    let mut exit_rx = handle.exit();
+    let handle = handle.runtime_handle();
 
     // spawn on the current executor
     handle.spawn(async move {
@@ -364,7 +364,7 @@ fn spawn_service<T: BeaconChainTypes>(
         }
     });
 
-    Ok(network_exit)
+    Ok(())
 }
 
 /// Returns a `Delay` that triggers shortly after the next change in the beacon chain fork version.

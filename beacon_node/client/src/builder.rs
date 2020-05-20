@@ -50,7 +50,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
-    exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
     event_handler: Option<T::EventHandler>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
@@ -84,7 +83,6 @@ where
             beacon_chain_builder: None,
             beacon_chain: None,
             eth1_service: None,
-            exit_channels: vec![],
             event_handler: None,
             network_globals: None,
             network_send: None,
@@ -223,13 +221,12 @@ where
             .ok_or_else(|| "network requires a runtime_context")?
             .clone();
 
-        let (network_globals, network_send, network_exit) =
-            NetworkService::start(beacon_chain, config, &context.runtime_handle, context.log)
+        let (network_globals, network_send) =
+            NetworkService::start(beacon_chain, config, context.runtime_handle, context.log)
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
         self.network_send = Some(network_send);
-        self.exit_channels.push(network_exit);
 
         Ok(self)
     }
@@ -251,15 +248,13 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let timer_exit = timer::spawn(
-            &context.runtime_handle,
+        let _ = timer::spawn(
+            context.runtime_handle,
             beacon_chain,
             milliseconds_per_slot,
             context.log.clone(),
         )
         .map_err(|e| format!("Unable to start node timer: {}", e))?;
-
-        self.exit_channels.push(timer_exit);
 
         Ok(self)
     }
@@ -294,8 +289,8 @@ where
         };
 
         let log = context.log.clone();
-        let (exit_channel, listening_addr) = rest_api::start_server(
-            &context.runtime_handle,
+        let listening_addr = rest_api::start_server(
+            context.runtime_handle,
             &client_config.rest_api,
             beacon_chain,
             network_info,
@@ -310,7 +305,6 @@ where
         )
         .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 
-        self.exit_channels.push(exit_channel);
         self.http_listen_addr = Some(listening_addr);
 
         Ok(self)
@@ -337,16 +331,14 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let exit_channel = spawn_notifier(
-            &context.runtime_handle,
+        let _ = spawn_notifier(
+            context.runtime_handle,
             beacon_chain,
             network_globals,
             milliseconds_per_slot,
             context.log.clone(),
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
-
-        self.exit_channels.push(exit_channel);
 
         Ok(self)
     }
@@ -364,7 +356,6 @@ where
             network_globals: self.network_globals,
             http_listen_addr: self.http_listen_addr,
             websocket_listen_addr: self.websocket_listen_addr,
-            _exit_channels: self.exit_channels,
         }
     }
 }
@@ -435,21 +426,14 @@ where
             .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
             .service_context("ws".into());
 
-        let (sender, exit_channel, listening_addr): (
-            WebSocketSender<TEthSpec>,
-            Option<_>,
-            Option<_>,
-        ) = if config.enabled {
-            let (sender, exit, listening_addr) =
-                websocket_server::start_server(&context.runtime_handle, &config, &context.log)?;
-            (sender, Some(exit), Some(listening_addr))
+        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
+            let (sender, listening_addr) =
+                websocket_server::start_server(context.runtime_handle, &config, &context.log)?;
+            (sender, Some(listening_addr))
         } else {
-            (WebSocketSender::dummy(), None, None)
+            (WebSocketSender::dummy(), None)
         };
 
-        if let Some(channel) = exit_channel {
-            self.exit_channels.push(channel);
-        }
         self.event_handler = Some(sender);
         self.websocket_listen_addr = listening_addr;
 
@@ -653,14 +637,8 @@ where
 
         self.eth1_service = None;
 
-        let exit = {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            self.exit_channels.push(tx);
-            rx
-        };
-
         // Starts the service that connects to an eth1 node and periodically updates caches.
-        backend.start(&context.runtime_handle, exit);
+        backend.start(context.runtime_handle);
 
         self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
 

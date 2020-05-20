@@ -25,12 +25,12 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: BeaconChainTypes>(
-    handle: &tokio::runtime::Handle,
+    handle: environment::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
     log: slog::Logger,
-) -> Result<tokio::sync::oneshot::Sender<()>, String> {
+) -> Result<(), String> {
     let log_1 = log.clone();
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
@@ -148,20 +148,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         Ok::<(), ()>(())
     };
 
-    let (exit_signal, exit) = tokio::sync::oneshot::channel();
-
-    let exit_future = async move {
-        let _ = exit.await.ok();
-        info!(log_1, "Notifier service shutdown");
-    };
-
     // run the notifier on the current executor
-    handle.spawn(futures::future::select(
-        Box::pin(interval_future),
-        Box::pin(exit_future),
-    ));
+    handle.spawn(interval_future.unwrap_or_else(|_| ()), "beacon_notifier");
 
-    Ok(exit_signal)
+    Ok(())
 }
 
 /// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a

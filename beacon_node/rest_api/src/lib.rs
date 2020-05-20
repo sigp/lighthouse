@@ -52,7 +52,7 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
 // Allowing more than 7 arguments.
 #[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
-    handle: &Handle,
+    handle: environment::TaskExecutor,
     config: &Config,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
@@ -60,7 +60,7 @@ pub fn start_server<T: BeaconChainTypes>(
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
     log: slog::Logger,
-) -> Result<(oneshot::Sender<()>, SocketAddr), hyper::Error> {
+) -> Result<SocketAddr, hyper::Error> {
     let inner_log = log.clone();
     let eth2_config = Arc::new(eth2_config);
 
@@ -100,7 +100,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let (exit_signal, exit) = oneshot::channel::<()>();
+    let exit = handle.exit();
     let inner_log = log.clone();
     let server_exit = async move {
         let _ = exit.await;
@@ -127,9 +127,9 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    handle.spawn(server_future);
+    handle.runtime_handle().spawn(server_future);
 
-    Ok((exit_signal, actual_listen_addr))
+    Ok(actual_listen_addr)
 }
 
 #[derive(Clone)]
