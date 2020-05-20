@@ -7,7 +7,12 @@ use discv5::Discv5Event;
 use futures::prelude::*;
 use handler::BehaviourHandler;
 use libp2p::{
-    core::{connection::ConnectionId, either::EitherOutput, identity::Keypair, Multiaddr},
+    core::{
+        connection::{ConnectedPoint, ConnectionId, ListenerId},
+        either::EitherOutput,
+        identity::Keypair,
+        Multiaddr,
+    },
     gossipsub::{Gossipsub, GossipsubEvent, MessageId},
     identify::{Identify, IdentifyEvent},
     swarm::{
@@ -62,6 +67,15 @@ pub struct Behaviour<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
+macro_rules! delegate_to_behaviours {
+    ($self: ident, $fn: ident, $($arg: ident), *) => {
+        $self.gossipsub.$fn($($arg),*);
+        $self.eth2_rpc.$fn($($arg),*);
+        $self.identify.$fn($($arg),*);
+        $self.discovery.$fn($($arg),*);
+    };
+}
+
 impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     type ProtocolsHandler = BehaviourHandler<TSpec>;
     type OutEvent = BehaviourEvent<TSpec>;
@@ -85,36 +99,86 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     }
 
     fn inject_connected(&mut self, peer_id: &PeerId) {
-        self.gossipsub.inject_connected(peer_id);
-        self.eth2_rpc.inject_connected(peer_id);
-        self.identify.inject_connected(peer_id);
-        self.discovery.inject_connected(peer_id);
+        delegate_to_behaviours!(self, inject_connected, peer_id);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        self.gossipsub.inject_disconnected(peer_id);
-        self.eth2_rpc.inject_disconnected(peer_id);
-        self.identify.inject_disconnected(peer_id);
-        self.discovery.inject_disconnected(peer_id);
+        delegate_to_behaviours!(self, inject_disconnected, peer_id);
+    }
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &ConnectionId,
+        endpoint: &ConnectedPoint,
+    ) {
+        delegate_to_behaviours!(
+            self,
+            inject_connection_established,
+            peer_id,
+            conn_id,
+            endpoint
+        );
+    }
+
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &ConnectionId,
+        endpoint: &ConnectedPoint,
+    ) {
+        delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
+    }
+
+    fn inject_addr_reach_failure(
+        &mut self,
+        peer_id: Option<&PeerId>,
+        addr: &Multiaddr,
+        error: &dyn std::error::Error,
+    ) {
+        delegate_to_behaviours!(self, inject_addr_reach_failure, peer_id, addr, error);
+    }
+
+    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+        delegate_to_behaviours!(self, inject_dial_failure, peer_id);
+    }
+
+    fn inject_new_listen_addr(&mut self, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_new_listen_addr, addr);
+    }
+
+    fn inject_expired_listen_addr(&mut self, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_expired_listen_addr, addr);
+    }
+
+    fn inject_new_external_addr(&mut self, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_new_external_addr, addr);
+    }
+
+    fn inject_listener_error(&mut self, id: ListenerId, err: &(dyn std::error::Error + 'static)) {
+        delegate_to_behaviours!(self, inject_listener_error, id, err);
+    }
+    fn inject_listener_closed(&mut self, id: ListenerId, reason: Result<(), &std::io::Error>) {
+        delegate_to_behaviours!(self, inject_listener_closed, id, reason);
     }
 
     fn inject_event(
         &mut self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
+        conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         match event {
             EitherOutput::First(EitherOutput::First(EitherOutput::First(ev))) => {
-                self.gossipsub.inject_event(peer_id, connection_id, ev)
+                self.gossipsub.inject_event(peer_id, conn_id, ev)
             }
             EitherOutput::First(EitherOutput::First(EitherOutput::Second(ev))) => {
-                self.eth2_rpc.inject_event(peer_id, connection_id, ev)
+                self.eth2_rpc.inject_event(peer_id, conn_id, ev)
             }
             EitherOutput::First(EitherOutput::Second(ev)) => {
-                self.identify.inject_event(peer_id, connection_id, ev)
+                self.identify.inject_event(peer_id, conn_id, ev)
             }
-            EitherOutput::Second(ev) => self.discovery.inject_event(peer_id, connection_id, ev),
+            EitherOutput::Second(ev) => self.discovery.inject_event(peer_id, conn_id, ev),
         }
     }
 
