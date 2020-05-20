@@ -185,9 +185,9 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
-pub enum StoreOp<E: EthSpec> {
+pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(SignedBeaconBlockHash, SignedBeaconBlock<E>),
-    PutState(BeaconStateHash, BeaconState<E>),
+    PutState(BeaconStateHash, &'a BeaconState<E>),
     DeleteBlock(SignedBeaconBlockHash),
     DeleteState(BeaconStateHash, Slot),
 }

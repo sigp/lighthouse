@@ -1515,7 +1515,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Store the block and state.
         let db_batch: Vec<StoreOp<T::EthSpec>> = vec![
-            StoreOp::PutState(block.state_root.into(), state.clone()),
+            StoreOp::PutState(block.state_root.into(), &state),
             StoreOp::PutBlock(block_root.into(), signed_block.clone()),
         ];
         self.store.do_atomically(&db_batch)?;
