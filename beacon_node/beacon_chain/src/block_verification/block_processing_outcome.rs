@@ -1,12 +1,12 @@
 use crate::{BeaconChainError, BlockError};
 use state_processing::BlockProcessingError;
-use types::{Hash256, Slot};
+use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// This is a legacy object that is being kept around to reduce merge conflicts.
 ///
 /// TODO: As soon as this is merged into master, it should be removed as soon as possible.
 #[derive(Debug, PartialEq)]
-pub enum BlockProcessingOutcome {
+pub enum BlockProcessingOutcome<T: EthSpec> {
     /// Block was valid and imported into the block graph.
     Processed {
         block_root: Hash256,
@@ -18,6 +18,7 @@ pub enum BlockProcessingOutcome {
     UnknownValidator(u64),
     /// The parent block was unknown.
     ParentUnknown(Hash256),
+    ParentUnknownCorrect(Box<SignedBeaconBlock<T>>),
     /// The block slot is greater than the present slot.
     FutureSlot {
         present_slot: Slot,
@@ -66,13 +67,16 @@ pub enum BlockProcessingOutcome {
     PerBlockProcessingError(BlockProcessingError),
 }
 
-impl BlockProcessingOutcome {
+impl<T: EthSpec> BlockProcessingOutcome<T> {
     pub fn shim(
-        result: Result<Hash256, BlockError>,
-    ) -> Result<BlockProcessingOutcome, BeaconChainError> {
+        result: Result<Hash256, BlockError<T>>,
+    ) -> Result<BlockProcessingOutcome<T>, BeaconChainError> {
         match result {
             Ok(block_root) => Ok(BlockProcessingOutcome::Processed { block_root }),
             Err(BlockError::ParentUnknown(root)) => Ok(BlockProcessingOutcome::ParentUnknown(root)),
+            Err(BlockError::ParentUnknownCorrect(block)) => {
+                Ok(BlockProcessingOutcome::ParentUnknownCorrect(block))
+            }
             Err(BlockError::FutureSlot {
                 present_slot,
                 block_slot,

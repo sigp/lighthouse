@@ -482,7 +482,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: &PeerId,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let result = self.chain.verify_block_for_gossip(*block.clone());
 
         if let Err(BlockError::ParentUnknown(_)) = result {

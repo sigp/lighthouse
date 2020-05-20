@@ -87,9 +87,11 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
 #[derive(Debug, PartialEq)]
-pub enum BlockError {
+pub enum BlockError<T: EthSpec> {
     /// The parent block was unknown.
     ParentUnknown(Hash256),
+    /// The parent block was unknown.
+    ParentUnknownCorrect(Box<SignedBeaconBlock<T>>),
     /// The block slot is greater than the present slot.
     FutureSlot {
         present_slot: Slot,
@@ -134,7 +136,7 @@ pub enum BlockError {
     BeaconChainError(BeaconChainError),
 }
 
-impl From<BlockSignatureVerifierError> for BlockError {
+impl<T: EthSpec> From<BlockSignatureVerifierError> for BlockError<T> {
     fn from(e: BlockSignatureVerifierError) -> Self {
         match e {
             // Make a special distinction for `IncorrectBlockProposer` since it indicates an
@@ -151,25 +153,25 @@ impl From<BlockSignatureVerifierError> for BlockError {
     }
 }
 
-impl From<BeaconChainError> for BlockError {
+impl<T: EthSpec> From<BeaconChainError> for BlockError<T> {
     fn from(e: BeaconChainError) -> Self {
         BlockError::BeaconChainError(e)
     }
 }
 
-impl From<BeaconStateError> for BlockError {
+impl<T: EthSpec> From<BeaconStateError> for BlockError<T> {
     fn from(e: BeaconStateError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
 }
 
-impl From<SlotProcessingError> for BlockError {
+impl<T: EthSpec> From<SlotProcessingError> for BlockError<T> {
     fn from(e: SlotProcessingError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e))
     }
 }
 
-impl From<DBError> for BlockError {
+impl<T: EthSpec> From<DBError> for BlockError<T> {
     fn from(e: DBError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::DBError(e))
     }
@@ -188,7 +190,7 @@ impl From<DBError> for BlockError {
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     chain_segment: Vec<(Hash256, SignedBeaconBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
-) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
+) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError<T::EthSpec>> {
     let (mut parent, slot) = if let Some(block) = chain_segment.first().map(|(_, block)| block) {
         let parent = load_parent(&block.message, chain)?;
         (parent, block.slot())
@@ -278,7 +280,7 @@ pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes> {
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError>;
+    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
 }
@@ -291,7 +293,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, BlockError> {
+    ) -> Result<Self, BlockError<T::EthSpec>> {
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
             .slot_clock
@@ -388,7 +390,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for GossipVerifiedBlock<T> {
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError> {
+    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let fully_verified = SignatureVerifiedBlock::from_gossip_verified_block(self, chain)?;
         fully_verified.into_fully_verified_block(chain)
     }
@@ -406,7 +408,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, BlockError> {
+    ) -> Result<Self, BlockError<T::EthSpec>> {
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = get_block_root(&block);
 
@@ -438,7 +440,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     pub fn from_gossip_verified_block(
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, BlockError> {
+    ) -> Result<Self, BlockError<T::EthSpec>> {
         let mut parent = from.parent;
         let block = from.block;
 
@@ -471,7 +473,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignatureVerifiedBlock<T
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError> {
+    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let block = self.block;
         let parent = self
             .parent
@@ -497,7 +499,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::Eth
     fn into_fully_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<FullyVerifiedBlock<T>, BlockError> {
+    ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
         SignatureVerifiedBlock::new(self, chain)?.into_fully_verified_block(chain)
     }
 
@@ -519,7 +521,7 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
         block_root: Hash256,
         parent: BeaconSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, BlockError> {
+    ) -> Result<Self, BlockError<T::EthSpec>> {
         // Reject any block if its parent is not known to fork choice.
         //
         // A block that is not in fork choice is either:
@@ -670,7 +672,7 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
 fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     block: &BeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<(), BlockError> {
+) -> Result<(), BlockError<T::EthSpec>> {
     let finalized_slot = chain
         .head_info()?
         .finalized_checkpoint
@@ -698,7 +700,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     signed_block: &SignedBeaconBlock<T::EthSpec>,
     block_root: Option<Hash256>,
     chain: &BeaconChain<T>,
-) -> Result<Hash256, BlockError> {
+) -> Result<Hash256, BlockError<T::EthSpec>> {
     let block = &signed_block.message;
 
     // Do not process blocks from the future.
@@ -754,7 +756,7 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
 fn load_parent<T: BeaconChainTypes>(
     block: &BeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<BeaconSnapshot<T::EthSpec>, BlockError> {
+) -> Result<BeaconSnapshot<T::EthSpec>, BlockError<T::EthSpec>> {
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
     // Reject any block if its parent is not known to fork choice.
@@ -828,12 +830,12 @@ fn load_parent<T: BeaconChainTypes>(
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
-fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
-    state: &'a mut BeaconState<E>,
+fn cheap_state_advance_to_obtain_committees<'a, T: EthSpec>(
+    state: &'a mut BeaconState<T>,
     block_slot: Slot,
     spec: &ChainSpec,
-) -> Result<Cow<'a, BeaconState<E>>, BlockError> {
-    let block_epoch = block_slot.epoch(E::slots_per_epoch());
+) -> Result<Cow<'a, BeaconState<T>>, BlockError<T>> {
+    let block_epoch = block_slot.epoch(T::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -864,7 +866,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
 fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> Result<RwLockReadGuard<ValidatorPubkeyCache>, BlockError> {
+) -> Result<RwLockReadGuard<ValidatorPubkeyCache>, BlockError<T::EthSpec>> {
     chain
         .validator_pubkey_cache
         .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
