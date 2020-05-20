@@ -168,7 +168,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // Events comming from the handler, redirected to each handler?
+        // Events comming from the handler, redirected to each behaviour
         match event {
             EitherOutput::First(EitherOutput::First(EitherOutput::First(ev))) => {
                 self.gossipsub.inject_event(peer_id, conn_id, ev)
@@ -195,13 +195,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
              * $notify_handler_event_closure:  Closure mapping the received event type to
              *     the one that the handler should get.
              */
-            ($self: ident, $behaviour: ident, $on_event_fn: ident, $notify_handler_event_closure: expr) => {
+            ($behaviour: ident, $on_event_fn: ident, $notify_handler_event_closure: expr) => {
                 loop {
                     // poll the sub-behaviour
-                    match $self.$behaviour.poll(cx, poll_params) {
+                    match self.$behaviour.poll(cx, poll_params) {
                         Poll::Ready(action) => match action {
                             // call the designated function to handle the event from sub-behaviour
-                            NBAction::GenerateEvent(event) => $self.$on_event_fn(event),
+                            NBAction::GenerateEvent(event) => self.$on_event_fn(event),
                             NBAction::DialAddress { address } => {
                                 return Poll::Ready(NBAction::DialAddress { address })
                             }
@@ -233,25 +233,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
             };
         }
 
-        poll_behaviour!(
-            self,
-            gossipsub,
-            on_gossip_event,
-            |ev| DelegateIn::Gossipsub(ev)
-        );
-
-        poll_behaviour!(self, eth2_rpc, on_rpc_event, |ev| DelegateIn::RPC(ev));
-
-        poll_behaviour!(
-            self,
-            identify,
-            on_identify_event,
-            |ev| DelegateIn::Identify(ev)
-        );
-
-        poll_behaviour!(self, discovery, on_discovery_event, |ev| {
-            DelegateIn::Discovery(ev)
-        });
+        poll_behaviour!(gossipsub, on_gossip_event, DelegateIn::Gossipsub);
+        poll_behaviour!(eth2_rpc, on_rpc_event, DelegateIn::RPC);
+        poll_behaviour!(identify, on_identify_event, DelegateIn::Identify);
+        poll_behaviour!(discovery, on_discovery_event, DelegateIn::Discovery);
 
         self.custom_poll(cx)
     }
