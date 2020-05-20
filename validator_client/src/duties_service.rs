@@ -1,11 +1,10 @@
 use crate::{is_synced::is_synced, validator_store::ValidatorStore};
 use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use parking_lot::RwLock;
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use rest_types::{ValidatorDuty, ValidatorDutyBytes, ValidatorSubscription};
-use slog::{debug, error, info, trace, warn};
+use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -439,9 +438,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Start the service that periodically polls the beacon node for validator duties.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
-        let log = self.context.log.clone();
-
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -456,12 +453,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             )
         };
 
-        let (exit_signal, exit_fut) = exit_future::signal();
-
         // Run an immediate update before starting the updater service.
         self.inner
             .context
             .runtime_handle
+            .runtime_handle()
             .spawn(self.clone().do_update());
 
         let runtime_handle = self.inner.context.runtime_handle.clone();
@@ -472,13 +468,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             }
         };
 
-        let future = futures::future::select(
-            Box::pin(interval_fut),
-            exit_fut.map(move |_| info!(log, "Shutdown complete")),
-        );
-        runtime_handle.spawn(future);
+        runtime_handle.spawn(interval_fut, "duties_service");
 
-        Ok(exit_signal)
+        Ok(())
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.

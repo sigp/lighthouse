@@ -3,8 +3,7 @@ use crate::{
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{FutureExt, StreamExt};
+use futures::{StreamExt, TryFutureExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, debug, info, trace};
 use slot_clock::SlotClock;
@@ -118,7 +117,7 @@ impl<T, E: EthSpec> Deref for AttestationService<T, E> {
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Starts the service which periodically produces attestations.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log.clone();
 
         let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
@@ -141,8 +140,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             )
         };
 
-        let (exit_signal, exit_fut) = exit_future::signal();
-
         let runtime_handle = self.context.runtime_handle.clone();
 
         let interval_fut = async move {
@@ -164,13 +161,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
         };
 
-        let future = futures::future::select(
-            Box::pin(interval_fut),
-            exit_fut.map(move |_| info!(log, "Shutdown complete")),
-        );
-        runtime_handle.spawn(future);
-
-        Ok(exit_signal)
+        runtime_handle.spawn(interval_fut, "attestation_service");
+        Ok(())
     }
 
     /// For each each required attestation, spawn a new task that downloads, signs and uploads the
@@ -215,12 +207,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
                 self.inner.context.runtime_handle.spawn(
-                    self.clone().publish_attestations_and_aggregates(
-                        slot,
-                        committee_index,
-                        validator_duties,
-                        aggregate_production_instant,
-                    ),
+                    self.clone()
+                        .publish_attestations_and_aggregates(
+                            slot,
+                            committee_index,
+                            validator_duties,
+                            aggregate_production_instant,
+                        )
+                        .unwrap_or_else(|_| ()),
+                    "duties_by_committee_index",
                 );
             });
 

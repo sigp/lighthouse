@@ -16,7 +16,6 @@ use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
-use exit_future::Signal;
 use fork_service::{ForkService, ForkServiceBuilder};
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
@@ -40,7 +39,6 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    exit_signals: Vec<Signal>,
     config: Config,
 }
 
@@ -208,46 +206,36 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             fork_service,
             block_service,
             attestation_service,
-            exit_signals: vec![],
             config,
         })
     }
 
     pub fn start_service(&mut self) -> Result<(), String> {
-        let duties_exit = self
+        let _ = self
             .duties_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
 
-        let fork_exit = self
+        let _ = self
             .fork_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
 
-        let block_exit = self
+        let _ = self
             .block_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start block service: {}", e))?;
 
-        let attestation_exit = self
+        let _ = self
             .attestation_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
-        let notifier_exit =
-            spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
-
-        self.exit_signals = vec![
-            duties_exit,
-            fork_exit,
-            block_exit,
-            attestation_exit,
-            notifier_exit,
-        ];
+        let _ = spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         Ok(())
     }
