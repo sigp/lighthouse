@@ -86,7 +86,7 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum BlockError {
     /// The parent block was unknown.
     ParentUnknown(Hash256),

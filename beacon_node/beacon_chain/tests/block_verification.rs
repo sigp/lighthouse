@@ -193,12 +193,14 @@ fn chain_segment_non_linear_parent_roots() {
     let mut blocks = chain_segment_blocks();
     blocks.remove(2);
 
-    assert_eq!(
-        harness
-            .chain
-            .process_chain_segment(blocks.clone())
-            .to_block_error(),
-        Err(BlockError::NonLinearParentRoots),
+    assert!(
+        matches!(
+            harness
+                .chain
+                .process_chain_segment(blocks.clone())
+                .to_block_error(),
+            Err(BlockError::NonLinearParentRoots)
+        ),
         "should not import chain with missing parent"
     );
 
@@ -208,12 +210,14 @@ fn chain_segment_non_linear_parent_roots() {
     let mut blocks = chain_segment_blocks();
     blocks[3].message.parent_root = Hash256::zero();
 
-    assert_eq!(
-        harness
-            .chain
-            .process_chain_segment(blocks.clone())
-            .to_block_error(),
-        Err(BlockError::NonLinearParentRoots),
+    assert!(
+        matches!(
+            harness
+                .chain
+                .process_chain_segment(blocks.clone())
+                .to_block_error(),
+            Err(BlockError::NonLinearParentRoots)
+        ),
         "should not import chain with a broken parent root link"
     );
 }
@@ -233,12 +237,14 @@ fn chain_segment_non_linear_slots() {
     let mut blocks = chain_segment_blocks();
     blocks[3].message.slot = Slot::new(0);
 
-    assert_eq!(
-        harness
-            .chain
-            .process_chain_segment(blocks.clone())
-            .to_block_error(),
-        Err(BlockError::NonLinearSlots),
+    assert!(
+        matches!(
+            harness
+                .chain
+                .process_chain_segment(blocks.clone())
+                .to_block_error(),
+            Err(BlockError::NonLinearSlots)
+        ),
         "should not import chain with a parent that has a lower slot than its child"
     );
 
@@ -249,12 +255,14 @@ fn chain_segment_non_linear_slots() {
     let mut blocks = chain_segment_blocks();
     blocks[3].message.slot = blocks[2].message.slot;
 
-    assert_eq!(
-        harness
-            .chain
-            .process_chain_segment(blocks.clone())
-            .to_block_error(),
-        Err(BlockError::NonLinearSlots),
+    assert!(
+        matches!(
+            harness
+                .chain
+                .process_chain_segment(blocks.clone())
+                .to_block_error(),
+            Err(BlockError::NonLinearSlots)
+        ),
         "should not import chain with a parent that has an equal slot to its child"
     );
 }
@@ -297,19 +305,23 @@ fn invalid_signatures() {
                 .collect();
 
             // Ensure the block will be rejected if imported in a chain segment.
-            assert_eq!(
-                harness.chain.process_chain_segment(blocks).to_block_error(),
-                Err(BlockError::InvalidSignature),
+            assert!(
+                matches!(
+                    harness.chain.process_chain_segment(blocks).to_block_error(),
+                    Err(BlockError::InvalidSignature)
+                ),
                 "should not import chain segment with an invalid {} signature",
                 item
             );
 
             // Ensure the block will be rejected if imported on its own (without gossip checking).
-            assert_eq!(
-                harness
-                    .chain
-                    .process_block(snapshots[block_index].beacon_block.clone()),
-                Err(BlockError::InvalidSignature),
+            assert!(
+                matches!(
+                    harness
+                        .chain
+                        .process_block(snapshots[block_index].beacon_block.clone()),
+                    Err(BlockError::InvalidSignature)
+                ),
                 "should not import individual block with an invalid {} signature",
                 item
             );
@@ -332,17 +344,21 @@ fn invalid_signatures() {
             .map(|snapshot| snapshot.beacon_block.clone())
             .collect();
         // Ensure the block will be rejected if imported in a chain segment.
-        assert_eq!(
-            harness.chain.process_chain_segment(blocks).to_block_error(),
-            Err(BlockError::InvalidSignature),
+        assert!(
+            matches!(
+                harness.chain.process_chain_segment(blocks).to_block_error(),
+                Err(BlockError::InvalidSignature)
+            ),
             "should not import chain segment with an invalid gossip signature",
         );
         // Ensure the block will be rejected if imported on its own (without gossip checking).
-        assert_eq!(
-            harness
-                .chain
-                .process_block(snapshots[block_index].beacon_block.clone()),
-            Err(BlockError::InvalidSignature),
+        assert!(
+            matches!(
+                harness
+                    .chain
+                    .process_block(snapshots[block_index].beacon_block.clone()),
+                Err(BlockError::InvalidSignature)
+            ),
             "should not import individual block with an invalid gossip signature",
         );
 
@@ -467,8 +483,10 @@ fn invalid_signatures() {
             .map(|snapshot| snapshot.beacon_block.clone())
             .collect();
         assert!(
-            harness.chain.process_chain_segment(blocks).to_block_error()
-                != Err(BlockError::InvalidSignature),
+            !matches!(
+                harness.chain.process_chain_segment(blocks).to_block_error(),
+                Err(BlockError::InvalidSignature)
+            ),
             "should not throw an invalid signature error for a bad deposit signature"
         );
 
@@ -543,14 +561,17 @@ fn block_gossip_verification() {
      */
 
     let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
-    let block_slot = block.message.slot + 1;
-    block.message.slot = block_slot;
-    assert_eq!(
-        unwrap_err(harness.chain.verify_block_for_gossip(block)),
-        BlockError::FutureSlot {
-            present_slot: block_slot - 1,
-            block_slot
-        },
+    let expected_block_slot = block.message.slot + 1;
+    block.message.slot = expected_block_slot;
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            BlockError::FutureSlot {
+                present_slot,
+                block_slot,
+            }
+            if present_slot == expected_block_slot - 1 && block_slot == expected_block_slot
+        ),
         "should not import a block with a future slot"
     );
 
@@ -567,20 +588,23 @@ fn block_gossip_verification() {
      */
 
     let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
-    let finalized_slot = harness
+    let expected_finalized_slot = harness
         .chain
         .head_info()
         .expect("should get head info")
         .finalized_checkpoint
         .epoch
         .start_slot(E::slots_per_epoch());
-    block.message.slot = finalized_slot;
-    assert_eq!(
-        unwrap_err(harness.chain.verify_block_for_gossip(block)),
-        BlockError::WouldRevertFinalizedSlot {
-            block_slot: finalized_slot,
-            finalized_slot
-        },
+    block.message.slot = expected_finalized_slot;
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            BlockError::WouldRevertFinalizedSlot {
+                block_slot,
+                finalized_slot,
+            }
+            if block_slot == expected_finalized_slot && finalized_slot == expected_finalized_slot
+        ),
         "should not import a block with a finalized slot"
     );
 
@@ -595,9 +619,11 @@ fn block_gossip_verification() {
 
     let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
     block.signature = junk_signature();
-    assert_eq!(
-        unwrap_err(harness.chain.verify_block_for_gossip(block)),
-        BlockError::ProposalSignatureInvalid,
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            BlockError::ProposalSignatureInvalid
+        ),
         "should not import a block with an invalid proposal signature"
     );
 
@@ -625,21 +651,27 @@ fn block_gossip_verification() {
         harness.chain.genesis_validators_root,
         &harness.chain.spec,
     );
-    assert_eq!(
-        unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
-        BlockError::IncorrectBlockProposer {
-            block: other_proposer,
-            local_shuffling: expected_proposer
-        },
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
+            BlockError::IncorrectBlockProposer {
+                block,
+                local_shuffling,
+            }
+            if block == other_proposer && local_shuffling == expected_proposer
+        ),
         "should not import a block with the wrong proposer index"
     );
     // Check to ensure that we registered this is a valid block from this proposer.
-    assert_eq!(
-        unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
-        BlockError::RepeatProposal {
-            proposer: other_proposer,
-            slot: block.message.slot
-        },
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
+            BlockError::RepeatProposal {
+                proposer,
+                slot,
+            }
+            if proposer == other_proposer && slot == block.message.slot
+        ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
 
@@ -659,16 +691,19 @@ fn block_gossip_verification() {
      */
 
     let block = CHAIN_SEGMENT[block_index].beacon_block.clone();
-    assert_eq!(
-        harness
-            .chain
-            .verify_block_for_gossip(block.clone())
-            .err()
-            .expect("should error when processing known block"),
-        BlockError::RepeatProposal {
-            proposer: block.message.proposer_index,
-            slot: block.message.slot,
-        },
+    assert!(
+        matches!(
+            harness
+                .chain
+                .verify_block_for_gossip(block.clone())
+                .err()
+                .expect("should error when processing known block"),
+            BlockError::RepeatProposal {
+                proposer,
+                slot,
+            }
+            if proposer == block.message.proposer_index && slot == block.message.slot
+        ),
         "the second proposal by this validator should be rejected"
     );
 }
