@@ -224,6 +224,9 @@ impl<E: EthSpec> RuntimeContext<E> {
     }
 }
 
+/// A wrapper over a runtime handle which can spawn async and blocking tasks.
+/// Spawned futures are wrapped in an exit_future which shuts down the task
+/// when the corresponding exit future Signal fires or is dropped.
 #[derive(Clone)]
 pub struct TaskExecutor {
     /// The handle to the runtime on which tasks are spawned
@@ -234,21 +237,29 @@ pub struct TaskExecutor {
 }
 
 impl TaskExecutor {
+    /// TODO: make docs better
+    /// Spawn a future on the async runtime wrapped in an exit future
+    /// This function also generates some metrics on number of tasks and task duration.
     pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, _name: &'static str) {
         let exit = self.exit.clone();
         let log = self.log.clone();
 
-        let future = async move {
-            // TODO: construct a wrapped prometheus future
-            let _ = future::select(Box::pin(task), exit).await;
-            info!(log, "Service shutdown"; "name" => _name);
-            // TODO: increment a counter for completed tasks
-        };
+        // Start the timer for how long this task runs
+        if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[_name]) {
+            let timer = metric.start_timer();
+            let future = async move {
+                let _ = future::select(Box::pin(task), exit).await;
+                info!(log, "Service shutdown"; "name" => _name);
+                timer.observe_duration();
+            };
 
-        metrics::inc_counter(&metrics::ASYNC_TASKS_COUNT);
-        self.handle.spawn(future);
+            metrics::inc_counter(&metrics::ASYNC_TASKS_COUNT);
+            self.handle.spawn(future);
+        }
     }
-
+    /// TODO: make docs better
+    /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future.
+    /// This function also generates some metrics on number of tasks and task duration.
     pub fn spawn_blocking<F>(&self, task: F, _name: &'static str)
     where
         F: FnOnce() -> () + Send + 'static,
@@ -256,23 +267,30 @@ impl TaskExecutor {
         let exit = self.exit.clone();
         let log = self.log.clone();
 
-        let join_handle = self.handle.spawn_blocking(task);
+        // Start the timer for how long this task runs
+        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[_name]) {
+            let timer = metric.start_timer();
+            let join_handle = self.handle.spawn_blocking(task);
 
-        let future = async move {
-            // TODO: construct a wrapped prometheus future
-            let _ = future::select(Box::pin(join_handle), exit).await;
-            info!(log, "Service shutdown"; "name" => _name);
-            // TODO: increment a counter for completed tasks
-        };
+            let future = async move {
+                // TODO: construct a wrapped prometheus future
+                let _ = future::select(Box::pin(join_handle), exit).await;
+                info!(log, "Service shutdown"; "name" => _name);
+                timer.observe_duration();
+            };
 
-        metrics::inc_counter(&metrics::BLOCKING_TASKS_COUNT);
-        self.handle.spawn(future);
+            metrics::inc_counter(&metrics::BLOCKING_TASKS_COUNT);
+            self.handle.spawn(future);
+        }
+        // TODO: handle else case
     }
 
+    /// Returns the underlying runtime handle.
     pub fn runtime_handle(&self) -> Handle {
         self.handle.clone()
     }
 
+    /// Returns the underlying exit future.
     pub fn exit(&self) -> exit_future::Exit {
         self.exit.clone()
     }

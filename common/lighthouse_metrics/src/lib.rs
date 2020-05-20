@@ -56,7 +56,9 @@
 
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
-pub use prometheus::{Encoder, Gauge, Histogram, IntCounter, IntGauge, Result, TextEncoder};
+pub use prometheus::{
+    Encoder, Gauge, Histogram, HistogramVec, IntCounter, IntGauge, Result, TextEncoder,
+};
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
@@ -97,6 +99,25 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     let histogram = Histogram::with_opts(opts)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
+}
+pub fn try_create_histogram_vec(
+    name: &str,
+    help: &str,
+    label_names: &[&str],
+) -> Result<HistogramVec> {
+    let opts = HistogramOpts::new(name, help);
+    let histogram_vec = HistogramVec::new(opts, label_names)?;
+    prometheus::register(Box::new(histogram_vec.clone()))?;
+    Ok(histogram_vec)
+}
+
+pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Option<Histogram> {
+    if let Ok(histogram_vec) = histogram_vec {
+        // TODO: handle panic
+        Some(histogram_vec.with_label_values(name))
+    } else {
+        None
+    }
 }
 
 /// Starts a timer for the given `Histogram`, stopping when it gets dropped or given to `stop_timer(..)`.

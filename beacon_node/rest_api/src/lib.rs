@@ -118,7 +118,8 @@ pub fn start_server<T: BeaconChainTypes>(
             inner_log,
             "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
             )
-        });
+        })
+        .unwrap_or_else(|_| ());
 
     info!(
         log,
@@ -127,7 +128,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    executor.runtime_handle().spawn(server_future);
+    executor.spawn(server_future, "http_service");
 
     Ok(actual_listen_addr)
 }
