@@ -1,6 +1,7 @@
 use crate::{Error as ValidatorDirError, ValidatorDir};
 use bls::Keypair;
 use rayon::prelude::*;
+use slog::{info, Logger};
 use std::collections::HashMap;
 use std::fs::read_dir;
 use std::io;
@@ -82,18 +83,31 @@ impl Manager {
 
     /// Opens all the validator directories in `self` and decrypts the validator keypairs.
     ///
+    /// If `log.is_some()`, an `info` log will be generated for each decrypted validator.
+    ///
     /// ## Errors
     ///
     /// Returns an error if any of the directories is unable to be opened.
     pub fn decrypt_all_validators(
         &self,
         secrets_dir: PathBuf,
+        log_opt: Option<&Logger>,
     ) -> Result<Vec<(Keypair, ValidatorDir)>, Error> {
         self.iter_dir()?
             .into_par_iter()
             .map(|path| {
                 ValidatorDir::open(path)
                     .and_then(|v| v.voting_keypair(&secrets_dir).map(|kp| (kp, v)))
+                    .map(|(kp, v)| {
+                        if let Some(log) = log_opt {
+                            info!(
+                                log,
+                                "Decrypted validator keystore";
+                                "pubkey" => kp.pk.as_hex_string()
+                            )
+                        }
+                        (kp, v)
+                    })
                     .map_err(Error::ValidatorDirError)
             })
             .collect()
