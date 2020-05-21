@@ -78,10 +78,10 @@ fn verify_exit_parametric<T: EthSpec>(
 
     // Verify the validator has been active long enough.
     verify!(
-        state.current_epoch() >= validator.activation_epoch + spec.persistent_committee_period,
+        state.current_epoch() >= validator.activation_epoch + spec.shard_committee_period,
         ExitInvalid::TooYoungToExit {
             current_epoch: state.current_epoch(),
-            earliest_exit_epoch: validator.activation_epoch + spec.persistent_committee_period,
+            earliest_exit_epoch: validator.activation_epoch + spec.shard_committee_period,
         }
     );
 

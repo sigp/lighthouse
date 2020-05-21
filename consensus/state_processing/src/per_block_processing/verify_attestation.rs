@@ -58,13 +58,6 @@ pub fn verify_attestation_for_state<T: EthSpec>(
 ) -> Result<()> {
     let data = &attestation.data;
 
-    // This emptiness check is required *in addition* to the length check in `get_attesting_indices`
-    // because we can parse a bitfield and know its length, even if it has no bits set.
-    verify!(
-        !attestation.aggregation_bits.is_zero(),
-        Invalid::AggregationBitfieldIsEmpty
-    );
-
     verify!(
         data.index < state.get_committee_count_at_slot(data.slot)?,
         Invalid::BadCommitteeIndex

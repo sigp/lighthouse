@@ -1,6 +1,6 @@
 use crate::{
     test_utils::TestRandom, BeaconBlock, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
-    SignedRoot, SigningRoot, Slot,
+    SignedRoot, SigningData, Slot,
 };
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
@@ -69,7 +69,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         );
 
         let message = if let Some(object_root) = object_root_opt {
-            SigningRoot {
+            SigningData {
                 object_root,
                 domain,
             }

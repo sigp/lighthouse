@@ -176,6 +176,10 @@ impl<T> From<ArithError> for BlockOperationError<T> {
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
     StateSlotMismatch,
+    OlderThanLatestBlockHeader {
+        latest_block_header_slot: Slot,
+        block_slot: Slot,
+    },
     ProposerIndexMismatch {
         block_proposer_index: usize,
         state_proposer_index: usize,
@@ -255,9 +259,6 @@ pub enum AttestationInvalid {
         attestation: Checkpoint,
         is_current: bool,
     },
-    /// There are no set bits on the attestation -- an attestation must be signed by at least one
-    /// validator.
-    AggregationBitfieldIsEmpty,
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.
     BadAggregationBitfieldLength {
         committee_len: usize,
@@ -291,10 +292,8 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum IndexedAttestationInvalid {
-    /// The number of indices exceeds the global maximum.
-    ///
-    /// (max_indices, indices_given)
-    MaxIndicesExceed(usize, usize),
+    /// The number of indices is 0.
+    IndicesEmpty,
     /// The validator indices were not in increasing order.
     ///
     /// The error occurred between the given `index` and `index + 1`

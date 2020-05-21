@@ -82,7 +82,7 @@ pub struct ChainSpec {
     pub max_seed_lookahead: Epoch,
     pub min_epochs_to_inactivity_penalty: u64,
     pub min_validator_withdrawability_delay: Epoch,
-    pub persistent_committee_period: u64,
+    pub shard_committee_period: u64,
 
     /*
      * Reward and penalty quotients
@@ -292,7 +292,7 @@ impl ChainSpec {
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
-            persistent_committee_period: 2_048,
+            shard_committee_period: 256,
 
             /*
              * Reward and penalty quotients
@@ -300,7 +300,7 @@ impl ChainSpec {
             base_reward_factor: 64,
             whistleblower_reward_quotient: 512,
             proposer_reward_quotient: 8,
-            inactivity_penalty_quotient: 33_554_432,
+            inactivity_penalty_quotient: u64::pow(2, 24),
             min_slashing_penalty_quotient: 32,
 
             /*
@@ -353,7 +353,7 @@ impl ChainSpec {
             min_genesis_active_validator_count: 64,
             eth1_follow_distance: 16,
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
-            persistent_committee_period: 128,
+            shard_committee_period: 64,
             min_genesis_delay: 300,
             milliseconds_per_slot: 6_000,
             safe_slots_to_update_justified: 2,
@@ -481,7 +481,7 @@ pub struct YamlConfig {
     max_seed_lookahead: u64,
     min_epochs_to_inactivity_penalty: u64,
     min_validator_withdrawability_delay: u64,
-    persistent_committee_period: u64,
+    shard_committee_period: u64,
     base_reward_factor: u64,
     whistleblower_reward_quotient: u64,
     proposer_reward_quotient: u64,
@@ -591,7 +591,7 @@ impl YamlConfig {
             min_seed_lookahead: spec.min_seed_lookahead.into(),
             max_seed_lookahead: spec.max_seed_lookahead.into(),
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay.into(),
-            persistent_committee_period: spec.persistent_committee_period,
+            shard_committee_period: spec.shard_committee_period,
             min_epochs_to_inactivity_penalty: spec.min_epochs_to_inactivity_penalty,
             base_reward_factor: spec.base_reward_factor,
             whistleblower_reward_quotient: spec.whistleblower_reward_quotient,
@@ -690,7 +690,7 @@ impl YamlConfig {
             min_validator_withdrawability_delay: Epoch::from(
                 self.min_validator_withdrawability_delay,
             ),
-            persistent_committee_period: self.persistent_committee_period,
+            shard_committee_period: self.shard_committee_period,
             min_epochs_to_inactivity_penalty: self.min_epochs_to_inactivity_penalty,
             base_reward_factor: self.base_reward_factor,
             whistleblower_reward_quotient: self.whistleblower_reward_quotient,

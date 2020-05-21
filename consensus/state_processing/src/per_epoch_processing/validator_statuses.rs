@@ -54,6 +54,7 @@ pub struct ValidatorStatus {
     /// True if the validator has been slashed, ever.
     pub is_slashed: bool,
     /// True if the validator can withdraw in the current epoch.
+    // FIXME(sproul): refactor to use withdrawable epoch directly (to match spec).
     pub is_withdrawable_in_current_epoch: bool,
     /// True if the validator was active in the state's _current_ epoch.
     pub is_active_in_current_epoch: bool,
