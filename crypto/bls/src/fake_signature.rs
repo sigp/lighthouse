@@ -4,12 +4,13 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::PrefixedHexVisitor;
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use std::fmt;
 
 /// A single BLS signature.
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Clone)]
 pub struct FakeSignature {
     bytes: [u8; BLS_SIG_BYTE_SIZE],
     is_empty: bool,
@@ -71,7 +72,7 @@ impl FakeSignature {
         }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_SIG_BYTE_SIZE] {
         self.bytes.clone()
     }
 
@@ -89,6 +90,24 @@ impl FakeSignature {
 impl_ssz!(FakeSignature, BLS_SIG_BYTE_SIZE, "FakeSignature");
 
 impl_tree_hash!(FakeSignature, BLS_SIG_BYTE_SIZE);
+
+impl fmt::Debug for FakeSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!(
+            "{:?}, {:?}",
+            self.bytes.to_vec(),
+            self.is_empty()
+        ))
+    }
+}
+
+impl PartialEq for FakeSignature {
+    fn eq(&self, other: &FakeSignature) -> bool {
+        self.bytes.to_vec() == other.bytes.to_vec()
+    }
+}
+
+impl Eq for FakeSignature {}
 
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

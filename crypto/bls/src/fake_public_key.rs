@@ -12,9 +12,9 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Clone, Eq)]
+#[derive(Clone)]
 pub struct FakePublicKey {
-    bytes: Vec<u8>,
+    bytes: [u8; BLS_PUBLIC_KEY_BYTE_SIZE],
 }
 
 impl FakePublicKey {
@@ -31,12 +31,12 @@ impl FakePublicKey {
     /// Creates a new all-zero's public key
     pub fn zero() -> Self {
         Self {
-            bytes: vec![0; BLS_PUBLIC_KEY_BYTE_SIZE],
+            bytes: [0; BLS_PUBLIC_KEY_BYTE_SIZE],
         }
     }
 
     /// Returns the underlying point as compressed bytes.
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_PUBLIC_KEY_BYTE_SIZE] {
         self.bytes.clone()
     }
 
@@ -67,7 +67,7 @@ impl FakePublicKey {
                 expected: BLS_PUBLIC_KEY_BYTE_SIZE * 2,
             })
         } else {
-            let mut array = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE * 2];
+            let mut array = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];
             array.copy_from_slice(bytes);
             Ok(Self { bytes: array })
         }
@@ -123,7 +123,7 @@ impl Serialize for FakePublicKey {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&hex_encode(self.as_bytes()))
+        serializer.serialize_str(&hex_encode(self.as_ssz_bytes()))
     }
 }
 
@@ -144,6 +144,8 @@ impl PartialEq for FakePublicKey {
         ssz_encode(self) == ssz_encode(other)
     }
 }
+
+impl Eq for FakePublicKey {}
 
 impl Hash for FakePublicKey {
     /// Note: this is distinct from consensus serialization, it will produce a different hash.

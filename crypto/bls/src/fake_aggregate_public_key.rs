@@ -4,12 +4,13 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::PrefixedHexVisitor;
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use std::fmt;
 
 /// A BLS aggregate public key.
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct FakeAggregatePublicKey {
     bytes: [u8; BLS_PUBLIC_KEY_BYTE_SIZE],
 }
@@ -21,7 +22,7 @@ impl FakeAggregatePublicKey {
 
     pub fn empty_signature() -> Self {
         Self {
-            bytes: vec![0; BLS_PUBLIC_KEY_BYTE_SIZE],
+            bytes: [0; BLS_PUBLIC_KEY_BYTE_SIZE],
         }
     }
 
@@ -106,6 +107,18 @@ impl<'de> Deserialize<'de> for FakeAggregatePublicKey {
         let pubkey = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(pubkey)
+    }
+}
+
+impl Default for FakeAggregatePublicKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for FakeAggregatePublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:?}", self.bytes.to_vec()))
     }
 }
 

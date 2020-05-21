@@ -6,12 +6,13 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use std::fmt;
 
 /// A BLS aggregate signature.
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, PartialEq, Clone, Default, Eq)]
+#[derive(Clone)]
 pub struct FakeAggregateSignature {
     bytes: [u8; BLS_AGG_SIG_BYTE_SIZE],
 }
@@ -78,6 +79,13 @@ impl FakeAggregateSignature {
         }
     }
 
+    /// Creates a new empty FakeAggregateSignature
+    pub fn empty_signature() -> Self {
+        Self {
+            bytes: [0u8; BLS_AGG_SIG_BYTE_SIZE],
+        }
+    }
+
     /// Convert bytes to fake BLS aggregate signature
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         if bytes.len() != BLS_AGG_SIG_BYTE_SIZE {
@@ -123,6 +131,26 @@ impl<'de> Deserialize<'de> for FakeAggregateSignature {
         let obj = <_>::from_ssz_bytes(&bytes[..])
             .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
         Ok(obj)
+    }
+}
+
+impl fmt::Debug for FakeAggregateSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:?}", self.bytes.to_vec()))
+    }
+}
+
+impl PartialEq for FakeAggregateSignature {
+    fn eq(&self, other: &FakeAggregateSignature) -> bool {
+        ssz_encode(self) == ssz_encode(other)
+    }
+}
+
+impl Eq for FakeAggregateSignature {}
+
+impl Default for FakeAggregateSignature {
+    fn default() -> Self {
+        Self::zero()
     }
 }
 
