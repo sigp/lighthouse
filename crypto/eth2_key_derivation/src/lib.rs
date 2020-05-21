@@ -3,7 +3,9 @@
 
 mod derived_key;
 mod lamport_secret_key;
+mod plain_text;
 mod secret_bytes;
-mod secret_hash;
 
+pub use bls::SecretHash;
 pub use derived_key::DerivedKey;
+pub use plain_text::PlainText;

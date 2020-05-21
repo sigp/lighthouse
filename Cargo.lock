@@ -1260,6 +1260,7 @@ dependencies = [
 name = "eth2_key_derivation"
 version = "0.1.0"
 dependencies = [
+ "bls",
  "hex 0.3.2",
  "num-bigint-dig",
  "ring",
@@ -1272,6 +1273,7 @@ name = "eth2_keystore"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "eth2_key_derivation",
  "eth2_ssz",
  "hex 0.3.2",
  "rand 0.7.3",
