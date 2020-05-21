@@ -199,17 +199,19 @@ fn aggregated_gossip_verification() {
         get_valid_aggregated_attestation(&harness.chain, valid_attestation);
 
     macro_rules! assert_invalid {
-        ($desc: tt, $attn_getter: expr, $error: expr) => {
-            assert_eq!(
-                harness
-                    .chain
-                    .verify_aggregated_attestation_for_gossip($attn_getter)
-                    .err()
-                    .expect(&format!(
-                        "{} should error during verify_aggregated_attestation_for_gossip",
-                        $desc
-                    )),
-                $error,
+        ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+            assert!(
+                matches!(
+                    harness
+                        .chain
+                        .verify_aggregated_attestation_for_gossip($attn_getter)
+                        .err()
+                        .expect(&format!(
+                            "{} should error during verify_aggregated_attestation_for_gossip",
+                            $desc
+                        )),
+                    $( $error ) |+ $( if $guard )?
+                ),
                 "case: {}",
                 $desc,
             );
@@ -235,10 +237,8 @@ fn aggregated_gossip_verification() {
             a.message.aggregate.data.slot = future_slot;
             a
         },
-        AttnError::FutureSlot {
-            attestation_slot: future_slot,
-            latest_permissible_slot: current_slot,
-        }
+        AttnError::FutureSlot { attestation_slot, latest_permissible_slot }
+        if attestation_slot == future_slot && latest_permissible_slot == current_slot
     );
 
     let early_slot = current_slot
@@ -254,11 +254,12 @@ fn aggregated_gossip_verification() {
             a
         },
         AttnError::PastSlot {
-            attestation_slot: early_slot,
+            attestation_slot,
             // Subtract an additional slot since the harness will be exactly on the start of the
             // slot and the propagation tolerance will allow an extra slot.
-            earliest_permissible_slot: current_slot - E::slots_per_epoch() - 1,
+            earliest_permissible_slot
         }
+        if attestation_slot == early_slot && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
     );
 
     /*
@@ -278,8 +279,9 @@ fn aggregated_gossip_verification() {
             a
         },
         AttnError::UnknownHeadBlock {
-            beacon_block_root: unknown_root
+            beacon_block_root
         }
+        if beacon_block_root == unknown_root
     );
 
     /*
@@ -379,7 +381,8 @@ fn aggregated_gossip_verification() {
             a.message.aggregator_index = too_high_index;
             a
         },
-        AttnError::ValidatorIndexTooHigh(too_high_index as usize)
+        AttnError::ValidatorIndexTooHigh(index)
+        if index == too_high_index as usize
     );
 
     /*
@@ -406,8 +409,9 @@ fn aggregated_gossip_verification() {
         //
         // However the following error is triggered first:
         AttnError::AggregatorNotInCommittee {
-            aggregator_index: unknown_validator
+            aggregator_index
         }
+        if aggregator_index == unknown_validator
     );
 
     /*
@@ -436,8 +440,9 @@ fn aggregated_gossip_verification() {
             )
         },
         AttnError::InvalidSelectionProof {
-            aggregator_index: non_aggregator_index as u64
+            aggregator_index: index
         }
+        if index == non_aggregator_index as u64
     );
 
     assert!(
@@ -464,7 +469,8 @@ fn aggregated_gossip_verification() {
     assert_invalid!(
         "aggregate with that has already been seen",
         valid_aggregate.clone(),
-        AttnError::AttestationAlreadyKnown(valid_aggregate.message.aggregate.tree_hash_root())
+        AttnError::AttestationAlreadyKnown(hash)
+        if hash == valid_aggregate.message.aggregate.tree_hash_root()
     );
 
     /*
@@ -483,7 +489,8 @@ fn aggregated_gossip_verification() {
             a.message.aggregate.data.beacon_block_root = Hash256::from_low_u64_le(42);
             a
         },
-        AttnError::AggregatorAlreadyKnown(aggregator_index as u64)
+        AttnError::AggregatorAlreadyKnown(index)
+        if index == aggregator_index as u64
     );
 }
 
@@ -512,21 +519,23 @@ fn unaggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, validator_index, validator_committee_index, validator_sk) =
+    let (valid_attestation, expected_validator_index, validator_committee_index, validator_sk) =
         get_valid_unaggregated_attestation(&harness.chain);
 
     macro_rules! assert_invalid {
-        ($desc: tt, $attn_getter: expr, $error: expr) => {
-            assert_eq!(
-                harness
-                    .chain
-                    .verify_unaggregated_attestation_for_gossip($attn_getter)
-                    .err()
-                    .expect(&format!(
-                        "{} should error during verify_unaggregated_attestation_for_gossip",
-                        $desc
-                    )),
-                $error,
+        ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+            assert!(
+                matches!(
+                    harness
+                        .chain
+                        .verify_unaggregated_attestation_for_gossip($attn_getter)
+                        .err()
+                        .expect(&format!(
+                            "{} should error during verify_unaggregated_attestation_for_gossip",
+                            $desc
+                        )),
+                    $( $error ) |+ $( if $guard )?
+                ),
                 "case: {}",
                 $desc,
             );
@@ -553,9 +562,10 @@ fn unaggregated_gossip_verification() {
             a
         },
         AttnError::FutureSlot {
-            attestation_slot: future_slot,
-            latest_permissible_slot: current_slot,
+            attestation_slot,
+            latest_permissible_slot,
         }
+        if attestation_slot == future_slot && latest_permissible_slot == current_slot
     );
 
     let early_slot = current_slot
@@ -571,11 +581,12 @@ fn unaggregated_gossip_verification() {
             a
         },
         AttnError::PastSlot {
-            attestation_slot: early_slot,
+            attestation_slot,
             // Subtract an additional slot since the harness will be exactly on the start of the
             // slot and the propagation tolerance will allow an extra slot.
-            earliest_permissible_slot: current_slot - E::slots_per_epoch() - 1,
+            earliest_permissible_slot,
         }
+        if attestation_slot == early_slot && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
     );
 
     /*
@@ -633,8 +644,9 @@ fn unaggregated_gossip_verification() {
             a
         },
         AttnError::UnknownHeadBlock {
-            beacon_block_root: unknown_root
+            beacon_block_root,
         }
+        if beacon_block_root == unknown_root
     );
 
     /*
@@ -681,9 +693,10 @@ fn unaggregated_gossip_verification() {
         "attestation that has already been seen",
         valid_attestation.clone(),
         AttnError::PriorAttestationKnown {
-            validator_index: validator_index as u64,
-            epoch: current_epoch
+            validator_index,
+            epoch,
         }
+        if validator_index == expected_validator_index as u64 && epoch == current_epoch
     );
 }
 
@@ -719,7 +732,7 @@ fn fork_choice_verification() {
     );
 
     let current_slot = chain.slot().expect("should get slot");
-    let current_epoch = chain.epoch().expect("should get epoch");
+    let expected_current_epoch = chain.epoch().expect("should get epoch");
 
     let attestation = harness
         .chain
@@ -727,17 +740,19 @@ fn fork_choice_verification() {
         .expect("precondition: should gossip verify attestation");
 
     macro_rules! assert_invalid {
-        ($desc: tt, $attn_getter: expr, $error: expr) => {
-            assert_eq!(
-                harness
-                    .chain
-                    .apply_attestation_to_fork_choice(&$attn_getter)
-                    .err()
-                    .expect(&format!(
-                        "{} should error during apply_attestation_to_fork_choice",
-                        $desc
-                    )),
-                $error,
+        ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+            assert!(
+                matches!(
+                    harness
+                        .chain
+                        .apply_attestation_to_fork_choice(&$attn_getter)
+                        .err()
+                        .expect(&format!(
+                            "{} should error during apply_attestation_to_fork_choice",
+                            $desc
+                        )),
+                    $( $error ) |+ $( if $guard )?
+                ),
                 "case: {}",
                 $desc,
             );
@@ -759,10 +774,10 @@ fn fork_choice_verification() {
      *
      * Spec v0.11.2
      *
-     * assert target.epoch in [current_epoch, previous_epoch]
+     * assert target.epoch in [expected_current_epoch, previous_epoch]
      */
 
-    let future_epoch = current_epoch + 1;
+    let future_epoch = expected_current_epoch + 1;
     assert_invalid!(
         "attestation from future epoch",
         {
@@ -771,17 +786,18 @@ fn fork_choice_verification() {
             a
         },
         AttnError::FutureEpoch {
-            attestation_epoch: future_epoch,
-            current_epoch
+            attestation_epoch,
+            current_epoch,
         }
+        if attestation_epoch == future_epoch && current_epoch == expected_current_epoch
     );
 
     assert!(
-        current_epoch > 1,
+        expected_current_epoch > 1,
         "precondition: must be able to have a past epoch"
     );
 
-    let past_epoch = current_epoch - 2;
+    let past_epoch = expected_current_epoch - 2;
     assert_invalid!(
         "attestation from past epoch",
         {
@@ -790,9 +806,10 @@ fn fork_choice_verification() {
             a
         },
         AttnError::PastEpoch {
-            attestation_epoch: past_epoch,
-            current_epoch
+            attestation_epoch,
+            current_epoch,
         }
+        if attestation_epoch == past_epoch && current_epoch == expected_current_epoch
     );
 
     /*
@@ -836,7 +853,7 @@ fn fork_choice_verification() {
             indexed.data.target.root = unknown_root;
             a
         },
-        AttnError::UnknownTargetRoot(unknown_root)
+        AttnError::UnknownTargetRoot(hash) if hash == unknown_root
     );
 
     // NOTE: we're not testing an assert from the spec:
@@ -868,8 +885,9 @@ fn fork_choice_verification() {
             a
         },
         AttnError::UnknownHeadBlock {
-            beacon_block_root: unknown_root
+            beacon_block_root
         }
+        if beacon_block_root == unknown_root
     );
 
     let future_block = harness
@@ -894,8 +912,9 @@ fn fork_choice_verification() {
         },
         AttnError::AttestsToFutureBlock {
             block: current_slot,
-            attestation: current_slot - 1
+            attestation: slot,
         }
+        if slot == current_slot - 1
     );
 
     // Note: we're not checking the "attestations can only affect the fork choice of subsequent
