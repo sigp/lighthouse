@@ -14,7 +14,7 @@ macro_rules! impl_ssz {
             }
 
             fn ssz_append(&self, buf: &mut Vec<u8>) {
-                buf.append(&mut self.as_bytes())
+                buf.extend_from_slice(&self.as_bytes())
             }
         }
 

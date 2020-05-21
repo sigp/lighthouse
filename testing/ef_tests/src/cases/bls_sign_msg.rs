@@ -33,6 +33,6 @@ impl Case for BlsSign {
         let decoded = hex::decode(&self.output[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.as_bytes()), &Some(decoded))
+        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.as_bytes().to_vec()), &Some(decoded))
     }
 }

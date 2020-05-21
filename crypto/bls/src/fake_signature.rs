@@ -1,6 +1,5 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
 use hex::encode as hex_encode;
-use milagro_bls::G2Point;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::PrefixedHexVisitor;
@@ -12,10 +11,8 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 /// serialization).
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct FakeSignature {
-    bytes: Vec<u8>,
+    bytes: [u8; BLS_SIG_BYTE_SIZE],
     is_empty: bool,
-    /// Never used, only use for compatibility with "real" `Signature`.
-    pub point: G2Point,
 }
 
 impl FakeSignature {
@@ -27,9 +24,8 @@ impl FakeSignature {
     /// Creates a new all-zero's signature
     pub fn zero() -> Self {
         Self {
-            bytes: vec![0; BLS_SIG_BYTE_SIZE],
+            bytes: [0; BLS_SIG_BYTE_SIZE],
             is_empty: true,
-            point: G2Point::new(),
         }
     }
 
@@ -66,10 +62,11 @@ impl FakeSignature {
             })
         } else {
             let is_empty = bytes.iter().all(|x| *x == 0);
+            let mut array = [0u8; BLS_SIG_BYTE_SIZE];
+            array.copy_from_slice(bytes);
             Ok(Self {
-                bytes: bytes.to_vec(),
+                bytes: array,
                 is_empty,
-                point: G2Point::new(),
             })
         }
     }

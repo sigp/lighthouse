@@ -1,6 +1,5 @@
 use super::{PublicKey, BLS_PUBLIC_KEY_BYTE_SIZE};
 use hex::encode as hex_encode;
-use milagro_bls::G1Point;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::PrefixedHexVisitor;
@@ -12,9 +11,7 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 /// serialization).
 #[derive(Debug, Clone, Default)]
 pub struct FakeAggregatePublicKey {
-    bytes: Vec<u8>,
-    /// Never used, only use for compatibility with "real" `AggregatePublicKey`.
-    pub point: G1Point,
+    bytes: [u8; BLS_PUBLIC_KEY_BYTE_SIZE],
 }
 
 impl FakeAggregatePublicKey {
@@ -25,7 +22,6 @@ impl FakeAggregatePublicKey {
     pub fn empty_signature() -> Self {
         Self {
             bytes: vec![0; BLS_PUBLIC_KEY_BYTE_SIZE],
-            point: G1Point::new(),
         }
     }
 
@@ -36,10 +32,9 @@ impl FakeAggregatePublicKey {
                 expected: BLS_PUBLIC_KEY_BYTE_SIZE,
             })
         } else {
-            Ok(Self {
-                bytes: bytes.to_vec(),
-                point: G1Point::new(),
-            })
+            let mut array = [0; BLS_PUBLIC_KEY_BYTE_SIZE];
+            array.copy_from_slice(&bytes);
+            Ok(Self { bytes: array })
         }
     }
 
@@ -54,16 +49,11 @@ impl FakeAggregatePublicKey {
     /// Creates a new all-zero's aggregate public key
     pub fn zero() -> Self {
         Self {
-            bytes: vec![0; BLS_PUBLIC_KEY_BYTE_SIZE],
-            point: G1Point::new(),
+            bytes: [0; BLS_PUBLIC_KEY_BYTE_SIZE],
         }
     }
 
     pub fn add(&mut self, _public_key: &PublicKey) {
-        // No nothing.
-    }
-
-    pub fn add_point(&mut self, _point: &G1Point) {
         // No nothing.
     }
 
@@ -74,7 +64,6 @@ impl FakeAggregatePublicKey {
     pub fn from_public_key(public_key: &PublicKey) -> Self {
         Self {
             bytes: public_key.as_bytes(),
-            point: public_key.point.clone(),
         }
     }
 
@@ -86,7 +75,7 @@ impl FakeAggregatePublicKey {
         self
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_PUBLIC_KEY_BYTE_SIZE] {
         self.bytes.clone()
     }
 }

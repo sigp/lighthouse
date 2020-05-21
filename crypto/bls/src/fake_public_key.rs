@@ -1,5 +1,4 @@
 use super::{SecretKey, BLS_PUBLIC_KEY_BYTE_SIZE};
-use milagro_bls::G1Point;
 use milagro_bls::PublicKey as RawPublicKey;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -16,8 +15,6 @@ use std::hash::{Hash, Hasher};
 #[derive(Clone, Eq)]
 pub struct FakePublicKey {
     bytes: Vec<u8>,
-    /// Never used, only use for compatibility with "real" `PublicKey`.
-    pub point: G1Point,
 }
 
 impl FakePublicKey {
@@ -28,7 +25,6 @@ impl FakePublicKey {
     pub fn from_raw(raw: RawPublicKey) -> Self {
         Self {
             bytes: raw.clone().as_bytes(),
-            point: G1Point::new(),
         }
     }
 
@@ -36,7 +32,6 @@ impl FakePublicKey {
     pub fn zero() -> Self {
         Self {
             bytes: vec![0; BLS_PUBLIC_KEY_BYTE_SIZE],
-            point: G1Point::new(),
         }
     }
 
@@ -47,20 +42,35 @@ impl FakePublicKey {
 
     /// Converts compressed bytes to FakePublicKey
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        Ok(Self {
-            bytes: bytes.to_vec(),
-            point: G1Point::new(),
-        })
+        if bytes.len() != BLS_PUBLIC_KEY_BYTE_SIZE {
+            Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BLS_PUBLIC_KEY_BYTE_SIZE,
+            })
+        } else {
+            let mut array = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];
+            array.copy_from_slice(bytes);
+            Ok(Self { bytes: array })
+        }
     }
 
     /// Returns the FakePublicKey as (x, y) bytes
-    pub fn as_uncompressed_bytes(&self) -> Vec<u8> {
-        self.as_bytes()
+    pub fn as_uncompressed_bytes(&self) -> [u8; BLS_PUBLIC_KEY_BYTE_SIZE * 2] {
+        [0u8; BLS_PUBLIC_KEY_BYTE_SIZE * 2]
     }
 
     /// Converts (x, y) bytes to FakePublicKey
     pub fn from_uncompressed_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        Self::from_bytes(bytes)
+        if bytes.len() != BLS_PUBLIC_KEY_BYTE_SIZE * 2 {
+            Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: BLS_PUBLIC_KEY_BYTE_SIZE * 2,
+            })
+        } else {
+            let mut array = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE * 2];
+            array.copy_from_slice(bytes);
+            Ok(Self { bytes: array })
+        }
     }
 
     /// Returns the last 6 bytes of the SSZ encoding of the public key, as a hex string.
@@ -82,14 +92,6 @@ impl FakePublicKey {
     // Returns itself
     pub fn as_raw(&self) -> &Self {
         self
-    }
-
-    pub fn as_point(&self) -> &G1Point {
-        &self.point
-    }
-
-    pub fn into_point(self) -> G1Point {
-        self.point
     }
 }
 

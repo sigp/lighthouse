@@ -2,7 +2,6 @@ use super::{
     fake_aggregate_public_key::FakeAggregatePublicKey, fake_public_key::FakePublicKey,
     fake_signature::FakeSignature, BLS_AGG_SIG_BYTE_SIZE,
 };
-use milagro_bls::G2Point;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -14,9 +13,7 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 /// serialization).
 #[derive(Debug, PartialEq, Clone, Default, Eq)]
 pub struct FakeAggregateSignature {
-    bytes: Vec<u8>,
-    /// Never used, only use for compatibility with "real" `AggregateSignature`.
-    pub point: G2Point,
+    bytes: [u8; BLS_AGG_SIG_BYTE_SIZE],
 }
 
 impl FakeAggregateSignature {
@@ -28,8 +25,7 @@ impl FakeAggregateSignature {
     /// Creates a new all-zero's signature
     pub fn zero() -> Self {
         Self {
-            bytes: vec![0; BLS_AGG_SIG_BYTE_SIZE],
-            point: G2Point::new(),
+            bytes: [0; BLS_AGG_SIG_BYTE_SIZE],
         }
     }
 
@@ -79,7 +75,6 @@ impl FakeAggregateSignature {
     pub fn from_signature(signature: &FakeSignature) -> Self {
         Self {
             bytes: signature.as_bytes(),
-            point: signature.point.clone(),
         }
     }
 
@@ -91,14 +86,13 @@ impl FakeAggregateSignature {
                 expected: BLS_AGG_SIG_BYTE_SIZE,
             })
         } else {
-            Ok(Self {
-                bytes: bytes.to_vec(),
-                point: G2Point::new(),
-            })
+            let mut array = [0u8; BLS_AGG_SIG_BYTE_SIZE];
+            array.copy_from_slice(bytes);
+            Ok(Self { bytes: array })
         }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_AGG_SIG_BYTE_SIZE] {
         self.bytes.clone()
     }
 }

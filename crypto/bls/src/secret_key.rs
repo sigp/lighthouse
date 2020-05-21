@@ -27,7 +27,8 @@ impl SecretKey {
     /// Extreme care should be taken not to leak these bytes as they are the unencrypted secret
     /// key.
     pub fn as_bytes(&self) -> PlainText {
-        self.as_raw().as_bytes().into()
+        // TODO: Zeroize intermediate array after converting to vec.
+        self.as_raw().as_bytes().to_vec().into()
     }
 
     /// Instantiate a SecretKey from existing bytes.

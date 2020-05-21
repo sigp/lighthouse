@@ -29,7 +29,7 @@ impl Case for BlsAggregateSigs {
             hex::decode(&self.output[2..])
                 .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?,
         );
-        let aggregate_signature = Ok(aggregate_signature.as_bytes());
+        let aggregate_signature = Ok(aggregate_signature.as_bytes().to_vec());
 
         compare_result::<Vec<u8>, Vec<u8>>(&aggregate_signature, &output_bytes)
     }
