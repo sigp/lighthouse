@@ -114,11 +114,6 @@ impl<'a> Builder<'a> {
 
     /// Consumes `self`, returning a `ValidatorDir` if no error is encountered.
     pub fn build(mut self) -> Result<ValidatorDir, Error> {
-        // If the withdrawal keystore will be generated randomly, always store it.
-        if self.withdrawal_keystore.is_none() {
-            self.store_withdrawal_keystore = true;
-        }
-
         // Attempts to get `self.$keystore`, unwrapping it into a random keystore if it is `None`.
         // Then, decrypts the keypair from the keystore.
         macro_rules! expand_keystore {
@@ -136,8 +131,6 @@ impl<'a> Builder<'a> {
         }
 
         let (voting_keystore, voting_password, voting_keypair) = expand_keystore!(voting_keystore);
-        let (withdrawal_keystore, withdrawal_password, withdrawal_keypair) =
-            expand_keystore!(withdrawal_keystore);
 
         let dir = self
             .base_validators_dir
@@ -149,7 +142,20 @@ impl<'a> Builder<'a> {
             create_dir_all(&dir).map_err(Error::UnableToCreateDir)?;
         }
 
+        // If a deposit amount was specified, create a deposit.
+        //
+        // The withdrawal keypairs are only saved to disk if a deposit is created, otherwise the
+        // withdrawal keypair has no use.
         if let Some((amount, spec)) = self.deposit_info {
+            // If the withdrawal keystore will be generated randomly, always store it.
+            if self.withdrawal_keystore.is_none() {
+                self.store_withdrawal_keystore = true;
+            }
+
+            // Generate the withdrawal keystore.
+            let (withdrawal_keystore, withdrawal_password, withdrawal_keypair) =
+                expand_keystore!(withdrawal_keystore);
+
             let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
                 &withdrawal_keypair.pk,
                 spec.bls_withdrawal_prefix_byte,
@@ -201,6 +207,20 @@ impl<'a> Builder<'a> {
                     .write_all(format!("{}", amount).as_bytes())
                     .map_err(Error::UnableToSaveDepositAmount)?
             }
+
+            // Save the withdrawal keystore, if required.
+            if self.store_withdrawal_keystore {
+                write_password_to_file(
+                    self.password_dir
+                        .clone()
+                        .join(withdrawal_keypair.pk.as_hex_string()),
+                    withdrawal_password.as_bytes(),
+                )?;
+                write_keystore_to_file(
+                    dir.clone().join(WITHDRAWAL_KEYSTORE_FILE),
+                    &withdrawal_keystore,
+                )?;
+            }
         }
 
         write_password_to_file(
@@ -211,19 +231,6 @@ impl<'a> Builder<'a> {
         )?;
 
         write_keystore_to_file(dir.clone().join(VOTING_KEYSTORE_FILE), &voting_keystore)?;
-
-        if self.store_withdrawal_keystore {
-            write_password_to_file(
-                self.password_dir
-                    .clone()
-                    .join(withdrawal_keypair.pk.as_hex_string()),
-                withdrawal_password.as_bytes(),
-            )?;
-            write_keystore_to_file(
-                dir.clone().join(WITHDRAWAL_KEYSTORE_FILE),
-                &withdrawal_keystore,
-            )?;
-        }
 
         ValidatorDir::open(dir).map_err(Error::UnableToOpenDir)
     }

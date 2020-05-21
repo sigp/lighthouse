@@ -4,12 +4,8 @@
 # Produces a testnet specification and a genesis state where the genesis time
 # is now.
 #
-# Optionally, supply an integer as the first argument to override the default
-# validator count of 1024.
-#
 
-TESTNET_DIR=~/.lighthouse/local-testnet/testnet
-VALIDATOR_COUNT=${1:-1024}
+source ./vars.env
 
 lcli \
 	--spec mainnet \
@@ -19,7 +15,16 @@ lcli \
 	--min-genesis-active-validator-count $VALIDATOR_COUNT \
 	--force
 
-echo Created tesnet directory at $TESTNET_DIR
+echo Specification generated at $TESTNET_DIR.
+echo "Generating $VALIDATOR_COUNT validators concurrently... (this may take a while)"
+
+lcli \
+	insecure-validators \
+	--count $VALIDATOR_COUNT \
+	--validators-dir $VALIDATORS_DIR \
+	--secrets-dir $SECRETS_DIR
+
+echo Validators generated at $VALIDATORS_DIR with keystore passwords at $SECRETS_DIR.
 echo "Building genesis state... (this might take a while)"
 
 lcli \
@@ -29,5 +34,3 @@ lcli \
 	$VALIDATOR_COUNT
 
 echo Created genesis state in $TESTNET_DIR
-
-echo $VALIDATOR_COUNT > $TESTNET_DIR/validator_count.txt

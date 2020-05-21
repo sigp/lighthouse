@@ -13,16 +13,14 @@ use types::test_utils::generate_deterministic_keypair;
 pub const INSECURE_PASSWORD: &[u8] = &[30; 32];
 
 impl<'a> Builder<'a> {
-    /// Generate the voting and withdrawal keystores using deterministic, well-known, **unsafe**
-    /// keypairs.
+    /// Generate the voting keystore using a deterministic, well-known, **unsafe** keypair.
     ///
     /// **NEVER** use these keys in production!
-    pub fn insecure_keys(mut self, deterministic_key_index: usize) -> Result<Self, BuilderError> {
+    pub fn insecure_voting_keypair(
+        mut self,
+        deterministic_key_index: usize,
+    ) -> Result<Self, BuilderError> {
         self.voting_keystore = Some(
-            generate_deterministic_keystore(deterministic_key_index)
-                .map_err(BuilderError::InsecureKeysError)?,
-        );
-        self.withdrawal_keystore = Some(
             generate_deterministic_keystore(deterministic_key_index)
                 .map_err(BuilderError::InsecureKeysError)?,
         );
@@ -56,7 +54,7 @@ pub fn build_deterministic_validator_dirs(
 ) -> Result<(), String> {
     for &i in indices {
         Builder::new(validators_dir.clone(), password_dir.clone())
-            .insecure_keys(i)
+            .insecure_voting_keypair(i)
             .map_err(|e| format!("Unable to generate insecure keypair: {:?}", e))?
             .store_withdrawal_keystore(false)
             .build()
