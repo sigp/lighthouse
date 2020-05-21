@@ -107,6 +107,9 @@ impl<'a> Builder<'a> {
     /// If the builder is not specifically given a withdrawal keystore then one will be generated
     /// randomly. When this random keystore is generated, calls to this function are ignored and
     /// the withdrawal keystore is *always* stored to disk. This is to prevent data loss.
+    ///
+    /// Furthermore, if the `Self::create_eth1_tx_data` method is not called then the withdrawal
+    /// keystores will not be saved to disk since they are irrelevant unless a deposit is signed.
     pub fn store_withdrawal_keystore(mut self, should_store: bool) -> Self {
         self.store_withdrawal_keystore = should_store;
         self
