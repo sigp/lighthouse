@@ -144,8 +144,8 @@ impl<'a> Builder<'a> {
 
         // If a deposit amount was specified, create a deposit.
         //
-        // The withdrawal keypairs are only saved to disk if a deposit is created, otherwise the
-        // withdrawal keypair has no use.
+        // The withdrawal keypairs are only considered if a deposit is created, otherwise the
+        // withdrawal keypair has no use at this stage.
         if let Some((amount, spec)) = self.deposit_info {
             // If the withdrawal keystore will be generated randomly, always store it.
             if self.withdrawal_keystore.is_none() {
