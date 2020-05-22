@@ -84,7 +84,7 @@ pub struct Service<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
-        handle: tokio::runtime::Handle,
+        handle: environment::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
@@ -123,10 +123,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
 
             // use the executor for libp2p
-            struct Executor(tokio::runtime::Handle);
+            struct Executor(environment::TaskExecutor);
             impl libp2p::core::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
-                    self.0.spawn(f);
+                    self.0.spawn(f, "libp2p");
                 }
             }
             SwarmBuilder::new(transport, behaviour, local_peer_id.clone())

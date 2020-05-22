@@ -1076,9 +1076,9 @@ dependencies = [
 
 [[package]]
 name = "enr"
-version = "0.1.0-alpha.7"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "266c26f4eec6f07787274ddb813bb91355eeea7c094113d2d81ddd6330af1334"
+checksum = "ca3cd1bccf1bd78eee44d89c0f81b60008b40153db2b99c0fc01abf353781e13"
 dependencies = [
  "base64 0.12.1",
  "bs58",
@@ -1189,10 +1189,12 @@ dependencies = [
  "base64 0.12.1",
  "dirs",
  "discv5",
+ "environment",
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
+ "exit-future",
  "fnv",
  "futures 0.3.5",
  "hashset_delay",
@@ -1323,7 +1325,7 @@ dependencies = [
 name = "eth2_testnet_config"
 version = "0.2.0"
 dependencies = [
- "eth2-libp2p",
+ "enr",
  "eth2_ssz",
  "reqwest",
  "serde",
