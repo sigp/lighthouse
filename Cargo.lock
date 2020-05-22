@@ -2872,6 +2872,7 @@ dependencies = [
  "error-chain",
  "eth2-libp2p",
  "eth2_ssz",
+ "exit-future",
  "fnv",
  "futures 0.3.5",
  "genesis",

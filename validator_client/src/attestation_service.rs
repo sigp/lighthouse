@@ -540,6 +540,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::future::FutureExt;
     use parking_lot::RwLock;
 
     /// This test is to ensure that a `tokio_timer::Delay` with an instant in the past will still

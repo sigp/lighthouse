@@ -86,9 +86,14 @@ pub fn build_libp2p_instance(
     let port = unused_port("tcp").unwrap();
     let config = build_config(port, boot_nodes, secret_key);
     // launch libp2p service
-    LibP2PService::new(&config, EnrForkId::default(), &log)
-        .expect("should build libp2p instance")
-        .1
+    LibP2PService::new(
+        tokio::runtime::Handle::current(),
+        &config,
+        EnrForkId::default(),
+        &log,
+    )
+    .expect("should build libp2p instance")
+    .1
 }
 
 #[allow(dead_code)]

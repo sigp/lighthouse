@@ -237,6 +237,12 @@ pub struct TaskExecutor {
 }
 
 impl TaskExecutor {
+    /// Create a new task executor.
+    ///
+    /// Note: this is mainly useful in testing.
+    pub fn new(handle: Handle, exit: exit_future::Exit, log: slog::Logger) -> Self {
+        Self { handle, exit, log }
+    }
     /// Spawn a future on the tokio runtime wrapped in an exit_future `Exit`. The task is canceled
     /// when the corresponding exit_future `Signal` is fired/dropped.
     ///
