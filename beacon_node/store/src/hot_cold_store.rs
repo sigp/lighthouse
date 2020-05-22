@@ -7,8 +7,7 @@ use crate::impls::beacon_state::store_full_state;
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::metrics;
 use crate::{
-    leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreItem,
-    StoreOp,
+    leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -460,7 +459,7 @@ impl<E: EthSpec> HotColdDB<E> {
 
         // 1. Convert to PartialBeaconState and store that in the DB.
         let partial_state = PartialBeaconState::from_state_forgetful(state);
-        partial_state.db_put(&self.cold_db, state_root)?;
+        self.cold_db.put(state_root, &partial_state)?;
 
         // 2. Store updated vector entries.
         let db = &self.cold_db;
@@ -500,7 +499,9 @@ impl<E: EthSpec> HotColdDB<E> {
 
     /// Load a restore point state by its `state_root`.
     fn load_restore_point(&self, state_root: &Hash256) -> Result<BeaconState<E>, Error> {
-        let mut partial_state = PartialBeaconState::db_get(&self.cold_db, state_root)?
+        let mut partial_state: PartialBeaconState<E> = self
+            .cold_db
+            .get(state_root)?
             .ok_or_else(|| HotColdDBError::MissingRestorePoint(*state_root))?;
 
         // Fill in the fields of the partial state.
@@ -680,8 +681,9 @@ impl<E: EthSpec> HotColdDB<E> {
     /// Load the state root of a restore point.
     fn load_restore_point_hash(&self, restore_point_index: u64) -> Result<Hash256, Error> {
         let key = Self::restore_point_key(restore_point_index);
-        RestorePointHash::db_get(&self.cold_db, &key)?
-            .map(|r| r.state_root)
+        self.cold_db
+            .get(&key)?
+            .map(|r: RestorePointHash| r.state_root)
             .ok_or_else(|| HotColdDBError::MissingRestorePointHash(restore_point_index).into())
     }
 
@@ -692,8 +694,8 @@ impl<E: EthSpec> HotColdDB<E> {
         state_root: Hash256,
     ) -> Result<(), Error> {
         let key = Self::restore_point_key(restore_point_index);
-        RestorePointHash { state_root }
-            .db_put(&self.cold_db, &key)
+        self.cold_db
+            .put(&key, &RestorePointHash { state_root })
             .map_err(Into::into)
     }
 
@@ -704,13 +706,16 @@ impl<E: EthSpec> HotColdDB<E> {
 
     /// Load a frozen state's slot, given its root.
     fn load_cold_state_slot(&self, state_root: &Hash256) -> Result<Option<Slot>, Error> {
-        Ok(ColdStateSummary::db_get(&self.cold_db, state_root)?.map(|s| s.slot))
+        Ok(self
+            .cold_db
+            .get(state_root)?
+            .map(|s: ColdStateSummary| s.slot))
     }
 
     /// Store the slot of a frozen state.
     fn store_cold_state_slot(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
-        ColdStateSummary { slot }
-            .db_put(&self.cold_db, state_root)
+        self.cold_db
+            .put(state_root, &ColdStateSummary { slot })
             .map_err(Into::into)
     }
 
@@ -719,7 +724,7 @@ impl<E: EthSpec> HotColdDB<E> {
         &self,
         state_root: &Hash256,
     ) -> Result<Option<HotStateSummary>, Error> {
-        HotStateSummary::db_get(&self.hot_db, state_root)
+        self.hot_db.get(state_root)
     }
 
     /// Check that the restore point frequency is valid.
