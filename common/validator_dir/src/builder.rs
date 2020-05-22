@@ -72,12 +72,16 @@ impl<'a> Builder<'a> {
     }
 
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
+    ///
+    /// The builder will not necessarily check that `password` can unlock `keystore`.
     pub fn voting_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
         self.voting_keystore = Some((keystore, password.to_vec().into()));
         self
     }
 
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
+    ///
+    /// The builder will not necessarily check that `password` can unlock `keystore`.
     pub fn withdrawal_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
         self.withdrawal_keystore = Some((keystore, password.to_vec().into()));
         self
@@ -118,9 +122,6 @@ impl<'a> Builder<'a> {
     /// If the builder is not specifically given a withdrawal keystore then one will be generated
     /// randomly. When this random keystore is generated, calls to this function are ignored and
     /// the withdrawal keystore is *always* stored to disk. This is to prevent data loss.
-    ///
-    /// Furthermore, if the `Self::create_eth1_tx_data` method is not called then the withdrawal
-    /// keystores will not be saved to disk since they are irrelevant unless a deposit is signed.
     pub fn store_withdrawal_keystore(mut self, should_store: bool) -> Self {
         self.store_withdrawal_keystore = should_store;
         self
@@ -128,15 +129,9 @@ impl<'a> Builder<'a> {
 
     /// Consumes `self`, returning a `ValidatorDir` if no error is encountered.
     pub fn build(self) -> Result<ValidatorDir, Error> {
-        let (voting_keystore, voting_password, voting_keypair) = self
+        let (voting_keystore, voting_password) = self
             .voting_keystore
-            .ok_or_else(|| Error::UninitializedVotingKeystore)
-            .and_then(|(keystore, password)| {
-                keystore
-                    .decrypt_keypair(password.as_bytes())
-                    .map(|keypair| (keystore, password, keypair))
-                    .map_err(Into::into)
-            })?;
+            .ok_or_else(|| Error::UninitializedVotingKeystore)?;
 
         let dir = self
             .base_validators_dir
@@ -157,7 +152,10 @@ impl<'a> Builder<'a> {
         };
 
         if let Some((withdrawal_keystore, withdrawal_password)) = self.withdrawal_keystore {
-            // Attempt to decrypt the keypair.
+            // Attempt to decrypt the voting keypair.
+            let voting_keypair = voting_keystore.decrypt_keypair(voting_password.as_bytes())?;
+
+            // Attempt to decrypt the withdrawal keypair.
             let withdrawal_keypair =
                 withdrawal_keystore.decrypt_keypair(withdrawal_password.as_bytes())?;
 
@@ -238,7 +236,7 @@ impl<'a> Builder<'a> {
         write_password_to_file(
             self.password_dir
                 .clone()
-                .join(voting_keypair.pk.as_hex_string()),
+                .join(format!("0x{}", voting_keystore.pubkey())),
             voting_password.as_bytes(),
         )?;
 
