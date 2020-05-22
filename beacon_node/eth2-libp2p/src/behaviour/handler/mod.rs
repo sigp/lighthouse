@@ -64,9 +64,9 @@ pub enum BehaviourHandlerError<TSpec: EthSpec> {
 impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     type InEvent = BehaviourHandlerIn<TSpec>;
     type OutEvent = BehaviourHandlerOut<TSpec>;
-    type Error = DelegateError<TSpec>;
+    type Error = DelegateError<TSpec>; // TODO: use BehaviourHandlerError if we need custom errors
     type InboundProtocol = DelegateInProto<TSpec>;
-    type OutboundProtocol = DelegateOutProto<TSpec>;
+    type OutboundProtocol = DelegateOutProto<TSpec>; // TODO: this thing is used outside, clean it
     type OutboundOpenInfo = DelegateOutInfo<TSpec>;
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
@@ -104,12 +104,17 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
             <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Error,
         >,
     ) {
+        // TODO: this is just a proof of concept REMOVE
+        let need_sleep = self.delegate.rpc().connection_keep_alive();
+        if need_sleep < self.keep_alive {
+            self.keep_alive = need_sleep;
+        }
         self.delegate.inject_dial_upgrade_error(info, err)
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        // TODO: use access to the handlers to define this better
-        todo!()
+        // TODO: verify this logic, what goes here?
+        self.keep_alive.min(self.delegate.connection_keep_alive())
     }
 
     fn poll(
@@ -123,6 +128,23 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
             Self::Error,
         >,
     > {
-        todo!()
+        match self.delegate.poll(cx) {
+            Poll::Ready(ProtocolsHandlerEvent::Custom(event)) => {
+                return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                    BehaviourHandlerOut::Delegate(event),
+                ))
+            }
+            Poll::Ready(ProtocolsHandlerEvent::Close(err)) => {
+                return Poll::Ready(ProtocolsHandlerEvent::Close(err))
+            }
+            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
+                // TODO: implement
+            }
+            Poll::Pending => (),
+        }
+
+        Poll::Pending
+
+        // TODO: speak to our behaviour here
     }
 }

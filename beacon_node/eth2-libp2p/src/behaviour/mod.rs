@@ -68,6 +68,7 @@ pub struct Behaviour<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
+/// Calls the given function with the given args on all sub behaviours.
 macro_rules! delegate_to_behaviours {
     ($self: ident, $fn: ident, $($arg: ident), *) => {
         $self.gossipsub.$fn($($arg),*);
