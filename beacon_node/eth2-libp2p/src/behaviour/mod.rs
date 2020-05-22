@@ -170,14 +170,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // Events comming from the handler, redirected to each behaviour
         match event {
+            // Events comming from the handler, redirected to each behaviour
             BehaviourHandlerOut::Delegate(delegate) => match delegate {
                 DelegateOut::Gossipsub(ev) => self.gossipsub.inject_event(peer_id, conn_id, ev),
                 DelegateOut::RPC(ev) => self.eth2_rpc.inject_event(peer_id, conn_id, ev),
                 DelegateOut::Identify(ev) => self.identify.inject_event(peer_id, conn_id, ev),
                 DelegateOut::Discovery(ev) => self.discovery.inject_event(peer_id, conn_id, ev),
             },
+            /* Custom events sent BY the handler */
             BehaviourHandlerOut::Custom => {
                 // TODO: implement
             }

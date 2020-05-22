@@ -91,6 +91,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     fn inject_event(&mut self, event: Self::InEvent) {
         match event {
             BehaviourHandlerIn::Delegate(delegated_ev) => self.delegate.inject_event(delegated_ev),
+            /* Events comming from the behaviour */
             BehaviourHandlerIn::Custom => {
                 // TODO: implement
             }
@@ -138,7 +139,10 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(err))
             }
             Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
-                // TODO: implement
+                return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
+                    protocol,
+                    info,
+                });
             }
             Poll::Pending => (),
         }
