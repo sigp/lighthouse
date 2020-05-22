@@ -23,7 +23,7 @@ async fn test_status_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+    let ((mut sender, _exit_1), (mut receiver, _exit_2)) = common::build_node_pair(&log).await;
 
     // Dummy STATUS RPC message
     let rpc_request = RPCRequest::Status(StatusMessage {
@@ -126,7 +126,7 @@ async fn test_blocks_by_range_chunked_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+    let ((mut sender, _exit_1), (mut receiver, _exit_2)) = common::build_node_pair(&log).await;
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
@@ -248,7 +248,7 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+    let ((mut sender, _exit_1), (mut receiver, _exit_2)) = common::build_node_pair(&log).await;
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
@@ -379,7 +379,7 @@ async fn test_blocks_by_range_single_empty_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+    let ((mut sender, _exit_1), (mut receiver, _exit_2)) = common::build_node_pair(&log).await;
 
     // BlocksByRange Request
     let rpc_request = RPCRequest::BlocksByRange(BlocksByRangeRequest {
@@ -505,7 +505,7 @@ async fn test_blocks_by_root_chunked_rpc() {
     let spec = E::default_spec();
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+    let ((mut sender, _exit_1), (mut receiver, _exit_2)) = common::build_node_pair(&log).await;
 
     // BlocksByRoot Request
     let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
@@ -630,7 +630,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     let spec = E::default_spec();
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+    let ((mut sender, _exit_1), (mut receiver, _exit_2)) = common::build_node_pair(&log).await;
 
     // BlocksByRoot Request
     let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
@@ -772,7 +772,7 @@ async fn test_goodbye_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     // get sender/receiver
-    let (mut sender, mut receiver) = common::build_node_pair(&log).await;
+    let ((mut sender, _exit_1), (mut receiver, _exit_2)) = common::build_node_pair(&log).await;
 
     // Goodbye Request
     let rpc_request = RPCRequest::Goodbye(GoodbyeReason::ClientShutdown);

@@ -12,6 +12,8 @@ use types::{EnrForkId, MinimalEthSpec};
 type E = MinimalEthSpec;
 use tempdir::TempDir;
 
+type Libp2pInstance = (LibP2PService<E>, exit_future::Signal);
+
 pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
@@ -82,18 +84,19 @@ pub fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     secret_key: Option<String>,
     log: slog::Logger,
-) -> LibP2PService<E> {
+) -> Libp2pInstance {
     let port = unused_port("tcp").unwrap();
     let config = build_config(port, boot_nodes, secret_key);
+    let (signal, exit) = exit_future::signal();
+    let executor =
+        environment::TaskExecutor::new(tokio::runtime::Handle::current(), exit, log.clone());
     // launch libp2p service
-    LibP2PService::new(
-        tokio::runtime::Handle::current(),
-        &config,
-        EnrForkId::default(),
-        &log,
+    (
+        LibP2PService::new(executor, &config, EnrForkId::default(), &log)
+            .expect("should build libp2p instance")
+            .1,
+        signal,
     )
-    .expect("should build libp2p instance")
-    .1
 }
 
 #[allow(dead_code)]
@@ -104,19 +107,19 @@ pub fn get_enr(node: &LibP2PService<E>) -> Enr {
 
 // Returns `n` libp2p peers in fully connected topology.
 #[allow(dead_code)]
-pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
-    let mut nodes: Vec<LibP2PService<E>> = (0..n)
+pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
+    let mut nodes: Vec<_> = (0..n)
         .map(|_| build_libp2p_instance(vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
-        .map(|x| get_enr(&x).multiaddr()[1].clone())
+        .map(|x| get_enr(&x.0).multiaddr()[1].clone())
         .collect();
 
     for (i, node) in nodes.iter_mut().enumerate().take(n) {
         for (j, multiaddr) in multiaddrs.iter().enumerate().skip(i) {
             if i != j {
-                match libp2p::Swarm::dial_addr(&mut node.swarm, multiaddr.clone()) {
+                match libp2p::Swarm::dial_addr(&mut node.0.swarm, multiaddr.clone()) {
                     Ok(()) => debug!(log, "Connected"),
                     Err(_) => error!(log, "Failed to connect"),
                 };
@@ -129,26 +132,27 @@ pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
-pub async fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PService<E>) {
+pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
     let mut sender = build_libp2p_instance(vec![], None, sender_log);
     let mut receiver = build_libp2p_instance(vec![], None, receiver_log);
 
-    let receiver_multiaddr = receiver.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
+    let receiver_multiaddr =
+        receiver.0.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {
         loop {
-            if let Libp2pEvent::NewListenAddr(_) = sender.next_event().await {
+            if let Libp2pEvent::NewListenAddr(_) = sender.0.next_event().await {
                 return;
             }
         }
     };
     let receiver_fut = async {
         loop {
-            if let Libp2pEvent::NewListenAddr(_) = receiver.next_event().await {
+            if let Libp2pEvent::NewListenAddr(_) = receiver.0.next_event().await {
                 return;
             }
         }
@@ -162,7 +166,7 @@ pub async fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PSer
         _ = joined => {}
     }
 
-    match libp2p::Swarm::dial_addr(&mut sender.swarm, receiver_multiaddr.clone()) {
+    match libp2p::Swarm::dial_addr(&mut sender.0.swarm, receiver_multiaddr.clone()) {
         Ok(()) => {
             debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
         }
@@ -173,16 +177,16 @@ pub async fn build_node_pair(log: &slog::Logger) -> (LibP2PService<E>, LibP2PSer
 
 // Returns `n` peers in a linear topology
 #[allow(dead_code)]
-pub fn build_linear(log: slog::Logger, n: usize) -> Vec<LibP2PService<E>> {
-    let mut nodes: Vec<LibP2PService<E>> = (0..n)
+pub fn build_linear(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
+    let mut nodes: Vec<_> = (0..n)
         .map(|_| build_libp2p_instance(vec![], None, log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
-        .map(|x| get_enr(&x).multiaddr()[1].clone())
+        .map(|x| get_enr(&x.0).multiaddr()[1].clone())
         .collect();
     for i in 0..n - 1 {
-        match libp2p::Swarm::dial_addr(&mut nodes[i].swarm, multiaddrs[i + 1].clone()) {
+        match libp2p::Swarm::dial_addr(&mut nodes[i].0.swarm, multiaddrs[i + 1].clone()) {
             Ok(()) => debug!(log, "Connected"),
             Err(_) => error!(log, "Failed to connect"),
         };

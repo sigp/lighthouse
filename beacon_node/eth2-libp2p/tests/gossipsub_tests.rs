@@ -43,7 +43,7 @@ async fn test_gossipsub_forward() {
     let fut = async move {
         for node in nodes.iter_mut() {
             loop {
-                match node.next_event().await {
+                match node.0.next_event().await {
                     Libp2pEvent::Behaviour(b) => match b {
                         BehaviourEvent::PubsubMessage {
                             topics,
@@ -61,7 +61,7 @@ async fn test_gossipsub_forward() {
                             assert_eq!(message, pubsub_message.clone());
                             received_count += 1;
                             // Since `propagate_message` is false, need to propagate manually
-                            node.swarm.propagate_message(&source, id);
+                            node.0.swarm.propagate_message(&source, id);
                             // Test should succeed if all nodes except the publisher receive the message
                             if received_count == num_nodes - 1 {
                                 debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
@@ -74,7 +74,7 @@ async fn test_gossipsub_forward() {
                                 subscribed_count += 1;
                                 // Every node except the corner nodes are connected to 2 nodes.
                                 if subscribed_count == (num_nodes * 2) - 2 {
-                                    node.swarm.publish(vec![pubsub_message.clone()]);
+                                    node.0.swarm.publish(vec![pubsub_message.clone()]);
                                 }
                             }
                         }
@@ -129,7 +129,7 @@ async fn test_gossipsub_full_mesh_publish() {
                 topics,
                 message,
                 ..
-            }) = node.next_event().await
+            }) = node.0.next_event().await
             {
                 assert_eq!(topics.len(), 1);
                 // Assert topic is the published topic
@@ -146,13 +146,16 @@ async fn test_gossipsub_full_mesh_publish() {
             }
         }
         while let Libp2pEvent::Behaviour(BehaviourEvent::PeerSubscribed(_, topic)) =
-            publishing_node.next_event().await
+            publishing_node.0.next_event().await
         {
             // Publish on beacon block topic
             if topic == TopicHash::from_raw(publishing_topic.clone()) {
                 subscribed_count += 1;
                 if subscribed_count == num_nodes - 1 {
-                    publishing_node.swarm.publish(vec![pubsub_message.clone()]);
+                    publishing_node
+                        .0
+                        .swarm
+                        .publish(vec![pubsub_message.clone()]);
                 }
             }
         }
