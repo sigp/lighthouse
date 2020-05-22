@@ -8,7 +8,6 @@ use slog::info;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
@@ -32,7 +31,7 @@ pub fn spawn<T: BeaconChainTypes>(
         }
     };
 
-    executor.spawn(timer_future, "timer_service");
+    executor.spawn(timer_future, "timer");
     info!(log, "Timer service started");
 
     Ok(())

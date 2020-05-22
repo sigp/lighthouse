@@ -240,16 +240,16 @@ impl TaskExecutor {
     /// TODO: make docs better
     /// Spawn a future on the async runtime wrapped in an exit future
     /// This function also generates some metrics on number of tasks and task duration.
-    pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, _name: &'static str) {
+    pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, nam: &'static str) {
         let exit = self.exit.clone();
         let log = self.log.clone();
 
         // Start the timer for how long this task runs
-        if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[_name]) {
+        if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[nam]) {
             let timer = metric.start_timer();
             let future = async move {
                 let _ = future::select(Box::pin(task), exit).await;
-                info!(log, "Service shutdown"; "name" => _name);
+                info!(log, "Async task shutdown"; "name" => nam);
                 timer.observe_duration();
             };
 
@@ -260,7 +260,7 @@ impl TaskExecutor {
     /// TODO: make docs better
     /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future.
     /// This function also generates some metrics on number of tasks and task duration.
-    pub fn spawn_blocking<F>(&self, task: F, _name: &'static str)
+    pub fn spawn_blocking<F>(&self, task: F, name: &'static str)
     where
         F: FnOnce() -> () + Send + 'static,
     {
@@ -268,14 +268,14 @@ impl TaskExecutor {
         let log = self.log.clone();
 
         // Start the timer for how long this task runs
-        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[_name]) {
+        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
             let timer = metric.start_timer();
             let join_handle = self.handle.spawn_blocking(task);
 
             let future = async move {
                 // TODO: construct a wrapped prometheus future
                 let _ = future::select(Box::pin(join_handle), exit).await;
-                info!(log, "Service shutdown"; "name" => _name);
+                info!(log, "Blocking task shutdown"; "name" => name);
                 timer.observe_duration();
             };
 

@@ -296,7 +296,7 @@ impl Service {
             }
         };
 
-        handle.spawn(update_future, "eth1_service");
+        handle.spawn(update_future, "eth1");
     }
 
     async fn do_update(service: Self, update_interval: Duration) -> Result<(), ()> {

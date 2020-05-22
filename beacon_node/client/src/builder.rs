@@ -232,7 +232,7 @@ where
     }
 
     /// Immediately starts the timer service.
-    fn timer(mut self) -> Result<Self, String> {
+    fn timer(self) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -311,7 +311,7 @@ where
     }
 
     /// Immediately starts the service that periodically logs information each slot.
-    pub fn notifier(mut self) -> Result<Self, String> {
+    pub fn notifier(self) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()

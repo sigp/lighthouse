@@ -14,8 +14,7 @@ use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Handle;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::time::Delay;
 use types::EthSpec;
 
@@ -123,7 +122,7 @@ fn spawn_service<T: BeaconChainTypes>(
     let mut exit_rx = executor.exit();
 
     // spawn on the current executor
-    executor.runtime_handle().spawn(async move {
+    executor.spawn(async move {
         loop {
             // build the futures to check simultaneously
             tokio::select! {
@@ -361,7 +360,7 @@ fn spawn_service<T: BeaconChainTypes>(
                 }
             }
         }
-    });
+    }, "network");
 
     Ok(())
 }

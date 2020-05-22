@@ -35,8 +35,7 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::runtime::Handle;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
@@ -128,7 +127,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    executor.spawn(server_future, "http_service");
+    executor.spawn(server_future, "http");
 
     Ok(actual_listen_addr)
 }

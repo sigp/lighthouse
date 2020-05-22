@@ -31,7 +31,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     milliseconds_per_slot: u64,
     log: slog::Logger,
 ) -> Result<(), String> {
-    let log_1 = log.clone();
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
         .slot_clock
@@ -149,7 +148,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     };
 
     // run the notifier on the current executor
-    executor.spawn(interval_future.unwrap_or_else(|_| ()), "beacon_notifier");
+    executor.spawn(interval_future.unwrap_or_else(|_| ()), "notifier");
 
     Ok(())
 }
