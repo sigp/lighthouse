@@ -87,10 +87,10 @@ impl<T: BeaconChainTypes> Router<T> {
         // spawn handler task and move the message handler instance into the spawned thread
         executor.spawn(
             async move {
+                debug!(log, "Network message router started");
                 handler_recv
                     .for_each(move |msg| future::ready(handler.handle_message(msg)))
                     .await;
-                debug!(log, "Network message router terminated.");
             },
             "router",
         );
