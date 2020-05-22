@@ -49,23 +49,43 @@ impl<TSpec: EthSpec> DelegatingHandler<TSpec> {
     }
 
     /// Gives access to the gossipsub handler.
-    pub fn gossip(&mut self) -> &mut GossipHandler {
+    pub fn gossip_mut(&mut self) -> &mut GossipHandler {
         &mut self.gossip_handler
     }
 
-    /// Gives access to the rpc handler.
-    pub fn rpc(&mut self) -> &mut RPCHandler<TSpec> {
+    /// Gives mutable access to the rpc handler.
+    pub fn rpc_mut(&mut self) -> &mut RPCHandler<TSpec> {
         &mut self.rpc_handler
     }
 
-    /// Gives access to identify's handler.
-    pub fn identify(&mut self) -> &mut IdentifyHandler {
+    /// Gives mutable access to identify's handler.
+    pub fn identify_mut(&mut self) -> &mut IdentifyHandler {
         &mut self.identify_handler
     }
 
-    /// Gives access to discovery's handler.
-    pub fn discovery(&mut self) -> &mut DiscoveryHandler<TSpec> {
+    /// Gives mutable access to discovery's handler.
+    pub fn discovery_mut(&mut self) -> &mut DiscoveryHandler<TSpec> {
         &mut self.discovery_handler
+    }
+
+    /// Gives access to the gossipsub handler.
+    pub fn gossip(&self) -> &GossipHandler {
+        &self.gossip_handler
+    }
+
+    /// Gives access to the rpc handler.
+    pub fn rpc(&self) -> &RPCHandler<TSpec> {
+        &self.rpc_handler
+    }
+
+    /// Gives access to identify's handler.
+    pub fn identify(&self) -> &IdentifyHandler {
+        &self.identify_handler
+    }
+
+    /// Gives access to discovery's handler.
+    pub fn discovery(&self) -> &DiscoveryHandler<TSpec> {
+        &self.discovery_handler
     }
 }
 
@@ -103,8 +123,16 @@ pub enum DelegateError<TSpec: EthSpec> {
 impl<TSpec: EthSpec> std::error::Error for DelegateError<TSpec> {}
 
 impl<TSpec: EthSpec> std::fmt::Display for DelegateError<TSpec> {
-    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        todo!()
+    fn fmt(
+        &self,
+        formater: &mut std::fmt::Formatter<'_>,
+    ) -> std::result::Result<(), std::fmt::Error> {
+        match self {
+            DelegateError::Gossipsub(err) => err.fmt(formater),
+            DelegateError::RPC(err) => err.fmt(formater),
+            DelegateError::Identify(err) => err.fmt(formater),
+            DelegateError::Discovery(err) => err.fmt(formater),
+        }
     }
 }
 

@@ -9,7 +9,6 @@ use handler::{BehaviourHandler, BehaviourHandlerIn, BehaviourHandlerOut, Delegat
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
-        either::EitherOutput,
         identity::Keypair,
         Multiaddr,
     },

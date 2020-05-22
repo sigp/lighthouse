@@ -8,12 +8,10 @@ use libp2p::{
     core::upgrade::{InboundUpgrade, OutboundUpgrade},
     gossipsub::Gossipsub,
     identify::Identify,
-    swarm::{
-        protocols_handler::{
-            KeepAlive, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
-        },
-        NegotiatedSubstream, ProtocolsHandler,
+    swarm::protocols_handler::{
+        KeepAlive, ProtocolsHandlerEvent, ProtocolsHandlerUpgrErr, SubstreamProtocol,
     },
+    swarm::{NegotiatedSubstream, ProtocolsHandler},
 };
 use std::task::{Context, Poll};
 use types::EthSpec;
@@ -55,18 +53,12 @@ pub enum BehaviourHandlerOut<TSpec: EthSpec> {
     Custom,
 }
 
-pub enum BehaviourHandlerError<TSpec: EthSpec> {
-    Delegate(DelegateError<TSpec>),
-    // TODO: do we need custom errors?
-    Custom,
-}
-
 impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     type InEvent = BehaviourHandlerIn<TSpec>;
     type OutEvent = BehaviourHandlerOut<TSpec>;
-    type Error = DelegateError<TSpec>; // TODO: use BehaviourHandlerError if we need custom errors
+    type Error = DelegateError<TSpec>;
     type InboundProtocol = DelegateInProto<TSpec>;
-    type OutboundProtocol = DelegateOutProto<TSpec>; // TODO: this thing is used outside, clean it
+    type OutboundProtocol = DelegateOutProto<TSpec>;
     type OutboundOpenInfo = DelegateOutInfo<TSpec>;
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
@@ -105,16 +97,11 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
             <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Error,
         >,
     ) {
-        // TODO: this is just a proof of concept REMOVE
-        let need_sleep = self.delegate.rpc().connection_keep_alive();
-        if need_sleep < self.keep_alive {
-            self.keep_alive = need_sleep;
-        }
         self.delegate.inject_dial_upgrade_error(info, err)
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        // TODO: verify this logic, what goes here?
+        // TODO: refine this logic
         self.keep_alive.min(self.delegate.connection_keep_alive())
     }
 
