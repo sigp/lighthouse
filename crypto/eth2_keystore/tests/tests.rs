@@ -138,7 +138,7 @@ fn custom_scrypt_kdf() {
 }
 
 #[test]
-fn custom_pbkdf_kdf() {
+fn custom_pbkdf2_kdf() {
     let keypair = Keypair::random();
 
     let salt = vec![42];

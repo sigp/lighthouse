@@ -47,7 +47,7 @@ pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText)
     Ok((keystore, INSECURE_PASSWORD.to_vec().into()))
 }
 
-/// Returns an insecure key derivation function that is cryptographically useless.
+/// Returns an INSECURE key derivation function.
 ///
 /// **NEVER** use this KDF in production!
 fn insecure_kdf() -> Kdf {

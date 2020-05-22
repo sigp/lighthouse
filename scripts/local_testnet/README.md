@@ -28,7 +28,7 @@ Start the first beacon node:
 ./beacon_node
 ```
 
-In a new terminal, start the validator client, which will attach to the first
+In a new terminal, start the validator client which will attach to the first
 beacon node:
 
 ```bash
