@@ -10,8 +10,8 @@
 use eth2_config::Eth2Config;
 use eth2_testnet_config::Eth2TestnetConfig;
 use futures::channel::oneshot;
-use futures::future;
-use futures::prelude::*;
+
+pub use executor::TaskExecutor;
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
@@ -19,8 +19,9 @@ use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::runtime::{Builder as RuntimeBuilder, Handle, Runtime};
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+mod executor;
 mod metrics;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
@@ -221,88 +222,6 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
-    }
-}
-
-/// A wrapper over a runtime handle which can spawn async and blocking tasks.
-/// Spawned futures are wrapped in an exit_future which cancels the task
-/// when the corresponding exit_future `Signal` is fired/dropped.
-#[derive(Clone)]
-pub struct TaskExecutor {
-    /// The handle to the runtime on which tasks are spawned
-    handle: Handle,
-    /// The receiver exit future which on receiving shuts down the task
-    exit: exit_future::Exit,
-    log: slog::Logger,
-}
-
-impl TaskExecutor {
-    /// Create a new task executor.
-    ///
-    /// Note: this is mainly useful in testing.
-    pub fn new(handle: Handle, exit: exit_future::Exit, log: slog::Logger) -> Self {
-        Self { handle, exit, log }
-    }
-    /// Spawn a future on the tokio runtime wrapped in an exit_future `Exit`. The task is canceled
-    /// when the corresponding exit_future `Signal` is fired/dropped.
-    ///
-    /// This function also generates some metrics on number of tasks and task duration.
-    pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, name: &'static str) {
-        let exit = self.exit.clone();
-        let log = self.log.clone();
-
-        // Start the timer for how long this task runs
-        if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[name]) {
-            let timer = metric.start_timer();
-            let future = async move {
-                // Task is shutdown before it completes if `exit` receives
-                if let future::Either::Right(_) = future::select(Box::pin(task), exit).await {
-                    info!(log, "Async task shutdown"; "task" => name);
-                }
-                timer.observe_duration();
-            };
-
-            metrics::inc_counter(&metrics::ASYNC_TASKS_COUNT);
-            self.handle.spawn(future);
-        }
-    }
-    /// TODO: make docs better
-    /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future.
-    /// This function also generates some metrics on number of tasks and task duration.
-    pub fn spawn_blocking<F>(&self, task: F, name: &'static str)
-    where
-        F: FnOnce() -> () + Send + 'static,
-    {
-        let exit = self.exit.clone();
-        let log = self.log.clone();
-
-        // Start the timer for how long this task runs
-        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
-            let timer = metric.start_timer();
-            let join_handle = self.handle.spawn_blocking(task);
-
-            let future = async move {
-                // Task is shutdown before it completes if `exit` receives
-                if let future::Either::Right(_) = future::select(Box::pin(join_handle), exit).await
-                {
-                    info!(log, "Blocking task shutdown"; "task" => name);
-                }
-                timer.observe_duration();
-            };
-
-            metrics::inc_counter(&metrics::BLOCKING_TASKS_COUNT);
-            self.handle.spawn(future);
-        }
-    }
-
-    /// Returns the underlying runtime handle.
-    pub fn runtime_handle(&self) -> Handle {
-        self.handle.clone()
-    }
-
-    /// Returns a copy of the `exit_future::Exit`.
-    pub fn exit(&self) -> exit_future::Exit {
-        self.exit.clone()
     }
 }
 
