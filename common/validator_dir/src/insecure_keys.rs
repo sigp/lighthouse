@@ -5,7 +5,10 @@
 #![cfg(feature = "insecure_keys")]
 
 use crate::{Builder, BuilderError};
-use eth2_keystore::{Keystore, KeystoreBuilder, PlainText};
+use eth2_keystore::{
+    json_keystore::{Kdf, Scrypt},
+    Keystore, KeystoreBuilder, PlainText, DKLEN,
+};
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;
 
@@ -37,10 +40,27 @@ pub fn generate_deterministic_keystore(i: usize) -> Result<(Keystore, PlainText)
 
     let keystore = KeystoreBuilder::new(&keypair, INSECURE_PASSWORD, "".into())
         .map_err(|e| format!("Unable to create keystore builder: {:?}", e))?
+        .kdf(insecure_kdf())
         .build()
         .map_err(|e| format!("Unable to build keystore: {:?}", e))?;
 
     Ok((keystore, INSECURE_PASSWORD.to_vec().into()))
+}
+
+/// Returns an insecure key derivation function that is cryptographically useless.
+///
+/// **NEVER** use this KDF in production!
+fn insecure_kdf() -> Kdf {
+    Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        // `n` is set very low, making it cheap to encrypt/decrypt keystores.
+        //
+        // This is very insecure, only use during testing.
+        n: 2,
+        p: 1,
+        r: 8,
+        salt: vec![1, 3, 3, 5].into(),
+    })
 }
 
 /// A helper function to use the `Builder` to generate deterministic, well-known, **unsafe**
