@@ -13,6 +13,9 @@ use std::time::Duration;
 use tokio::time::delay_for;
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
 
+/// The number of blocks that pulled per request whilst waiting for genesis.
+const BLOCKS_PER_GENESIS_POLL: usize = 99;
+
 /// Provides a service that connects to some Eth1 HTTP JSON-RPC endpoint and maintains a cache of eth1
 /// blocks and deposits, listening for the eth1 block that triggers eth2 genesis and returning the
 /// genesis `BeaconState`.
@@ -51,7 +54,7 @@ impl Eth1GenesisService {
             // For small testnets, this is much faster as they do not have
             // a `MIN_GENESIS_SECONDS`, so after `MIN_GENESIS_VALIDATOR_COUNT`
             // has been reached only a single block needs to be read.
-            max_blocks_per_update: Some(5),
+            max_blocks_per_update: Some(BLOCKS_PER_GENESIS_POLL),
             ..config
         };
 
@@ -84,13 +87,39 @@ impl Eth1GenesisService {
     /// - `Err(e)` if there is some internal error during updates.
     pub async fn wait_for_genesis_state<E: EthSpec>(
         &self,
-        update_interval: Duration,
+        initial_update_interval: Duration,
         spec: ChainSpec,
     ) -> Result<BeaconState<E>, String> {
         let service = self.clone();
         let log = service.core.log.clone();
         let min_genesis_active_validator_count = spec.min_genesis_active_validator_count;
         let min_genesis_time = spec.min_genesis_time;
+
+        // If it's time to sync blocks and the latest block timestamp is prior to min
+        // genesis time then start doing updates much more frequently, this will help us
+        // find genesis much quicker.
+        let update_interval = if *service.sync_blocks.lock() {
+            match service.core.latest_block_timestamp() {
+                Some(t) if t < spec.min_genesis_time => {
+                    // Safe from overflow due to match guard.
+                    let time_until = spec.min_genesis_time - t;
+
+                    // Only do a fast poll time if we're more than two follow-distance
+                    // values away from genesis. This avoids doing really fast polling when
+                    // we've caught up to the head and listening on a block-per-block
+                    // basis.
+                    if time_until > spec.seconds_per_eth1_block * spec.eth1_follow_distance * 2 {
+                        Duration::from_millis(50)
+                    } else {
+                        initial_update_interval
+                    }
+                }
+                _ => initial_update_interval,
+            }
+        } else {
+            initial_update_interval
+        };
+
         loop {
             // **WARNING** `delay_for` panics on error
             delay_for(update_interval).await;
@@ -158,6 +187,9 @@ impl Eth1GenesisService {
                     "cache_head" => self.highest_known_block(),
                 );
             }
+
+            // Drop all the scanned blocks as they are no longer required.
+            service.core.clear_block_cache();
         }
     }
 
