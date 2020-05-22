@@ -248,7 +248,7 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let _ = timer::spawn(
+        timer::spawn_timer(
             context.executor,
             beacon_chain,
             milliseconds_per_slot,
@@ -331,7 +331,7 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let _ = spawn_notifier(
+        spawn_notifier(
             context.executor,
             beacon_chain,
             network_globals,

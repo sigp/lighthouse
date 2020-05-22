@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::time::{interval_at, Instant};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
-pub fn spawn<T: BeaconChainTypes>(
+pub fn spawn_timer<T: BeaconChainTypes>(
     executor: environment::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,
