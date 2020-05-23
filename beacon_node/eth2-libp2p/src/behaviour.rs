@@ -317,8 +317,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        let metadata_request =
-            RPCEvent::Request(None, RPCRequest::MetaData(PhantomData));
+        let metadata_request = RPCEvent::Request(None, RPCRequest::MetaData(PhantomData));
         self.send_rpc(peer_id, metadata_request);
     }
 

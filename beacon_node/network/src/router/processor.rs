@@ -91,7 +91,10 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: Option<RequestId>) {
         match request_id {
             Some(request_id) => self.send_to_sync(SyncMessage::RPCError(peer_id, request_id)),
-            None => crit!(self.log, "Coding Err: Received a None request_id on an error reported to sync"),
+            None => crit!(
+                self.log,
+                "Coding Err: Received a None request_id on an error reported to sync"
+            ),
         }
     }
 

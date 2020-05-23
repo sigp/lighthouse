@@ -139,7 +139,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     ) -> Result<RequestId, &'static str> {
         let request_id = self.request_id;
         self.request_id += 1;
-        self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request))?;
+        self.send_rpc_event(peer_id, RPCEvent::Request(Some(request_id), rpc_request))?;
         Ok(request_id)
     }
 

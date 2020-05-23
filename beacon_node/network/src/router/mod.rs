@@ -15,7 +15,7 @@ use eth2_libp2p::{
 };
 use futures::prelude::*;
 use processor::Processor;
-use slog::{debug, info, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -169,7 +169,7 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         error_response: RPCCodedResponse<T::EthSpec>,
     ) {
         // an error could have occurred.
@@ -203,6 +203,16 @@ impl<T: BeaconChainTypes> Router<T> {
                     self.processor.on_status_response(peer_id, status_message);
                 }
                 RPCResponse::BlocksByRange(beacon_block) => {
+                    let request_id = match request_id {
+                        Some(req_id) => req_id,
+                        None => {
+                            crit!(
+                                self.log,
+                                "Received a BlocksByRange response with a None RequestId"
+                            );
+                            return;
+                        }
+                    };
                     self.processor.on_blocks_by_range_response(
                         peer_id,
                         request_id,
@@ -210,6 +220,16 @@ impl<T: BeaconChainTypes> Router<T> {
                     );
                 }
                 RPCResponse::BlocksByRoot(beacon_block) => {
+                    let request_id = match request_id {
+                        Some(req_id) => req_id,
+                        None => {
+                            crit!(
+                                self.log,
+                                "Received a BlocksByRoot response with a None RequestId"
+                            );
+                            return;
+                        }
+                    };
                     self.processor.on_blocks_by_root_response(
                         peer_id,
                         request_id,
@@ -224,6 +244,16 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
             },
             RPCCodedResponse::StreamTermination(response_type) => {
+                let request_id = match request_id {
+                    Some(req_id) => req_id,
+                    None => {
+                        crit!(
+                            self.log,
+                            "Received a StreamTermination response with a None RequestId"
+                        );
+                        return;
+                    }
+                };
                 // have received a stream termination, notify the processing functions
                 match response_type {
                     ResponseTermination::BlocksByRange => {
