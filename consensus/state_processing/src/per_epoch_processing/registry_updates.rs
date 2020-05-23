@@ -25,7 +25,7 @@ pub fn process_registry_updates<T: EthSpec>(
         .enumerate()
         .filter(|(_, validator)| {
             validator.is_eligible_for_activation_queue(spec) || is_ejectable(validator)
-        })
+        });
     for index in indices_to_update {
         if state.validators[index].is_eligible_for_activation_queue(spec) {
             state.validators[index].activation_eligibility_epoch = current_epoch + 1;
