@@ -32,13 +32,13 @@ mod protocol;
 pub enum RPCEvent<T: EthSpec> {
     /// An inbound/outbound request for RPC protocol. The first parameter is a sequential
     /// id which tracks an awaiting substream for the response.
-    Request(RequestId, RPCRequest<T>),
+    Request(Option<RequestId>, RPCRequest<T>),
     /// A response that is being sent or has been received from the RPC protocol. The first parameter returns
     /// that which was sent with the corresponding request, the second is a single chunk of a
     /// response.
-    Response(RequestId, RPCCodedResponse<T>),
+    Response(Option<RequestId>, RPCCodedResponse<T>),
     /// An Error occurred.
-    Error(RequestId, Protocol, RPCError),
+    Error(Option<RequestId>, Protocol, RPCError),
 }
 
 /// Messages sent to the user from the RPC protocol.
@@ -50,7 +50,7 @@ pub struct RPCMessage<TSpec: EthSpec> {
 }
 
 impl<T: EthSpec> RPCEvent<T> {
-    pub fn id(&self) -> usize {
+    pub fn id(&self) -> Option<RequestId> {
         match *self {
             RPCEvent::Request(id, _) => id,
             RPCEvent::Response(id, _) => id,
@@ -62,11 +62,11 @@ impl<T: EthSpec> RPCEvent<T> {
 impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {}, {})", id, req),
-            RPCEvent::Response(id, res) => write!(f, "RPC Response(id: {}, {})", id, res),
+            RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
+            RPCEvent::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
             RPCEvent::Error(id, prot, err) => write!(
                 f,
-                "RPC Error(id: {}, protocol: {:?} error: {:?})",
+                "RPC Error(id: {:?}, protocol: {:?} error: {:?})",
                 id, prot, err
             ),
         }
@@ -129,8 +129,7 @@ where
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
-        let rpc_event =
-            RPCEvent::Request(RequestId::from(0usize), RPCRequest::MetaData(PhantomData));
+        let rpc_event = RPCEvent::Request(None, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id: peer_id.clone(),
             handler: NotifyHandler::Any,

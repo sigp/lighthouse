@@ -136,7 +136,7 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         request: RPCRequest<T::EthSpec>,
     ) {
         match request {
@@ -177,7 +177,7 @@ impl<T: BeaconChainTypes> Router<T> {
             RPCCodedResponse::InvalidRequest(error) => {
                 warn!(self.log, "RPC Invalid Request";
                     "peer_id" => peer_id.to_string(),
-                    "request_id" => request_id, 
+                    "request_id" => request_id,
                     "error" => error.to_string(),
                     "client" => self.network_globals.client(&peer_id).to_string());
                 self.processor.on_rpc_error(peer_id, request_id);
@@ -185,7 +185,7 @@ impl<T: BeaconChainTypes> Router<T> {
             RPCCodedResponse::ServerError(error) => {
                 warn!(self.log, "RPC Server Error" ;
                     "peer_id" => peer_id.to_string(),
-                    "request_id" => request_id, 
+                    "request_id" => request_id,
                     "error" => error.to_string(),
                     "client" => self.network_globals.client(&peer_id).to_string());
                 self.processor.on_rpc_error(peer_id, request_id);
@@ -193,7 +193,7 @@ impl<T: BeaconChainTypes> Router<T> {
             RPCCodedResponse::Unknown(error) => {
                 warn!(self.log, "RPC Unknown Error";
                     "peer_id" => peer_id.to_string(),
-                    "request_id" => request_id, 
+                    "request_id" => request_id,
                     "error" => error.to_string(),
                     "client" => self.network_globals.client(&peer_id).to_string());
                 self.processor.on_rpc_error(peer_id, request_id);

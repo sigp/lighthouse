@@ -300,7 +300,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Sends a PING/PONG request/response to a peer.
-    fn send_ping(&mut self, id: RequestId, peer_id: PeerId, is_request: bool) {
+    fn send_ping(&mut self, id: Option<RequestId>, peer_id: PeerId, is_request: bool) {
         let ping = crate::rpc::methods::Ping {
             data: self.meta_data.seq_number,
         };
@@ -318,12 +318,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
         let metadata_request =
-            RPCEvent::Request(RequestId::from(0usize), RPCRequest::MetaData(PhantomData));
+            RPCEvent::Request(None, RPCRequest::MetaData(PhantomData));
         self.send_rpc(peer_id, metadata_request);
     }
 
     /// Sends a METADATA response to a peer.
-    fn send_meta_data_response(&mut self, id: RequestId, peer_id: PeerId) {
+    fn send_meta_data_response(&mut self, id: Option<RequestId>, peer_id: PeerId) {
         let metadata_response = RPCEvent::Response(
             id,
             RPCCodedResponse::Success(RPCResponse::MetaData(self.meta_data.clone())),
@@ -479,7 +479,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                     PeerManagerEvent::Ping(peer_id) => {
                         // send a ping request to this peer
-                        self.send_ping(RequestId::from(0usize), peer_id, true);
+                        self.send_ping(None, peer_id, true);
                     }
                     PeerManagerEvent::MetaData(peer_id) => {
                         self.send_meta_data_request(peer_id);

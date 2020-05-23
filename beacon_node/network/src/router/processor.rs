@@ -10,7 +10,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCCodedResponse, RPCEvent, RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::{NetworkGlobals, PeerId};
-use slog::{debug, error, o, trace, warn};
+use slog::{crit, debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -88,8 +88,11 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
-    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
-        self.send_to_sync(SyncMessage::RPCError(peer_id, request_id));
+    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: Option<RequestId>) {
+        match request_id {
+            Some(request_id) => self.send_to_sync(SyncMessage::RPCError(peer_id, request_id)),
+            None => crit!(self.log, "Coding Err: Received a None request_id on an error reported to sync"),
+        }
     }
 
     /// Sends a `Status` message to the peer.
@@ -119,7 +122,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         status: StatusMessage,
     ) {
         debug!(
@@ -284,7 +287,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_root_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         request: BlocksByRootRequest,
     ) {
         let mut send_block_count = 0;
@@ -325,7 +328,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_range_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         req: BlocksByRangeRequest,
     ) {
         debug!(
@@ -906,7 +909,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 /// Wraps a Network Channel to employ various RPC related network functionality for the
 /// processor.
 /// The Processor doesn't manage it's own request Id's and can therefore only send
-/// responses or requests with 0 request Ids.
+/// responses or requests with None request Ids.
 pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
@@ -940,15 +943,14 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest<T>) {
         // the message handler cannot send requests with ids. Id's are managed by the sync
         // manager.
-        let request_id = 0;
-        self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request));
+        self.send_rpc_event(peer_id, RPCEvent::Request(None, rpc_request));
     }
 
     /// Convenience function to wrap successful RPC Responses.
     pub fn send_rpc_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         rpc_response: RPCResponse<T>,
     ) {
         self.send_rpc_event(
@@ -961,7 +963,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     pub fn send_rpc_error_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         rpc_error_response: RPCCodedResponse<T>,
     ) {
         self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_error_response));
