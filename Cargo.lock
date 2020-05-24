@@ -170,6 +170,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_matches"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7deb0a829ca7bcfaf5da70b073a8d128619259a7be8216a355e23f00763059e5"
+
+[[package]]
 name = "async-tls"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3689,6 +3695,7 @@ dependencies = [
 name = "rest_api"
 version = "0.1.2"
 dependencies = [
+ "assert_matches",
  "beacon_chain",
  "bls",
  "eth2-libp2p",
