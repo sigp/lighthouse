@@ -95,34 +95,7 @@ impl Eth1GenesisService {
         let min_genesis_active_validator_count = spec.min_genesis_active_validator_count;
         let min_genesis_time = spec.min_genesis_time;
 
-        // If it's time to sync blocks and the latest block timestamp is prior to min
-        // genesis time then start doing updates much more frequently, this will help us
-        // find genesis much quicker.
-        let update_interval = if *service.sync_blocks.lock() {
-            match service.core.latest_block_timestamp() {
-                Some(t) if t < spec.min_genesis_time => {
-                    // Safe from overflow due to match guard.
-                    let time_until = spec.min_genesis_time - t;
-
-                    // Only do a fast poll time if we're more than two follow-distance
-                    // values away from genesis. This avoids doing really fast polling when
-                    // we've caught up to the head and listening on a block-per-block
-                    // basis.
-                    if time_until > spec.seconds_per_eth1_block * spec.eth1_follow_distance * 2 {
-                        Duration::from_millis(50)
-                    } else {
-                        initial_update_interval
-                    }
-                }
-                _ => initial_update_interval,
-            }
-        } else {
-            initial_update_interval
-        };
-
         loop {
-            // **WARNING** `delay_for` panics on error
-            delay_for(update_interval).await;
             let update_result = Service::update_deposit_cache(self.core.clone())
                 .await
                 .map_err(|e| format!("{:?}", e));
@@ -190,6 +163,33 @@ impl Eth1GenesisService {
 
             // Drop all the scanned blocks as they are no longer required.
             service.core.clear_block_cache();
+
+            // If it's time to sync blocks and the latest block timestamp is prior to min
+            // genesis time then start doing updates much more frequently, this will help us
+            // find genesis much quicker.
+            let update_interval = if *sync_blocks {
+                match service.core.latest_block_timestamp() {
+                    Some(t) if t < spec.min_genesis_time => {
+                        // Safe from overflow due to match guard.
+                        let time_until = spec.min_genesis_time - t;
+
+                        if time_until > spec.seconds_per_eth1_block * 2 {
+                            Duration::from_millis(50)
+                        } else {
+                            initial_update_interval
+                        }
+                    }
+                    _ => initial_update_interval,
+                }
+            } else {
+                initial_update_interval
+            };
+
+            // Avoid holding the write lock during the delay.
+            drop(sync_blocks);
+
+            // **WARNING** `delay_for` panics on error
+            delay_for(update_interval).await;
         }
     }
 
