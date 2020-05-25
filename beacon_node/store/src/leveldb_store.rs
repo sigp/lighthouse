@@ -1,6 +1,4 @@
 use super::*;
-use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
-use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::metrics;
 use db_key::Key;
 use leveldb::database::batch::{Batch, Writebatch};
@@ -42,33 +40,8 @@ impl<E: EthSpec> LevelDB<E> {
     }
 }
 
-/// Used for keying leveldb.
-pub struct BytesKey {
-    key: Vec<u8>,
-}
 
-impl Key for BytesKey {
-    fn from_u8(key: &[u8]) -> Self {
-        Self { key: key.to_vec() }
-    }
-
-    fn as_slice<T, F: Fn(&[u8]) -> T>(&self, f: F) -> T {
-        f(self.key.as_slice())
-    }
-}
-
-
-fn get_key_for_col(col: &str, key: &[u8]) -> BytesKey {
-    let mut col = col.as_bytes().to_vec();
-    col.append(&mut key.to_vec());
-    BytesKey { key: col }
-}
-
-
-
-impl<E: EthSpec> Store<E> for LevelDB<E> {
-    type ForwardsBlockRootsIterator = SimpleForwardsBlockRootsIterator;
-
+impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = get_key_for_col(col, key);
@@ -127,30 +100,6 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
             .map_err(Into::into)
     }
 
-    /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
-        store_full_state(self, state_root, &state)
-    }
-
-    /// Fetch a state from the store.
-    fn get_state(
-        &self,
-        state_root: &Hash256,
-        _: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        get_full_state(self, state_root)
-    }
-
-    fn forwards_block_roots_iterator(
-        store: Arc<Self>,
-        start_slot: Slot,
-        end_state: BeaconState<E>,
-        end_block_root: Hash256,
-        _: &ChainSpec,
-    ) -> Self::ForwardsBlockRootsIterator {
-        SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
-    }
-
     fn do_atomically(&self, ops_batch: &[StoreOp]) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
         for op in ops_batch {
@@ -186,6 +135,35 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
         Ok(())
     }
 }
+
+
+impl<E: EthSpec> ItemStore<E> for LevelDB<E> {
+}
+
+
+/// Used for keying leveldb.
+pub struct BytesKey {
+    key: Vec<u8>,
+}
+
+impl Key for BytesKey {
+    fn from_u8(key: &[u8]) -> Self {
+        Self { key: key.to_vec() }
+    }
+
+    fn as_slice<T, F: Fn(&[u8]) -> T>(&self, f: F) -> T {
+        f(self.key.as_slice())
+    }
+}
+
+
+fn get_key_for_col(col: &str, key: &[u8]) -> BytesKey {
+    let mut col = col.as_bytes().to_vec();
+    col.append(&mut key.to_vec());
+    BytesKey { key: col }
+}
+
+
 
 impl From<LevelDBError> for Error {
     fn from(e: LevelDBError) -> Error {

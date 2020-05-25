@@ -44,7 +44,7 @@ pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
 >;
 
 pub type HarnessType<E> = BaseHarnessType<MemoryStore<E>, NullMigrator, E>;
-pub type DiskHarnessType<E> = BaseHarnessType<DiskStore<E>, BlockingMigrator<DiskStore<E>>, E>;
+pub type DiskHarnessType<E> = BaseHarnessType<DiskStore<E>, BlockingMigrator<E>, E>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -152,7 +152,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
+            .store_migrator(BlockingMigrator::new(
                 store,
                 log.clone(),
             ))
@@ -195,7 +195,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
+            .store_migrator(<BlockingMigrator<_> as Migrate<E>>::new(
                 store,
                 log.clone(),
             ))
@@ -224,7 +224,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
 impl<S, M, E> BeaconChainHarness<BaseHarnessType<S, M, E>>
 where
     S: Store<E>,
-    M: Migrate<S, E>,
+    M: Migrate<E>,
     E: EthSpec,
 {
     /// Advance the slot of the `BeaconChain`.

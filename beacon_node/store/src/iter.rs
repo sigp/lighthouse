@@ -42,11 +42,11 @@ impl<'a, U: Store<E>, E: EthSpec> AncestorIter<U, E, StateRootsIterator<'a, E, U
     }
 }
 
-pub struct StateRootsIterator<'a, T: EthSpec, U> {
+pub struct StateRootsIterator<'a, T: EthSpec, U: Store<T>> {
     inner: RootsIterator<'a, T, U>,
 }
 
-impl<'a, T: EthSpec, U> Clone for StateRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> Clone for StateRootsIterator<'a, T, U> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -86,11 +86,11 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for StateRootsIterator<'a, T, U> {
 /// exhausted.
 ///
 /// Returns `None` for roots prior to genesis or when there is an error reading from `Store`.
-pub struct BlockRootsIterator<'a, T: EthSpec, U> {
+pub struct BlockRootsIterator<'a, T: EthSpec, U: Store<T>> {
     inner: RootsIterator<'a, T, U>,
 }
 
-impl<'a, T: EthSpec, U> Clone for BlockRootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> Clone for BlockRootsIterator<'a, T, U> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -125,13 +125,13 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockRootsIterator<'a, T, U> {
 }
 
 /// Iterator over state and block roots that backtracks using the vectors from a `BeaconState`.
-pub struct RootsIterator<'a, T: EthSpec, U> {
+pub struct RootsIterator<'a, T: EthSpec, U: Store<T>> {
     store: Arc<U>,
     beacon_state: Cow<'a, BeaconState<T>>,
     slot: Slot,
 }
 
-impl<'a, T: EthSpec, U> Clone for RootsIterator<'a, T, U> {
+impl<'a, T: EthSpec, U: Store<T>> Clone for RootsIterator<'a, T, U> {
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
@@ -245,7 +245,7 @@ impl<'a, E: EthSpec, S: Store<E>> Iterator for ParentRootBlockIterator<'a, E, S>
 
 #[derive(Clone)]
 /// Extends `BlockRootsIterator`, returning `SignedBeaconBlock` instances, instead of their roots.
-pub struct BlockIterator<'a, T: EthSpec, U> {
+pub struct BlockIterator<'a, T: EthSpec, U: Store<T>> {
     roots: BlockRootsIterator<'a, T, U>,
 }
 

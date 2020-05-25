@@ -6,7 +6,7 @@ use beacon_chain::{
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     migrate::{BackgroundMigrator, Migrate, NullMigrator},
     slot_clock::{SlotClock, SystemTimeSlotClock},
-    store::{DiskStore, MemoryStore, SimpleDiskStore, Store, StoreConfig},
+    store::{DiskStore, MemoryStore, Store, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
 use environment::RuntimeContext;
@@ -65,7 +65,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -376,7 +376,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TEthSpec>,
     TSlotClock: SlotClock + Clone + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -423,7 +423,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -472,7 +472,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TStoreMigrator: Migrate<DiskStore<TEthSpec>, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, DiskStore<TEthSpec>> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -496,33 +496,6 @@ where
 
         let store = DiskStore::open(hot_path, cold_path, config, spec, context.log)
             .map_err(|e| format!("Unable to open database: {:?}", e))?;
-        self.store = Some(Arc::new(store));
-        Ok(self)
-    }
-}
-
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
-    ClientBuilder<
-        Witness<
-            SimpleDiskStore<TEthSpec>,
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
-            TEventHandler,
-        >,
-    >
-where
-    TSlotClock: SlotClock + 'static,
-    TStoreMigrator: Migrate<SimpleDiskStore<TEthSpec>, TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, SimpleDiskStore<TEthSpec>> + 'static,
-    TEthSpec: EthSpec + 'static,
-    TEventHandler: EventHandler<TEthSpec> + 'static,
-{
-    /// Specifies that the `Client` should use a `DiskStore` database.
-    pub fn simple_disk_store(mut self, path: &Path) -> Result<Self, String> {
-        let store =
-            SimpleDiskStore::open(path).map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
     }
@@ -600,7 +573,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -706,7 +679,7 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TEthSpec>,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,

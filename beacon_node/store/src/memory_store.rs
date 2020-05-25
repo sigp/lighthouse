@@ -1,4 +1,4 @@
-use super::{DBColumn, Error, Store, StoreOp};
+use super::{DBColumn, Error, Store, StoreOp, KeyValueStore, ItemStore};
 use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use parking_lot::RwLock;
@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::*;
+use crate::hot_cold_store::{HotStateSummary};
+use crate::SimpleStoreItem;
 
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 
@@ -40,9 +42,8 @@ impl<E: EthSpec> MemoryStore<E> {
     }
 }
 
-impl<E: EthSpec> Store<E> for MemoryStore<E> {
-    type ForwardsBlockRootsIterator = SimpleForwardsBlockRootsIterator;
 
+impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = Self::get_key_for_col(col, key);
@@ -75,20 +76,6 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         Ok(())
     }
 
-    /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
-        store_full_state(self, state_root, &state)
-    }
-
-    /// Fetch a state from the store.
-    fn get_state(
-        &self,
-        state_root: &Hash256,
-        _: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        get_full_state(self, state_root)
-    }
-
     fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
         for op in batch {
             match op {
@@ -112,6 +99,53 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         }
         Ok(())
     }
+}
+
+
+impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {
+}
+
+
+impl<E: EthSpec> Store<E> for MemoryStore<E> {
+    type ForwardsBlockRootsIterator = SimpleForwardsBlockRootsIterator;
+
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
+        self.put(block_root, &block)
+    }
+
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        self.get(block_root)
+    }
+
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
+        self.key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())
+    }
+
+    fn put_state_summary(
+        &self,
+        state_root: &Hash256,
+        summary: HotStateSummary,
+    ) -> Result<(), Error> {
+        self.put(state_root, &summary).map_err(Into::into)
+    }
+
+    /// Store a state in the store.
+    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
+        store_full_state(self, state_root, &state)
+    }
+
+    /// Fetch a state from the store.
+    fn get_state(
+        &self,
+        state_root: &Hash256,
+        _: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        get_full_state(self, state_root)
+    }
+
+    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error> {
+        self.key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())
+    }
 
     fn forwards_block_roots_iterator(
         store: Arc<Self>,
@@ -121,5 +155,21 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         _: &ChainSpec,
     ) -> Self::ForwardsBlockRootsIterator {
         SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
+    }
+
+    fn put_item<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+        self.put(key, item)
+    }
+
+    fn get_item<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+        self.get(key)
+    }
+
+    fn item_exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
+        self.exists::<I>(key)
+    }
+
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+        KeyValueStore::do_atomically(self, batch)
     }
 }

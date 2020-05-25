@@ -28,7 +28,7 @@ pub mod iter;
 use std::sync::Arc;
 
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::{HotColdDB as DiskStore, HotStateSummary};
+pub use self::hot_cold_store::{HotColdDB as DiskStore, HotColdDB, HotStateSummary};
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
@@ -38,14 +38,8 @@ pub use metrics::scrape_for_metrics;
 pub use state_batch::StateBatch;
 pub use types::*;
 
-/// An object capable of storing and retrieving objects implementing `StoreItem`.
-///
-/// A `Store` is fundamentally backed by a key-value database, however it provides support for
-/// columns. A simple column implementation might involve prefixing a key with some bytes unique to
-/// each column.
-pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
-    type ForwardsBlockRootsIterator: Iterator<Item = (Hash256, Slot)>;
 
+pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
@@ -58,6 +52,12 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Removes `key` from `column`.
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 
+    /// Execute either all of the operations in `batch` or none at all, returning an error.
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
+}
+
+
+pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
     fn put<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column().into();
@@ -93,38 +93,35 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
 
         self.key_delete(column, key)
     }
+}
+
+
+/// An object capable of storing and retrieving objects implementing `StoreItem`.
+///
+/// A `Store` is fundamentally backed by a key-value database, however it provides support for
+/// columns. A simple column implementation might involve prefixing a key with some bytes unique to
+/// each column.
+pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
+    type ForwardsBlockRootsIterator: Iterator<Item = (Hash256, Slot)>;
 
     /// Store a block in the store.
-    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
-        self.put(block_root, &block)
-    }
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error>;
 
     /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
-        self.get(block_root)
-    }
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error>;
 
     /// Delete a block from the store.
-    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
-        self.key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())
-    }
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error>;
 
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
-    /// Execute either all of the operations in `batch` or none at all, returning an error.
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
-
     /// Store a state summary in the store.
-    // NOTE: this is a hack for the HotColdDb, we could consider splitting this
-    // trait and removing the generic `S: Store` types everywhere?
     fn put_state_summary(
         &self,
         state_root: &Hash256,
         summary: HotStateSummary,
-    ) -> Result<(), Error> {
-        self.put(state_root, &summary).map_err(Into::into)
-    }
+    ) -> Result<(), Error>;
 
     /// Fetch a state from the store.
     fn get_state(
@@ -144,18 +141,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Delete a state from the store.
-    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error> {
-        self.key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())
-    }
-
-    /// (Optionally) Move all data before the frozen slot to the freezer database.
-    fn process_finalization(
-        _store: Arc<Self>,
-        _frozen_head_root: Hash256,
-        _frozen_head: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
+    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error>;
 
     /// Get a forwards (slot-ascending) iterator over the beacon block roots since `start_slot`.
     ///
@@ -197,6 +183,14 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
             Ok(None)
         }
     }
+
+    fn put_item<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error>;
+
+    fn get_item<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error>;
+
+    fn item_exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error>;
+
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
 }
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
@@ -292,7 +286,7 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl Store<MinimalEthSpec>) {
+    fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
@@ -310,26 +304,6 @@ mod tests {
         assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
 
         assert_eq!(store.get::<StorableThing>(&key).unwrap(), None);
-    }
-
-    #[test]
-    fn diskdb() {
-        use sloggers::{null::NullLoggerBuilder, Build};
-
-        let hot_dir = tempdir().unwrap();
-        let cold_dir = tempdir().unwrap();
-        let spec = MinimalEthSpec::default_spec();
-        let log = NullLoggerBuilder.build().unwrap();
-        let store = DiskStore::open(
-            &hot_dir.path(),
-            &cold_dir.path(),
-            StoreConfig::default(),
-            spec,
-            log,
-        )
-        .unwrap();
-
-        test_impl(store);
     }
 
     #[test]
