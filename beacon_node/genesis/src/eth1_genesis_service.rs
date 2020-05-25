@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio::time::delay_for;
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
 
-/// The number of blocks that pulled per request whilst waiting for genesis.
+/// The number of blocks that are pulled per request whilst waiting for genesis.
 const BLOCKS_PER_GENESIS_POLL: usize = 99;
 
 /// Stats about the eth1 genesis process.
@@ -377,8 +377,11 @@ impl Eth1GenesisService {
         eth1_block: &Eth1Block,
         spec: &ChainSpec,
     ) -> Result<BeaconState<E>, String> {
+        let genesis_time = eth2_genesis_time(eth1_block.timestamp, spec)
+            .map_err(|e| format!("Unable to set genesis time: {:?}", e))?;
+
         let mut state: BeaconState<E> = BeaconState::new(
-            0,
+            genesis_time,
             Eth1Data {
                 block_hash: Hash256::zero(),
                 deposit_root: Hash256::zero(),
@@ -386,9 +389,6 @@ impl Eth1GenesisService {
             },
             &spec,
         );
-
-        state.genesis_time = eth2_genesis_time(eth1_block.timestamp, spec)
-            .map_err(|e| format!("Unable to set genesis time: {:?}", e))?;
 
         self.deposit_logs_at_block(eth1_block.number)
             .iter()
