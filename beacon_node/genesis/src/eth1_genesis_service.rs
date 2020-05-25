@@ -26,9 +26,9 @@ pub struct Statistics {
     latest_timestamp: AtomicU64,
 }
 
-/// Provides a service that connects to some Eth1 HTTP JSON-RPC endpoint and maintains a cache of eth1
-/// blocks and deposits, listening for the eth1 block that triggers eth2 genesis and returning the
-/// genesis `BeaconState`.
+/// Provides a service that connects to some Eth1 HTTP JSON-RPC endpoint and maintains a cache of
+/// eth1 blocks and deposits, listening for the eth1 block that triggers eth2 genesis and returning
+/// the genesis `BeaconState`.
 ///
 /// Is a wrapper around the `Service` struct of the `eth1` crate.
 #[derive(Clone)]
@@ -75,7 +75,9 @@ impl Eth1GenesisService {
         }
     }
 
-    fn first_viable_eth1_block(&self, min_genesis_active_validator_count: usize) -> Option<u64> {
+    /// Returns the first eth1 block that has enough deposits that it's a (potentially invalid)
+    /// candidate for genesis.
+    fn first_candidate_eth1_block(&self, min_genesis_active_validator_count: usize) -> Option<u64> {
         if self.eth1_service.deposit_cache_len() < min_genesis_active_validator_count {
             None
         } else {
@@ -88,8 +90,7 @@ impl Eth1GenesisService {
         }
     }
 
-    /// Returns a future that will keep updating the cache and resolve once it has discovered the
-    /// first Eth1 block that triggers an Eth2 genesis.
+    /// Scans the Eth1 chain, returning a genesis state once it has been discovered.
     ///
     /// ## Returns
     ///
@@ -129,8 +130,8 @@ impl Eth1GenesisService {
                 .store(eth1_service.deposit_cache_len(), Ordering::Relaxed);
 
             if !sync_blocks {
-                if let Some(viable_eth1_block) =
-                    self.first_viable_eth1_block(spec.min_genesis_active_validator_count as usize)
+                if let Some(viable_eth1_block) = self
+                    .first_candidate_eth1_block(spec.min_genesis_active_validator_count as usize)
                 {
                     info!(
                         log,
@@ -326,12 +327,13 @@ impl Eth1GenesisService {
         Ok(None)
     }
 
-    /// Produces an eth2 genesis `BeaconState` from the given `eth1_block`.
+    /// Produces an eth2 genesis `BeaconState` from the given `eth1_block`. The caller should have
+    /// verified that `eth1_block` produces a valid genesis state.
     ///
     /// ## Returns
     ///
-    /// - Ok(genesis_state) if all went well.
-    /// - Err(e) if the given `eth1_block` was not a viable block to trigger genesis or there was
+    /// - `Ok(genesis_state)`: if all went well.
+    /// - `Err(e)`: if the given `eth1_block` was not a viable block to trigger genesis or there was
     /// an internal error.
     fn genesis_from_eth1_block<E: EthSpec>(
         &self,
@@ -366,7 +368,9 @@ impl Eth1GenesisService {
     /// Generates an incomplete `BeaconState` for some `eth1_block` that can be used for checking
     /// to see if that `eth1_block` triggers eth2 genesis.
     ///
-    /// Note: the returned `BeaconState` should **not** be used as the genesis state, it is
+    /// ## Notes
+    ///
+    /// The returned `BeaconState` should **not** be used as the genesis state, it is
     /// incomplete.
     fn cheap_state_at_eth1_block<E: EthSpec>(
         &self,
@@ -406,10 +410,9 @@ impl Eth1GenesisService {
                 // It would be more efficient to pre-verify signatures, filter out the invalid
                 // ones and disable verification for `process_deposit`.
                 //
-                // This is only more efficient in scenarios where `min_genesis_time` occurs
-                // _before_ `min_validator_count` is met. We're unlikely to see this scenario
-                // in testnets (`min_genesis_time` is usually `0`) and I'm not certain it will
-                // happen for the real, production deposit contract.
+                // Such an optimization would only be useful in a scenario where `MIN_GENESIS_TIME`
+                // is reached _prior_ to `MIN_ACTIVE_VALIDATOR_COUNT`. I suspect this won't be the
+                // case for mainnet, so we defer this optimization.
 
                 process_deposit(&mut state, &deposit, spec, PROOF_VERIFICATION)
                     .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
@@ -421,9 +424,7 @@ impl Eth1GenesisService {
         Ok(state)
     }
 
-    /// Returns the `block_number` of the highest (by block number) block in the cache.
-    ///
-    /// Takes the lower block number of the deposit and block caches to ensure this number is safe.
+    /// Returns the highest block that is present in both the deposit and block caches.
     fn highest_safe_block(&self) -> Option<u64> {
         let block_cache = self.eth1_service.blocks().read().highest_block_number()?;
         let deposit_cache = self.eth1_service.deposits().read().last_processed_block?;
@@ -443,7 +444,7 @@ impl Eth1GenesisService {
             .collect()
     }
 
-    /// Returns statistics about the process of waiting for genesis.
+    /// Returns statistics about eth1 genesis.
     pub fn statistics(&self) -> &Statistics {
         &self.stats
     }
@@ -456,8 +457,6 @@ impl Eth1GenesisService {
 
 /// Returns `false` for a timestamp that would result in a genesis time that is earlier than
 /// `MIN_GENESIS_TIME`.
-///
-/// Note: any `SafeArith` errors are suppressed here; we simply return zero.
 fn timestamp_can_trigger_genesis(timestamp: u64, spec: &ChainSpec) -> Result<bool, String> {
     eth2_genesis_time(timestamp, spec)
         .map(|t| t >= spec.min_genesis_time)
