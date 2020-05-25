@@ -130,16 +130,6 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error>;
 
-    /// Fetch a state from the store, controlling which cache fields are cloned.
-    fn get_state_with(
-        &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        // Default impl ignores config. Overriden in `HotColdDb`.
-        self.get_state(state_root, slot)
-    }
-
     /// Delete a state from the store.
     fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error>;
 
