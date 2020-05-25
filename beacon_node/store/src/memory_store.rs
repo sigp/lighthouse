@@ -1,13 +1,13 @@
-use super::{DBColumn, Error, Store, StoreOp, KeyValueStore, ItemStore};
+use super::{DBColumn, Error, ItemStore, KeyValueStore, Store, StoreOp};
 use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
+use crate::hot_cold_store::HotStateSummary;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
+use crate::SimpleStoreItem;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::*;
-use crate::hot_cold_store::{HotStateSummary};
-use crate::SimpleStoreItem;
 
 type DBHashMap = HashMap<Vec<u8>, Vec<u8>>;
 
@@ -41,7 +41,6 @@ impl<E: EthSpec> MemoryStore<E> {
         col
     }
 }
-
 
 impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
@@ -101,10 +100,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     }
 }
 
-
-impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {
-}
-
+impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {}
 
 impl<E: EthSpec> Store<E> for MemoryStore<E> {
     type ForwardsBlockRootsIterator = SimpleForwardsBlockRootsIterator;

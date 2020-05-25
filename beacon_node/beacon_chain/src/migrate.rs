@@ -7,9 +7,9 @@ use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
+use store::hot_cold_store::HotColdDB;
 use store::iter::{ParentRootBlockIterator, RootsIterator};
 use store::{hot_cold_store::HotColdDBError, Error, Store, StoreOp};
-use store::hot_cold_store::HotColdDB;
 pub use store::{DiskStore, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
@@ -192,7 +192,10 @@ impl<E: EthSpec> Migrate<E> for BlockingMigrator<E> {
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
     ) {
-        if let Err(e) = self.db.process_finalization(self.db.clone(), state_root, &new_finalized_state) {
+        if let Err(e) =
+            self.db
+                .process_finalization(self.db.clone(), state_root, &new_finalized_state)
+        {
             // This migrator is only used for testing, so we just log to stderr without a logger.
             eprintln!("Migration error: {:?}", e);
         }

@@ -321,12 +321,14 @@ where
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
-        store.put_item(&Hash256::zero(), &beacon_block).map_err(|e| {
-            format!(
-                "Failed to store genesis block under 0x00..00 alias: {:?}",
-                e
-            )
-        })?;
+        store
+            .put_item(&Hash256::zero(), &beacon_block)
+            .map_err(|e| {
+                format!(
+                    "Failed to store genesis block under 0x00..00 alias: {:?}",
+                    e
+                )
+            })?;
 
         self.finalized_snapshot = Some(BeaconSnapshot {
             beacon_block_root,

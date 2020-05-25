@@ -7,7 +7,8 @@ use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::metrics;
 use crate::{
-    leveldb_store::LevelDB, DBColumn, Error, PartialBeaconState, SimpleStoreItem, Store, KeyValueStore, ItemStore, StoreOp,
+    leveldb_store::LevelDB, DBColumn, Error, ItemStore, KeyValueStore, PartialBeaconState,
+    SimpleStoreItem, Store, StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -344,10 +345,9 @@ impl<E: EthSpec> HotColdDB<E> {
             epoch_boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let boundary_state = get_full_state(&self.hot_db, &state_root)?
-                .ok_or_else(|| {
-                    HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
-                })?;
+            let boundary_state = get_full_state(&self.hot_db, &state_root)?.ok_or_else(|| {
+                HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
+            })?;
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.

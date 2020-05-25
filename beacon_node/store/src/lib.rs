@@ -38,7 +38,6 @@ pub use metrics::scrape_for_metrics;
 pub use state_batch::StateBatch;
 pub use types::*;
 
-
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
@@ -55,7 +54,6 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Execute either all of the operations in `batch` or none at all, returning an error.
     fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
 }
-
 
 pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
@@ -94,7 +92,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         self.key_delete(column, key)
     }
 }
-
 
 /// An object capable of storing and retrieving objects implementing `StoreItem`.
 ///

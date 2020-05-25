@@ -15,7 +15,6 @@ pub struct LevelDB<E: EthSpec> {
     _phantom: PhantomData<E>,
 }
 
-
 impl<E: EthSpec> LevelDB<E> {
     /// Open a database at `path`, creating a new database if one does not already exist.
     pub fn open(path: &Path) -> Result<Self, Error> {
@@ -39,7 +38,6 @@ impl<E: EthSpec> LevelDB<E> {
         WriteOptions::new()
     }
 }
-
 
 impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     /// Retrieve some bytes in `column` with `key`.
@@ -106,10 +104,8 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
             match op {
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
-                    let key = get_key_for_col(
-                        DBColumn::BeaconBlock.into(),
-                        untyped_hash.as_bytes(),
-                    );
+                    let key =
+                        get_key_for_col(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes());
                     leveldb_batch.delete(key);
                 }
 
@@ -122,10 +118,8 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
                     leveldb_batch.delete(state_summary_key);
 
                     if *slot % E::slots_per_epoch() == 0 {
-                        let state_key = get_key_for_col(
-                            DBColumn::BeaconState.into(),
-                            untyped_hash.as_bytes(),
-                        );
+                        let state_key =
+                            get_key_for_col(DBColumn::BeaconState.into(), untyped_hash.as_bytes());
                         leveldb_batch.delete(state_key);
                     }
                 }
@@ -136,10 +130,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     }
 }
 
-
-impl<E: EthSpec> ItemStore<E> for LevelDB<E> {
-}
-
+impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
 /// Used for keying leveldb.
 pub struct BytesKey {
@@ -156,14 +147,11 @@ impl Key for BytesKey {
     }
 }
 
-
 fn get_key_for_col(col: &str, key: &[u8]) -> BytesKey {
     let mut col = col.as_bytes().to_vec();
     col.append(&mut key.to_vec());
     BytesKey { key: col }
 }
-
-
 
 impl From<LevelDBError> for Error {
     fn from(e: LevelDBError) -> Error {
