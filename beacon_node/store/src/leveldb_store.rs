@@ -17,6 +17,7 @@ pub struct LevelDB<E: EthSpec> {
     _phantom: PhantomData<E>,
 }
 
+
 impl<E: EthSpec> LevelDB<E> {
     /// Open a database at `path`, creating a new database if one does not already exist.
     pub fn open(path: &Path) -> Result<Self, Error> {
@@ -39,12 +40,6 @@ impl<E: EthSpec> LevelDB<E> {
     fn write_options(&self) -> WriteOptions {
         WriteOptions::new()
     }
-
-    fn get_key_for_col(col: &str, key: &[u8]) -> BytesKey {
-        let mut col = col.as_bytes().to_vec();
-        col.append(&mut key.to_vec());
-        BytesKey { key: col }
-    }
 }
 
 /// Used for keying leveldb.
@@ -62,12 +57,21 @@ impl Key for BytesKey {
     }
 }
 
+
+fn get_key_for_col(col: &str, key: &[u8]) -> BytesKey {
+    let mut col = col.as_bytes().to_vec();
+    col.append(&mut key.to_vec());
+    BytesKey { key: col }
+}
+
+
+
 impl<E: EthSpec> Store<E> for LevelDB<E> {
     type ForwardsBlockRootsIterator = SimpleForwardsBlockRootsIterator;
 
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        let column_key = Self::get_key_for_col(col, key);
+        let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
@@ -86,7 +90,7 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
 
     /// Store some `value` in `column`, indexed with `key`.
     fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
-        let column_key = Self::get_key_for_col(col, key);
+        let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
         metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
@@ -102,7 +106,7 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
 
     /// Return `true` if `key` exists in `column`.
     fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
-        let column_key = Self::get_key_for_col(col, key);
+        let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
 
@@ -114,7 +118,7 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
 
     /// Removes `key` from `column`.
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
-        let column_key = Self::get_key_for_col(col, key);
+        let column_key = get_key_for_col(col, key);
 
         metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
 
@@ -153,7 +157,7 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
             match op {
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
-                    let key = Self::get_key_for_col(
+                    let key = get_key_for_col(
                         DBColumn::BeaconBlock.into(),
                         untyped_hash.as_bytes(),
                     );
@@ -162,14 +166,14 @@ impl<E: EthSpec> Store<E> for LevelDB<E> {
 
                 StoreOp::DeleteState(state_hash, slot) => {
                     let untyped_hash: Hash256 = (*state_hash).into();
-                    let state_summary_key = Self::get_key_for_col(
+                    let state_summary_key = get_key_for_col(
                         DBColumn::BeaconStateSummary.into(),
                         untyped_hash.as_bytes(),
                     );
                     leveldb_batch.delete(state_summary_key);
 
                     if *slot % E::slots_per_epoch() == 0 {
-                        let state_key = Self::get_key_for_col(
+                        let state_key = get_key_for_col(
                             DBColumn::BeaconState.into(),
                             untyped_hash.as_bytes(),
                         );
