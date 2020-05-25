@@ -109,7 +109,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             propagation_percentage,
         };
 
-        let _ = spawn_service(executor, network_service)?;
+        spawn_service(executor, network_service)?;
 
         Ok((network_globals, network_send))
     }

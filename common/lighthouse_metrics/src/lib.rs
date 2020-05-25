@@ -100,6 +100,9 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
 }
+
+/// Attempts to crate a `HistogramVec`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
 pub fn try_create_histogram_vec(
     name: &str,
     help: &str,
@@ -113,8 +116,7 @@ pub fn try_create_histogram_vec(
 
 pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Option<Histogram> {
     if let Ok(histogram_vec) = histogram_vec {
-        // TODO: handle panic
-        Some(histogram_vec.with_label_values(name))
+        Some(histogram_vec.get_metric_with_label_values(name).ok()?)
     } else {
         None
     }

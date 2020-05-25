@@ -68,7 +68,6 @@ impl<T: BeaconChainTypes> Router<T> {
 
         // Initialise a message instance, which itself spawns the syncing thread.
         let processor = Processor::new(
-            // TODO: spawn_blocking here
             executor.clone(),
             beacon_chain,
             network_globals.clone(),
