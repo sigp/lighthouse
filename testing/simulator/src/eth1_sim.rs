@@ -142,7 +142,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Start the checks that ensure the network performs as expected.
          *
          * We start these checks immediately after the validators have started. This means we're
-         * relying on the validator future to all return immediately after genesis so that these
+         * relying on the validator futures to all return immediately after genesis so that these
          * tests start at the right time. Whilst this is works well for now, it's subject to
          * breakage by changes to the VC.
          */

@@ -18,7 +18,6 @@ pub fn run(matches: &ArgMatches) -> Result<(), String> {
             .map_err(|e| format!("Unable to create secrets dir: {:?}", e))?;
     }
 
-    // Note: only the difference between the number of existing validators is
     for i in 0..validator_count {
         println!("Validator {}/{}", i + 1, validator_count);
 
