@@ -127,7 +127,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    executor.spawn(server_future, "http");
+    executor.spawn_without_exit(server_future, "http");
 
     Ok(actual_listen_addr)
 }

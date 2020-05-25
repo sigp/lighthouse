@@ -122,7 +122,7 @@ fn spawn_service<T: BeaconChainTypes>(
     let mut exit_rx = executor.exit();
 
     // spawn on the current executor
-    executor.spawn(async move {
+    executor.spawn_without_exit(async move {
         loop {
             // build the futures to check simultaneously
             tokio::select! {

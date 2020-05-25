@@ -1,6 +1,6 @@
 use crate::metrics;
 use futures::prelude::*;
-use slog::info;
+use slog::{debug, trace};
 use tokio::runtime::Handle;
 
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
@@ -22,10 +22,10 @@ impl TaskExecutor {
     pub fn new(handle: Handle, exit: exit_future::Exit, log: slog::Logger) -> Self {
         Self { handle, exit, log }
     }
-    /// Spawn a future on the tokio runtime wrapped in an exit_future `Exit`. The task is canceled
+    /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
     /// when the corresponding exit_future `Signal` is fired/dropped.
     ///
-    /// This function also generates some metrics on number of tasks and task duration.
+    /// This function generates some metrics on number of tasks and task duration.
     pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, name: &'static str) {
         let exit = self.exit.clone();
         let log = self.log.clone();
@@ -35,17 +35,49 @@ impl TaskExecutor {
             let timer = metric.start_timer();
             let future = async move {
                 // Task is shutdown before it completes if `exit` receives
-                if let future::Either::Right(_) = future::select(Box::pin(task), exit).await {
-                    info!(log, "Async task shutdown"; "task" => name);
+                match future::select(Box::pin(task), exit).await {
+                    future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
+                    future::Either::Right(_) => {
+                        debug!(log, "Async task shutdown, exit received"; "task" => name)
+                    }
                 }
+                metrics::dec_gauge(&metrics::ASYNC_TASKS_COUNT);
+
                 timer.observe_duration();
             };
 
-            metrics::inc_counter(&metrics::ASYNC_TASKS_COUNT);
+            metrics::inc_gauge(&metrics::ASYNC_TASKS_COUNT);
             self.handle.spawn(future);
         }
     }
-    /// TODO: make docs better
+
+    /// Spawn a future on the tokio runtime. This function does not wrap the task in an `exit_future::Exit`
+    /// like [spawn](#method.spawn).
+    /// The caller of this function is responsible for wrapping up the task with an `exit_future::Exit` to  
+    /// ensure that the task gets canceled appropriately.
+    /// This function generates some metrics on number of tasks and task duration.
+    ///
+    /// This is useful in cases where the future to be spawned needs to do additional cleanup work when
+    /// the task is completed/canceled (e.g. writing local variables to disk) or the task is created from
+    /// some framework which does its own cleanup (e.g. a hyper server).
+    pub fn spawn_without_exit(
+        &self,
+        task: impl Future<Output = ()> + Send + 'static,
+        name: &'static str,
+    ) {
+        // Start the timer for how long this task runs
+        if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[name]) {
+            let timer = metric.start_timer();
+            let future = async move {
+                task.await;
+                metrics::dec_gauge(&metrics::ASYNC_TASKS_COUNT);
+                timer.observe_duration();
+            };
+
+            metrics::inc_gauge(&metrics::ASYNC_TASKS_COUNT);
+            self.handle.spawn(future);
+        }
+    }
     /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future.
     /// This function also generates some metrics on number of tasks and task duration.
     pub fn spawn_blocking<F>(&self, task: F, name: &'static str)
@@ -62,14 +94,19 @@ impl TaskExecutor {
 
             let future = async move {
                 // Task is shutdown before it completes if `exit` receives
-                if let future::Either::Right(_) = future::select(Box::pin(join_handle), exit).await
-                {
-                    info!(log, "Blocking task shutdown"; "task" => name);
+                match future::select(join_handle, exit).await {
+                    future::Either::Left(_) => {
+                        trace!(log, "Blocking task completed"; "task" => name)
+                    }
+                    future::Either::Right(_) => {
+                        debug!(log, "Async task shutdown, exit received"; "task" => name)
+                    }
                 }
+                metrics::dec_gauge(&metrics::BLOCKING_TASKS_COUNT);
                 timer.observe_duration();
             };
 
-            metrics::inc_counter(&metrics::BLOCKING_TASKS_COUNT);
+            metrics::inc_gauge(&metrics::BLOCKING_TASKS_COUNT);
             self.handle.spawn(future);
         }
     }

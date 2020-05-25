@@ -3,11 +3,11 @@ use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 
 lazy_static! {
-    pub static ref ASYNC_TASKS_COUNT: Result<IntCounter> = try_create_int_counter(
+    pub static ref ASYNC_TASKS_COUNT: Result<IntGauge> = try_create_int_gauge(
         "async_tasks_count",
         "Total number of async tasks spawned using spawn"
     );
-    pub static ref BLOCKING_TASKS_COUNT: Result<IntCounter> = try_create_int_counter(
+    pub static ref BLOCKING_TASKS_COUNT: Result<IntGauge> = try_create_int_gauge(
         "blocking_tasks_count",
         "Total number of async tasks spawned using spawn_blocking"
     );

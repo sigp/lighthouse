@@ -154,6 +154,18 @@ pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     }
 }
 
+pub fn inc_gauge(gauge: &Result<IntGauge>) {
+    if let Ok(gauge) = gauge {
+        gauge.inc();
+    }
+}
+
+pub fn dec_gauge(gauge: &Result<IntGauge>) {
+    if let Ok(gauge) = gauge {
+        gauge.dec();
+    }
+}
+
 pub fn maybe_set_gauge(gauge: &Result<IntGauge>, value_opt: Option<i64>) {
     if let Some(value) = value_opt {
         set_gauge(gauge, value)
