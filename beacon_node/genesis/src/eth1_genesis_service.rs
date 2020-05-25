@@ -142,9 +142,9 @@ impl Eth1GenesisService {
                 } else {
                     info!(
                         log,
-                        "Waiting for adequate deposits";
-                        "min_genesis_active_validator_count" => spec.min_genesis_active_validator_count,
-                        "total_deposit_count" => eth1_service.deposit_cache_len(),
+                        "Waiting for more deposits";
+                        "min_genesis_active_validators" => spec.min_genesis_active_validator_count,
+                        "total_deposits" => eth1_service.deposit_cache_len(),
                     );
 
                     delay_for(update_interval).await;
@@ -204,9 +204,9 @@ impl Eth1GenesisService {
                     info!(
                         log,
                         "Waiting for more validators";
-                        "min_genesis_active_validator_count" => spec.min_genesis_active_validator_count,
-                        "total_deposit_count" => total_deposit_count,
-                        "active_validator_count" => active_validator_count,
+                        "min_genesis_active_validators" => spec.min_genesis_active_validator_count,
+                        "total_deposits" => total_deposit_count,
+                        "active_validators" => active_validator_count,
                     );
                 }
             } else {
@@ -220,9 +220,9 @@ impl Eth1GenesisService {
                     log,
                     "Waiting for adequate eth1 timestamp";
                     "estimated_wait" => format!(
-                        "{}-{} secs",
-                        estimated_wait_low,
-                        estimated_wait_high
+                        "{}-{} mins",
+                        estimated_wait_low / 60,
+                        estimated_wait_high / 60
                     ),
                 );
             }
