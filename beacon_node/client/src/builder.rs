@@ -21,6 +21,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use timer::spawn_timer;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
@@ -248,7 +249,7 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        timer::spawn_timer(
+        spawn_timer(
             context.executor,
             beacon_chain,
             milliseconds_per_slot,

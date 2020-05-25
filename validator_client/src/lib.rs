@@ -211,31 +211,27 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     }
 
     pub fn start_service(&mut self) -> Result<(), String> {
-        let _ = self
-            .duties_service
+        self.duties_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
 
-        let _ = self
-            .fork_service
+        self.fork_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
 
-        let _ = self
-            .block_service
+        self.block_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start block service: {}", e))?;
 
-        let _ = self
-            .attestation_service
+        self.attestation_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
-        let _ = spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
+        spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         Ok(())
     }
