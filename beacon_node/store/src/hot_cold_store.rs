@@ -297,14 +297,6 @@ impl<E: EthSpec> HotColdDB<E> {
         }
     }
 
-    fn put_state_summary(
-        &self,
-        state_root: &Hash256,
-        summary: HotStateSummary,
-    ) -> Result<(), Error> {
-        self.hot_db.put(state_root, &summary).map_err(Into::into)
-    }
-
     /// Store a post-finalization state efficiently in the hot database.
     ///
     /// On an epoch boundary, store a full state. On an intermediate slot, store
