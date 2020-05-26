@@ -2,7 +2,7 @@ use super::{DBColumn, Error, ItemStore, KeyValueStore, Store, StoreOp};
 use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
 use crate::hot_cold_store::HotStateSummary;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
-use crate::SimpleStoreItem;
+use crate::StoreItem;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -176,15 +176,15 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         }
     }
 
-    fn put_item<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+    fn put_item<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         self.put(key, item)
     }
 
-    fn get_item<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+    fn get_item<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         self.get(key)
     }
 
-    fn item_exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
+    fn item_exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         self.exists::<I>(key)
     }
 

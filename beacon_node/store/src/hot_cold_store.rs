@@ -7,8 +7,8 @@ use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::metrics;
 use crate::{
-    leveldb_store::LevelDB, DBColumn, Error, ItemStore, KeyValueStore, PartialBeaconState,
-    SimpleStoreItem, Store, StoreOp,
+    leveldb_store::LevelDB, DBColumn, Error, ItemStore, KeyValueStore, PartialBeaconState, Store,
+    StoreItem, StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -226,15 +226,15 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         }
     }
 
-    fn put_item<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+    fn put_item<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         self.hot_db.put(key, item)
     }
 
-    fn get_item<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+    fn get_item<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         self.hot_db.get(key)
     }
 
-    fn item_exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
+    fn item_exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         self.hot_db.exists::<I>(key)
     }
 
@@ -755,7 +755,7 @@ struct Split {
     state_root: Hash256,
 }
 
-impl SimpleStoreItem for Split {
+impl StoreItem for Split {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
     }
@@ -779,7 +779,7 @@ pub struct HotStateSummary {
     epoch_boundary_state_root: Hash256,
 }
 
-impl SimpleStoreItem for HotStateSummary {
+impl StoreItem for HotStateSummary {
     fn db_column() -> DBColumn {
         DBColumn::BeaconStateSummary
     }
@@ -822,7 +822,7 @@ struct ColdStateSummary {
     slot: Slot,
 }
 
-impl SimpleStoreItem for ColdStateSummary {
+impl StoreItem for ColdStateSummary {
     fn db_column() -> DBColumn {
         DBColumn::BeaconStateSummary
     }
@@ -842,7 +842,7 @@ struct RestorePointHash {
     state_root: Hash256,
 }
 
-impl SimpleStoreItem for RestorePointHash {
+impl StoreItem for RestorePointHash {
     fn db_column() -> DBColumn {
         DBColumn::BeaconRestorePoint
     }

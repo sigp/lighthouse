@@ -57,7 +57,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
 pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
-    fn put<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+    fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
@@ -66,7 +66,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     }
 
     /// Retrieve an item from `Self`.
-    fn get<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+    fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
@@ -77,7 +77,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     }
 
     /// Returns `true` if the given key represents an item in `Self`.
-    fn exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
+    fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
@@ -85,7 +85,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     }
 
     /// Remove an item from `Self`.
-    fn delete<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<(), Error> {
+    fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
@@ -153,11 +153,11 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         state_root: &Hash256,
     ) -> Result<Option<BeaconState<E>>, Error>;
 
-    fn put_item<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error>;
+    fn put_item<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error>;
 
-    fn get_item<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error>;
+    fn get_item<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error>;
 
-    fn item_exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error>;
+    fn item_exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error>;
 
     fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
 }
@@ -215,7 +215,7 @@ impl Into<&'static str> for DBColumn {
 }
 
 /// An item that may stored in a `Store` by serializing and deserializing from bytes.
-pub trait SimpleStoreItem: Sized {
+pub trait StoreItem: Sized {
     /// Identifies which column this item should be placed in.
     fn db_column() -> DBColumn;
 
@@ -241,7 +241,7 @@ mod tests {
         b: u64,
     }
 
-    impl SimpleStoreItem for StorableThing {
+    impl StoreItem for StorableThing {
         fn db_column() -> DBColumn {
             DBColumn::BeaconBlock
         }

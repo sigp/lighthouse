@@ -1,7 +1,7 @@
 use eth2_libp2p::Enr;
 use rlp;
 use std::sync::Arc;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem, Store};
+use store::{DBColumn, Error as StoreError, Store, StoreItem};
 use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`.
@@ -34,7 +34,7 @@ pub struct PersistedDht {
     pub enrs: Vec<Enr>,
 }
 
-impl SimpleStoreItem for PersistedDht {
+impl StoreItem for PersistedDht {
     fn db_column() -> DBColumn {
         DBColumn::DhtEnrs
     }
