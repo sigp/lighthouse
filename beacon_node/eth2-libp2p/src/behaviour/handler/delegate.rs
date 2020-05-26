@@ -49,42 +49,42 @@ impl<TSpec: EthSpec> DelegatingHandler<TSpec> {
     }
 
     /// Gives access to the gossipsub handler.
-    pub fn gossip_mut(&mut self) -> &mut GossipHandler {
+    pub fn _gossip_mut(&mut self) -> &mut GossipHandler {
         &mut self.gossip_handler
     }
 
     /// Gives mutable access to the rpc handler.
-    pub fn rpc_mut(&mut self) -> &mut RPCHandler<TSpec> {
+    pub fn _rpc_mut(&mut self) -> &mut RPCHandler<TSpec> {
         &mut self.rpc_handler
     }
 
     /// Gives mutable access to identify's handler.
-    pub fn identify_mut(&mut self) -> &mut IdentifyHandler {
+    pub fn _identify_mut(&mut self) -> &mut IdentifyHandler {
         &mut self.identify_handler
     }
 
     /// Gives mutable access to discovery's handler.
-    pub fn discovery_mut(&mut self) -> &mut DiscoveryHandler<TSpec> {
+    pub fn _discovery_mut(&mut self) -> &mut DiscoveryHandler<TSpec> {
         &mut self.discovery_handler
     }
 
     /// Gives access to the gossipsub handler.
-    pub fn gossip(&self) -> &GossipHandler {
+    pub fn _gossip(&self) -> &GossipHandler {
         &self.gossip_handler
     }
 
     /// Gives access to the rpc handler.
-    pub fn rpc(&self) -> &RPCHandler<TSpec> {
+    pub fn _rpc(&self) -> &RPCHandler<TSpec> {
         &self.rpc_handler
     }
 
     /// Gives access to identify's handler.
-    pub fn identify(&self) -> &IdentifyHandler {
+    pub fn _identify(&self) -> &IdentifyHandler {
         &self.identify_handler
     }
 
     /// Gives access to discovery's handler.
-    pub fn discovery(&self) -> &DiscoveryHandler<TSpec> {
+    pub fn _discovery(&self) -> &DiscoveryHandler<TSpec> {
         &self.discovery_handler
     }
 }
