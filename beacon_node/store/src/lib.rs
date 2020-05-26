@@ -2,7 +2,7 @@
 //!
 //! Provides the following stores:
 //!
-//! - `DiskStore`: an on-disk store backed by leveldb. Used in production.
+//! - `HotColdDB`: an on-disk store backed by leveldb. Used in production.
 //! - `MemoryStore`: an in-memory store backed by a hash-map. Used for testing.
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
@@ -28,7 +28,7 @@ pub mod iter;
 use std::sync::Arc;
 
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::{HotColdDB as DiskStore, HotColdDB, HotStateSummary};
+pub use self::hot_cold_store::{HotColdDB, HotStateSummary};
 pub use self::leveldb_store::LevelDB as SimpleDiskStore;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
@@ -132,7 +132,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Get a forwards (slot-ascending) iterator over the beacon block roots since `start_slot`.
     ///
-    /// Will be efficient for frozen portions of the database if using `DiskStore`.
+    /// Will be efficient for frozen portions of the database if using `HotColdDB`.
     ///
     /// The `end_state` and `end_block_root` are required for backtracking in the post-finalization
     /// part of the chain, and should be usually be set to the current head. Importantly, the

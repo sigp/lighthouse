@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{DiskStore, MemoryStore, Store};
+use store::{HotColdDB, MemoryStore, Store};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -44,7 +44,7 @@ pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
 >;
 
 pub type HarnessType<E> = BaseHarnessType<MemoryStore<E>, NullMigrator, E>;
-pub type DiskHarnessType<E> = BaseHarnessType<DiskStore<E>, BlockingMigrator<E>, E>;
+pub type DiskHarnessType<E> = BaseHarnessType<HotColdDB<E>, BlockingMigrator<E>, E>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -140,7 +140,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
@@ -180,7 +180,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E>>,
         keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {

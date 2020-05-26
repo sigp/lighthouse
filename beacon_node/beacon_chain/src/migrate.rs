@@ -7,10 +7,9 @@ use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
-use store::hot_cold_store::HotColdDB;
 use store::iter::{ParentRootBlockIterator, RootsIterator};
 use store::{hot_cold_store::HotColdDBError, Error, Store, StoreOp};
-pub use store::{DiskStore, MemoryStore};
+pub use store::{HotColdDB, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
 
@@ -223,13 +222,13 @@ type MpscSender<E> = mpsc::Sender<(
 
 /// Migrator that runs a background thread to migrate state from the hot to the cold database.
 pub struct BackgroundMigrator<E: EthSpec> {
-    db: Arc<DiskStore<E>>,
+    db: Arc<HotColdDB<E>>,
     tx_thread: Mutex<(MpscSender<E>, thread::JoinHandle<()>)>,
     log: Logger,
 }
 
 impl<E: EthSpec> Migrate<E> for BackgroundMigrator<E> {
-    fn new(db: Arc<DiskStore<E>>, log: Logger) -> Self {
+    fn new(db: Arc<HotColdDB<E>>, log: Logger) -> Self {
         let tx_thread = Mutex::new(Self::spawn_thread(db.clone(), log.clone()));
         Self { db, tx_thread, log }
     }
@@ -291,7 +290,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
     ///
     /// Return a channel handle for sending new finalized states to the thread.
     fn spawn_thread(
-        db: Arc<DiskStore<E>>,
+        db: Arc<HotColdDB<E>>,
         log: Logger,
     ) -> (
         mpsc::Sender<(
