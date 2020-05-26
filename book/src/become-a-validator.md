@@ -1,20 +1,10 @@
-# Become an Ethereum 2.0 Testnet Validator
+# Become an Ethereum 2.0 Testnet Validator on Witti
 
----
+Running a Lighthouse validator on the [Witti](https://github.com/goerli/witti)
+multi-client testnet is easy if you're familiar with the terminal.
 
-**The Schlesi testnet is currently down.**
-
-Please do not submit any deposits. For updates, see:
-
-- The Lighthouse ["announcements"](https://discord.gg/cE3GEy) Discord channel.
-- The Eth R&D ["Schlesi"](https://discord.gg/GQwzr7) Discord channel.
-- [goerli/witti](https://github.com/goerli/witti) for technical information.
-
----
-
-Running a Lighthouse validator is easy if you're familiar with the terminal.
-
-Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make things as simple as possible.
+Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make
+things as simple as possible.
 
 
 ## 0. Acquire Goerli ETH

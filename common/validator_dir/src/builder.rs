@@ -175,13 +175,14 @@ impl<'a> Builder<'a> {
             if path.exists() {
                 return Err(Error::DepositDataAlreadyExists(path));
             } else {
+                let hex = format!("0x{}", hex::encode(&deposit_data));
                 OpenOptions::new()
                     .write(true)
                     .read(true)
                     .create(true)
                     .open(path.clone())
                     .map_err(Error::UnableToSaveDepositData)?
-                    .write_all(&deposit_data)
+                    .write_all(hex.as_bytes())
                     .map_err(Error::UnableToSaveDepositData)?
             }
 

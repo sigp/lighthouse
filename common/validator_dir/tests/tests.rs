@@ -6,7 +6,7 @@ use std::path::Path;
 use tempfile::{tempdir, TempDir};
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Keypair, MainnetEthSpec};
 use validator_dir::{
-    Builder, ValidatorDir, ETH1_DEPOSIT_TX_HASH_FILE, VOTING_KEYSTORE_FILE,
+    Builder, ValidatorDir, ETH1_DEPOSIT_DATA_FILE, ETH1_DEPOSIT_TX_HASH_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE,
 };
 
@@ -145,6 +145,13 @@ impl Harness {
 
             // Ensure the amount is consistent.
             assert_eq!(data.deposit_data.amount, amount);
+
+            // Check that the eth1 deposit data file is a valid format.
+            let hex =
+                String::from_utf8(fs::read(validator.dir().join(ETH1_DEPOSIT_DATA_FILE)).unwrap())
+                    .unwrap();
+            assert!(hex.starts_with("0x"), "deposit data should have 0x prefix");
+            hex::decode(&hex[2..]).unwrap();
         } else {
             // If there was no deposit then we should return `Ok(None)`.
             assert!(validator.eth1_deposit_data().unwrap().is_none());

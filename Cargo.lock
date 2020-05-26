@@ -5409,6 +5409,7 @@ dependencies = [
  "deposit_contract",
  "eth2_keystore",
  "eth2_wallet",
+ "hex 0.4.2",
  "rand 0.7.3",
  "rayon",
  "tempfile",
