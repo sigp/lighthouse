@@ -7,19 +7,16 @@ use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use time;
 use tokio::time::delay_for;
 use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
 
-const SECS_PER_MINUTE: f64 = 60.0;
-const SECS_PER_HOUR: f64 = 3600.0;
-const SECS_PER_DAY: f64 = 86400.0; // non-leap
-const SECS_PER_WEEK: f64 = 604_800.0; // non-leap
-const DAYS_PER_WEEK: f64 = 7.0;
-const HOURS_PER_DAY: f64 = 24.0;
-const MINUTES_PER_HOUR: f64 = 60.0;
+const DAYS_PER_WEEK: i64 = 7;
+const HOURS_PER_DAY: i64 = 24;
+const MINUTES_PER_HOUR: i64 = 60;
 
 /// The number of historical observations that should be used to determine the average sync time.
 const SPEEDO_OBSERVATIONS: usize = 4;
@@ -220,31 +217,21 @@ fn seconds_pretty(secs: f64) -> String {
         return "--".into();
     }
 
-    let weeks = secs / SECS_PER_WEEK;
-    let days = secs / SECS_PER_DAY;
-    let hours = secs / SECS_PER_HOUR;
-    let minutes = secs / SECS_PER_MINUTE;
+    let t = time::Duration::seconds_f64(secs);
 
-    if weeks.floor() > 0.0 {
-        format!(
-            "{:.0} weeks {:.0} days",
-            weeks,
-            (days % DAYS_PER_WEEK).round()
-        )
-    } else if days.floor() > 0.0 {
-        format!(
-            "{:.0} days {:.0} hrs",
-            days,
-            (hours % HOURS_PER_DAY).round()
-        )
-    } else if hours.floor() > 0.0 {
-        format!(
-            "{:.0} hrs {:.0} mins",
-            hours,
-            (minutes % MINUTES_PER_HOUR).round()
-        )
+    let weeks = t.whole_weeks();
+    let days = t.whole_days();
+    let hours = t.whole_hours();
+    let minutes = t.whole_minutes();
+
+    if weeks > 0 {
+        format!("{:.0} weeks {:.0} days", weeks, days % DAYS_PER_WEEK)
+    } else if days > 0 {
+        format!("{:.0} days {:.0} hrs", days, hours % HOURS_PER_DAY)
+    } else if hours > 0 {
+        format!("{:.0} hrs {:.0} mins", hours, minutes % MINUTES_PER_HOUR)
     } else {
-        format!("{:.0} mins", minutes.round())
+        format!("{:.0} mins", minutes)
     }
 }
 
