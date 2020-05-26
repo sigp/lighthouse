@@ -279,9 +279,10 @@ mod tests {
             .unwrap();
 
         // just discover peers, don't subscribe yet
-        let expected = vec![AttServiceMessage::DiscoverPeers(SubnetId::new(
-            validator_index,
-        ))];
+        let expected = vec![AttServiceMessage::DiscoverPeers(ExactSubnet {
+            subnet_id: SubnetId::new(validator_index),
+            slot: current_slot + Slot::new(subscription_slot),
+        })];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
@@ -327,7 +328,10 @@ mod tests {
 
         // we should discover peers, wait, then subscribe
         let expected = vec![
-            AttServiceMessage::DiscoverPeers(SubnetId::new(validator_index)),
+            AttServiceMessage::DiscoverPeers(ExactSubnet {
+                subnet_id: SubnetId::new(validator_index),
+                slot: current_slot + Slot::new(subscription_slot),
+            }),
             AttServiceMessage::Subscribe(SubnetId::new(validator_index)),
         ];
 
@@ -420,9 +424,11 @@ mod tests {
             .unwrap();
 
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
-        let expected: Vec<AttServiceMessage> = vec![AttServiceMessage::DiscoverPeers(
-            SubnetId::new(validator_index),
-        )];
+        let expected: Vec<AttServiceMessage> =
+            vec![AttServiceMessage::DiscoverPeers(ExactSubnet {
+                subnet_id: SubnetId::new(validator_index),
+                slot: current_slot + Slot::new(subscription_slot),
+            })];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
 

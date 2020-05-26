@@ -12,6 +12,7 @@ use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Handle;
@@ -248,8 +249,15 @@ fn spawn_service<T: BeaconChainTypes>(
                     AttServiceMessage::EnrRemove(subnet_id) => {
                         service.libp2p.swarm.update_enr_subnet(subnet_id, false);
                     }
-                    AttServiceMessage::DiscoverPeers(subnet_id) => {
-                        service.libp2p.swarm.peers_request(subnet_id);
+                    AttServiceMessage::DiscoverPeers(exact_subnet) => {
+                        // add one slot to ensure we keep the peer for the subscription slot
+                        let min_ttl = service.beacon_chain.slot_clock.duration_to_slot_from_genesis(exact_subnet.slot + 1)
+                                        .unwrap_or_else(|| {
+                                            error!(service.log, "Network service failed to read slot clock");
+                                            //TODO: check what this should default to
+                                            Duration::from_secs(0)
+                                        });
+                        service.libp2p.swarm.peers_request(exact_subnet.subnet_id, min_ttl);
                     }
                 }
             }

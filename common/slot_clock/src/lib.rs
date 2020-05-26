@@ -57,4 +57,10 @@ pub trait SlotClock: Send + Sync + Sized {
         self.slot_of(self.now_duration()?.checked_sub(tolerance)?)
             .or_else(|| Some(self.genesis_slot()))
     }
+
+    /// Returns the duration from genesis to the given slot.
+    fn duration_to_slot_from_genesis(&self, slot: Slot) -> Option<Duration> {
+        self.now_duration()?
+            .checked_add(self.duration_to_slot(slot)?)
+    }
 }

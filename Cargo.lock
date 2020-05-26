@@ -170,6 +170,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_approx_eq"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c07dab4369547dbe5114677b33fbbf724971019f3818172d59a97a61c774ffd"
+
+[[package]]
 name = "assert_matches"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1221,6 +1227,7 @@ dependencies = [
  "parking_lot 0.10.2",
  "serde",
  "serde_derive",
+ "serde_millis",
  "sha2",
  "slog",
  "slog-async",
@@ -2883,6 +2890,7 @@ dependencies = [
 name = "network"
 version = "0.1.2"
 dependencies = [
+ "assert_approx_eq",
  "beacon_chain",
  "error-chain",
  "eth2-libp2p",
@@ -4057,6 +4065,15 @@ checksum = "993948e75b189211a9b31a7528f950c6adc21f9720b6438ff80a7fa2f864cea2"
 dependencies = [
  "itoa",
  "ryu",
+ "serde",
+]
+
+[[package]]
+name = "serde_millis"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6e2dc780ca5ee2c369d1d01d100270203c4ff923d2a4264812d723766434d00"
+dependencies = [
  "serde",
 ]
 

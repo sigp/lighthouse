@@ -4,7 +4,8 @@ use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use slog::{crit, debug, warn};
 use std::collections::{hash_map::Entry, HashMap};
-use std::time::Instant;
+use std::time::Duration;
+use tokio::time::Instant;
 use types::{EthSpec, SubnetId};
 
 /// A peer's reputation (perceived potential usefulness)
@@ -234,6 +235,32 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             since: Instant::now(),
         };
         debug!(self.log, "Peer dialing in db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
+    }
+
+    /// Update min ttl of a peer.
+    pub fn update_min_ttl(&mut self, peer_id: &PeerId, min_ttl: Duration) {
+        let info = self.peers.entry(peer_id.clone()).or_default();
+
+        info.min_ttl = Some(min_ttl);
+        debug!(self.log, "Updating minimum duration a peer is required for"; "peer_id" => peer_id.to_string(), "min_ttl" => min_ttl.as_secs());
+    }
+
+    /// Extends the required duration of all peers on the given subnet that have a shorter
+    /// min_ttl than what's given
+    pub fn extend_peers_on_subnet(&mut self, subnet_id: SubnetId, min_ttl: Duration) {
+        self.peers
+            .clone()
+            .iter()
+            .filter(move |(_, info)| {
+                info.connection_status.is_connected() && info.on_subnet(subnet_id)
+            })
+            .for_each(|(peer_id, _)| {
+                let info = self.peers.entry(peer_id.clone()).or_default();
+                if info.min_ttl.is_some() && info.min_ttl.unwrap() < min_ttl {
+                    info.min_ttl = Some(min_ttl);
+                }
+                debug!(self.log, "Updating minimum duration a peer is required for"; "peer_id" => peer_id.to_string(), "min_ttl" => min_ttl.as_secs());
+            });
     }
 
     /// Sets a peer as connected with an ingoing connection.

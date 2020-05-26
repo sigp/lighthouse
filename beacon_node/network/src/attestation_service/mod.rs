@@ -14,7 +14,8 @@ use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::Instant;
 use types::{Attestation, EthSpec, Slot, SubnetId};
 
 mod tests;
@@ -47,12 +48,13 @@ pub enum AttServiceMessage {
     /// Remove the `SubnetId` from the ENR bitfield.
     EnrRemove(SubnetId),
     /// Discover peers for a particular subnet.
-    DiscoverPeers(SubnetId),
+    /// The associated slot indicates the slot we need the discovered peer until.
+    DiscoverPeers(ExactSubnet),
 }
 
 /// A particular subnet at a given slot.
-#[derive(PartialEq, Eq, Hash, Clone)]
-struct ExactSubnet {
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub struct ExactSubnet {
     /// The `SubnetId` associated with this subnet.
     pub subnet_id: SubnetId,
     /// The `Slot` associated with this subnet.
@@ -248,7 +250,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             if self
                 .events
                 .iter()
-                .find(|event| event == &&AttServiceMessage::DiscoverPeers(exact_subnet.subnet_id))
+                .find(|event| event == &&AttServiceMessage::DiscoverPeers(exact_subnet.clone()))
                 .is_some()
             {
                 // already queued a discovery event
@@ -261,7 +263,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             {
                 // then instantly add a discovery request
                 self.events
-                    .push_back(AttServiceMessage::DiscoverPeers(exact_subnet.subnet_id));
+                    .push_back(AttServiceMessage::DiscoverPeers(exact_subnet));
             } else {
                 // Queue the discovery event to be executed for
                 // TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD
@@ -423,6 +425,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             }
         };
 
+        // calculate how long we require discovered peers
+        let current_slot = self
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Could not get the current slot");
+        let random_subnet_end_slot = current_slot
+            + Slot::new(
+                self.beacon_chain
+                    .spec
+                    .epochs_per_random_subnet_subscription
+                    .saturating_mul(T::EthSpec::slots_per_epoch()),
+            );
+
         for subnet_id in to_subscribe_subnets {
             // remove this subnet from any immediate subscription/un-subscription events
             self.subscriptions
@@ -447,7 +463,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
                 // send a discovery request and a subscription
                 self.events
-                    .push_back(AttServiceMessage::DiscoverPeers(subnet_id));
+                    .push_back(AttServiceMessage::DiscoverPeers(ExactSubnet {
+                        subnet_id,
+                        slot: random_subnet_end_slot,
+                    }));
                 self.events
                     .push_back(AttServiceMessage::Subscribe(subnet_id));
             }
@@ -462,7 +481,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     fn handle_discover_peers(&mut self, exact_subnet: ExactSubnet) {
         debug!(self.log, "Searching for peers for subnet"; "subnet" => *exact_subnet.subnet_id, "target_slot" => exact_subnet.slot);
         self.events
-            .push_back(AttServiceMessage::DiscoverPeers(exact_subnet.subnet_id));
+            .push_back(AttServiceMessage::DiscoverPeers(exact_subnet))
     }
 
     /// A queued subscription is ready.
@@ -483,7 +502,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // subscription time
             let expected_end_subscription_duration = slot_duration + advance_subscription_duration;
 
-            if expiry < &(Instant::now() + expected_end_subscription_duration) {
+            if expiry < &(Instant::now() + expected_end_subscription_duration).into_std() {
                 self.random_subnets
                     .update_timeout(&exact_subnet.subnet_id, expected_end_subscription_duration);
             }
