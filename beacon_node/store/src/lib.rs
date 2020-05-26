@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary};
-pub use self::leveldb_store::LevelDB as SimpleDiskStore;
+pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
@@ -279,7 +279,7 @@ mod tests {
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = SimpleDiskStore::open(&path).unwrap();
+        let store = LevelDB::open(&path).unwrap();
 
         test_impl(store);
     }
