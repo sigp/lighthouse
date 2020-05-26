@@ -67,6 +67,11 @@ make-ef-tests:
 arbitrary-fuzz:
 	cargo check --manifest-path=consensus/state_processing/Cargo.toml --features arbitrary-fuzz
 
+# Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
+audit:
+	cargo install --force cargo-audit
+	cargo audit
+
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
 	cargo clean
