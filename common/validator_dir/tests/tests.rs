@@ -6,8 +6,8 @@ use std::path::Path;
 use tempfile::{tempdir, TempDir};
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Keypair, MainnetEthSpec};
 use validator_dir::{
-    Builder, ValidatorDir, ETH1_DEPOSIT_DATA_FILE, ETH1_DEPOSIT_TX_HASH_FILE, VOTING_KEYSTORE_FILE,
-    WITHDRAWAL_KEYSTORE_FILE,
+    Builder, BuilderError, ValidatorDir, ETH1_DEPOSIT_DATA_FILE, ETH1_DEPOSIT_TX_HASH_FILE,
+    VOTING_KEYSTORE_FILE, WITHDRAWAL_KEYSTORE_FILE,
 };
 
 /// A very weak password with which to encrypt the keystores.
@@ -82,17 +82,19 @@ impl Harness {
             self.validators_dir.path().into(),
             self.password_dir.path().into(),
         )
+        // Note: setting the withdrawal keystore here ensure that it can get overriden by later
+        // calls to `random_withdrawal_keystore`.
         .store_withdrawal_keystore(config.store_withdrawal_keystore);
 
         let builder = if config.random_voting_keystore {
-            builder
+            builder.random_voting_keystore().unwrap()
         } else {
             let (keystore, password) = generate_deterministic_keystore(0).unwrap();
             builder.voting_keystore(keystore, password.as_bytes())
         };
 
         let builder = if config.random_withdrawal_keystore {
-            builder
+            builder.random_withdrawal_keystore().unwrap()
         } else {
             let (keystore, password) = generate_deterministic_keystore(1).unwrap();
             builder.withdrawal_keystore(keystore, password.as_bytes())
@@ -202,6 +204,69 @@ fn concurrency() {
 }
 
 #[test]
+fn without_voting_keystore() {
+    let harness = Harness::new();
+
+    assert!(matches!(
+        Builder::new(
+            harness.validators_dir.path().into(),
+            harness.password_dir.path().into(),
+        )
+        .random_withdrawal_keystore()
+        .unwrap()
+        .build(),
+        Err(BuilderError::UninitializedVotingKeystore)
+    ))
+}
+
+#[test]
+fn without_withdrawal_keystore() {
+    let harness = Harness::new();
+    let spec = &MainnetEthSpec::default_spec();
+
+    // Should build without withdrawal keystore if not storing the it or creating eth1 data.
+    Builder::new(
+        harness.validators_dir.path().into(),
+        harness.password_dir.path().into(),
+    )
+    .random_voting_keystore()
+    .unwrap()
+    .store_withdrawal_keystore(false)
+    .build()
+    .unwrap();
+
+    assert!(
+        matches!(
+            Builder::new(
+                harness.validators_dir.path().into(),
+                harness.password_dir.path().into(),
+            )
+            .random_voting_keystore()
+            .unwrap()
+            .store_withdrawal_keystore(true)
+            .build(),
+            Err(BuilderError::UninitializedWithdrawalKeystore)
+        ),
+        "storing the keystore requires keystore"
+    );
+
+    assert!(
+        matches!(
+            Builder::new(
+                harness.validators_dir.path().into(),
+                harness.password_dir.path().into(),
+            )
+            .random_voting_keystore()
+            .unwrap()
+            .create_eth1_tx_data(42, spec)
+            .build(),
+            Err(BuilderError::UninitializedWithdrawalKeystore)
+        ),
+        "storing the keystore requires keystore"
+    );
+}
+
+#[test]
 fn deterministic_voting_keystore() {
     let harness = Harness::new();
 
@@ -254,6 +319,20 @@ fn both_keystores_deterministic_without_saving() {
 }
 
 #[test]
+fn both_keystores_random_without_saving() {
+    let harness = Harness::new();
+
+    let config = BuildConfig {
+        random_voting_keystore: true,
+        random_withdrawal_keystore: true,
+        store_withdrawal_keystore: false,
+        ..BuildConfig::default()
+    };
+
+    harness.create_and_test(&config);
+}
+
+#[test]
 fn both_keystores_deterministic_with_saving() {
     let harness = Harness::new();
 
@@ -273,6 +352,34 @@ fn eth1_data() {
 
     let config = BuildConfig {
         deposit_amount: Some(123456),
+        ..BuildConfig::default()
+    };
+
+    harness.create_and_test(&config);
+}
+
+#[test]
+fn store_withdrawal_keystore_without_eth1_data() {
+    let harness = Harness::new();
+
+    let config = BuildConfig {
+        store_withdrawal_keystore: false,
+        random_withdrawal_keystore: true,
+        deposit_amount: None,
+        ..BuildConfig::default()
+    };
+
+    harness.create_and_test(&config);
+}
+
+#[test]
+fn store_withdrawal_keystore_with_eth1_data() {
+    let harness = Harness::new();
+
+    let config = BuildConfig {
+        store_withdrawal_keystore: false,
+        random_withdrawal_keystore: true,
+        deposit_amount: Some(32000000000),
         ..BuildConfig::default()
     };
 

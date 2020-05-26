@@ -2,7 +2,11 @@
 #![cfg(not(debug_assertions))]
 
 use bls::Keypair;
-use eth2_keystore::{Error, Keystore, KeystoreBuilder};
+use eth2_keystore::{
+    default_kdf,
+    json_keystore::{Kdf, Pbkdf2, Prf, Scrypt},
+    Error, Keystore, KeystoreBuilder, DKLEN,
+};
 use std::fs::OpenOptions;
 use tempfile::tempdir;
 
@@ -106,4 +110,53 @@ fn scrypt_params() {
         keypair.pk,
         "should decrypt with good password"
     );
+}
+
+#[test]
+fn custom_scrypt_kdf() {
+    let keypair = Keypair::random();
+
+    let salt = vec![42];
+
+    let my_kdf = Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        n: 2,
+        p: 1,
+        r: 8,
+        salt: salt.clone().into(),
+    });
+
+    assert!(my_kdf != default_kdf(salt));
+
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build()
+        .unwrap();
+
+    assert_eq!(keystore.kdf(), &my_kdf);
+}
+
+#[test]
+fn custom_pbkdf2_kdf() {
+    let keypair = Keypair::random();
+
+    let salt = vec![42];
+
+    let my_kdf = Kdf::Pbkdf2(Pbkdf2 {
+        dklen: DKLEN,
+        c: 2,
+        prf: Prf::HmacSha256,
+        salt: salt.clone().into(),
+    });
+
+    assert!(my_kdf != default_kdf(salt));
+
+    let keystore = KeystoreBuilder::new(&keypair, GOOD_PASSWORD, "".into())
+        .unwrap()
+        .kdf(my_kdf.clone())
+        .build()
+        .unwrap();
+
+    assert_eq!(keystore.kdf(), &my_kdf);
 }

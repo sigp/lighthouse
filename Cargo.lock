@@ -5412,6 +5412,7 @@ dependencies = [
  "hex 0.4.2",
  "rand 0.7.3",
  "rayon",
+ "slog",
  "tempfile",
  "tree_hash",
  "types",
