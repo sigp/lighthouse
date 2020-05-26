@@ -38,8 +38,11 @@ pub struct SyncingResponse {
 pub struct Health {
     /// The pid of this process.
     pub pid: u32,
+    /// The number of threads used by this pid.
     pub pid_num_threads: i32,
+    /// The total resident memory used by this pid.
     pub pid_mem_resident_set_size: u64,
+    /// The total virtual memory used by this pid.
     pub pid_mem_virtual_memory_size: u64,
     /// Total virtual memory on the system
     pub sys_virt_mem_total: u64,
