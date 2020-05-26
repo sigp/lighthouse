@@ -1,5 +1,8 @@
 #![cfg(test)]
 
+#[macro_use]
+extern crate assert_matches;
+
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use node_test_rig::{
     environment::{Environment, EnvironmentBuilder},
@@ -1134,4 +1137,118 @@ fn attester_slashing() {
     let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
     assert_eq!(attester_slashings.len(), 1);
     assert_eq!(attester_slashing, attester_slashings[0]);
+}
+
+mod validator_attestation {
+    use super::*;
+    use http::StatusCode;
+    use node_test_rig::environment::Environment;
+    use remote_beacon_node::{Error::DidNotSucceed, HttpClient};
+    use types::{Attestation, AttestationDuty, MinimalEthSpec};
+    use url::Url;
+
+    fn setup() -> (
+        Environment<MinimalEthSpec>,
+        LocalBeaconNode<MinimalEthSpec>,
+        HttpClient<MinimalEthSpec>,
+        Url,
+        AttestationDuty,
+    ) {
+        let mut env = build_env();
+        let node = build_node(&mut env, testing_client_config());
+        let remote_node = node.remote_node().expect("should produce remote node");
+        let client = remote_node.http.clone();
+        let socket_addr = node
+            .client
+            .http_listen_addr()
+            .expect("A remote beacon node must have a http server");
+        let url = Url::parse(&format!(
+            "http://{}:{}/validator/attestation",
+            socket_addr.ip(),
+            socket_addr.port()
+        ))
+        .expect("should be valid endpoint");
+
+        // Find a validator that has duties in the current slot of the chain.
+        let mut validator_index = 0;
+        let beacon_chain = node
+            .client
+            .beacon_chain()
+            .expect("client should have beacon chain");
+        let state = beacon_chain.head().expect("should get head").beacon_state;
+        let duties = loop {
+            let duties = state
+                .get_attestation_duties(validator_index, RelativeEpoch::Current)
+                .expect("should have attestation duties cache")
+                .expect("should have attestation duties");
+
+            if duties.slot == node.client.beacon_chain().unwrap().slot().unwrap() {
+                break duties;
+            } else {
+                validator_index += 1
+            }
+        };
+
+        (env, node, client, url, duties)
+    }
+
+    #[test]
+    fn requires_query_parameters() {
+        let (mut env, _node, client, url, _duties) = setup();
+
+        let attestation = env.runtime().block_on(
+            // query parameters are missing
+            client.json_get::<Attestation<MinimalEthSpec>>(url.clone(), vec![]),
+        );
+
+        assert_matches!(
+            attestation.expect_err("should not succeed"),
+            DidNotSucceed { status, body } => {
+                assert_eq!(status, StatusCode::BAD_REQUEST);
+                assert_eq!(body, "URL query must be valid and contain at least one of the following keys: [\"slot\"]".to_owned());
+            }
+        );
+    }
+
+    #[test]
+    fn requires_slot() {
+        let (mut env, _node, client, url, duties) = setup();
+
+        let attestation = env.runtime().block_on(
+            // `slot` is missing
+            client.json_get::<Attestation<MinimalEthSpec>>(
+                url.clone(),
+                vec![("committee_index".into(), format!("{}", duties.index))],
+            ),
+        );
+
+        assert_matches!(
+            attestation.expect_err("should not succeed"),
+            DidNotSucceed { status, body } => {
+                assert_eq!(status, StatusCode::BAD_REQUEST);
+                assert_eq!(body, "URL query must be valid and contain at least one of the following keys: [\"slot\"]".to_owned());
+            }
+        );
+    }
+
+    #[test]
+    fn requires_committee_index() {
+        let (mut env, _node, client, url, duties) = setup();
+
+        let attestation = env.runtime().block_on(
+            // `committee_index` is missing.
+            client.json_get::<Attestation<MinimalEthSpec>>(
+                url.clone(),
+                vec![("slot".into(), format!("{}", duties.slot))],
+            ),
+        );
+
+        assert_matches!(
+            attestation.expect_err("should not succeed"),
+            DidNotSucceed { status, body } => {
+                assert_eq!(status, StatusCode::BAD_REQUEST);
+                assert_eq!(body, "URL query must be valid and contain at least one of the following keys: [\"committee_index\"]".to_owned());
+            }
+        );
+    }
 }

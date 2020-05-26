@@ -143,7 +143,11 @@ fn finalizes_after_resuming_from_db() {
 fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b: &BeaconChain<T>) {
     assert_eq!(a.spec, b.spec, "spec should be equal");
     assert_eq!(a.op_pool, b.op_pool, "op_pool should be equal");
-    assert_eq!(a.head(), b.head(), "head() should be equal");
+    assert_eq!(
+        a.head().unwrap(),
+        b.head().unwrap(),
+        "head() should be equal"
+    );
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");
     assert_eq!(
         a.genesis_block_root, b.genesis_block_root,

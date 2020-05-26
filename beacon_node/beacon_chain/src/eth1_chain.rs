@@ -19,7 +19,7 @@ use types::{
 type BlockNumber = u64;
 type Eth1DataVoteCount = HashMap<(Eth1Data, BlockNumber), u64>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     /// Unable to return an Eth1Data for the given epoch.
     EpochUnavailable,

@@ -62,7 +62,7 @@ use types::{
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).

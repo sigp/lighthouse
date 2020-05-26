@@ -7,18 +7,16 @@ use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use time;
+use tokio::time::delay_for;
 use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
 
-const SECS_PER_MINUTE: f64 = 60.0;
-const SECS_PER_HOUR: f64 = 3600.0;
-const SECS_PER_DAY: f64 = 86400.0; // non-leap
-const SECS_PER_WEEK: f64 = 604_800.0; // non-leap
-const DAYS_PER_WEEK: f64 = 7.0;
-const HOURS_PER_DAY: f64 = 24.0;
-const MINUTES_PER_HOUR: f64 = 60.0;
+const DAYS_PER_WEEK: i64 = 7;
+const HOURS_PER_DAY: i64 = 24;
+const MINUTES_PER_HOUR: i64 = 60;
 
 /// The number of historical observations that should be used to determine the average sync time.
 const SPEEDO_OBSERVATIONS: usize = 4;
@@ -46,6 +44,25 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let mut interval = tokio::time::interval_at(start_instant, interval_duration);
 
     let interval_future = async move {
+        // Perform pre-genesis logging.
+        loop {
+            match beacon_chain.slot_clock.duration_to_next_slot() {
+                // If the duration to the next slot is greater than the slot duration, then we are
+                // waiting for genesis.
+                Some(next_slot) if next_slot > slot_duration => {
+                    info!(
+                        log,
+                        "Waiting for genesis";
+                        "peers" => peer_count_pretty(network.connected_peers()),
+                        "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
+                    );
+                    delay_for(slot_duration).await;
+                }
+                _ => break,
+            }
+        }
+
+        // Perform post-genesis logging.
         while let Some(_) = interval.next().await {
             let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
@@ -200,31 +217,21 @@ fn seconds_pretty(secs: f64) -> String {
         return "--".into();
     }
 
-    let weeks = secs / SECS_PER_WEEK;
-    let days = secs / SECS_PER_DAY;
-    let hours = secs / SECS_PER_HOUR;
-    let minutes = secs / SECS_PER_MINUTE;
+    let d = time::Duration::seconds_f64(secs);
 
-    if weeks.floor() > 0.0 {
-        format!(
-            "{:.0} weeks {:.0} days",
-            weeks,
-            (days % DAYS_PER_WEEK).round()
-        )
-    } else if days.floor() > 0.0 {
-        format!(
-            "{:.0} days {:.0} hrs",
-            days,
-            (hours % HOURS_PER_DAY).round()
-        )
-    } else if hours.floor() > 0.0 {
-        format!(
-            "{:.0} hrs {:.0} mins",
-            hours,
-            (minutes % MINUTES_PER_HOUR).round()
-        )
+    let weeks = d.whole_weeks();
+    let days = d.whole_days();
+    let hours = d.whole_hours();
+    let minutes = d.whole_minutes();
+
+    if weeks > 0 {
+        format!("{:.0} weeks {:.0} days", weeks, days % DAYS_PER_WEEK)
+    } else if days > 0 {
+        format!("{:.0} days {:.0} hrs", days, hours % HOURS_PER_DAY)
+    } else if hours > 0 {
+        format!("{:.0} hrs {:.0} mins", hours, minutes % MINUTES_PER_HOUR)
     } else {
-        format!("{:.0} mins", minutes.round())
+        format!("{:.0} mins", minutes)
     }
 }
 

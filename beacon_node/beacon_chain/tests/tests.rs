@@ -453,17 +453,19 @@ fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(attestation.clone());
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let attestation_slot = attestation.data.slot;
-        let earliest_permissible_slot = current_slot - MinimalEthSpec::slots_per_epoch() - 1;
+        let expected_attestation_slot = attestation.data.slot;
+        let expected_earliest_permissible_slot =
+            current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 
-        if attestation_slot < earliest_permissible_slot {
-            assert_eq!(
+        if expected_attestation_slot < expected_earliest_permissible_slot {
+            assert!(matches!(
                 res.err().unwrap(),
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,
                 }
-            )
+                if attestation_slot == expected_attestation_slot && earliest_permissible_slot == expected_earliest_permissible_slot
+            ))
         } else {
             res.expect("should process attestation");
         }
@@ -558,19 +560,22 @@ fn run_skip_slot_test(skip_slots: u64) {
     );
 
     assert_eq!(
-        harness_b.chain.process_block(
-            harness_a
-                .chain
-                .head()
-                .expect("should get head")
-                .beacon_block
-                .clone(),
-        ),
-        Ok(harness_a
+        harness_b
+            .chain
+            .process_block(
+                harness_a
+                    .chain
+                    .head()
+                    .expect("should get head")
+                    .beacon_block
+                    .clone(),
+            )
+            .unwrap(),
+        harness_a
             .chain
             .head()
             .expect("should get head")
-            .beacon_block_root)
+            .beacon_block_root
     );
 
     harness_b

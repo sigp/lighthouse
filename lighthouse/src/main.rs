@@ -241,5 +241,9 @@ fn run<E: EthSpec>(
     drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
-    Ok(environment.shutdown_on_idle())
+    // Due to a bug in tokio: https://github.com/tokio-rs/tokio/issues/2314
+    // the `shutdown_on_idle()` will wait until the entire timeout. For the time-being, we shutdown as soon as all
+    // threads have completed, by dropping the runtime.
+    //Ok(environment.shutdown_on_idle())
+    Ok(())
 }

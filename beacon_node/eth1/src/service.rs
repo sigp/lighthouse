@@ -167,6 +167,13 @@ impl Service {
         &self.inner.deposit_cache
     }
 
+    /// Removes all blocks from the cache, except for the latest block.
+    ///
+    /// We don't remove the latest blocks so we don't lose track of the latest block.
+    pub fn clear_block_cache(&self) {
+        self.inner.block_cache.write().truncate(1)
+    }
+
     /// Drop the block cache, replacing it with an empty one.
     pub fn drop_block_cache(&self) {
         *(self.inner.block_cache.write()) = BlockCache::default();

@@ -39,3 +39,4 @@ environment = { path = "../../lighthouse/environment" }
 eth2_ssz = "0.1.2"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
+time = "0.2.16"
