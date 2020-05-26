@@ -148,7 +148,20 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         state_root: &Hash256,
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        self.get_state_with(state_root, slot)
+        metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
+
+        if let Some(slot) = slot {
+            if slot < self.get_split_slot() {
+                self.load_cold_state_by_slot(slot).map(Some)
+            } else {
+                self.load_hot_state(state_root)
+            }
+        } else {
+            match self.load_hot_state(state_root)? {
+                Some(state) => Ok(Some(state)),
+                None => self.load_cold_state(state_root),
+            }
+        }
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
@@ -271,30 +284,6 @@ impl<E: EthSpec> HotColdDB<E> {
             *db.split.write() = split;
         }
         Ok(db)
-    }
-
-    /// Get a state from the store.
-    ///
-    /// Fetch a state from the store, controlling which cache fields are cloned.
-    fn get_state_with(
-        &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
-
-        if let Some(slot) = slot {
-            if slot < self.get_split_slot() {
-                self.load_cold_state_by_slot(slot).map(Some)
-            } else {
-                self.load_hot_state(state_root)
-            }
-        } else {
-            match self.load_hot_state(state_root)? {
-                Some(state) => Ok(Some(state)),
-                None => self.load_cold_state(state_root),
-            }
-        }
     }
 
     /// Store a post-finalization state efficiently in the hot database.
