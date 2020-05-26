@@ -6,7 +6,9 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TESTNET_ID: &str = "schlesi-v0-11";
+const TESTNET_ID: &str = "witti-v0-11-3";
+
+const DOWNLOAD_GENESIS_STATE: bool = false;
 
 fn main() {
     if !base_dir().exists() {
@@ -31,14 +33,16 @@ pub fn get_all_files() -> Result<(), String> {
     get_file("config.yaml")?;
     get_file("deploy_block.txt")?;
     get_file("deposit_contract.txt")?;
-    get_file("genesis.ssz")?;
+    if DOWNLOAD_GENESIS_STATE {
+        get_file("genesis.ssz")?;
+    }
 
     Ok(())
 }
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/goerli/schlesi/839866fe29a1b4df3a87bfe2ff1257c8a58671c9/light/{}",
+        "https://raw.githubusercontent.com/goerli/witti/6aa9043b089939f3833681e4b1bbd61cafd92045/lighthouse/{}",
         filename
     );
 
