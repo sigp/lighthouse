@@ -153,6 +153,29 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
     }
 
+    /// Load the most recent ancestor state of `state_root` which lies on an epoch boundary.
+    ///
+    /// If `state_root` corresponds to an epoch boundary state, then that state itself should be
+    /// returned.
+    fn load_epoch_boundary_state(
+        &self,
+        state_root: &Hash256,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        // The default implementation is not very efficient, but isn't used in prod.
+        // See `HotColdDB` for the optimized implementation.
+        if let Some(state) = self.get_state(state_root, None)? {
+            let epoch_boundary_slot = state.slot / E::slots_per_epoch() * E::slots_per_epoch();
+            if state.slot == epoch_boundary_slot {
+                Ok(Some(state))
+            } else {
+                let epoch_boundary_state_root = state.get_state_root(epoch_boundary_slot)?;
+                self.get_state(epoch_boundary_state_root, Some(epoch_boundary_slot))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     fn put_item<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         self.put(key, item)
     }
