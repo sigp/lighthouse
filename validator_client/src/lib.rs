@@ -75,8 +75,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         if !config.data_dir.join(SLASHING_PROTECTION_FILENAME).exists() && !config.auto_register {
             warn!(
                 log_1,
-                "Will not register new validators";
-                "msg" => "consider using --auto-register on the first use",
+                "Will not register any validators";
+                "msg" => "strongly consider using --auto-register on the first use",
             );
         }
 
