@@ -10,7 +10,7 @@ root of this repository, run:
 
 ```bash
 cargo install --path lighthouse --force --locked
-cargo install --path lci --force --locked
+cargo install --path lcli --force --locked
 ```
 
 ## Starting the testnet

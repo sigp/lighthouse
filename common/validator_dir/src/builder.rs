@@ -180,7 +180,7 @@ impl<'a> Builder<'a> {
 
                 // Save `ETH1_DEPOSIT_DATA_FILE` to file.
                 //
-                // This allows us to know the RLP data for the eth1 transaction without needed to know
+                // This allows us to know the RLP data for the eth1 transaction without needing to know
                 // the withdrawal/voting keypairs again at a later date.
                 let path = dir.clone().join(ETH1_DEPOSIT_DATA_FILE);
                 if path.exists() {
