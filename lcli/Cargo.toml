@@ -21,7 +21,7 @@ regex = "1.3.7"
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 futures = { version = "0.3.5", features = ["compat"] }
 environment = { path = "../lighthouse/environment" }
-web3 = "0.10.0"
+web3 = "0.11.0"
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 dirs = "2.0.2"
 genesis = { path = "../beacon_node/genesis" }
