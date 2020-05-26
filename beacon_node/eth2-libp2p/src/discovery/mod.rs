@@ -361,7 +361,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         };
         // predicate for finding nodes with a matching fork
-        let eth2_fork_predicate = move |enr: &Enr| enr.eth2() == Ok(enr_fork_id.clone());
+        let eth2_fork_predicate = move |enr: &Enr| {
+            enr.eth2().map(|enr| enr.fork_digest) == Ok(enr_fork_id.fork_digest.clone())
+        };
         let predicate = move |enr: &Enr| eth2_fork_predicate(enr) && enr_predicate(enr);
 
         // general predicate

@@ -15,18 +15,18 @@ eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 version = { path = "../version" }
-tokio = { version = "0.2.20", features = ["time"] }
+tokio = { version = "0.2.21", features = ["time"] }
 futures = "0.3.5"
 error-chain = "0.12.2"
 dirs = "2.0.2"
-fnv = "1.0.6"
+fnv = "1.0.7"
 unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 smallvec = "1.4.0"
-lru = "0.4.3"
+lru = "0.4.5"
 parking_lot = "0.10.2"
-sha2 = "0.8.1"
+sha2 = "0.8.2"
 base64 = "0.12.1"
 snap = "1.0.0"
 void = "1.0.2"
@@ -35,16 +35,16 @@ tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
 # Patched for quick updates
 discv5 = { git = "https://github.com/sigp/discv5", rev = "7b3bd40591b62b8c002ffdb85de008aa9f82e2e5" }
 tiny-keccak = "2.0.2"
-libp2p-tcp = { version = "0.18.0", default-features = false, features = ["tokio"] }
+libp2p-tcp = { version = "0.19.1", default-features = false, features = ["tokio"] }
 
 [dependencies.libp2p]
-version = "0.18.1"
+version = "0.19.1"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "secio", "gossipsub", "dns"]
 
 
 [dev-dependencies]
-tokio = { version = "0.2.20", features = ["full"] }
+tokio = { version = "0.2.21", features = ["full"] }
 slog-stdlog = "4.0.0"
 slog-term = "2.5.0"
 slog-async = "2.5.0"
