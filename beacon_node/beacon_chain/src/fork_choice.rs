@@ -13,7 +13,7 @@ use types::{BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256, IndexedA
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     MissingBlock(Hash256),
     MissingState(Hash256),

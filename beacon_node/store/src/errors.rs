@@ -3,7 +3,7 @@ use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use types::{BeaconStateError, Hash256};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     SszDecodeError(DecodeError),
     VectorChunkError(ChunkError),

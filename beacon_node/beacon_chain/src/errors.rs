@@ -26,7 +26,7 @@ macro_rules! easy_from_to {
     };
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum BeaconChainError {
     InsufficientValidators,
     UnableToReadSlot,
@@ -87,7 +87,7 @@ easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
     UnableToReadSlot,

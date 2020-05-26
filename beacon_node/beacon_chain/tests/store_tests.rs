@@ -317,21 +317,22 @@ fn epoch_boundary_state_attestation_processing() {
             .verify_unaggregated_attestation_for_gossip(attestation.clone());
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data.slot;
         // Extra -1 to handle gossip clock disparity.
-        let earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
+        let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
-        if attestation_slot <= finalized_epoch.start_slot(E::slots_per_epoch())
-            || attestation_slot < earliest_permissible_slot
+        if expected_attestation_slot <= finalized_epoch.start_slot(E::slots_per_epoch())
+            || expected_attestation_slot < expected_earliest_permissible_slot
         {
             checked_pre_fin = true;
-            assert_eq!(
+            assert!(matches!(
                 res.err().unwrap(),
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,
                 }
-            );
+                if attestation_slot == expected_attestation_slot && earliest_permissible_slot == expected_earliest_permissible_slot
+            ));
         } else {
             res.expect("should have verified attetation");
         }
@@ -397,13 +398,13 @@ fn delete_blocks_and_states() {
     // Delete faulty fork
     // Attempting to load those states should find them unavailable
     for (state_root, slot) in &states_to_delete {
-        assert_eq!(store.delete_state(state_root, *slot), Ok(()));
-        assert_eq!(store.get_state(state_root, Some(*slot)), Ok(None));
+        store.delete_state(state_root, *slot).unwrap();
+        assert_eq!(store.get_state(state_root, Some(*slot)).unwrap(), None);
     }
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
     for (state_root, slot) in &states_to_delete {
-        assert_eq!(store.delete_state(state_root, *slot), Ok(()));
+        store.delete_state(state_root, *slot).unwrap();
     }
 
     // Deleting the blocks from the fork should remove them completely
@@ -413,8 +414,8 @@ fn delete_blocks_and_states() {
         .collect::<Vec<_>>();
 
     for (block_root, _) in blocks_to_delete {
-        assert_eq!(store.delete_block(&block_root), Ok(()));
-        assert_eq!(store.get_block(&block_root), Ok(None));
+        store.delete_block(&block_root).unwrap();
+        assert_eq!(store.get_block(&block_root).unwrap(), None);
     }
 
     // Deleting frozen states should do nothing
@@ -426,7 +427,7 @@ fn delete_blocks_and_states() {
         .filter(|(_, slot)| *slot < split_slot);
 
     for (state_root, slot) in finalized_states {
-        assert_eq!(store.delete_state(&state_root, slot), Ok(()));
+        store.delete_state(&state_root, slot).unwrap();
     }
 
     // After all that, the chain dump should still be OK
