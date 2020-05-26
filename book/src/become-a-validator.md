@@ -1,8 +1,10 @@
-# Become an Ethereum 2.0 Testnet Validator
+# Become an Ethereum 2.0 Testnet Validator on Witti
 
-Running a Lighthouse validator is easy if you're familiar with the terminal.
+Running a Lighthouse validator on the [Witti](https://github.com/goerli/witti)
+multi-client testnet is easy if you're familiar with the terminal.
 
-Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make things as simple as possible.
+Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make
+things as simple as possible.
 
 
 ## 0. Acquire Goerli ETH
