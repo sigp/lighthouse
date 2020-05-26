@@ -36,6 +36,8 @@ pub enum Error {
     UnableToSavePassword(io::Error),
     KeystoreError(KeystoreError),
     UnableToOpenDir(DirError),
+    UninitializedVotingKeystore,
+    UninitializedWithdrawalKeystore,
     #[cfg(feature = "insecure_keys")]
     InsecureKeysError(String),
 }
@@ -71,8 +73,7 @@ impl<'a> Builder<'a> {
 
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
     ///
-    /// If this argument (or equivalent key specification argument) is not supplied a keystore will
-    /// be randomly generated.
+    /// The builder will not necessarily check that `password` can unlock `keystore`.
     pub fn voting_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
         self.voting_keystore = Some((keystore, password.to_vec().into()));
         self
@@ -80,11 +81,25 @@ impl<'a> Builder<'a> {
 
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
     ///
-    /// If this argument (or equivalent key specification argument) is not supplied a keystore will
-    /// be randomly generated.
+    /// The builder will not necessarily check that `password` can unlock `keystore`.
     pub fn withdrawal_keystore(mut self, keystore: Keystore, password: &[u8]) -> Self {
         self.withdrawal_keystore = Some((keystore, password.to_vec().into()));
         self
+    }
+
+    /// Build the `ValidatorDir` using a randomly generated voting keypair.
+    pub fn random_voting_keystore(mut self) -> Result<Self, Error> {
+        self.voting_keystore = Some(random_keystore()?);
+        Ok(self)
+    }
+
+    /// Build the `ValidatorDir` using a randomly generated withdrawal keypair.
+    ///
+    /// Also calls `Self::store_withdrawal_keystore(true)` in an attempt to protect against data
+    /// loss.
+    pub fn random_withdrawal_keystore(mut self) -> Result<Self, Error> {
+        self.withdrawal_keystore = Some(random_keystore()?);
+        Ok(self.store_withdrawal_keystore(true))
     }
 
     /// Upon build, create files in the `ValidatorDir` which will permit the submission of a
@@ -113,31 +128,10 @@ impl<'a> Builder<'a> {
     }
 
     /// Consumes `self`, returning a `ValidatorDir` if no error is encountered.
-    pub fn build(mut self) -> Result<ValidatorDir, Error> {
-        // If the withdrawal keystore will be generated randomly, always store it.
-        if self.withdrawal_keystore.is_none() {
-            self.store_withdrawal_keystore = true;
-        }
-
-        // Attempts to get `self.$keystore`, unwrapping it into a random keystore if it is `None`.
-        // Then, decrypts the keypair from the keystore.
-        macro_rules! expand_keystore {
-            ($keystore: ident) => {
-                self.$keystore
-                    .map(Result::Ok)
-                    .unwrap_or_else(random_keystore)
-                    .and_then(|(keystore, password)| {
-                        keystore
-                            .decrypt_keypair(password.as_bytes())
-                            .map(|keypair| (keystore, password, keypair))
-                            .map_err(Into::into)
-                    })?;
-            };
-        }
-
-        let (voting_keystore, voting_password, voting_keypair) = expand_keystore!(voting_keystore);
-        let (withdrawal_keystore, withdrawal_password, withdrawal_keypair) =
-            expand_keystore!(withdrawal_keystore);
+    pub fn build(self) -> Result<ValidatorDir, Error> {
+        let (voting_keystore, voting_password) = self
+            .voting_keystore
+            .ok_or_else(|| Error::UninitializedVotingKeystore)?;
 
         let dir = self
             .base_validators_dir
@@ -149,82 +143,106 @@ impl<'a> Builder<'a> {
             create_dir_all(&dir).map_err(Error::UnableToCreateDir)?;
         }
 
-        if let Some((amount, spec)) = self.deposit_info {
-            let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
-                &withdrawal_keypair.pk,
-                spec.bls_withdrawal_prefix_byte,
-            ));
+        // The withdrawal keystore must be initialized in order to store it or create an eth1
+        // deposit.
+        if (self.store_withdrawal_keystore || self.deposit_info.is_some())
+            && self.withdrawal_keystore.is_none()
+        {
+            return Err(Error::UninitializedWithdrawalKeystore);
+        };
 
-            let mut deposit_data = DepositData {
-                pubkey: voting_keypair.pk.clone().into(),
-                withdrawal_credentials,
-                amount,
-                signature: Signature::empty_signature().into(),
-            };
+        if let Some((withdrawal_keystore, withdrawal_password)) = self.withdrawal_keystore {
+            // Attempt to decrypt the voting keypair.
+            let voting_keypair = voting_keystore.decrypt_keypair(voting_password.as_bytes())?;
 
-            deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
+            // Attempt to decrypt the withdrawal keypair.
+            let withdrawal_keypair =
+                withdrawal_keystore.decrypt_keypair(withdrawal_password.as_bytes())?;
 
-            let deposit_data =
-                encode_eth1_tx_data(&deposit_data).map_err(Error::UnableToEncodeDeposit)?;
+            // If a deposit amount was specified, create a deposit.
+            if let Some((amount, spec)) = self.deposit_info {
+                let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
+                    &withdrawal_keypair.pk,
+                    spec.bls_withdrawal_prefix_byte,
+                ));
 
-            // Save `ETH1_DEPOSIT_DATA_FILE` to file.
-            //
-            // This allows us to know the RLP data for the eth1 transaction without needed to know
-            // the withdrawal/voting keypairs again at a later date.
-            let path = dir.clone().join(ETH1_DEPOSIT_DATA_FILE);
-            if path.exists() {
-                return Err(Error::DepositDataAlreadyExists(path));
-            } else {
-                let hex = format!("0x{}", hex::encode(&deposit_data));
-                OpenOptions::new()
-                    .write(true)
-                    .read(true)
-                    .create(true)
-                    .open(path.clone())
-                    .map_err(Error::UnableToSaveDepositData)?
-                    .write_all(hex.as_bytes())
-                    .map_err(Error::UnableToSaveDepositData)?
+                let mut deposit_data = DepositData {
+                    pubkey: voting_keypair.pk.clone().into(),
+                    withdrawal_credentials,
+                    amount,
+                    signature: Signature::empty_signature().into(),
+                };
+
+                deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
+
+                let deposit_data =
+                    encode_eth1_tx_data(&deposit_data).map_err(Error::UnableToEncodeDeposit)?;
+
+                // Save `ETH1_DEPOSIT_DATA_FILE` to file.
+                //
+                // This allows us to know the RLP data for the eth1 transaction without needing to know
+                // the withdrawal/voting keypairs again at a later date.
+                let path = dir.clone().join(ETH1_DEPOSIT_DATA_FILE);
+                if path.exists() {
+                    return Err(Error::DepositDataAlreadyExists(path));
+                } else {
+                    let hex = format!("0x{}", hex::encode(&deposit_data));
+                    OpenOptions::new()
+                        .write(true)
+                        .read(true)
+                        .create(true)
+                        .open(path.clone())
+                        .map_err(Error::UnableToSaveDepositData)?
+                        .write_all(hex.as_bytes())
+                        .map_err(Error::UnableToSaveDepositData)?
+                }
+
+                // Save `ETH1_DEPOSIT_AMOUNT_FILE` to file.
+                //
+                // This allows us to know the intended deposit amount at a later date.
+                let path = dir.clone().join(ETH1_DEPOSIT_AMOUNT_FILE);
+                if path.exists() {
+                    return Err(Error::DepositAmountAlreadyExists(path));
+                } else {
+                    OpenOptions::new()
+                        .write(true)
+                        .read(true)
+                        .create(true)
+                        .open(path.clone())
+                        .map_err(Error::UnableToSaveDepositAmount)?
+                        .write_all(format!("{}", amount).as_bytes())
+                        .map_err(Error::UnableToSaveDepositAmount)?
+                }
             }
 
-            // Save `ETH1_DEPOSIT_AMOUNT_FILE` to file.
-            //
-            // This allows us to know the intended deposit amount at a later date.
-            let path = dir.clone().join(ETH1_DEPOSIT_AMOUNT_FILE);
-            if path.exists() {
-                return Err(Error::DepositAmountAlreadyExists(path));
-            } else {
-                OpenOptions::new()
-                    .write(true)
-                    .read(true)
-                    .create(true)
-                    .open(path.clone())
-                    .map_err(Error::UnableToSaveDepositAmount)?
-                    .write_all(format!("{}", amount).as_bytes())
-                    .map_err(Error::UnableToSaveDepositAmount)?
+            // Only the withdrawal keystore if explicitly required.
+            if self.store_withdrawal_keystore {
+                // Write the withdrawal password to file.
+                write_password_to_file(
+                    self.password_dir
+                        .clone()
+                        .join(withdrawal_keypair.pk.as_hex_string()),
+                    withdrawal_password.as_bytes(),
+                )?;
+
+                // Write the withdrawal keystore to file.
+                write_keystore_to_file(
+                    dir.clone().join(WITHDRAWAL_KEYSTORE_FILE),
+                    &withdrawal_keystore,
+                )?;
             }
         }
 
+        // Write the voting password to file.
         write_password_to_file(
             self.password_dir
                 .clone()
-                .join(voting_keypair.pk.as_hex_string()),
+                .join(format!("0x{}", voting_keystore.pubkey())),
             voting_password.as_bytes(),
         )?;
 
+        // Write the voting keystore to file.
         write_keystore_to_file(dir.clone().join(VOTING_KEYSTORE_FILE), &voting_keystore)?;
-
-        if self.store_withdrawal_keystore {
-            write_password_to_file(
-                self.password_dir
-                    .clone()
-                    .join(withdrawal_keypair.pk.as_hex_string()),
-                withdrawal_password.as_bytes(),
-            )?;
-            write_keystore_to_file(
-                dir.clone().join(WITHDRAWAL_KEYSTORE_FILE),
-                &withdrawal_keystore,
-            )?;
-        }
 
         ValidatorDir::open(dir).map_err(Error::UnableToOpenDir)
     }

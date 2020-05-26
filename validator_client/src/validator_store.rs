@@ -71,7 +71,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let validator_key_values = ValidatorManager::open(&config.data_dir)
             .map_err(|e| format!("unable to read data_dir: {:?}", e))?
-            .decrypt_all_validators(config.secrets_dir.clone())
+            .decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
             .map_err(|e| format!("unable to decrypt all validator directories: {:?}", e))?
             .into_iter()
             .map(|(kp, dir)| {

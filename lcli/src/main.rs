@@ -6,6 +6,7 @@ mod check_deposit_data;
 mod deploy_deposit_contract;
 mod eth1_genesis;
 mod generate_bootnode_enr;
+mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
@@ -440,6 +441,33 @@ fn main() {
                         .help("The directory in which to create the network dir"),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("insecure-validators")
+                .about(
+                    "Produces validator directories with INSECURE, deterministic keypairs.",
+                )
+                .arg(
+                    Arg::with_name("count")
+                        .long("count")
+                        .value_name("COUNT")
+                        .takes_value(true)
+                        .help("Produces validators in the range of 0..count."),
+                )
+                .arg(
+                    Arg::with_name("validators-dir")
+                        .long("validators-dir")
+                        .value_name("VALIDATOR_DIR")
+                        .takes_value(true)
+                        .help("The directory for storing validators."),
+                )
+                .arg(
+                    Arg::with_name("secrets-dir")
+                        .long("secrets-dir")
+                        .value_name("SECRETS_DIR")
+                        .takes_value(true)
+                        .help("The directory for storing secrets."),
+                )
+        )
         .get_matches();
 
     macro_rules! run_with_spec {
@@ -544,6 +572,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
+        ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
+            .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }
