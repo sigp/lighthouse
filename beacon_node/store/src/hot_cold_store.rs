@@ -326,9 +326,10 @@ impl<E: EthSpec> HotColdDB<E> {
             epoch_boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let boundary_state = get_full_state(&self.hot_db, &state_root)?.ok_or_else(|| {
-                HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
-            })?;
+            let boundary_state = get_full_state(&self.hot_db, &epoch_boundary_state_root)?
+                .ok_or_else(|| {
+                    HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root)
+                })?;
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
