@@ -217,12 +217,12 @@ fn seconds_pretty(secs: f64) -> String {
         return "--".into();
     }
 
-    let t = time::Duration::seconds_f64(secs);
+    let d = time::Duration::seconds_f64(secs);
 
-    let weeks = t.whole_weeks();
-    let days = t.whole_days();
-    let hours = t.whole_hours();
-    let minutes = t.whole_minutes();
+    let weeks = d.whole_weeks();
+    let days = d.whole_days();
+    let hours = d.whole_hours();
+    let minutes = d.whole_minutes();
 
     if weeks > 0 {
         format!("{:.0} weeks {:.0} days", weeks, days % DAYS_PER_WEEK)
