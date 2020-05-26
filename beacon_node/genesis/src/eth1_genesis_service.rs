@@ -210,20 +210,12 @@ impl Eth1GenesisService {
                     );
                 }
             } else {
-                let estimated_genesis =
-                    spec.min_genesis_time.saturating_sub(spec.min_genesis_delay);
-
-                let estimated_wait_high = estimated_genesis.saturating_sub(latest_timestamp);
-                let estimated_wait_low = estimated_wait_high.saturating_sub(spec.min_genesis_delay);
-
                 info!(
                     log,
                     "Waiting for adequate eth1 timestamp";
-                    "estimated_wait" => format!(
-                        "{}-{} mins",
-                        estimated_wait_low / 60,
-                        estimated_wait_high / 60
-                    ),
+                    "ming_genesis_delay" => spec.min_genesis_delay,
+                    "genesis_time" => spec.min_genesis_time,
+                    "latest_eth1_timestamp" => latest_timestamp,
                 );
             }
 
