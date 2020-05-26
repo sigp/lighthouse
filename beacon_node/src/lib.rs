@@ -58,7 +58,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             &matches,
             &context.eth2_config.spec_constants,
             &context.eth2_config().spec,
-            context.log.clone(),
+            context.log().clone(),
         )?;
         Self::new(context, client_config).await
     }
@@ -75,7 +75,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_config_1 = client_config.clone();
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
-        let log = context.log.clone();
+        let log = context.log().clone();
 
         let db_path = client_config.create_db_path()?;
         let freezer_db_path_res = client_config.create_freezer_db_path();

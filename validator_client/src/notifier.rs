@@ -23,7 +23,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
     let mut interval = interval_at(start_instant, slot_duration);
 
     let interval_fut = async move {
-        let log = &context.log;
+        let log = context.log();
 
         while interval.next().await.is_some() {
             if !is_synced(

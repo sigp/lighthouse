@@ -113,7 +113,7 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Starts the service that periodically attempts to produce blocks.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log.clone();
+        let log = self.context.log().clone();
 
         let duration_to_next_slot = self
             .slot_clock
@@ -150,7 +150,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     async fn do_update(&self) -> Result<(), ()> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let slot = self.slot_clock.now().ok_or_else(move || {
             crit!(log, "Duties manager failed to read slot clock");
@@ -204,7 +204,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// Produce a block at the given slot for validator_pubkey
     async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let current_slot = self
             .slot_clock

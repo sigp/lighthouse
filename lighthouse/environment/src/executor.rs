@@ -119,4 +119,8 @@ impl TaskExecutor {
     pub fn exit(&self) -> exit_future::Exit {
         self.exit.clone()
     }
+
+    pub fn log(&self) -> &slog::Logger {
+        &self.log
+    }
 }

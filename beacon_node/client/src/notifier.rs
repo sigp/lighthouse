@@ -27,7 +27,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
     milliseconds_per_slot: u64,
-    log: slog::Logger,
 ) -> Result<(), String> {
     let slot_duration = Duration::from_millis(milliseconds_per_slot);
     let duration_to_next_slot = beacon_chain
@@ -42,6 +41,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let interval_duration = slot_duration;
 
     let speedo = Mutex::new(Speedo::default());
+    let log = executor.log().clone();
     let mut interval = tokio::time::interval_at(start_instant, interval_duration);
 
     let interval_future = async move {

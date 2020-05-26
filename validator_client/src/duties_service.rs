@@ -475,7 +475,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
     async fn do_update(self) -> Result<(), ()> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         if !is_synced(&self.beacon_node, &self.slot_clock, None).await
             && !self.allow_unsynced_beacon_node
@@ -542,7 +542,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .await
             .map_err(move |e| format!("Failed to get duties for epoch {}: {:?}", epoch, e))?;
 
-        let log = self.context.log.clone();
+        let log = self.context.log().clone();
 
         let mut new_validator = 0;
         let mut new_epoch = 0;
@@ -644,7 +644,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             )
         }
 
-        let log = self.context.log.clone();
+        let log = self.context.log().clone();
         let count = validator_subscriptions.len();
 
         if count == 0 {

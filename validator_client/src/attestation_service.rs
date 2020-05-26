@@ -118,7 +118,7 @@ impl<T, E: EthSpec> Deref for AttestationService<T, E> {
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Starts the service which periodically produces attestations.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log.clone();
+        let log = self.context.log().clone();
 
         let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
         let duration_to_next_slot = self
@@ -144,7 +144,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
-                let log = &self.context.log;
+                let log = self.context.log();
 
                 if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
                     crit!(
@@ -235,7 +235,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
     ) -> Result<(), ()> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
         // any validators for the given `slot` and `committee_index`.
@@ -306,7 +306,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<Option<Attestation<E>>, String> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         if validator_duties.is_empty() {
             return Ok(None);
@@ -440,7 +440,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         attestation: Attestation<E>,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let aggregated_attestation = self
             .beacon_node

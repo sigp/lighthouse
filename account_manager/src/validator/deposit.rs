@@ -83,7 +83,7 @@ pub fn cli_run<T: EthSpec>(
     matches: &ArgMatches<'_>,
     mut env: Environment<T>,
 ) -> Result<(), String> {
-    let log = env.core_context().log;
+    let log = env.core_context().log().clone();
 
     let data_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,

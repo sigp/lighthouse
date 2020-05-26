@@ -58,10 +58,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
     pub async fn new(mut context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
-        let log_1 = context.log.clone();
-        let log_2 = context.log.clone();
-        let log_3 = context.log.clone();
-        let log_4 = context.log.clone();
+        let log_1 = context.log().clone();
+        let log_2 = context.log().clone();
+        let log_3 = context.log().clone();
+        let log_4 = context.log().clone();
 
         info!(
             log_1,

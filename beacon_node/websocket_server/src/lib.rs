@@ -1,4 +1,4 @@
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, error, info, warn};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use types::EthSpec;
@@ -36,8 +36,8 @@ impl<T: EthSpec> WebSocketSender<T> {
 pub fn start_server<T: EthSpec>(
     executor: environment::TaskExecutor,
     config: &Config,
-    log: &Logger,
 ) -> Result<(WebSocketSender<T>, SocketAddr), String> {
+    let log = executor.log();
     let server_string = format!("{}:{}", config.listen_address, config.port);
 
     // Create a server that simply ignores any incoming messages.

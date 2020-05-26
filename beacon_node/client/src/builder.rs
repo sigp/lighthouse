@@ -131,7 +131,7 @@ where
             .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
         let builder = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(context.log.clone())
+            .logger(context.log().clone())
             .store(store)
             .store_migrator(store_migrator)
             .data_dir(data_dir)
@@ -149,7 +149,7 @@ where
         // Alternatively, if there's a beacon chain in the database then always resume
         // using it.
         let client_genesis = if client_genesis == ClientGenesis::FromStore && !chain_exists {
-            info!(context.log, "Defaulting to deposit contract genesis");
+            info!(context.log(), "Defaulting to deposit contract genesis");
 
             ClientGenesis::DepositContract
         } else if chain_exists {
@@ -171,7 +171,7 @@ where
                 genesis_state_bytes,
             } => {
                 info!(
-                    context.log,
+                    context.log(),
                     "Starting from known genesis state";
                 );
 
@@ -182,14 +182,14 @@ where
             }
             ClientGenesis::DepositContract => {
                 info!(
-                    context.log,
+                    context.log(),
                     "Waiting for eth2 genesis from eth1";
                     "eth1_endpoint" => &config.eth1.endpoint,
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
 
-                let genesis_service = Eth1GenesisService::new(config.eth1, context.log.clone());
+                let genesis_service = Eth1GenesisService::new(config.eth1, context.log().clone());
 
                 let genesis_state = genesis_service
                     .wait_for_genesis_state(
@@ -223,7 +223,7 @@ where
             .clone();
 
         let (network_globals, network_send) =
-            NetworkService::start(beacon_chain, config, context.executor, context.log)
+            NetworkService::start(beacon_chain, config, context.executor)
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
@@ -249,13 +249,8 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        spawn_timer(
-            context.executor,
-            beacon_chain,
-            milliseconds_per_slot,
-            context.log.clone(),
-        )
-        .map_err(|e| format!("Unable to start node timer: {}", e))?;
+        spawn_timer(context.executor, beacon_chain, milliseconds_per_slot)
+            .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         Ok(self)
     }
@@ -289,7 +284,6 @@ where
             network_chan: network_send,
         };
 
-        let log = context.log.clone();
         let listening_addr = rest_api::start_server(
             context.executor,
             &client_config.rest_api,
@@ -302,7 +296,6 @@ where
                 .create_freezer_db_path()
                 .map_err(|_| "unable to read freezer DB dir")?,
             eth2_config.clone(),
-            log,
         )
         .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 
@@ -337,7 +330,6 @@ where
             beacon_chain,
             network_globals,
             milliseconds_per_slot,
-            context.log.clone(),
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
@@ -429,7 +421,7 @@ where
 
         let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
             let (sender, listening_addr) =
-                websocket_server::start_server(context.executor, &config, &context.log)?;
+                websocket_server::start_server(context.executor, &config)?;
             (sender, Some(listening_addr))
         } else {
             (WebSocketSender::dummy(), None)
@@ -477,7 +469,7 @@ where
             .clone()
             .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
 
-        let store = DiskStore::open(hot_path, cold_path, config, spec, context.log)
+        let store = DiskStore::open(hot_path, cold_path, config, spec, context.log().clone())
             .map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
@@ -565,7 +557,7 @@ where
         let store = self.store.clone().ok_or_else(|| {
             "background_migrator requires the store to be initialized".to_string()
         })?;
-        self.store_migrator = Some(BackgroundMigrator::new(store, context.log.clone()));
+        self.store_migrator = Some(BackgroundMigrator::new(store, context.log().clone()));
         Ok(self)
     }
 }
@@ -627,12 +619,16 @@ where
                         &persisted,
                         config.clone(),
                         store.clone(),
-                        &context.log,
+                        &context.log().clone(),
                     )
                     .map(|chain| chain.into_backend())
                 })
                 .unwrap_or_else(|| {
-                    Ok(CachingEth1Backend::new(config, context.log.clone(), store))
+                    Ok(CachingEth1Backend::new(
+                        config,
+                        context.log().clone(),
+                        store,
+                    ))
                 })?
         };
 

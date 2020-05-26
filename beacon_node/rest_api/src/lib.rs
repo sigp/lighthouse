@@ -58,8 +58,8 @@ pub fn start_server<T: BeaconChainTypes>(
     db_path: PathBuf,
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: slog::Logger,
 ) -> Result<SocketAddr, hyper::Error> {
+    let log = executor.log();
     let inner_log = log.clone();
     let eth2_config = Arc::new(eth2_config);
 

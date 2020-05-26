@@ -141,7 +141,7 @@ fn run<E: EthSpec>(
         .eth2_testnet_config(eth2_testnet_config)?
         .build()?;
 
-    let log = environment.core_context().log;
+    let log = environment.core_context().log().clone();
 
     if let Some(log_path) = matches.value_of("logfile") {
         let path = log_path
@@ -244,10 +244,5 @@ fn run<E: EthSpec>(
     drop(beacon_node);
     drop(validator_client);
 
-    // Shutdown the environment once all tasks have completed.
-    // Due to a bug in tokio: https://github.com/tokio-rs/tokio/issues/2314
-    // the `shutdown_on_idle()` will wait until the entire timeout. For the time-being, we shutdown as soon as all
-    // threads have completed, by dropping the runtime.
-    //Ok(environment.shutdown_on_idle())
-    Ok(())
+    Ok(environment.shutdown_on_idle())
 }

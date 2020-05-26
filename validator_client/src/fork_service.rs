@@ -136,7 +136,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
     /// Attempts to download the `Fork` from the server.
     async fn do_update(self) -> Result<(), ()> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let fork = self
             .inner

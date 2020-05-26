@@ -53,11 +53,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: environment::TaskExecutor,
-        network_log: slog::Logger,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     )> {
+        let network_log = executor.log().clone();
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
         // get a reference to the beacon chain store

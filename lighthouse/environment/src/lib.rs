@@ -200,8 +200,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 #[derive(Clone)]
 pub struct RuntimeContext<E: EthSpec> {
     pub executor: TaskExecutor,
-    // TODO: remove if TaskExecutor contains log
-    pub log: Logger,
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
 }
@@ -212,8 +210,11 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// The generated service will have the `service_name` in all it's logs.
     pub fn service_context(&self, service_name: String) -> Self {
         Self {
-            executor: self.executor.clone(),
-            log: self.log.new(o!("service" => service_name)),
+            executor: TaskExecutor {
+                handle: self.executor.handle.clone(),
+                exit: self.executor.exit.clone(),
+                log: self.executor.log.new(o!("service" => service_name)),
+            },
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
@@ -222,6 +223,11 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
+    }
+
+    /// Returns the logger for this service.
+    pub fn log(&self) -> &slog::Logger {
+        &self.executor.log
     }
 }
 
@@ -254,7 +260,6 @@ impl<E: EthSpec> Environment<E> {
                 handle: self.runtime().handle().clone(),
                 log: self.log.clone(),
             },
-            log: self.log.clone(),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
@@ -268,7 +273,6 @@ impl<E: EthSpec> Environment<E> {
                 handle: self.runtime().handle().clone(),
                 log: self.log.new(o!("service" => service_name.clone())),
             },
-            log: self.log.new(o!("service" => service_name)),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }

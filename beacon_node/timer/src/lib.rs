@@ -15,8 +15,8 @@ pub fn spawn_timer<T: BeaconChainTypes>(
     executor: environment::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     milliseconds_per_slot: u64,
-    log: slog::Logger,
 ) -> Result<(), &'static str> {
+    let log = executor.log();
     let start_instant = Instant::now()
         + beacon_chain
             .slot_clock
