@@ -38,18 +38,9 @@ pub struct SyncingResponse {
 pub struct Health {
     /// The pid of this process.
     pid: u32,
-    /// Threads opened by this process.
-    pid_threads: i32,
-    /// Total virtual memory size for this process.
-    pid_mem_size: usize,
-    /// Resident non-swapped memory for this process.
-    pid_mem_resident: usize,
-    /// Shared memory for this process.
-    pid_mem_share: usize,
-    /// Resident executable memory for this process.
-    pid_mem_text: usize,
-    /// Resident data and stack memory for this process.
-    pid_mem_data: usize,
+    pid_num_threads: i32,
+    pid_mem_resident_set_size: u64,
+    pid_mem_virtual_memory_size: u64,
     /// Total virtual memory on the system
     sys_virt_mem_total: u64,
     /// Total virtual memory available for new processes.
@@ -73,8 +64,12 @@ impl Health {
         let process =
             Process::current().map_err(|e| format!("Unable to get current process: {:?}", e))?;
 
-        let statm = pid::statm_self().map_err(|e| format!("Unable to get statm: {:?}", e))?;
+        let process_mem = process
+            .memory_info()
+            .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
+
         let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
+
         let vm = psutil::memory::virtual_memory()
             .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
         let loadavg =
@@ -82,12 +77,9 @@ impl Health {
 
         Ok(Self {
             pid: process.pid().into(),
-            pid_threads: stat.num_threads,
-            pid_mem_size: statm.size,
-            pid_mem_resident: statm.resident,
-            pid_mem_share: statm.share,
-            pid_mem_text: statm.text,
-            pid_mem_data: statm.data,
+            pid_num_threads: stat.num_threads,
+            pid_mem_resident_set_size: process_mem.rss().into(),
+            pid_mem_virtual_memory_size: process_mem.vms().into(),
             sys_virt_mem_total: vm.total().into(),
             sys_virt_mem_available: vm.available().into(),
             sys_virt_mem_used: vm.used().into(),
