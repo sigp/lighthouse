@@ -225,9 +225,9 @@ impl<E: EthSpec> RuntimeContext<E> {
         &self.eth2_config
     }
 
-    /// Returns the logger for this service.
+    /// Returns a reference to the logger for this service.
     pub fn log(&self) -> &slog::Logger {
-        &self.executor.log
+        self.executor.log()
     }
 }
 

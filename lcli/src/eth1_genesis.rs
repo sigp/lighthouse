@@ -46,7 +46,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
     config.lowest_cached_block_number = eth2_testnet_config.deposit_contract_deploy_block;
     config.follow_distance = spec.eth1_follow_distance / 2;
 
-    let genesis_service = Eth1GenesisService::new(config, env.core_context().log.clone());
+    let genesis_service = Eth1GenesisService::new(config, env.core_context().log().clone());
 
     env.runtime().block_on(async {
         let _ = genesis_service

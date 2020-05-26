@@ -44,8 +44,7 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _ = NetworkService::start(beacon_chain.clone(), &config, executor, log.clone())
-                .unwrap();
+            let _ = NetworkService::start(beacon_chain.clone(), &config, executor).unwrap();
             drop(signal);
         });
         runtime.shutdown_timeout(tokio::time::Duration::from_millis(300));

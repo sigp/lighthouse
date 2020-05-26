@@ -32,18 +32,18 @@ impl TaskExecutor {
         // Start the timer for how long this task runs
         if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[name]) {
             let timer = metric.start_timer();
-            let future = async move {
-                // Task is shutdown before it completes if `exit` receives
-                match future::select(Box::pin(task), exit).await {
+            // Task is shutdown before it completes if `exit` receives
+            let future = future::select(Box::pin(task), exit).then(move |either| {
+                match either {
                     future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
                     future::Either::Right(_) => {
                         debug!(log, "Async task shutdown, exit received"; "task" => name)
                     }
                 }
                 metrics::dec_gauge(&metrics::ASYNC_TASKS_COUNT);
-
                 timer.observe_duration();
-            };
+                futures::future::ready(())
+            });
 
             metrics::inc_gauge(&metrics::ASYNC_TASKS_COUNT);
             self.handle.spawn(future);
@@ -120,6 +120,7 @@ impl TaskExecutor {
         self.exit.clone()
     }
 
+    /// Returns a reference to the logger.
     pub fn log(&self) -> &slog::Logger {
         &self.log
     }
