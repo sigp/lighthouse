@@ -37,26 +37,26 @@ pub struct SyncingResponse {
 /// Reports on the health of the Lighthouse instance.
 pub struct Health {
     /// The pid of this process.
-    pid: u32,
-    pid_num_threads: i32,
-    pid_mem_resident_set_size: u64,
-    pid_mem_virtual_memory_size: u64,
+    pub pid: u32,
+    pub pid_num_threads: i32,
+    pub pid_mem_resident_set_size: u64,
+    pub pid_mem_virtual_memory_size: u64,
     /// Total virtual memory on the system
-    sys_virt_mem_total: u64,
+    pub sys_virt_mem_total: u64,
     /// Total virtual memory available for new processes.
-    sys_virt_mem_available: u64,
+    pub sys_virt_mem_available: u64,
     /// Total virtual memory used on the system
-    sys_virt_mem_used: u64,
+    pub sys_virt_mem_used: u64,
     /// Total virtual memory not used on the system
-    sys_virt_mem_free: u64,
+    pub sys_virt_mem_free: u64,
     /// Percentage of virtual memory used on the system
-    sys_virt_mem_percent: f32,
+    pub sys_virt_mem_percent: f32,
     /// System load average over 1 minute.
-    sys_loadavg_1: f64,
+    pub sys_loadavg_1: f64,
     /// System load average over 5 minutes.
-    sys_loadavg_5: f64,
+    pub sys_loadavg_5: f64,
     /// System load average over 15 minutes.
-    sys_loadavg_15: f64,
+    pub sys_loadavg_15: f64,
 }
 
 impl Health {
