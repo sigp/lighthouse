@@ -42,23 +42,23 @@ lazy_static! {
         "Number of threads used by the current process"
     );
     pub static ref PROCESS_RES_MEM: Result<IntGauge> = try_create_int_gauge(
-        "process_res_mem",
+        "process_resident_memory_bytes",
         "Resident memory used by the current process"
     );
     pub static ref PROCESS_VIRT_MEM: Result<IntGauge> = try_create_int_gauge(
-        "process_virt_mem",
+        "process_virtual_memory_bytes",
         "Virtual memory used by the current process"
     );
     pub static ref SYSTEM_VIRT_MEM_TOTAL: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_total", "Total system virtual memory");
+        try_create_int_gauge("system_virt_mem_total_bytes", "Total system virtual memory");
     pub static ref SYSTEM_VIRT_MEM_AVAILABLE: Result<IntGauge> = try_create_int_gauge(
-        "system_virt_mem_available",
+        "system_virt_mem_available_bytes",
         "Available system virtual memory"
     );
     pub static ref SYSTEM_VIRT_MEM_USED: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_used", "Used system virtual memory");
+        try_create_int_gauge("system_virt_mem_used_bytes", "Used system virtual memory");
     pub static ref SYSTEM_VIRT_MEM_FREE: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_free", "Free system virtual memory");
+        try_create_int_gauge("system_virt_mem_free_bytes", "Free system virtual memory");
     pub static ref SYSTEM_VIRT_MEM_PERCENTAGE: Result<Gauge> = try_create_float_gauge(
         "system_virt_mem_percentage",
         "Percentage of used virtual memory"
