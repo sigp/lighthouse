@@ -7,6 +7,7 @@ use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::time::delay_for;
 use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
@@ -46,6 +47,25 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let mut interval = tokio::time::interval_at(start_instant, interval_duration);
 
     let interval_future = async move {
+        // Perform pre-genesis logging.
+        loop {
+            match beacon_chain.slot_clock.duration_to_next_slot() {
+                // If the duration to the next slot is greater than the slot duration, then we are
+                // waiting for genesis.
+                Some(next_slot) if next_slot > slot_duration => {
+                    info!(
+                        log,
+                        "Waiting for genesis";
+                        "peers" => peer_count_pretty(network.connected_peers()),
+                        "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
+                    );
+                    delay_for(slot_duration).await;
+                }
+                _ => break,
+            }
+        }
+
+        // Perform post-genesis logging.
         while let Some(_) = interval.next().await {
             let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
