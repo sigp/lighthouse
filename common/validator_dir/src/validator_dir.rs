@@ -27,6 +27,9 @@ pub enum Error {
     UnableToReadPassword(PathBuf),
     UnableToDecryptKeypair(KeystoreError),
     UnableToReadDepositData(io::Error),
+    DepositDataMissing0xPrefix,
+    DepositDataNotUtf8,
+    DepositDataInvalidHex(hex::FromHexError),
     DepositAmountDoesNotExist(PathBuf),
     UnableToReadDepositAmount(io::Error),
     UnableToParseDepositAmount(std::num::ParseIntError),
@@ -160,7 +163,16 @@ impl ValidatorDir {
         if !path.exists() {
             return Ok(None);
         }
-        let deposit_data_rlp = read(path).map_err(Error::UnableToReadDepositData)?;
+        let deposit_data_rlp = read(path)
+            .map_err(Error::UnableToReadDepositData)
+            .and_then(|hex_bytes| {
+                let hex = std::str::from_utf8(&hex_bytes).map_err(|_| Error::DepositDataNotUtf8)?;
+                if hex.starts_with("0x") {
+                    hex::decode(&hex[2..]).map_err(Error::DepositDataInvalidHex)
+                } else {
+                    Err(Error::DepositDataMissing0xPrefix)
+                }
+            })?;
 
         // Read and parse `ETH1_DEPOSIT_AMOUNT_FILE`.
         let path = self.dir.join(ETH1_DEPOSIT_AMOUNT_FILE);
