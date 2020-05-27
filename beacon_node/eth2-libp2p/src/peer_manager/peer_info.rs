@@ -7,9 +7,7 @@ use serde::{
     ser::{SerializeStructVariant, Serializer},
     Serialize,
 };
-use serde_millis;
-use std::time::Duration;
-use tokio::time::Instant;
+use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
 
@@ -33,9 +31,10 @@ pub struct PeerInfo<T: EthSpec> {
     /// The ENR subnet bitfield of the peer. This may be determined after it's initial
     /// connection.
     pub meta_data: Option<MetaData<T>>,
-    /// The duration until which we no longer require this peer.
-    #[serde(with = "serde_millis")]
-    pub min_ttl: Option<Duration>,
+    /// The time we would like to retain this peer. After this time, the peer is no longer
+    /// necessary.
+    #[serde(skip)]
+    pub min_ttl: Option<Instant>,
 }
 
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {

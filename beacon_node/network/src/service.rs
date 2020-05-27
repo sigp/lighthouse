@@ -251,13 +251,11 @@ fn spawn_service<T: BeaconChainTypes>(
                     }
                     AttServiceMessage::DiscoverPeers(exact_subnet) => {
                         // add one slot to ensure we keep the peer for the subscription slot
-                        let min_ttl = service.beacon_chain.slot_clock.duration_to_slot_from_genesis(exact_subnet.slot + 1)
-                                        .unwrap_or_else(|| {
-                                            error!(service.log, "Network service failed to read slot clock");
-                                            //TODO: check what this should default to
-                                            Duration::from_secs(0)
-                                        });
-                        service.libp2p.swarm.peers_request(exact_subnet.subnet_id, min_ttl);
+                        // Note: For long-lived subnets we hold on to peers for an extra slot here
+                        // also.
+                        // TODO: Shift this logic into the attestation service.
+                        let min_ttl = service.beacon_chain.slot_clock.duration_to_slot(exact_subnet.slot + 1).map(|duration| std::time::Instant::now() + duration);
+                        service.libp2p.swarm.discover_subnet_peers(exact_subnet.subnet_id, min_ttl);
                     }
                 }
             }

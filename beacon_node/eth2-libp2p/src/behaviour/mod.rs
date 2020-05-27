@@ -1,4 +1,4 @@
-use crate::discovery::{enr::Eth2Enr, Discovery, Request};
+use crate::discovery::{enr::Eth2Enr, Discovery};
 use crate::peer_manager::{PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
@@ -25,7 +25,7 @@ use std::{
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
+    time::Instant,
 };
 use types::{EnrForkId, EthSpec, SubnetId};
 
@@ -432,13 +432,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.update_metadata();
     }
 
-    /// A request to search for peers connected to a long-lived subnet.
-    pub fn peers_request(&mut self, subnet_id: SubnetId, min_ttl: Duration) {
-        self.discovery.peers_request(Request {
-            subnet_id,
-            min_ttl,
-            retry_count: 0,
-        });
+    /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
+    /// would like to retain the peers for.
+    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+        self.discovery.discover_subnet_peers(subnet_id, min_ttl)
     }
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.

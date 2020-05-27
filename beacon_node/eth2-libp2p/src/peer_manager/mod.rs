@@ -399,13 +399,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     // stay disconnected. This helps us slowly forget disconnected peers.
                     // In the same way, slowly allow banned peers back again.
                     let dc_hours = now
-                        .checked_duration_since(since.into_std())
+                        .checked_duration_since(since)
                         .unwrap_or_else(|| Duration::from_secs(0))
                         .as_secs()
                         / 3600;
                     let last_dc_hours = self
                         ._last_updated
-                        .checked_duration_since(since.into_std())
+                        .checked_duration_since(since)
                         .unwrap_or_else(|| Duration::from_secs(0))
                         .as_secs()
                         / 3600;

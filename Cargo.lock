@@ -1019,8 +1019,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "discv5"
-version = "0.1.0-alpha.2"
-source = "git+https://github.com/sigp/discv5?rev=7b3bd40591b62b8c002ffdb85de008aa9f82e2e5#7b3bd40591b62b8c002ffdb85de008aa9f82e2e5"
+version = "0.1.0-alpha.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "453c6474f16355e2e8355e578c6350d9ff35a9fe177c0e5d95639e83673c6f80"
 dependencies = [
  "arrayvec 0.5.1",
  "digest",
@@ -1227,7 +1228,6 @@ dependencies = [
  "parking_lot 0.10.2",
  "serde",
  "serde_derive",
- "serde_millis",
  "sha2",
  "slog",
  "slog-async",
@@ -4065,15 +4065,6 @@ checksum = "993948e75b189211a9b31a7528f950c6adc21f9720b6438ff80a7fa2f864cea2"
 dependencies = [
  "itoa",
  "ryu",
- "serde",
-]
-
-[[package]]
-name = "serde_millis"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6e2dc780ca5ee2c369d1d01d100270203c4ff923d2a4264812d723766434d00"
-dependencies = [
  "serde",
 ]
 
