@@ -257,7 +257,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                             //TODO: check what this should default to
                                             Duration::from_secs(0)
                                         });
-                        service.libp2p.swarm.peers_request(exact_subnet.subnet_id, min_ttl);
+                        service.libp2p.swarm.peers_request(exact_subnet.subnet_id, tokio::time::Instant::now());
                     }
                 }
             }

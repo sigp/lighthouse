@@ -25,8 +25,8 @@ use std::{
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
 };
+use tokio::time::Instant;
 use types::{EnrForkId, EthSpec, SubnetId};
 
 mod handler;
@@ -433,7 +433,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// A request to search for peers connected to a long-lived subnet.
-    pub fn peers_request(&mut self, subnet_id: SubnetId, min_ttl: Duration) {
+    pub fn peers_request(&mut self, subnet_id: SubnetId, min_ttl: Instant) {
         self.discovery.peers_request(Request {
             subnet_id,
             min_ttl,

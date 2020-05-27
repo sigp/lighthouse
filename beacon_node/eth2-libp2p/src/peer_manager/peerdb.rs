@@ -4,7 +4,6 @@ use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use slog::{crit, debug, warn};
 use std::collections::{hash_map::Entry, HashMap};
-use std::time::Duration;
 use tokio::time::Instant;
 use types::{EthSpec, SubnetId};
 
@@ -238,16 +237,20 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Update min ttl of a peer.
-    pub fn update_min_ttl(&mut self, peer_id: &PeerId, min_ttl: Duration) {
+    pub fn update_min_ttl(&mut self, peer_id: &PeerId, min_ttl: Instant) {
         let info = self.peers.entry(peer_id.clone()).or_default();
 
         info.min_ttl = Some(min_ttl);
-        debug!(self.log, "Updating minimum duration a peer is required for"; "peer_id" => peer_id.to_string(), "min_ttl" => min_ttl.as_secs());
+        let min_ttl_secs = min_ttl
+            .checked_duration_since(Instant::now())
+            .map(|duration| duration.as_secs())
+            .unwrap_or_else(|| 0);
+        debug!(self.log, "Updating the time a peer is required for"; "peer_id" => peer_id.to_string(), "future_min_ttl_secs" => min_ttl_secs);
     }
 
-    /// Extends the required duration of all peers on the given subnet that have a shorter
+    /// Extends the ttl of all peers on the given subnet that have a shorter
     /// min_ttl than what's given
-    pub fn extend_peers_on_subnet(&mut self, subnet_id: SubnetId, min_ttl: Duration) {
+    pub fn extend_peers_on_subnet(&mut self, subnet_id: SubnetId, min_ttl: Instant) {
         self.peers
             .clone()
             .iter()
@@ -259,7 +262,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 if info.min_ttl.is_some() && info.min_ttl.unwrap() < min_ttl {
                     info.min_ttl = Some(min_ttl);
                 }
-                debug!(self.log, "Updating minimum duration a peer is required for"; "peer_id" => peer_id.to_string(), "min_ttl" => min_ttl.as_secs());
+                let min_ttl_secs = min_ttl
+                    .checked_duration_since(Instant::now())
+                    .map(|duration| duration.as_secs())
+                    .unwrap_or_else(|| 0);
+                debug!(self.log, "Updating minimum duration a peer is required for"; "peer_id" => peer_id.to_string(), "min_ttl" => min_ttl_secs);
             });
     }
 

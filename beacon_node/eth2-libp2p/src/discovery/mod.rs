@@ -36,6 +36,8 @@ use types::{EnrForkId, EthSpec, SubnetId};
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
 /// Initial delay between peer searches.
 const INITIAL_SEARCH_DELAY: u64 = 5;
+/// The number of peers we must be connected to before increasing the discovery delay.
+const MINIMUM_PEERS_BEFORE_DELAY_INCREASE: usize = 5;
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
 /// Number of peers we'd like to have connected to a given long-lived subnet.
@@ -48,7 +50,7 @@ const MAX_DISCOVERY_RETRY: u64 = 3;
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub struct Request {
     pub subnet_id: SubnetId,
-    pub min_ttl: Duration,
+    pub min_ttl: Instant,
     pub retry_count: u64,
 }
 
@@ -383,7 +385,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         };
         // predicate for finding nodes with a matching fork
-        let eth2_fork_predicate = move |enr: &Enr| enr.eth2() == Ok(enr_fork_id.clone());
+        let eth2_fork_predicate = move |enr: &Enr| {
+            enr.eth2().map(|enr| enr.fork_digest) == Ok(enr_fork_id.fork_digest.clone())
+        };
         let predicate = move |enr: &Enr| eth2_fork_predicate(enr) && enr_predicate(enr);
 
         // general predicate
@@ -504,10 +508,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         } => {
                             debug!(self.log, "Discovery query completed"; "peers_found" => closer_peers.len());
                             // update the time to the next query
-                            if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES {
+                            if self.past_discovery_delay < MAX_TIME_BETWEEN_PEER_SEARCHES
+                                && self.network_globals.connected_or_dialing_peers()
+                                    > MINIMUM_PEERS_BEFORE_DELAY_INCREASE
+                            {
                                 self.past_discovery_delay *= 2;
                             }
-                            let delay = std::cmp::max(
+                            let delay = std::cmp::min(
                                 self.past_discovery_delay,
                                 MAX_TIME_BETWEEN_PEER_SEARCHES,
                             );
