@@ -7,7 +7,7 @@ use serde::{
     ser::{SerializeStructVariant, Serializer},
     Serialize,
 };
-use tokio::time::Instant;
+use std::time::Instant;
 use types::{EthSpec, SubnetId};
 use PeerConnectionStatus::*;
 

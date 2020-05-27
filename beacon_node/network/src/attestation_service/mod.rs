@@ -14,8 +14,7 @@ use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
-use tokio::time::Instant;
+use std::time::{Duration, Instant};
 use types::{Attestation, EthSpec, Slot, SubnetId};
 
 mod tests;
@@ -502,7 +501,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // subscription time
             let expected_end_subscription_duration = slot_duration + advance_subscription_duration;
 
-            if expiry < &(Instant::now() + expected_end_subscription_duration).into_std() {
+            if expiry < &(Instant::now() + expected_end_subscription_duration) {
                 self.random_subnets
                     .update_timeout(&exact_subnet.subnet_id, expected_end_subscription_duration);
             }

@@ -18,7 +18,7 @@ use libp2p::swarm::{
     NetworkBehaviourAction, PollParameters, ProtocolsHandler,
 };
 use lru::LruCache;
-use slog::{crit, debug, info, warn};
+use slog::{crit, debug, info, trace, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
@@ -27,10 +27,14 @@ use std::{
     path::Path,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
-use tokio::time::{delay_until, Delay, Instant};
+use tokio::time::{delay_until, Delay};
 use types::{EnrForkId, EthSpec, SubnetId};
+
+mod subnet_predicate;
+
+use subnet_predicate::subnet_predicate;
 
 /// Maximum seconds before searching for extra peers.
 const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
@@ -41,17 +45,17 @@ const MINIMUM_PEERS_BEFORE_DELAY_INCREASE: usize = 5;
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
 /// Number of peers we'd like to have connected to a given long-lived subnet.
-const TARGET_SUBNET_PEERS: u64 = 3;
+const TARGET_SUBNET_PEERS: usize = 3;
 /// Number of times to attempt a discovery request
 const MAX_DISCOVERY_RETRY: u64 = 3;
 
 /// A struct representing the information associated with a single discovery request,
 /// which can be retried with multiple queries
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Request {
-    pub subnet_id: SubnetId,
-    pub min_ttl: Instant,
-    pub retry_count: u64,
+    pub query_id: Option<QueryId>,
+    pub min_ttl: Option<Instant>,
+    pub retries: u64,
 }
 
 /// Lighthouse discovery behaviour. This provides peer management and discovery using the Discv5
@@ -90,8 +94,8 @@ pub struct Discovery<TSpec: EthSpec> {
     /// A collection of network constants that can be read from other threads.
     network_globals: Arc<NetworkGlobals<TSpec>>,
 
-    /// A mapping of query ids to all information associated with each request.
-    subnet_queries: HashMap<QueryId, Request>,
+    /// A mapping of SubnetId that we are currently searching for to all information associated with each request.
+    subnet_queries: HashMap<SubnetId, Request>,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -153,7 +157,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             cached_enrs: LruCache::new(50),
             banned_peers: HashSet::new(),
             max_peers: config.max_peers,
-            peer_discovery_delay: delay_until(Instant::now()),
+            peer_discovery_delay: delay_until(tokio::time::Instant::now()),
             past_discovery_delay: INITIAL_SEARCH_DELAY,
             tcp_port: config.libp2p_port,
             discovery,
@@ -295,64 +299,93 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// A request to find peers on a given subnet.
-    // TODO: This logic should be improved with added sophistication in peer management
-    // This currently checks for currently connected peers and if we don't have
-    // PEERS_WANTED_BEFORE_DISCOVERY connected to a given subnet we search for more.
-    pub fn peers_request(&mut self, request: Request) {
+    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+        // TODO: Extend this to an event once discovery becomes a thread managed by the peer
+        // manager
+        if let Some(min_ttl) = min_ttl {
+            self.network_globals
+                .peers
+                .write()
+                .extend_peers_on_subnet(subnet_id, min_ttl);
+        }
+
+        // If there is already a discovery request in process for this subnet, ignore this request,
+        // but update the min_ttl.
+        if let Some(request) = self.subnet_queries.get_mut(&subnet_id) {
+            // update the min_ttl if required
+            if let Some(min_ttl) = min_ttl {
+                if request.min_ttl < Some(min_ttl) {
+                    request.min_ttl = Some(min_ttl);
+                }
+            }
+            return;
+        }
+
+        // Insert a request and start a query for the subnet
+        self.subnet_queries.insert(
+            subnet_id.clone(),
+            Request {
+                query_id: None,
+                min_ttl,
+                retries: 0,
+            },
+        );
+        self.run_subnet_query(subnet_id);
+    }
+
+    /// Runs a discovery request for a given subnet_id if one already exists.
+    fn run_subnet_query(&mut self, subnet_id: SubnetId) {
+        let mut request = match self.subnet_queries.remove(&subnet_id) {
+            Some(v) => v,
+            None => return, // request doesn't exist
+        };
+
+        // increment the retry count
+        request.retries += 1;
+
         let peers_on_subnet = self
             .network_globals
             .peers
             .read()
-            .peers_on_subnet(request.subnet_id)
-            .count() as u64;
+            .peers_on_subnet(subnet_id)
+            .count();
 
-        self.network_globals
-            .peers
-            .write()
-            .extend_peers_on_subnet(request.subnet_id, request.min_ttl);
-
-        if peers_on_subnet < TARGET_SUBNET_PEERS {
-            let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
-            debug!(self.log, "Searching for peers for subnet";
-                "subnet_id" => *request.subnet_id,
-                "connected_peers_on_subnet" => peers_on_subnet,
-                "target_subnet_peers" => TARGET_SUBNET_PEERS,
-                "peers_to_find" => target_peers
-            );
-
-            let log_clone = self.log.clone();
-
-            let subnet_predicate = move |enr: &Enr| {
-                if let Some(bitfield_bytes) = enr.get(BITFIELD_ENR_KEY) {
-                    let bitfield = match BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(
-                        bitfield_bytes,
-                    ) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            warn!(log_clone, "Could not decode ENR bitfield for peer"; "peer_id" => format!("{}", enr.peer_id()), "error" => format!("{:?}", e));
-                            return false;
-                        }
-                    };
-
-                    return bitfield.get(*request.subnet_id as usize).unwrap_or_else(|_| {
-                        debug!(log_clone, "Peer found but not on desired subnet"; "peer_id" => format!("{}", enr.peer_id()));
-                        false
-                    });
-                }
-                false
-            };
-
-            // start the query, and update the queries map if necessary
-            if let Some(query_id) = self.start_query(subnet_predicate, target_peers as usize) {
-                self.subnet_queries.insert(query_id, request);
-            }
-        } else {
-            debug!(self.log, "Discovery ignored";
+        if peers_on_subnet > TARGET_SUBNET_PEERS {
+            trace!(self.log, "Discovery ignored";
                 "reason" => "Already connected to desired peers",
                 "connected_peers_on_subnet" => peers_on_subnet,
                 "target_subnet_peers" => TARGET_SUBNET_PEERS,
             );
+            return;
         }
+
+        // remove the entry and complete the query if greater than the maximum search count
+        if request.retries >= MAX_DISCOVERY_RETRY {
+            debug!(
+                self.log,
+                "Subnet peer discovery did not find sufficient peers. Reached max retry limit"
+            );
+            return;
+        }
+
+        let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
+        debug!(self.log, "Searching for peers for subnet";
+            "subnet_id" => *subnet_id,
+            "connected_peers_on_subnet" => peers_on_subnet,
+            "target_subnet_peers" => TARGET_SUBNET_PEERS,
+            "peers_to_find" => target_peers,
+            "attempt" => request.retries,
+        );
+
+        // start the query, and update the queries map if necessary
+        let subnet_predicate = subnet_predicate::<TSpec>(subnet_id, &self.log);
+        if let Some(query_id) = self.start_query(subnet_predicate, target_peers) {
+            request.query_id = Some(query_id);
+        } else {
+            // ENR is not present remove the query
+            return;
+        }
+        self.subnet_queries.insert(subnet_id, request);
     }
 
     /* Internal Functions */
@@ -395,6 +428,42 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             self.discovery
                 .find_enr_predicate(random_node, predicate, num_nodes),
         )
+    }
+
+    /// Peers that are found during discovery are optionally dialed.
+    // TODO: Shift to peer manager. As its own service, discovery should spit out discovered nodes
+    // and the peer manager should decide about who to connect to.
+    fn dial_discovered_peers(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
+        for enr in peers {
+            // cache known peers
+            let peer_id = enr.peer_id();
+            self.cached_enrs.put(enr.peer_id(), enr);
+
+            // if we need more peers, attempt a connection
+            if self.network_globals.connected_or_dialing_peers() < self.max_peers
+                && !self
+                    .network_globals
+                    .peers
+                    .read()
+                    .is_connected_or_dialing(&peer_id)
+                && !self.banned_peers.contains(&peer_id)
+            {
+                debug!(self.log, "Connecting to discovered peer"; "peer_id"=> peer_id.to_string());
+                // TODO: Update output
+                // This should be updated with the peer dialing. In fact created once the peer is
+                // dialed
+                if let Some(min_ttl) = min_ttl {
+                    self.network_globals
+                        .peers
+                        .write()
+                        .update_min_ttl(&peer_id, min_ttl);
+                }
+                self.events.push_back(NetworkBehaviourAction::DialPeer {
+                    peer_id,
+                    condition: DialPeerCondition::Disconnected,
+                });
+            }
+        }
     }
 }
 
@@ -464,7 +533,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     }
                     // Set to maximum, and update to earlier, once we get our results back.
                     self.peer_discovery_delay.reset(
-                        Instant::now() + Duration::from_secs(MAX_TIME_BETWEEN_PEER_SEARCHES),
+                        tokio::time::Instant::now()
+                            + Duration::from_secs(MAX_TIME_BETWEEN_PEER_SEARCHES),
                     );
                 }
                 Poll::Pending => break,
@@ -519,64 +589,26 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                                 MAX_TIME_BETWEEN_PEER_SEARCHES,
                             );
                             self.peer_discovery_delay
-                                .reset(Instant::now() + Duration::from_secs(delay));
+                                .reset(tokio::time::Instant::now() + Duration::from_secs(delay));
 
-                            if let Some(request) = self.subnet_queries.clone().get(&query_id) {
-                                self.subnet_queries.remove(&query_id);
-
-                                // retry the request
-                                if closer_peers.is_empty()
-                                    && request.retry_count < MAX_DISCOVERY_RETRY
-                                {
-                                    debug!(self.log, "Peer Discovery request yielded no results. Retrying."; "request"=> format!("{:?}", request));
-                                    self.peers_request(Request {
-                                        subnet_id: request.subnet_id,
-                                        min_ttl: request.min_ttl,
-                                        retry_count: request.retry_count + 1,
-                                    });
-                                } else if closer_peers.is_empty() {
-                                    debug!(self.log, "Peer Discovery request yielded no results. Retry Limit reached."; "request"=> format!("{:?}", request));
-                                } else {
-                                    for enr in closer_peers {
-                                        // cache known peers
-                                        let peer_id = enr.peer_id();
-                                        self.cached_enrs.put(enr.peer_id(), enr);
-
-                                        // if we need more peers, attempt a connection
-                                        if self.network_globals.connected_or_dialing_peers()
-                                            < self.max_peers
-                                            && !self
-                                                .network_globals
-                                                .peers
-                                                .read()
-                                                .is_connected_or_dialing(&peer_id)
-                                            && !self.banned_peers.contains(&peer_id)
-                                        {
-                                            // TODO: Debugging only
-                                            // NOTE: The peer manager will get updated by the global swarm.
-                                            let connection_status = self
-                                                .network_globals
-                                                .peers
-                                                .read()
-                                                .connection_status(&peer_id);
-                                            debug!(self.log, "Connecting to discovered peer"; "peer_id"=> peer_id.to_string(), "status" => format!("{:?}", connection_status));
-
-                                            //TODO: udpate min ttl at the swarm level
-                                            self.network_globals
-                                                .peers
-                                                .write()
-                                                .update_min_ttl(&peer_id, request.min_ttl);
-                                            self.events.push_back(
-                                                NetworkBehaviourAction::DialPeer {
-                                                    peer_id,
-                                                    condition: DialPeerCondition::Disconnected,
-                                                },
-                                            );
-                                        }
-                                    }
-                                }
+                            // if this is a subnet query, run it to completion
+                            if let Some((subnet_id, min_ttl)) = self
+                                .subnet_queries
+                                .iter()
+                                .find(|(_, request)| request.query_id == Some(query_id))
+                                .map(|(subnet_id, request)| {
+                                    (subnet_id.clone(), request.min_ttl.clone())
+                                })
+                            {
+                                debug!(self.log, "Peer subnet discovery request completed"; "peers_found" => closer_peers.len(), "subnet_id" => *subnet_id);
+                                self.dial_discovered_peers(closer_peers, min_ttl);
+                                self.run_subnet_query(subnet_id);
                             } else {
-                                warn!(self.log, "Could not map this response to a previous query"; "query_id" => format!("{:?}", query_id));
+                                if closer_peers.is_empty() {
+                                    debug!(self.log, "Peer Discovery request yielded no results.");
+                                } else {
+                                    self.dial_discovered_peers(closer_peers, None);
+                                }
                             }
                         }
                         _ => {}
