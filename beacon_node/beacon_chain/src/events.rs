@@ -1,6 +1,10 @@
+use bus::Bus;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
+use slog::{error, Logger};
 use std::marker::PhantomData;
-use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use std::sync::Arc;
+use types::{Attestation, Epoch, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockHash};
 pub use websocket_server::WebSocketSender;
 
 pub trait EventHandler<T: EthSpec>: Sized + Send + Sync {
@@ -15,6 +19,50 @@ impl<T: EthSpec> EventHandler<T> for WebSocketSender<T> {
             serde_json::to_string(&kind)
                 .map_err(|e| format!("Unable to serialize event: {:?}", e))?,
         )
+    }
+}
+
+pub struct ServerSentEvents<T: EthSpec> {
+    // Bus<> is itself Sync + Send.  We use Mutex<> here only because of the surrounding code does
+    // not enforce mutability statically (i.e. relies on interior mutability).
+    head_changed_queue: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
+    log: Logger,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: EthSpec> ServerSentEvents<T> {
+    pub fn new(log: Logger) -> (Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>) {
+        let bus = Bus::new(T::slots_per_epoch() as usize);
+        let mutex = Mutex::new(bus);
+        let arc = Arc::new(mutex);
+        let this = Self {
+            head_changed_queue: arc.clone(),
+            log: log,
+            _phantom: PhantomData,
+        };
+        (this, arc)
+    }
+}
+
+impl<T: EthSpec> EventHandler<T> for ServerSentEvents<T> {
+    fn register(&self, kind: EventKind<T>) -> Result<(), String> {
+        match kind {
+            EventKind::BeaconHeadChanged {
+                current_head_beacon_block_root,
+                ..
+            } => {
+                let mut guard = self.head_changed_queue.lock();
+                if let Err(_) = guard.try_broadcast(current_head_beacon_block_root.into()) {
+                    error!(
+                        self.log,
+                        "Head change streaming queue full";
+                        "dropped_change" => format!("{}", current_head_beacon_block_root),
+                    );
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 }
 

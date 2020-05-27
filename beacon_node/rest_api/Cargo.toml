@@ -37,6 +37,8 @@ futures = "0.3.5"
 operation_pool = { path = "../operation_pool" }
 rayon = "1.3.0"
 environment = { path = "../../lighthouse/environment" }
+uhttp_sse = "0.5.1"
+bus = "2.2.3"
 
 [dev-dependencies]
 assert_matches = "1.3.0"
