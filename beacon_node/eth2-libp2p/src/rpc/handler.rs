@@ -212,7 +212,7 @@ where
             }
             InboundSubstreamState::ResponseIdle(substream) => {
                 *self = InboundSubstreamState::ResponsePendingSend {
-                    substream: substream,
+                    substream,
                     message: error,
                     closing: true,
                 };
@@ -368,7 +368,7 @@ where
             let proto = request.protocol();
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: out,
-                request: request,
+                request,
             };
             if self
                 .outbound_substreams
@@ -435,7 +435,7 @@ where
                                 // send the response
                                 // if it's a single rpc request or an error, close the stream after
                                 *substream_state = InboundSubstreamState::ResponsePendingSend {
-                                    substream: substream,
+                                    substream,
                                     message: response,
                                     closing: !res_is_multiple | res_is_error, // close if an error or we are not expecting more responses
                                 };
@@ -1000,7 +1000,7 @@ fn apply_queued_responses<TSpec: EthSpec>(
                     InboundSubstreamState::Closing(substream)
                 }
                 chunk => InboundSubstreamState::ResponsePendingSend {
-                    substream: substream,
+                    substream,
                     message: chunk,
                     closing: false,
                 },
