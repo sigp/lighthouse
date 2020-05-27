@@ -35,7 +35,7 @@ const IO_ERROR_RETRIES: u8 = 3;
 
 /// Outbound requests are associated with an id that is given by the application that sent the
 /// request.
-type OutboundRequestId = u64; // TODO: modified to highlight type differences
+type OutboundRequestId = RequestId;
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
 pub struct RPCHandler<TSpec>
@@ -82,7 +82,7 @@ where
     /// Sequential ID for waiting substreams. For inbound substreams, this is also the inbound request ID.
     current_inbound_substream_id: RequestId,
 
-    /// Sequential ID for outound substreams
+    /// Sequential ID for outbound substreams.
     current_outbound_substream_id: OutboundRequestId,
 
     /// Maximum number of concurrent outbound substreams being opened. Value is never modified.
@@ -102,6 +102,7 @@ where
     log: slog::Logger,
 }
 
+/// Contains the information the handler keeps on established outbound substreams.
 struct OutboundInfo<TSpec: EthSpec> {
     /// State of the substream.
     state: OutboundSubstreamState<TSpec>,
@@ -110,7 +111,6 @@ struct OutboundInfo<TSpec: EthSpec> {
     /// Info over the protocol this substream is handling.
     proto: Protocol,
     /// Number of chunks to be seen from the peer's response.
-    // TODO: check if this could be moved to the state.
     remaining_chunks: Option<u64>,
     /// RequestId as given by the application that sent the request.
     req_id: Option<RequestId>,
@@ -402,7 +402,10 @@ where
                 let res_is_multiple = response.multiple_responses();
 
                 let (substream_state, protocol, inbound_id) = match rpc_id {
-                    None => return, // TODO: verify this logic. What happens with a Pong response?
+                    None => {
+                        crit!(self.log, "Responses to inbound requests must have an Id");
+                        return;
+                    }
                     // check if the stream matching the response still exists
                     Some(req_id) => match self.inbound_substreams.get_mut(&req_id) {
                         Some((substream_state, _, protocol)) => (substream_state, protocol, req_id),
@@ -611,9 +614,9 @@ where
         // purge expired outbound substreams
         loop {
             match self.outbound_substreams_delay.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(stream_id))) => {
+                Poll::Ready(Some(Ok(outbound_id))) => {
                     if let Some(OutboundInfo { proto, req_id, .. }) =
-                        self.outbound_substreams.remove(stream_id.get_ref())
+                        self.outbound_substreams.remove(outbound_id.get_ref())
                     {
                         // notify the user
                         return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
@@ -622,7 +625,7 @@ where
                             RPCError::StreamTimeout,
                         )));
                     } else {
-                        crit!(self.log, "timed out substream not in the books"; "stream_id" => stream_id.get_ref());
+                        crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
                     }
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -816,6 +819,7 @@ where
 
         // drive outbound streams that need to be processed
         for outbound_id in self.outbound_substreams.keys().copied().collect::<Vec<_>>() {
+            // get the state and mark it as poisoned
             let (mut entry, state) = match self.outbound_substreams.entry(outbound_id) {
                 Entry::Occupied(mut entry) => {
                     let state = std::mem::replace(
