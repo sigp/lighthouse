@@ -11,6 +11,7 @@ use types::EthSpec;
 use validator_dir::Manager as ValidatorManager;
 use web3::{
     transports::Ipc,
+    transports::Http,
     types::{Address, SyncInfo, SyncState, TransactionRequest, U256},
     Transport, Web3,
 };
@@ -18,6 +19,7 @@ use web3::{
 pub const CMD: &str = "deposit";
 pub const VALIDATOR_FLAG: &str = "validator";
 pub const ETH1_IPC_FLAG: &str = "eth1-ipc";
+pub const ETH1_RPC_FLAG: &str = "eth1-rpc";
 pub const FROM_ADDRESS_FLAG: &str = "from-address";
 
 const GWEI: u64 = 1_000_000_000;
@@ -64,7 +66,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("ETH1_IPC_PATH")
                 .help("Path to an Eth1 JSON-RPC IPC endpoint")
                 .takes_value(true)
-                .required(true),
+                .required_unless(ETH1_RPC_FLAG)
+                .conflicts_with(ETH1_RPC_FLAG),
+        )
+        .arg(
+            Arg::with_name(ETH1_RPC_FLAG)
+                .long(ETH1_RPC_FLAG)
+                .value_name("ETH1_RPC_URL")
+                .help("Path to an Eth1 JSON-RPC endpoint")
+                .takes_value(true)
+                .required_unless(ETH1_IPC_FLAG)
+                .conflicts_with(ETH1_IPC_FLAG),
         )
         .arg(
             Arg::with_name(FROM_ADDRESS_FLAG)
@@ -91,7 +103,8 @@ pub fn cli_run<T: EthSpec>(
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
     let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
-    let eth1_ipc_path: PathBuf = clap_utils::parse_required(matches, ETH1_IPC_FLAG)?;
+    let eth1_ipc_path: PathBuf = clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?.unwrap_or_else(|| PathBuf::new());
+    let eth1_rpc_url: String = clap_utils::parse_optional(matches, ETH1_RPC_FLAG)?.unwrap_or_else(|| "".to_string());
     let from_address: Address = clap_utils::parse_required(matches, FROM_ADDRESS_FLAG)?;
 
     let manager = ValidatorManager::open(&data_dir)
@@ -167,39 +180,76 @@ pub fn cli_run<T: EthSpec>(
         return Err("Refusing to deposit to the zero address. Check testnet configuration.".into());
     }
 
-    let (_event_loop_handle, transport) =
-        Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
-    let web3 = Web3::new(transport);
+    if eth1_rpc_url.len() > 0 {
+        let (_event_loop_handle, http_transport) =
+            Http::new(eth1_rpc_url.as_str()).map_err(|e| format!("Unable to connect to eth1 RPC: {:?}", e))?;
+        let web3_http = Web3::new(http_transport);
 
-    let deposits_fut = async {
-        poll_until_synced(web3.clone(), log.clone()).await?;
+        let deposits_fut = async {
+            poll_until_synced(web3_http.clone(), log.clone()).await?;
 
-        for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
-            let tx_hash = web3
-                .eth()
-                .send_transaction(TransactionRequest {
-                    from: from_address,
-                    to: Some(deposit_contract),
-                    gas: Some(DEPOSIT_GAS.into()),
-                    gas_price: None,
-                    value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
-                    data: Some(eth1_deposit_data.rlp.into()),
-                    nonce: None,
-                    condition: None,
-                })
-                .compat()
-                .await
-                .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
+            for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
+                let tx_hash = web3_http
+                    .eth()
+                    .send_transaction(TransactionRequest {
+                        from: from_address,
+                        to: Some(deposit_contract),
+                        gas: Some(DEPOSIT_GAS.into()),
+                        gas_price: None,
+                        value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
+                        data: Some(eth1_deposit_data.rlp.into()),
+                        nonce: None,
+                        condition: None,
+                    })
+                    .compat()
+                    .await
+                    .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
 
-            validator_dir
-                .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
-                .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
-        }
+                validator_dir
+                    .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
+                    .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
+            }
 
-        Ok::<(), String>(())
-    };
+            Ok::<(), String>(())
+        };
 
-    env.runtime().block_on(deposits_fut)?;
+        env.runtime().block_on(deposits_fut)?;
+    }
+    else {
+        let (_event_loop_handle, ipc_transport) =
+            Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
+        let web3_ipc = Web3::new(ipc_transport);
+
+        let deposits_fut = async {
+            poll_until_synced(web3_ipc.clone(), log.clone()).await?;
+
+            for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
+                let tx_hash = web3_ipc
+                    .eth()
+                    .send_transaction(TransactionRequest {
+                        from: from_address,
+                        to: Some(deposit_contract),
+                        gas: Some(DEPOSIT_GAS.into()),
+                        gas_price: None,
+                        value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
+                        data: Some(eth1_deposit_data.rlp.into()),
+                        nonce: None,
+                        condition: None,
+                    })
+                    .compat()
+                    .await
+                    .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
+
+                validator_dir
+                    .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
+                    .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
+            }
+
+            Ok::<(), String>(())
+        };
+
+        env.runtime().block_on(deposits_fut)?;
+    }
 
     Ok(())
 }
