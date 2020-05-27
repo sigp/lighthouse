@@ -183,8 +183,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         iter.for_each(|validator_pubkey| {
             let service = self.clone();
             let log = log.clone();
-            // TODO: run this task with a `spawn_without_name`
-            self.inner.context.executor.spawn(
+            self.inner.context.executor.runtime_handle().spawn(
                 service
                     .publish_block(slot, validator_pubkey)
                     .map_err(move |e| {
@@ -193,9 +192,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             "Error whilst producing block";
                             "message" => e
                         )
-                    })
-                    .unwrap_or_else(|_| ()),
-                "publish_block",
+                    }),
             );
         });
 
