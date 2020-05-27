@@ -10,8 +10,8 @@ use tokio::time::{delay_until, Duration, Instant};
 use types::EthSpec;
 use validator_dir::Manager as ValidatorManager;
 use web3::{
-    transports::Ipc,
     transports::Http,
+    transports::Ipc,
     types::{Address, SyncInfo, SyncState, TransactionRequest, U256},
     Transport, Web3,
 };
@@ -103,8 +103,10 @@ pub fn cli_run<T: EthSpec>(
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
     let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
-    let eth1_ipc_path: PathBuf = clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?.unwrap_or_else(|| PathBuf::new());
-    let eth1_rpc_url: String = clap_utils::parse_optional(matches, ETH1_RPC_FLAG)?.unwrap_or_else(|| "".to_string());
+    let eth1_ipc_path: PathBuf =
+        clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?.unwrap_or_else(|| PathBuf::new());
+    let eth1_rpc_url: String =
+        clap_utils::parse_optional(matches, ETH1_RPC_FLAG)?.unwrap_or_else(|| "".to_string());
     let from_address: Address = clap_utils::parse_required(matches, FROM_ADDRESS_FLAG)?;
 
     let manager = ValidatorManager::open(&data_dir)
@@ -181,8 +183,8 @@ pub fn cli_run<T: EthSpec>(
     }
 
     if eth1_rpc_url.len() > 0 {
-        let (_event_loop_handle, http_transport) =
-            Http::new(eth1_rpc_url.as_str()).map_err(|e| format!("Unable to connect to eth1 RPC: {:?}", e))?;
+        let (_event_loop_handle, http_transport) = Http::new(eth1_rpc_url.as_str())
+            .map_err(|e| format!("Unable to connect to eth1 RPC: {:?}", e))?;
         let web3_http = Web3::new(http_transport);
 
         let deposits_fut = async {
@@ -207,17 +209,18 @@ pub fn cli_run<T: EthSpec>(
 
                 validator_dir
                     .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
-                    .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
+                    .map_err(|e| {
+                        format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e)
+                    })?;
             }
 
             Ok::<(), String>(())
         };
 
         env.runtime().block_on(deposits_fut)?;
-    }
-    else {
-        let (_event_loop_handle, ipc_transport) =
-            Ipc::new(eth1_ipc_path).map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
+    } else {
+        let (_event_loop_handle, ipc_transport) = Ipc::new(eth1_ipc_path)
+            .map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
         let web3_ipc = Web3::new(ipc_transport);
 
         let deposits_fut = async {
@@ -242,7 +245,9 @@ pub fn cli_run<T: EthSpec>(
 
                 validator_dir
                     .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
-                    .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
+                    .map_err(|e| {
+                        format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e)
+                    })?;
             }
 
             Ok::<(), String>(())
