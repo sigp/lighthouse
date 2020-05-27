@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TESTNET_ID: &str = "schlesi-v0-11";
+const TESTNET_ID: &str = "witti-v0-11-3";
 
 fn main() {
     if !base_dir().exists() {
@@ -38,7 +38,7 @@ pub fn get_all_files() -> Result<(), String> {
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/goerli/schlesi/839866fe29a1b4df3a87bfe2ff1257c8a58671c9/light/{}",
+        "https://raw.githubusercontent.com/sigp/witti/6d079b0f10f6bed75cd003e5f0ea5ecbe2044455/lighthouse/{}",
         filename
     );
 

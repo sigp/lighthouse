@@ -97,6 +97,12 @@ impl<'a> KeystoreBuilder<'a> {
         }
     }
 
+    /// Build the keystore using the supplied `kdf` instead of `crate::default_kdf`.
+    pub fn kdf(mut self, kdf: Kdf) -> Self {
+        self.kdf = kdf;
+        self
+    }
+
     /// Consumes `self`, returning a `Keystore`.
     pub fn build(self) -> Result<Keystore, Error> {
         Keystore::encrypt(
@@ -206,6 +212,11 @@ impl Keystore {
     /// Returns the pubkey for the keystore.
     pub fn pubkey(&self) -> &str {
         &self.json.pubkey
+    }
+
+    /// Returns the key derivation function for the keystore.
+    pub fn kdf(&self) -> &Kdf {
+        &self.json.crypto.kdf.params
     }
 
     /// Encodes `self` as a JSON object.

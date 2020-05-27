@@ -14,13 +14,14 @@ pub use config::Config;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
+use config::SLASHING_PROTECTION_FILENAME;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use fork_service::{ForkService, ForkServiceBuilder};
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{error, info, Logger};
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -70,6 +71,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "beacon_node" => &config.http_server,
             "datadir" => format!("{:?}", config.data_dir),
         );
+
+        if !config.data_dir.join(SLASHING_PROTECTION_FILENAME).exists() && !config.auto_register {
+            warn!(
+                log_1,
+                "Will not register any validators";
+                "msg" => "strongly consider using --auto-register on the first use",
+            );
+        }
 
         let beacon_node =
             RemoteBeaconNode::new_with_timeout(config.http_server.clone(), HTTP_TIMEOUT)

@@ -21,7 +21,7 @@ regex = "1.3.7"
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 futures = { version = "0.3.5", features = ["compat"] }
 environment = { path = "../lighthouse/environment" }
-web3 = "0.10.0"
+web3 = "0.11.0"
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
 dirs = "2.0.2"
 genesis = { path = "../beacon_node/genesis" }
@@ -30,6 +30,6 @@ tree_hash = "0.1.0"
 tokio = { version = "0.2.20", features = ["full"] }
 clap_utils = { path = "../common/clap_utils" }
 eth2-libp2p = { path = "../beacon_node/eth2-libp2p" }
-validator_dir = { path = "../common/validator_dir", features = ["unencrypted_keys"] }
+validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
 rand = "0.7.2"
 eth2_keystore = { path = "../crypto/eth2_keystore" }

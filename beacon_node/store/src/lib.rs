@@ -59,23 +59,39 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 
     /// Store an item in `Self`.
-    fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
-        item.db_put(self, key)
+    fn put<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.put_bytes(column, key, &item.as_store_bytes())
+            .map_err(Into::into)
     }
 
     /// Retrieve an item from `Self`.
-    fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
-        I::db_get(self, key)
+    fn get<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        match self.get_bytes(column, key)? {
+            Some(bytes) => Ok(Some(I::from_store_bytes(&bytes[..])?)),
+            None => Ok(None),
+        }
     }
 
     /// Returns `true` if the given key represents an item in `Self`.
-    fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
-        I::db_exists(self, key)
+    fn exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.key_exists(column, key)
     }
 
     /// Remove an item from `Self`.
-    fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
-        I::db_delete(self, key)
+    fn delete<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<(), Error> {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.key_delete(column, key)
     }
 
     /// Store a block in the store.
@@ -107,7 +123,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         state_root: &Hash256,
         summary: HotStateSummary,
     ) -> Result<(), Error> {
-        summary.db_put(self, state_root).map_err(Into::into)
+        self.put(state_root, &summary).map_err(Into::into)
     }
 
     /// Fetch a state from the store.
@@ -247,63 +263,6 @@ pub trait SimpleStoreItem: Sized {
     ///
     /// Return an instance of the type and the number of bytes that were read.
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
-}
-
-/// An item that may be stored in a `Store`.
-pub trait StoreItem: Sized {
-    /// Store `self`.
-    fn db_put<S: Store<E>, E: EthSpec>(&self, store: &S, key: &Hash256) -> Result<(), Error>;
-
-    /// Retrieve an instance of `Self` from `store`.
-    fn db_get<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<Option<Self>, Error>;
-
-    /// Return `true` if an instance of `Self` exists in `store`.
-    fn db_exists<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<bool, Error>;
-
-    /// Delete an instance of `Self` from `store`.
-    fn db_delete<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<(), Error>;
-}
-
-impl<T> StoreItem for T
-where
-    T: SimpleStoreItem,
-{
-    /// Store `self`.
-    fn db_put<S: Store<E>, E: EthSpec>(&self, store: &S, key: &Hash256) -> Result<(), Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        store
-            .put_bytes(column, key, &self.as_store_bytes())
-            .map_err(Into::into)
-    }
-
-    /// Retrieve an instance of `Self`.
-    fn db_get<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<Option<Self>, Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        match store.get_bytes(column, key)? {
-            Some(bytes) => Ok(Some(Self::from_store_bytes(&bytes[..])?)),
-            None => Ok(None),
-        }
-    }
-
-    /// Return `true` if an instance of `Self` exists in `Store`.
-    fn db_exists<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<bool, Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        store.key_exists(column, key)
-    }
-
-    /// Delete `self` from the `Store`.
-    fn db_delete<S: Store<E>, E: EthSpec>(store: &S, key: &Hash256) -> Result<(), Error> {
-        let column = Self::db_column().into();
-        let key = key.as_bytes();
-
-        store.key_delete(column, key)
-    }
 }
 
 #[cfg(test)]
