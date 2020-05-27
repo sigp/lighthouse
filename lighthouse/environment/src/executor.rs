@@ -21,6 +21,7 @@ impl TaskExecutor {
     pub fn new(handle: Handle, exit: exit_future::Exit, log: slog::Logger) -> Self {
         Self { handle, exit, log }
     }
+
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
     /// when the corresponding exit_future `Signal` is fired/dropped.
     ///
@@ -29,10 +30,9 @@ impl TaskExecutor {
         let exit = self.exit.clone();
         let log = self.log.clone();
 
-        // Start the timer for how long this task runs
-        if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[name]) {
-            let timer = metric.start_timer();
+        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
+            let int_gauge_1 = int_gauge.clone();
             let future = future::select(Box::pin(task), exit).then(move |either| {
                 match either {
                     future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
@@ -40,12 +40,11 @@ impl TaskExecutor {
                         debug!(log, "Async task shutdown, exit received"; "task" => name)
                     }
                 }
-                metrics::dec_gauge(&metrics::ASYNC_TASKS_COUNT);
-                timer.observe_duration();
+                int_gauge_1.dec();
                 futures::future::ready(())
             });
 
-            metrics::inc_gauge(&metrics::ASYNC_TASKS_COUNT);
+            int_gauge.inc();
             self.handle.spawn(future);
         }
     }
@@ -64,19 +63,18 @@ impl TaskExecutor {
         task: impl Future<Output = ()> + Send + 'static,
         name: &'static str,
     ) {
-        // Start the timer for how long this task runs
-        if let Some(metric) = metrics::get_histogram(&metrics::ASYNC_TASKS_HISTOGRAM, &[name]) {
-            let timer = metric.start_timer();
-            let future = async move {
-                task.await;
-                metrics::dec_gauge(&metrics::ASYNC_TASKS_COUNT);
-                timer.observe_duration();
-            };
+        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
+            let int_gauge_1 = int_gauge.clone();
+            let future = task.then(move |_| {
+                int_gauge_1.dec();
+                futures::future::ready(())
+            });
 
-            metrics::inc_gauge(&metrics::ASYNC_TASKS_COUNT);
+            int_gauge.inc();
             self.handle.spawn(future);
         }
     }
+
     /// Spawn a blocking task on a dedicated tokio thread pool wrapped in an exit future.
     /// This function generates prometheus metrics on number of tasks and task duration.
     pub fn spawn_blocking<F>(&self, task: F, name: &'static str)
@@ -86,27 +84,30 @@ impl TaskExecutor {
         let exit = self.exit.clone();
         let log = self.log.clone();
 
-        // Start the timer for how long this task runs
         if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
-            let timer = metric.start_timer();
-            let join_handle = self.handle.spawn_blocking(task);
+            if let Some(int_gauge) = metrics::get_int_gauge(&metrics::BLOCKING_TASKS_COUNT, &[name])
+            {
+                let int_gauge_1 = int_gauge.clone();
+                let timer = metric.start_timer();
+                let join_handle = self.handle.spawn_blocking(task);
 
-            let future = async move {
-                // Task is shutdown before it completes if `exit` receives
-                match future::select(join_handle, exit).await {
-                    future::Either::Left(_) => {
-                        trace!(log, "Blocking task completed"; "task" => name)
+                let future = future::select(join_handle, exit).then(move |either| {
+                    match either {
+                        future::Either::Left(_) => {
+                            trace!(log, "Blocking task completed"; "task" => name)
+                        }
+                        future::Either::Right(_) => {
+                            debug!(log, "Blocking task shutdown, exit received"; "task" => name)
+                        }
                     }
-                    future::Either::Right(_) => {
-                        debug!(log, "Async task shutdown, exit received"; "task" => name)
-                    }
-                }
-                metrics::dec_gauge(&metrics::BLOCKING_TASKS_COUNT);
-                timer.observe_duration();
-            };
+                    timer.observe_duration();
+                    int_gauge_1.dec();
+                    futures::future::ready(())
+                });
 
-            metrics::inc_gauge(&metrics::BLOCKING_TASKS_COUNT);
-            self.handle.spawn(future);
+                int_gauge.inc();
+                self.handle.spawn(future);
+            }
         }
     }
 

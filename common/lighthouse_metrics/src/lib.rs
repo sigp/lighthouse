@@ -57,7 +57,7 @@
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 pub use prometheus::{
-    Encoder, Gauge, Histogram, HistogramVec, IntCounter, IntGauge, Result, TextEncoder,
+    Encoder, Gauge, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result, TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
@@ -112,6 +112,27 @@ pub fn try_create_histogram_vec(
     let histogram_vec = HistogramVec::new(opts, label_names)?;
     prometheus::register(Box::new(histogram_vec.clone()))?;
     Ok(histogram_vec)
+}
+
+/// Attempts to crate a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_int_gauge_vec(
+    name: &str,
+    help: &str,
+    label_names: &[&str],
+) -> Result<IntGaugeVec> {
+    let opts = Opts::new(name, help);
+    let counter_vec = IntGaugeVec::new(opts, label_names)?;
+    prometheus::register(Box::new(counter_vec.clone()))?;
+    Ok(counter_vec)
+}
+
+pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Option<IntGauge> {
+    if let Ok(int_gauge_vec) = int_gauge_vec {
+        Some(int_gauge_vec.get_metric_with_label_values(name).ok()?)
+    } else {
+        None
+    }
 }
 
 pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Option<Histogram> {
