@@ -62,7 +62,7 @@ impl ExitTest {
     fn run(self) -> BeaconState<E> {
         let spec = &E::default_spec();
         let expected = self.expected.clone();
-        assert_eq!(STATE_EPOCH, spec.persistent_committee_period);
+        assert_eq!(STATE_EPOCH, spec.shard_committee_period);
 
         let (block, mut state) = self.block_and_pre_state();
 
