@@ -44,6 +44,6 @@ bls = { path = "../crypto/bls" }
 remote_beacon_node = { path = "../common/remote_beacon_node" }
 tempdir = "0.3.7"
 rayon = "1.3.0"
-web3 = "0.10.0"
+web3 = "0.11.0"
 validator_dir = { path = "../common/validator_dir" }
 clap_utils = { path = "../common/clap_utils" }

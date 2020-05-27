@@ -19,6 +19,7 @@ rand = "0.7.2"
 deposit_contract = { path = "../deposit_contract" }
 rayon = "1.3.0"
 tree_hash = { path = "../../consensus/tree_hash" }
+slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 hex = "0.4.2"
 
 [dev-dependencies]

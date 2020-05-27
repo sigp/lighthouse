@@ -244,5 +244,6 @@ fn run<E: EthSpec>(
     drop(beacon_node);
     drop(validator_client);
 
+    // Shutdown the environment once all tasks have completed.
     Ok(environment.shutdown_on_idle())
 }

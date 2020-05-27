@@ -298,7 +298,7 @@ impl<E: EthSpec> Environment<E> {
     /// Shutdown the `tokio` runtime when all tasks are idle.
     pub fn shutdown_on_idle(self) {
         self.runtime
-            .shutdown_timeout(std::time::Duration::from_secs(5))
+            .shutdown_timeout(std::time::Duration::from_secs(2))
     }
 
     /// Fire exit signal which shuts down all spawned services

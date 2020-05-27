@@ -5,14 +5,16 @@
 # `./local_testnet_genesis_state`.
 #
 
-TESTNET_DIR=~/.lighthouse/local-testnet/testnet
-DATADIR=~/.lighthouse/local-testnet/beacon
+source ./vars.env
+
 DEBUG_LEVEL=${1:-info}
 
 exec lighthouse \
 	--debug-level $DEBUG_LEVEL \
 	bn \
-	--datadir $DATADIR \
+	--datadir $BEACON_DIR-2 \
 	--testnet-dir $TESTNET_DIR \
 	--dummy-eth1 \
-	--http
+	--http \
+	--http-port 6052 \
+	--boot-nodes $(cat $BEACON_DIR/beacon/network/enr.dat)
