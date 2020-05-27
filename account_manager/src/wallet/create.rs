@@ -1,5 +1,5 @@
 use crate::{
-    common::{random_password, strip_off_newline_codes},
+    common::{random_password, strip_off_newlines},
     BASE_DIR_FLAG,
 };
 use clap::{App, Arg, ArgMatches};
@@ -107,8 +107,8 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
     let wallet_password = fs::read(&wallet_password_path)
         .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|mut bytes| {
-            bytes = strip_off_newline_codes(&mut bytes);
+        .map(|bytes| {
+            let bytes = strip_off_newlines(bytes);
             PlainText::from(bytes)
         })?;
 

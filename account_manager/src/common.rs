@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 /// 62**48 is greater than 255**32, therefore this password has more bits of entropy than a byte
 /// array of length 32.
 const DEFAULT_PASSWORD_LEN: usize = 48;
-const NEWLINE_SLASH_N: u8 = 10;
-const NEWLINE_SLASH_R: u8 = 13;
 
 pub fn random_password() -> PlainText {
     rand::thread_rng()
@@ -40,60 +38,56 @@ pub fn base_wallet_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBu
     )
 }
 
-pub fn strip_off_newline_codes(bytes: &mut Vec<u8>) -> Vec<u8> {
+/// Remove any number of newline or carriage returns from the end of a vector of bytes.
+pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
     let mut strip_off = 0;
     for (i, byte) in bytes.iter().rev().enumerate() {
-        if *byte == NEWLINE_SLASH_N || *byte == NEWLINE_SLASH_R {
+        if *byte == b'\n' || *byte == b'\r' {
             strip_off = i + 1;
         } else {
             break;
         }
     }
-    bytes.resize(bytes.len() - strip_off, 0);
+    bytes.truncate(bytes.len() - strip_off);
 
     bytes.to_vec()
 }
 
 #[cfg(test)]
 mod test {
-    use super::strip_off_newline_codes;
+    use super::strip_off_newlines;
 
     #[test]
     fn test_strip_off() {
-        let expected_bytes: Vec<u8> = vec![108, 105, 103, 104, 116, 104, 111, 117, 115, 101];
+        let expected = "hello world".as_bytes().to_vec();
 
-        let mut bytes: Vec<u8> = vec![108, 105, 103, 104, 116, 104, 111, 117, 115, 101, 10];
-        bytes = strip_off_newline_codes(&mut bytes);
-        assert_eq!(bytes, expected_bytes);
-
-        let mut bytes: Vec<u8> = vec![
-            108, 105, 103, 104, 116, 104, 111, 117, 115, 101, 10, 10, 10, 10,
-        ];
-        bytes = strip_off_newline_codes(&mut bytes);
-        assert_eq!(bytes, expected_bytes);
-
-        let mut bytes: Vec<u8> = vec![108, 105, 103, 104, 116, 104, 111, 117, 115, 101, 13];
-        bytes = strip_off_newline_codes(&mut bytes);
-        assert_eq!(bytes, expected_bytes);
-
-        let mut bytes: Vec<u8> = vec![
-            108, 105, 103, 104, 116, 104, 111, 117, 115, 101, 13, 13, 13, 13, 13, 13,
-        ];
-        bytes = strip_off_newline_codes(&mut bytes);
-        assert_eq!(bytes, expected_bytes);
-
-        let mut bytes: Vec<u8> = vec![108, 105, 103, 104, 116, 104, 111, 117, 115, 101, 13, 10];
-        bytes = strip_off_newline_codes(&mut bytes);
-        assert_eq!(bytes, expected_bytes);
-
-        let mut bytes: Vec<u8> = vec![
-            108, 105, 103, 104, 116, 104, 111, 117, 115, 101, 13, 10, 13, 10, 13, 10,
-        ];
-        bytes = strip_off_newline_codes(&mut bytes);
-        assert_eq!(bytes, expected_bytes);
-
-        let mut bytes: Vec<u8> = vec![108, 105, 103, 104, 116, 104, 111, 117, 115, 101];
-        bytes = strip_off_newline_codes(&mut bytes);
-        assert_eq!(bytes, expected_bytes);
+        assert_eq!(
+            strip_off_newlines("hello world\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\n\n\n\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r\r\r\r\r".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r\n\r\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world".as_bytes().to_vec()),
+            expected
+        );
     }
 }
