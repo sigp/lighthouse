@@ -1,9 +1,14 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use fork_choice_store::ForkChoiceStore;
 use proto_array_fork_choice::{core::ProtoArray, Error as ProtoArrayError, ProtoArrayForkChoice};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use types::{BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, Slot,
+};
+
+mod fork_choice_store;
 
 const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 
@@ -30,35 +35,8 @@ impl From<String> for Error {
 type Balances = Vec<u64>;
 type BalancesCache = HashMap<Hash256, (Epoch, Balances)>;
 
-pub struct ForkChoiceStore<T: BeaconChainTypes> {
-    chain: BeaconChain<T>,
-    slot_clock: T::SlotClock,
-    time: Slot,
-    finalized_checkpoint: Checkpoint,
-    justified_checkpoint: Checkpoint,
-    best_justified_checkpoint: Checkpoint,
-    balances: BalancesCache,
-}
-
-impl<T: BeaconChainTypes> ForkChoiceStore<T> {
-    pub fn update_time(&mut self) -> Result<(), Error> {
-        loop {
-            let time = self
-                .slot_clock
-                .now()
-                .ok_or_else(|| Error::UnableToReadSlot)?;
-
-            if self.time < time {
-                on_tick(self, time)?;
-            } else {
-                break Ok(());
-            }
-        }
-    }
-}
-
 pub fn get_current_slot<T: BeaconChainTypes>(store: &ForkChoiceStore<T>) -> Slot {
-    store.time
+    *store.time()
 }
 
 pub fn on_tick<T: BeaconChainTypes>(
@@ -68,7 +46,7 @@ pub fn on_tick<T: BeaconChainTypes>(
     let previous_slot = get_current_slot(store);
 
     // Update store time.
-    store.time = time;
+    *store.time() = time;
 
     let current_slot = get_current_slot(store);
     if !(current_slot > previous_slot
@@ -77,8 +55,8 @@ pub fn on_tick<T: BeaconChainTypes>(
         return Ok(());
     }
 
-    if store.best_justified_checkpoint.epoch > store.justified_checkpoint.epoch {
-        store.justified_checkpoint = store.best_justified_checkpoint
+    if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
+        store.set_justified_checkpoint_to_best_justified_checkpoint();
     }
 
     Ok(())
@@ -97,9 +75,9 @@ fn should_update_justified_checkpoint<T: BeaconChainTypes>(
     }
 
     let justified_slot =
-        compute_start_slot_at_epoch::<T::EthSpec>(store.justified_checkpoint.epoch);
+        compute_start_slot_at_epoch::<T::EthSpec>(store.justified_checkpoint().epoch);
     if get_ancestor(store, state, new_justified_checkpoint.root, justified_slot)?
-        != store.justified_checkpoint.root
+        != store.justified_checkpoint().root
     {
         return Ok(false);
     }
@@ -116,7 +94,7 @@ fn get_ancestor<T: BeaconChainTypes>(
     let root = match state.get_block_root(slot) {
         Ok(root) => *root,
         Err(_) => store
-            .chain
+            .chain()
             .get_ancestor_block_root(root, slot)?
             .ok_or_else(|| Error::AncestorUnknown(root))?,
     };
@@ -149,6 +127,76 @@ pub struct ForkChoice<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> ForkChoice<T> {
+    /// Run the fork choice rule to determine the head.
+    pub fn find_head(&mut self, chain: &BeaconChain<T>) -> Result<Hash256, Error> {
+        let timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
+
+        let store = &mut self.fc_store;
+
+        // Ensure the store is up-to-date.
+        store.update_time()?;
+
+        let remove_alias = |root| {
+            if root == Hash256::zero() {
+                self.genesis_block_root
+            } else {
+                root
+            }
+        };
+
+        let result = self
+            .proto_array
+            .find_head(
+                store.justified_checkpoint().epoch,
+                remove_alias(store.justified_checkpoint().root),
+                store.finalized_checkpoint().epoch,
+                store.justified_balances(),
+            )
+            .map_err(Into::into);
+
+        metrics::stop_timer(timer);
+
+        result
+    }
+
+    pub fn on_attestation(
+        &mut self,
+        attestation: &IndexedAttestation<T::EthSpec>,
+    ) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+        self.fc_store.update_time()?;
+
+        // Ensure the store is up-to-date.
+        let block_hash = attestation.data.beacon_block_root;
+
+        // Ignore any attestations to the zero hash.
+        //
+        // This is an edge case that results from the spec aliasing the zero hash to the genesis
+        // block. Attesters may attest to the zero hash if they have never seen a block.
+        //
+        // We have two options here:
+        //
+        //  1. Apply all zero-hash attestations to the zero hash.
+        //  2. Ignore all attestations to the zero hash.
+        //
+        // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
+        // fine because votes to the genesis block are not useful; all validators implicitly attest
+        // to genesis just by being present in the chain.
+        //
+        // Additionally, don't add any block hash to fork choice unless we have imported the block.
+        if block_hash != Hash256::zero() {
+            for validator_index in attestation.attesting_indices.iter() {
+                self.proto_array.process_attestation(
+                    *validator_index as usize,
+                    block_hash,
+                    attestation.data.target.epoch,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn on_block(
         &mut self,
         block: &BeaconBlock<T::EthSpec>,
@@ -156,11 +204,13 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), Error> {
         let store = &mut self.fc_store;
+
+        // Ensure the store is up-to-date.
         store.update_time()?;
 
         // TODO: stuff here
-        if state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch {
-            if state.current_justified_checkpoint.epoch > store.best_justified_checkpoint.epoch {
+        if state.current_justified_checkpoint.epoch > store.justified_checkpoint().epoch {
+            if state.current_justified_checkpoint.epoch > store.best_justified_checkpoint().epoch {
                 store.best_justified_checkpoint = state.current_justified_checkpoint;
             }
             if should_update_justified_checkpoint(store, state)? {
@@ -168,18 +218,18 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             }
         }
 
-        if state.finalized_checkpoint.epoch > store.finalized_checkpoint.epoch {
+        if state.finalized_checkpoint.epoch > store.finalized_checkpoint().epoch {
             store.finalized_checkpoint = state.finalized_checkpoint;
             let finalized_slot =
-                compute_start_slot_at_epoch::<T::EthSpec>(store.finalized_checkpoint.epoch);
+                compute_start_slot_at_epoch::<T::EthSpec>(store.finalized_checkpoint().epoch);
 
-            if state.current_justified_checkpoint.epoch > store.justified_checkpoint.epoch
+            if state.current_justified_checkpoint.epoch > store.justified_checkpoint().epoch
                 || get_ancestor(
                     store,
                     state,
-                    store.justified_checkpoint.root,
+                    store.justified_checkpoint().root,
                     finalized_slot,
-                )? != store.finalized_checkpoint.root
+                )? != store.finalized_checkpoint().root
             {
                 store.justified_checkpoint = state.current_justified_checkpoint;
             }
