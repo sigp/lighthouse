@@ -38,18 +38,13 @@ pub fn base_wallet_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBu
     )
 }
 
-/// Remove any number of newline or carriage returns from the end of a vector of bytes.
-pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
-    let mut strip_off = 0;
-    for (i, byte) in bytes.iter().rev().enumerate() {
-        if *byte == b'\n' || *byte == b'\r' {
-            strip_off = i + 1;
-        } else {
-            break;
-        }
-    }
-    bytes.truncate(bytes.len() - strip_off);
-    bytes
+/// Remove any number of newline or carriage returns from the end of a string slice
+/// and return a vector of bytes
+pub fn strip_off_newlines(value: &str) -> Vec<u8> {
+    value
+        .trim_end_matches(|c| c == '\r' || c == '\n')
+        .as_bytes()
+        .to_vec()
 }
 
 #[cfg(test)]
@@ -60,33 +55,12 @@ mod test {
     fn test_strip_off() {
         let expected = "hello world".as_bytes().to_vec();
 
-        assert_eq!(
-            strip_off_newlines("hello world\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\n\n\n\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\r\r\r\r".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world\r\n\r\n".as_bytes().to_vec()),
-            expected
-        );
-        assert_eq!(
-            strip_off_newlines("hello world".as_bytes().to_vec()),
-            expected
-        );
+        assert_eq!(strip_off_newlines("hello world\n"), expected);
+        assert_eq!(strip_off_newlines("hello world\n\n\n\n"), expected);
+        assert_eq!(strip_off_newlines("hello world\r"), expected);
+        assert_eq!(strip_off_newlines("hello world\r\r\r\r\r"), expected);
+        assert_eq!(strip_off_newlines("hello world\r\n"), expected);
+        assert_eq!(strip_off_newlines("hello world\r\n\r\n"), expected);
+        assert_eq!(strip_off_newlines("hello world"), expected);
     }
 }

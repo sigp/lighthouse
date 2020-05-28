@@ -105,9 +105,9 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
             .map_err(|e| format!("Unable to write to {:?}: {:?}", wallet_password_path, e))?;
     }
 
-    let wallet_password = fs::read(&wallet_password_path)
+    let wallet_password = fs::read_to_string(&wallet_password_path)
         .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+        .map(|password| PlainText::from(strip_off_newlines(password.as_str())))?;
 
     let wallet = mgr
         .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())

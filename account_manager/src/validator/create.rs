@@ -153,9 +153,9 @@ pub fn cli_run<T: EthSpec>(
         return Ok(());
     }
 
-    let wallet_password = fs::read(&wallet_password_path)
+    let wallet_password = fs::read_to_string(&wallet_password_path)
         .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+        .map(|password| PlainText::from(strip_off_newlines(password.as_str())))?;
 
     let mgr = WalletManager::open(&wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;
