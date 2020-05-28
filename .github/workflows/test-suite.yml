@@ -26,7 +26,7 @@ jobs:
       run: sudo npm install -g ganache-cli
     - name: Run tests in release
       run: make test-release
-  release-tests-macos:
+  smoke-tests-macos:
     runs-on: macos-latest
     needs: cargo-fmt
     steps:
@@ -37,6 +37,8 @@ jobs:
       run: sudo npm install -g ganache-cli
     - name: Run tests in release
       run: make test-release
+    - name: Install Lighthouse
+      run: make
   debug-tests-ubuntu:
     runs-on: ubuntu-latest
     needs: cargo-fmt
