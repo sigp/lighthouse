@@ -19,7 +19,7 @@ use url::Url;
 pub use operation_pool::PersistedOperationPool;
 pub use proto_array_fork_choice::core::ProtoArray;
 pub use rest_types::{
-    CanonicalHeadResponse, Committee, HeadBeaconBlock, IndividualVotesRequest,
+    CanonicalHeadResponse, Committee, HeadBeaconBlock, Health, IndividualVotesRequest,
     IndividualVotesResponse, SyncingResponse, ValidatorDutiesRequest, ValidatorDutyBytes,
     ValidatorRequest, ValidatorResponse, ValidatorSubscription,
 };
@@ -609,6 +609,12 @@ impl<E: EthSpec> Node<E> {
     pub async fn get_version(&self) -> Result<String, Error> {
         let client = self.0.clone();
         let url = self.url("version")?;
+        client.json_get(url, vec![]).await
+    }
+
+    pub async fn get_health(&self) -> Result<Health, Error> {
+        let client = self.0.clone();
+        let url = self.url("health")?;
         client.json_get(url, vec![]).await
     }
 

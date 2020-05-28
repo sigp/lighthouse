@@ -176,6 +176,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     };
 
     let mut register_types = vec![];
+    let mut field_names = vec![];
     let mut fixed_decodes = vec![];
     let mut decodes = vec![];
     let mut is_fixed_lens = vec![];
@@ -186,14 +187,18 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     for field in &struct_data.fields {
         match &field.ident {
             Some(ref ident) => {
+                field_names.push(quote! {
+                    #ident
+                });
+
                 if should_skip_deserializing(field) {
                     // Field should not be deserialized; use a `Default` impl to instantiate.
                     decodes.push(quote! {
-                        #ident: <_>::default()
+                        let #ident = <_>::default();
                     });
 
                     fixed_decodes.push(quote! {
-                        #ident: <_>::default()
+                        let #ident = <_>::default();
                     });
                 } else {
                     let ty = &field.ty;
@@ -203,11 +208,11 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
                     });
 
                     decodes.push(quote! {
-                        #ident: decoder.decode_next()?
+                        let #ident = decoder.decode_next()?;
                     });
 
                     fixed_decodes.push(quote! {
-                        #ident: decode_field!(#ty)
+                        let #ident = decode_field!(#ty);
                     });
 
                     is_fixed_lens.push(quote! {
@@ -269,9 +274,13 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
                         }};
                     }
 
+                    #(
+                        #fixed_decodes
+                    )*
+
                     Ok(Self {
                         #(
-                            #fixed_decodes,
+                            #field_names,
                         )*
                     })
                 } else {
@@ -283,9 +292,14 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
 
                     let mut decoder = builder.build()?;
 
+                    #(
+                        #decodes
+                    )*
+
+
                     Ok(Self {
                         #(
-                            #decodes,
+                            #field_names,
                         )*
                     })
                 }
