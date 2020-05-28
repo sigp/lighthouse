@@ -107,10 +107,7 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
     let wallet_password = fs::read(&wallet_password_path)
         .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| {
-            let bytes = strip_off_newlines(bytes);
-            PlainText::from(bytes)
-        })?;
+        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
 
     let wallet = mgr
         .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())

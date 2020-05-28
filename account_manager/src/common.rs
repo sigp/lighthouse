@@ -49,8 +49,7 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
         }
     }
     bytes.truncate(bytes.len() - strip_off);
-
-    bytes.to_vec()
+    bytes
 }
 
 #[cfg(test)]
