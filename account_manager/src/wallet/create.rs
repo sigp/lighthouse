@@ -1,4 +1,7 @@
-use crate::{common::random_password, BASE_DIR_FLAG};
+use crate::{
+    common::{random_password, strip_off_newlines},
+    BASE_DIR_FLAG,
+};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
@@ -104,7 +107,10 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
 
     let wallet_password = fs::read(&wallet_password_path)
         .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(bytes))?;
+        .map(|bytes| {
+            let bytes = strip_off_newlines(bytes);
+            PlainText::from(bytes)
+        })?;
 
     let wallet = mgr
         .create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())
