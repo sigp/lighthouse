@@ -10,8 +10,8 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
 pub use eth2_config::Eth2Config;
 
-use beacon_chain::events::ServerSentEvents;
 use beacon_chain::migrate::{BackgroundMigrator, HotColdDB};
+use beacon_chain::events::TeeEventHandler;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };
@@ -30,7 +30,7 @@ pub type ProductionClient<E> = Client<
         SystemTimeSlotClock,
         CachingEth1Backend<E, HotColdDB<E>>,
         E,
-        ServerSentEvents<E>,
+        TeeEventHandler<E>,
     >,
 >;
 
@@ -115,7 +115,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let (builder, events) = builder
             .system_time_slot_clock()?
-            .server_sent_events_event_handler()?;
+            .tee_event_handler(client_config.websocket_server.clone())?;
 
         let builder = builder
             .build_beacon_chain()?

@@ -3,8 +3,10 @@ use crate::response_builder::ResponseBuilder;
 use crate::validator::get_state_for_epoch;
 use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
-use hyper::{Body, Request, Chunk, Response};
 use bus::BusReader;
+use futures::executor::block_on;
+use hyper::body::Bytes;
+use hyper::{Body, Request, Response};
 use rest_types::{
     BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
     ValidatorRequest, ValidatorResponse,
@@ -126,15 +128,15 @@ pub fn get_block_root<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&root)
 }
 
-fn make_sse_response_chunk(new_head_hash: SignedBeaconBlockHash) -> std::io::Result<Chunk> {
+fn make_sse_response_chunk(new_head_hash: SignedBeaconBlockHash) -> std::io::Result<Bytes> {
     let mut buffer = Vec::new();
     {
         let mut sse_message = uhttp_sse::SseMessage::new(&mut buffer);
         let untyped_hash: Hash256 = new_head_hash.into();
         write!(sse_message.data()?, "{:?}", untyped_hash)?;
     }
-    let chunk: Chunk = buffer.into();
-    Ok(chunk)
+    let bytes: Bytes = buffer.into();
+    Ok(bytes)
 }
 
 pub fn stream_forks<T: BeaconChainTypes>(
@@ -152,8 +154,8 @@ pub fn stream_forks<T: BeaconChainTypes>(
                     break;
                 }
             };
-            if let Err(chunk) = sender.send_data(chunk) {
-                error!(log, "Couldn't stream chunk {:?}", chunk);
+            if let Err(bytes) = block_on(sender.send_data(chunk)) {
+                error!(log, "Couldn't stream piece {:?}", bytes);
             }
         }
     });

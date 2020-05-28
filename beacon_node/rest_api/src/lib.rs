@@ -30,7 +30,7 @@ use eth2_libp2p::NetworkGlobals;
 use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
+use hyper::{Body, Request, Server};
 use parking_lot::Mutex;
 use slog::{info, warn};
 use std::net::SocketAddr;

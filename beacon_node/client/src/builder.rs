@@ -1,7 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
-use beacon_chain::events::ServerSentEvents;
+use beacon_chain::events::{ServerSentEvents, TeeEventHandler};
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -457,7 +457,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec>,
+    TStoreMigrator: Migrate<TEthSpec>,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -474,6 +474,58 @@ where
 
         let (sse, bus) = ServerSentEvents::new(context.log.clone());
         self.event_handler = Some(sse);
+        Ok((self, bus))
+    }
+}
+
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
+    ClientBuilder<
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TSlotClock,
+            TEth1Backend,
+            TEthSpec,
+            TeeEventHandler<TEthSpec>,
+        >,
+    >
+where
+    TStore: Store<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec>,
+    TSlotClock: SlotClock + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEthSpec: EthSpec + 'static,
+{
+    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
+    pub fn tee_event_handler(
+        mut self,
+        config: WebSocketConfig,
+    ) -> Result<(Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>), String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "server_sent_events_event_handler requires a runtime_context")?
+            .service_context("tee".into());
+
+        let (sender, exit_channel, listening_addr): (
+            WebSocketSender<TEthSpec>,
+            Option<_>,
+            Option<_>,
+        ) = if config.enabled {
+            let (sender, exit, listening_addr) = context
+                .runtime_handle
+                .enter(|| websocket_server::start_server(&config, &context.log))?;
+            (sender, Some(exit), Some(listening_addr))
+        } else {
+            (WebSocketSender::dummy(), None, None)
+        };
+
+        if let Some(channel) = exit_channel {
+            self.exit_channels.push(channel);
+        }
+        self.websocket_listen_addr = listening_addr;
+        let (tee_event_handler, bus) = TeeEventHandler::new(context.log.clone(), sender)?;
+        self.event_handler = Some(tee_event_handler);
         Ok((self, bus))
     }
 }

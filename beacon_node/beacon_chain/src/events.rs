@@ -66,6 +66,36 @@ impl<T: EthSpec> EventHandler<T> for ServerSentEvents<T> {
     }
 }
 
+// An event handler that pushes events to both the websockets handler and the SSE handler.
+// Named after the unix `tee` command.  Meant as a temporary solution before ditching WebSockets
+// completely once SSE functions well enough.
+pub struct TeeEventHandler<E: EthSpec> {
+    websockets_handler: WebSocketSender<E>,
+    sse_handler: ServerSentEvents<E>,
+}
+
+impl<E: EthSpec> TeeEventHandler<E> {
+    pub fn new(
+        log: Logger,
+        websockets_handler: WebSocketSender<E>,
+    ) -> Result<(Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>), String> {
+        let (sse_handler, bus) = ServerSentEvents::new(log);
+        let result = Self {
+            websockets_handler: websockets_handler,
+            sse_handler: sse_handler,
+        };
+        Ok((result, bus))
+    }
+}
+
+impl<E: EthSpec> EventHandler<E> for TeeEventHandler<E> {
+    fn register(&self, kind: EventKind<E>) -> Result<(), String> {
+        self.websockets_handler.register(kind.clone())?;
+        self.sse_handler.register(kind)?;
+        Ok(())
+    }
+}
+
 impl<T: EthSpec> EventHandler<T> for NullEventHandler<T> {
     fn register(&self, _kind: EventKind<T>) -> Result<(), String> {
         Ok(())
@@ -78,7 +108,7 @@ impl<T: EthSpec> Default for NullEventHandler<T> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(
     bound = "T: EthSpec",
     rename_all = "snake_case",
