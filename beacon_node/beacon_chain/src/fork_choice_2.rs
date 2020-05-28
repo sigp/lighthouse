@@ -1,12 +1,10 @@
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use fork_choice_store::ForkChoiceStore;
-use proto_array_fork_choice::{core::ProtoArray, Error as ProtoArrayError, ProtoArrayForkChoice};
-use slot_clock::SlotClock;
-use std::collections::HashMap;
+use parking_lot::RwLockReadGuard;
+use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
+use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
-use types::{
-    BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, Slot,
-};
+use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, IndexedAttestation, Slot};
 
 mod fork_choice_store;
 
@@ -89,15 +87,7 @@ fn get_ancestor<T: BeaconChainTypes>(
     root: Hash256,
     slot: Slot,
 ) -> Result<Hash256, Error> {
-    let root = match state.get_block_root(slot) {
-        Ok(root) => *root,
-        Err(_) => store
-            .chain()
-            .get_ancestor_block_root(root, slot)?
-            .ok_or_else(|| Error::AncestorUnknown(root))?,
-    };
-
-    Ok(root)
+    store.get_ancestor(state, root, slot)
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -245,4 +235,73 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
         Ok(())
     }
+
+    /// Returns true if the given block is known to fork choice.
+    pub fn contains_block(&self, block_root: &Hash256) -> bool {
+        self.proto_array.contains_block(block_root)
+    }
+
+    /// Returns the state root for the given block root.
+    pub fn block_slot_and_state_root(&self, block_root: &Hash256) -> Option<(Slot, Hash256)> {
+        self.proto_array.block_slot_and_state_root(block_root)
+    }
+
+    /// Returns the latest message for a given validator, if any.
+    ///
+    /// Returns `(block_root, block_slot)`.
+    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
+        self.proto_array.latest_message(validator_index)
+    }
+
+    /// Trigger a prune on the underlying fork choice backend.
+    pub fn prune(&self) -> Result<(), Error> {
+        let finalized_root = self.fc_store.finalized_checkpoint().root;
+
+        self.proto_array
+            .maybe_prune(finalized_root)
+            .map_err(Into::into)
+    }
+
+    /// Returns a read-lock to the core `ProtoArray` struct.
+    ///
+    /// Should only be used when encoding/decoding during troubleshooting.
+    pub fn core_proto_array(&self) -> RwLockReadGuard<ProtoArray> {
+        self.proto_array.core_proto_array()
+    }
+
+    /// Returns a `SszForkChoice` which contains the current state of `Self`.
+    pub fn as_ssz_container(&self) -> SszForkChoice {
+        SszForkChoice {
+            genesis_block_root: self.genesis_block_root.clone(),
+            _checkpoint_manager: vec![],
+            backend_bytes: self.proto_array.as_bytes(),
+        }
+    }
+
+    /// Instantiates `Self` from a prior `SszForkChoice`.
+    ///
+    /// The created `Self` will have the same state as the `Self` that created the `SszForkChoice`.
+    pub fn from_ssz_container(ssz_container: SszForkChoice) -> Result<Self, Error> {
+        let proto_array = ProtoArrayForkChoice::from_bytes(&ssz_container.backend_bytes)?;
+
+        todo!()
+        /*
+        Ok(Self {
+            proto_array,
+            genesis_block_root: ssz_container.genesis_block_root,
+            _phantom: PhantomData,
+        })
+        */
+    }
+}
+
+/// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
+///
+/// This is used when persisting the state of the `BeaconChain` to disk.
+#[derive(Encode, Decode, Clone)]
+pub struct SszForkChoice {
+    genesis_block_root: Hash256,
+    /// This is a legacy field to avoid breaking the database schema.
+    _checkpoint_manager: Vec<u8>,
+    backend_bytes: Vec<u8>,
 }

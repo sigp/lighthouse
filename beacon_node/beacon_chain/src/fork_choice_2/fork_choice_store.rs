@@ -1,10 +1,12 @@
 use super::{on_tick, Error};
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::BeaconChainTypes;
 use slot_clock::SlotClock;
-use types::{BeaconState, Checkpoint, Slot};
+use std::sync::Arc;
+use store::iter::{BlockRootsIterator, ReverseBlockRootIterator};
+use types::{BeaconState, Checkpoint, Hash256, Slot};
 
 pub struct ForkChoiceStore<T: BeaconChainTypes> {
-    chain: BeaconChain<T>,
+    store: Arc<T::Store>,
     slot_clock: T::SlotClock,
     time: Slot,
     finalized_checkpoint: Checkpoint,
@@ -28,10 +30,6 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
                 break Ok(());
             }
         }
-    }
-
-    pub fn chain(&self) -> &BeaconChain<T> {
-        &self.chain
     }
 
     pub fn time(&self) -> Slot {
@@ -84,5 +82,28 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
     pub fn set_best_justified_checkpoint(&mut self, state: &BeaconState<T::EthSpec>) {
         self.best_justified_checkpoint = state.current_justified_checkpoint;
         self.best_justified_balances = Some(state.balances.clone().into());
+    }
+
+    pub fn get_ancestor(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        root: Hash256,
+        slot: Slot,
+    ) -> Result<Hash256, Error> {
+        let root = match state.get_block_root(slot) {
+            Ok(root) => *root,
+            Err(_) => {
+                let start_slot = state.slot;
+
+                let iter = BlockRootsIterator::owned(self.store.clone(), state.clone());
+
+                ReverseBlockRootIterator::new((root, start_slot), iter)
+                    .find(|(_, ancestor_slot)| *ancestor_slot == slot)
+                    .map(|(ancestor_block_root, _)| ancestor_block_root)
+                    .ok_or_else(|| Error::AncestorUnknown(root))?
+            }
+        };
+
+        Ok(root)
     }
 }
