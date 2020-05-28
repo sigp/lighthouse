@@ -41,10 +41,10 @@ keypairs. Creating a single validator looks like this:
 
 
 In step (1), we created a wallet in `~/.lighthouse/wallets` with the name
-`mywallet`. We encrypted this using a pre-defined password in the
-`mywallet.pass` file. Then, in step (2), we created a new validator in the
-`~/.lighthouse/validators` directory using `mywallet` (unlocking it with
-`mywallet.pass`) and storing the passwords to the validators voting key in
+`wally`. We encrypted this using a pre-defined password in the
+`wally.pass` file. Then, in step (2), we created a new validator in the
+`~/.lighthouse/validators` directory using `wally` (unlocking it with
+`wally.pass`) and storing the passwords to the validators voting key in
 `~/.lighthouse/secrets`.
 
 Thanks to the hierarchical key derivation scheme, we can delete all of the
