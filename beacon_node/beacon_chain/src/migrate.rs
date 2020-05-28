@@ -7,8 +7,9 @@ use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
+use store::hot_cold_store::{process_finalization, HotColdDBError};
 use store::iter::{ParentRootBlockIterator, RootsIterator};
-use store::{hot_cold_store::HotColdDBError, Error, Store, StoreOp};
+use store::{Error, Store, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
@@ -191,10 +192,7 @@ impl<E: EthSpec> Migrate<E> for BlockingMigrator<E> {
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
     ) {
-        if let Err(e) =
-            self.db
-                .process_finalization(self.db.clone(), state_root, &new_finalized_state)
-        {
+        if let Err(e) = process_finalization(self.db.clone(), state_root, &new_finalized_state) {
             // This migrator is only used for testing, so we just log to stderr without a logger.
             eprintln!("Migration error: {:?}", e);
         }
@@ -314,7 +312,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
                 new_finalized_slot,
             )) = rx.recv()
             {
-                match db.process_finalization(db.clone(), state_root, &state) {
+                match process_finalization(db.clone(), state_root, &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                         debug!(

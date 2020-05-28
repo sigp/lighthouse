@@ -672,80 +672,77 @@ impl<E: EthSpec> HotColdDB<E> {
             })
         }
     }
+}
 
-    /// Advance the split point of the store, moving new finalized states to the freezer.
-    pub fn process_finalization(
-        &self,
-        store: Arc<Self>,
-        frozen_head_root: Hash256,
-        frozen_head: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        debug!(
-            store.log,
-            "Freezer migration started";
-            "slot" => frozen_head.slot
-        );
+/// Advance the split point of the store, moving new finalized states to the freezer.
+pub fn process_finalization<E: EthSpec>(
+    store: Arc<HotColdDB<E>>,
+    frozen_head_root: Hash256,
+    frozen_head: &BeaconState<E>,
+) -> Result<(), Error> {
+    debug!(
+        store.log,
+        "Freezer migration started";
+        "slot" => frozen_head.slot
+    );
 
-        // 0. Check that the migration is sensible.
-        // The new frozen head must increase the current split slot, and lie on an epoch
-        // boundary (in order for the hot state summary scheme to work).
-        let current_split_slot = store.get_split_slot();
+    // 0. Check that the migration is sensible.
+    // The new frozen head must increase the current split slot, and lie on an epoch
+    // boundary (in order for the hot state summary scheme to work).
+    let current_split_slot = store.get_split_slot();
 
-        if frozen_head.slot < current_split_slot {
-            return Err(HotColdDBError::FreezeSlotError {
-                current_split_slot,
-                proposed_split_slot: frozen_head.slot,
-            }
-            .into());
+    if frozen_head.slot < current_split_slot {
+        return Err(HotColdDBError::FreezeSlotError {
+            current_split_slot,
+            proposed_split_slot: frozen_head.slot,
         }
-
-        if frozen_head.slot % E::slots_per_epoch() != 0 {
-            return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot).into());
-        }
-
-        // 1. Copy all of the states between the head and the split slot, from the hot DB
-        // to the cold DB.
-        let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
-
-        let mut to_delete = vec![];
-        for (state_root, slot) in
-            state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot)
-        {
-            if slot % store.config.slots_per_restore_point == 0 {
-                let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
-                    .ok_or_else(|| HotColdDBError::MissingStateToFreeze(state_root))?;
-
-                store.store_cold_state(&state_root, &state)?;
-            }
-
-            // Store a pointer from this state root to its slot, so we can later reconstruct states
-            // from their state root alone.
-            store.store_cold_state_slot(&state_root, slot)?;
-
-            // Delete the old summary, and the full state if we lie on an epoch boundary.
-            to_delete.push((state_root, slot));
-        }
-
-        // 2. Update the split slot
-        *store.split.write() = Split {
-            slot: frozen_head.slot,
-            state_root: frozen_head_root,
-        };
-        store.store_split()?;
-
-        // 3. Delete from the hot DB
-        for (state_root, slot) in to_delete {
-            store.delete_state(&state_root, slot)?;
-        }
-
-        debug!(
-            store.log,
-            "Freezer migration complete";
-            "slot" => frozen_head.slot
-        );
-
-        Ok(())
+        .into());
     }
+
+    if frozen_head.slot % E::slots_per_epoch() != 0 {
+        return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot).into());
+    }
+
+    // 1. Copy all of the states between the head and the split slot, from the hot DB
+    // to the cold DB.
+    let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
+
+    let mut to_delete = vec![];
+    for (state_root, slot) in state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot) {
+        if slot % store.config.slots_per_restore_point == 0 {
+            let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
+                .ok_or_else(|| HotColdDBError::MissingStateToFreeze(state_root))?;
+
+            store.store_cold_state(&state_root, &state)?;
+        }
+
+        // Store a pointer from this state root to its slot, so we can later reconstruct states
+        // from their state root alone.
+        store.store_cold_state_slot(&state_root, slot)?;
+
+        // Delete the old summary, and the full state if we lie on an epoch boundary.
+        to_delete.push((state_root, slot));
+    }
+
+    // 2. Update the split slot
+    *store.split.write() = Split {
+        slot: frozen_head.slot,
+        state_root: frozen_head_root,
+    };
+    store.store_split()?;
+
+    // 3. Delete from the hot DB
+    for (state_root, slot) in to_delete {
+        store.delete_state(&state_root, slot)?;
+    }
+
+    debug!(
+        store.log,
+        "Freezer migration complete";
+        "slot" => frozen_head.slot
+    );
+
+    Ok(())
 }
 
 /// Struct for storing the split slot and state root in the database.
