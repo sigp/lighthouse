@@ -8,6 +8,7 @@ HTTP Path | Description |
 | --- | -- |
 [`/node/version`](#nodeversion) | Get the node's version.
 [`/node/syncing`](#nodesyncing) | Get the node's syncing status.
+[`/node/health`](#nodehealth)   | Get the node's health.
 
 ## `/node/version`
 
