@@ -278,6 +278,7 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "lighthouse_metrics",
+ "lmd_ghost",
  "log 0.4.8",
  "lru",
  "merkle_proof",

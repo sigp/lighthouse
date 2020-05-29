@@ -5,6 +5,7 @@ use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, IndexedAttestatio
 
 const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 
+#[derive(Debug)]
 pub enum Error<T: ForkChoiceStore<E>, E: EthSpec> {
     // TODO: make this an actual error enum.
     ProtoArrayError(String),
