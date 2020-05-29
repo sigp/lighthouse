@@ -108,6 +108,9 @@ where
     /// This keeps track of the number of attempts.
     outbound_io_error_retries: u8,
 
+    /// Flag that signals the handler to shutdown.
+    shutting_down: bool,
+
     /// Logger for handling RPC streams
     log: slog::Logger,
 }
@@ -249,6 +252,7 @@ where
             keep_alive: KeepAlive::Yes,
             inactive_timeout,
             outbound_io_error_retries: 0,
+            shutting_down: false,
             log: log.clone(),
         }
     }
@@ -269,9 +273,26 @@ where
         &mut self.listen_protocol
     }
 
+    /// Initiates the handler's shutdown.
+    ///
+    /// Drops all requests queued for dialing.  After the shutdown has begun, inbound requests are
+    /// rejected but all established streams are driven to completion.
+    pub fn shutdown(&mut self) {
+        if self.shutting_down && !self.dial_queue.is_empty() {
+            warn!(self.log, "RPC handler shutting down"; "unsent_requests" => self.dial_queue.len());
+            // drop requests queued for dialing
+            self.dial_queue.clear();
+        }
+
+        self.shutting_down = true;
+    }
+
     /// Opens an outbound substream with a request.
     fn send_request(&mut self, id: RequestId, req: RPCRequest<TSpec>) {
-        self.dial_queue.push((id, req));
+        if !self.shutting_down {
+            self.dial_queue.push((id, req));
+        }
+
         self.update_keep_alive();
     }
 
@@ -280,6 +301,9 @@ where
     /// The handler stays alive as long as there are inbound/outbound substreams established and no
     /// items dialing/to be dialed. Otherwise it is given a grace period of inactivity of
     /// `self.inactive_timeout`.
+    ///
+    /// `self.shutting_down` does not affect this, since from the handler's perspective it should
+    /// stay alive until all processes are completed.
     fn update_keep_alive(&mut self) {
         // Check that we don't have outbound items pending for dialing, nor dialing, nor
         // established. Also check that there are no established inbound substreams.
@@ -322,6 +346,11 @@ where
             return;
         }
 
+        // if shutting down reject incoming requests
+        if self.shutting_down {
+            return;
+        }
+
         // New inbound request. Store the stream and tag the output.
         let delay_key = self.inbound_substreams_delay.insert(
             self.current_inbound_substream_id,
@@ -336,6 +365,8 @@ where
         self.events_out
             .push(RPCEvent::Request(self.current_inbound_substream_id, req));
         self.current_inbound_substream_id += 1;
+
+        self.update_keep_alive();
     }
 
     fn inject_fully_negotiated_outbound(
@@ -344,6 +375,12 @@ where
         request_info: Self::OutboundOpenInfo,
     ) {
         self.dial_negotiated -= 1;
+
+        // if shutting down, account for the recently established outbounds but drop them
+        if self.shutting_down {
+            self.update_keep_alive();
+            return;
+        }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
         let (mut id, request) = request_info;
@@ -394,6 +431,8 @@ where
         match rpc_event {
             RPCEvent::Request(id, req) => self.send_request(id, req),
             RPCEvent::Response(rpc_id, response) => {
+                // TODO: what happens here when shutting down?
+
                 // Variables indicating if the response is an error response or a multi-part
                 // response
                 let res_is_error = response.is_error();
@@ -517,6 +556,10 @@ where
                 return;
             }
         }
+
+        // upgrade failed and we won't try more
+        self.dial_negotiated -= 1;
+        self.update_keep_alive();
 
         self.outbound_io_error_retries = 0;
         // map the error
