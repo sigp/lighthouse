@@ -17,6 +17,6 @@ hex = "0.3"
 bls = { path = "../bls" }
 eth2_ssz = { path = "../../consensus/ssz" }
 serde_json = "1.0.41"
-
+eth2_key_derivation = { path = "../eth2_key_derivation" }
 [dev-dependencies]
 tempfile = "3.1.0"
