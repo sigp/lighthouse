@@ -964,7 +964,7 @@ fn attestation_that_skips_epochs() {
     harness.extend_chain(
         MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
         BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
+        AttestationStrategy::SomeValidators(vec![]),
     );
 
     let current_slot = chain.slot().expect("should get slot");
@@ -1013,11 +1013,8 @@ fn attestation_that_skips_epochs() {
         "the attestation must skip more than two epochs"
     );
 
-    assert!(
-        harness
-            .chain
-            .verify_unaggregated_attestation_for_gossip(attestation)
-            .is_ok(),
-        "should gossip verify attestation that skips slots"
-    );
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(attestation)
+        .expect("should gossip verify attestation that skips slots");
 }
