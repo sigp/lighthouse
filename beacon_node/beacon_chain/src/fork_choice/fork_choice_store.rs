@@ -1,6 +1,7 @@
 use crate::{BeaconChainTypes, BeaconSnapshot};
 use lmd_ghost::ForkChoiceStore as StoreTrait;
 use slot_clock::SlotClock;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::iter::{BlockRootsIterator, ReverseBlockRootIterator};
@@ -24,6 +25,18 @@ pub struct ForkChoiceStore<T: BeaconChainTypes> {
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
     best_justified_balances: Option<Vec<u64>>,
+}
+
+impl<T: BeaconChainTypes> PartialEq for ForkChoiceStore<T> {
+    /// This implementation ignores the `store` and `slot_clock`.
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time
+            && self.finalized_checkpoint == other.finalized_checkpoint
+            && self.justified_checkpoint == other.justified_checkpoint
+            && self.justified_balances == other.justified_balances
+            && self.best_justified_checkpoint == other.best_justified_checkpoint
+            && self.best_justified_balances == other.best_justified_balances
+    }
 }
 
 impl<T: BeaconChainTypes> ForkChoiceStore<T> {
@@ -144,6 +157,14 @@ impl<T: BeaconChainTypes> StoreTrait<T::EthSpec> for ForkChoiceStore<T> {
 
         Ok(root)
     }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        PersistedForkChoiceStore::from(self).as_ssz_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        PersistedForkChoiceStore::from(self).as_ssz_bytes()
+    }
 }
 
 #[derive(Encode, Decode)]
@@ -175,15 +196,15 @@ impl PersistedForkChoiceStore {
     }
 }
 
-impl<T: BeaconChainTypes> From<ForkChoiceStore<T>> for PersistedForkChoiceStore {
-    fn from(store: ForkChoiceStore<T>) -> Self {
+impl<T: BeaconChainTypes> From<&ForkChoiceStore<T>> for PersistedForkChoiceStore {
+    fn from(store: &ForkChoiceStore<T>) -> Self {
         Self {
             time: store.time,
             finalized_checkpoint: store.finalized_checkpoint,
             justified_checkpoint: store.justified_checkpoint,
-            justified_balances: store.justified_balances,
+            justified_balances: store.justified_balances.clone(),
             best_justified_checkpoint: store.best_justified_checkpoint,
-            best_justified_balances: store.best_justified_balances,
+            best_justified_balances: store.best_justified_balances.clone(),
         }
     }
 }

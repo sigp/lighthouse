@@ -1,4 +1,4 @@
-use crate::ForkChoiceStore;
+use crate::{ForkChoiceStore, PersistedForkChoice};
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use std::marker::PhantomData;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, IndexedAttestation, Slot};
@@ -40,6 +40,18 @@ pub struct ForkChoice<T, E> {
     /// whenever the struct was instantiated.
     genesis_block_root: Hash256,
     _phantom: PhantomData<E>,
+}
+
+impl<T, E> PartialEq for ForkChoice<T, E>
+where
+    T: ForkChoiceStore<E> + PartialEq,
+    E: EthSpec,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.fc_store == other.fc_store
+            && self.proto_array == other.proto_array
+            && self.genesis_block_root == other.genesis_block_root
+    }
 }
 
 impl<T, E> ForkChoice<T, E>
@@ -231,20 +243,21 @@ where
             .map_err(Into::into)
     }
 
-    pub fn into_components(self) -> (T, ProtoArrayForkChoice, Hash256) {
-        (self.fc_store, self.proto_array, self.genesis_block_root)
+    pub fn to_persisted(&self) -> PersistedForkChoice {
+        PersistedForkChoice {
+            fc_store_bytes: self.fc_store.as_bytes(),
+            proto_array_bytes: self.proto_array.as_bytes(),
+            genesis_block_root: self.genesis_block_root,
+        }
     }
 
-    pub fn from_components(
-        fc_store: T,
-        proto_array: ProtoArrayForkChoice,
-        genesis_block_root: Hash256,
-    ) -> Self {
-        Self {
-            fc_store,
-            proto_array,
-            genesis_block_root,
+    pub fn from_persisted(persisted: &PersistedForkChoice) -> Result<Self, Error<T::Error>> {
+        Ok(Self {
+            fc_store: T::from_bytes(&persisted.fc_store_bytes)
+                .map_err(Error::ForkChoiceStoreError)?,
+            proto_array: ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)?,
+            genesis_block_root: persisted.genesis_block_root,
             _phantom: PhantomData,
-        }
+        })
     }
 }

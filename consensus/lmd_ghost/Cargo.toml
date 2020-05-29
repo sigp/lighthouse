@@ -9,3 +9,5 @@ edition = "2018"
 [dependencies]
 types = { path = "../types" }
 proto_array_fork_choice = { path = "../proto_array_fork_choice" }
+eth2_ssz = { path = "../ssz" }
+eth2_ssz_derive = { path = "../ssz_derive" }

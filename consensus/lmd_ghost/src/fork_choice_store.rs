@@ -1,7 +1,7 @@
 use crate::fork_choice::compute_slots_since_epoch_start;
 use types::{BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 
-pub trait ForkChoiceStore<T: EthSpec> {
+pub trait ForkChoiceStore<T: EthSpec>: Sized {
     type Error;
 
     fn update_time(&mut self) -> Result<(), Self::Error>;
@@ -54,4 +54,8 @@ pub trait ForkChoiceStore<T: EthSpec> {
         root: Hash256,
         slot: Slot,
     ) -> Result<Hash256, Self::Error>;
+
+    fn as_bytes(&self) -> Vec<u8>;
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Self::Error>;
 }

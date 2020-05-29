@@ -2,7 +2,7 @@ mod fork_choice_store;
 
 use crate::{errors::BeaconChainError, metrics, BeaconChainTypes, BeaconSnapshot};
 use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
-use lmd_ghost::Error as LmdGhostError;
+use lmd_ghost::{Error as LmdGhostError, PersistedForkChoice as PersistedLmdGhost};
 use parking_lot::{RwLock, RwLockReadGuard};
 use proto_array_fork_choice::core::ProtoArray;
 use ssz::{Decode, Encode};
@@ -37,16 +37,11 @@ pub struct ForkChoice<T: BeaconChainTypes> {
     backend: RwLock<LmdGhost<T>>,
 }
 
-/*
 impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
-    /// This implementation ignores the `store`.
     fn eq(&self, other: &Self) -> bool {
-        self.backend == other.backend
-            && self.genesis_block_root == other.genesis_block_root
-            && *self.checkpoint_manager.read() == *other.checkpoint_manager.read()
+        *self.backend.read() == *other.backend.read()
     }
 }
-*/
 
 impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Instantiate a new fork chooser.
@@ -149,39 +144,19 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
     /// Returns a `SszForkChoice` which contains the current state of `Self`.
     pub fn as_ssz_container(&self) -> SszForkChoice {
-        todo!()
-        /*
         SszForkChoice {
-            genesis_block_root: self.genesis_block_root.clone(),
-            backend_bytes: self.backend.as_bytes(),
+            lmd_ghost: self.backend.read().to_persisted(),
         }
-        */
     }
 
     /// Instantiates `Self` from a prior `SszForkChoice`.
     ///
     /// The created `Self` will have the same state as the `Self` that created the `SszForkChoice`.
-    pub fn from_ssz_container(ssz_container: SszForkChoice) -> Result<Self> {
-        todo!()
-        /*
-        let backend = ProtoArrayForkChoice::from_bytes(&ssz_container.backend_bytes)?;
-
+    pub fn from_ssz_container(ssz_container: &SszForkChoice) -> Result<Self> {
         Ok(Self {
-            backend,
-            genesis_block_root: ssz_container.genesis_block_root,
-            _phantom: PhantomData,
+            backend: RwLock::new(LmdGhost::from_persisted(&ssz_container.lmd_ghost)?),
         })
-        */
     }
-}
-
-/// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
-///
-/// This is used when persisting the state of the `BeaconChain` to disk.
-#[derive(Encode, Decode, Clone)]
-pub struct SszForkChoice {
-    genesis_block_root: Hash256,
-    backend_bytes: Vec<u8>,
 }
 
 impl From<LmdGhostError<ForkChoiceStoreError>> for Error {
@@ -189,19 +164,6 @@ impl From<LmdGhostError<ForkChoiceStoreError>> for Error {
         Error::BackendError(e)
     }
 }
-
-/*
-impl<T, E> From<lmd_ghost::Error<T, E>> for Error
-where
-    T: lmd_ghost::ForkChoiceStore<E> + std::fmt::Debug,
-    E: EthSpec,
-    T::Error: std::fmt::Debug,
-{
-    fn from(e: lmd_ghost::Error<T, E>) -> Error {
-        Error::BackendError(format!("{:?}", e))
-    }
-}
-*/
 
 impl From<BeaconStateError> for Error {
     fn from(e: BeaconStateError) -> Error {
@@ -219,6 +181,14 @@ impl From<StoreError> for Error {
     fn from(e: StoreError) -> Error {
         Error::StoreError(e)
     }
+}
+
+/// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
+///
+/// This is used when persisting the state of the `BeaconChain` to disk.
+#[derive(Encode, Decode, Clone)]
+pub struct SszForkChoice {
+    lmd_ghost: PersistedLmdGhost,
 }
 
 impl SimpleStoreItem for SszForkChoice {
