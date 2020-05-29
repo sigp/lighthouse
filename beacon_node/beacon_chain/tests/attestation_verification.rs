@@ -87,7 +87,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
 
 fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    mut aggregate: Attestation<T::EthSpec>,
+    aggregate: Attestation<T::EthSpec>,
 ) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
     let state = &chain.head().expect("should get head").beacon_state;
     let current_slot = chain.slot().expect("should get slot");
@@ -97,11 +97,10 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
-    let (aggregator_committee_pos, aggregator_index, aggregator_sk) = committee
+    let (aggregator_index, aggregator_sk) = committee
         .committee
         .iter()
-        .enumerate()
-        .find_map(|(committee_pos, &val_index)| {
+        .find_map(|&val_index| {
             let aggregator_sk = generate_deterministic_keypair(val_index).sk;
 
             let proof = SelectionProof::new::<T::EthSpec>(
@@ -113,25 +112,12 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
             );
 
             if proof.is_aggregator(committee_len, &chain.spec).unwrap() {
-                Some((committee_pos, val_index, aggregator_sk))
+                Some((val_index, aggregator_sk))
             } else {
                 None
             }
         })
         .expect("should find aggregator for committee");
-
-    // FIXME(v0.12): this can be removed once the verification rules are updated for v0.12
-    // I needed to add it because the test only *happened* to work because aggregator and attester
-    // indices were the same before!
-    aggregate
-        .sign(
-            &aggregator_sk,
-            aggregator_committee_pos,
-            &state.fork,
-            chain.genesis_validators_root,
-            &chain.spec,
-        )
-        .expect("should sign attestation");
 
     let signed_aggregate = SignedAggregateAndProof::from_aggregate(
         aggregator_index as u64,
@@ -235,7 +221,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following two tests ensure:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
      * aggregate.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (with a
      * MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) -- i.e. aggregate.data.slot +
@@ -273,13 +259,14 @@ fn aggregated_gossip_verification() {
             // slot and the propagation tolerance will allow an extra slot.
             earliest_permissible_slot
         }
-        if attestation_slot == early_slot && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
+        if attestation_slot == early_slot
+            && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
     );
 
     /*
      * The following test ensures:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
      * The block being voted for (aggregate.data.beacon_block_root) passes validation.
      */
@@ -299,9 +286,30 @@ fn aggregated_gossip_verification() {
     );
 
     /*
+     * The following test ensures:
+     *
+     * Spec v0.12.0
+     *
+     * The attestation has participants.
+     */
+
+    assert_invalid!(
+        "aggregate with no participants",
+        {
+            let mut a = valid_aggregate.clone();
+            let aggregation_bits = &mut a.message.aggregate.aggregation_bits;
+            aggregation_bits.difference_inplace(&aggregation_bits.clone());
+            assert!(aggregation_bits.is_zero());
+            a.message.aggregate.signature = AggregateSignature::new();
+            a
+        },
+        AttnError::EmptyAggregationBitfield
+    );
+
+    /*
      * This test ensures:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
      * The aggregator signature, signed_aggregate_and_proof.signature, is valid.
      */
@@ -321,7 +329,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
      * The aggregate_and_proof.selection_proof is a valid signature of the aggregate.data.slot by
      * the validator with index aggregate_and_proof.aggregator_index.
@@ -368,7 +376,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
      * The signature of aggregate is valid.
      */
@@ -402,11 +410,11 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
-     * The aggregator's validator index is within the aggregate's committee -- i.e.
-     * aggregate_and_proof.aggregator_index in get_attesting_indices(state, aggregate.data,
-     * aggregate.aggregation_bits).
+     * The aggregator's validator index is within the committee -- i.e.
+     * aggregate_and_proof.aggregator_index in get_beacon_committee(state, aggregate.data.slot,
+     * aggregate.data.index).
      */
 
     let unknown_validator = VALIDATOR_COUNT as u64;
@@ -431,7 +439,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
      * aggregate_and_proof.selection_proof selects the validator as an aggregator for the slot --
      * i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
@@ -441,7 +449,7 @@ fn aggregated_gossip_verification() {
     let (non_aggregator_index, non_aggregator_sk) =
         get_non_aggregator(&harness.chain, &valid_aggregate.message.aggregate);
     assert_invalid!(
-        "aggregate with from non-aggregator",
+        "aggregate from non-aggregator",
         {
             SignedAggregateAndProof::from_aggregate(
                 non_aggregator_index as u64,
@@ -459,6 +467,8 @@ fn aggregated_gossip_verification() {
         if index == non_aggregator_index as u64
     );
 
+    // NOTE: from here on, the tests are stateful, and rely on the valid attestation having been
+    // seen. A refactor to give each test case its own state might be nice at some point
     assert!(
         harness
             .chain
@@ -468,20 +478,17 @@ fn aggregated_gossip_verification() {
     );
 
     /*
-     * The following tests ensures:
+     * The following test ensures:
      *
-     * NOTE: this is a slight deviation from the spec, see:
-     * https://github.com/ethereum/eth2.0-specs/pull/1749
+     * Spec v0.12.0
      *
-     * Spec v0.11.2
-     *
-     * The aggregate attestation defined by hash_tree_root(aggregate) has not already been seen
-     * (via aggregate gossip, within a block, or through the creation of an equivalent aggregate
-     * locally).
+     * The valid aggregate attestation defined by hash_tree_root(aggregate) has not already been
+     * seen (via aggregate gossip, within a block, or through the creation of an equivalent
+     * aggregate locally).
      */
 
     assert_invalid!(
-        "aggregate with that has already been seen",
+        "aggregate that has already been seen",
         valid_aggregate.clone(),
         AttnError::AttestationAlreadyKnown(hash)
         if hash == valid_aggregate.message.aggregate.tree_hash_root()
@@ -490,7 +497,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.11.2
+     * Spec v0.12.0
      *
      * The aggregate is the first valid aggregate received for the aggregator with index
      * aggregate_and_proof.aggregator_index for the epoch aggregate.data.target.epoch.
