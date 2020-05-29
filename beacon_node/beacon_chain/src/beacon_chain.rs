@@ -1488,10 +1488,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Register the new block with the fork choice service.
-        if let Err(e) = self
-            .fork_choice
-            .process_block(self, &state, block, block_root)
-        {
+        if let Err(e) = self.fork_choice.process_block(&state, block, block_root) {
             error!(
                 self.log,
                 "Add block to fork choice failed";
@@ -1705,7 +1702,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn fork_choice_internal(&self) -> Result<(), Error> {
         // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self.fork_choice.find_head(&self)?;
+        let beacon_block_root = self.fork_choice.find_head()?;
 
         let current_head = self.head_info()?;
         let old_finalized_root = current_head.finalized_checkpoint.root;

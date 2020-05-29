@@ -122,8 +122,6 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -167,8 +165,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -207,8 +203,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 

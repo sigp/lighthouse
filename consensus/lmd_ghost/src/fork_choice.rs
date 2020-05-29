@@ -6,13 +6,13 @@ use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, IndexedAttestatio
 const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 
 #[derive(Debug)]
-pub enum Error<T: ForkChoiceStore<E>, E: EthSpec> {
+pub enum Error<T> {
     // TODO: make this an actual error enum.
     ProtoArrayError(String),
-    ForkChoiceStoreError(T::Error),
+    ForkChoiceStoreError(T),
 }
 
-impl<T: ForkChoiceStore<E>, E: EthSpec> From<String> for Error<T, E> {
+impl<T> From<String> for Error<T> {
     fn from(e: String) -> Self {
         Error::ProtoArrayError(e)
     }
@@ -45,11 +45,38 @@ pub struct ForkChoice<T, E> {
 impl<T, E> ForkChoice<T, E>
 where
     T: ForkChoiceStore<E>,
-    T::Error: Into<Error<T, E>>,
     E: EthSpec,
 {
+    pub fn from_genesis(
+        fc_store: T,
+        genesis_block_root: Hash256,
+        genesis_block: &BeaconBlock<E>,
+        genesis_state: &BeaconState<E>,
+    ) -> Result<Self, Error<T::Error>> {
+        let finalized_block_slot = genesis_block.slot;
+        let finalized_block_state_root = genesis_block.state_root;
+        let justified_epoch = genesis_state.current_epoch();
+        let finalized_epoch = genesis_state.current_epoch();
+        let finalized_root = genesis_block_root;
+
+        let proto_array = ProtoArrayForkChoice::new(
+            finalized_block_slot,
+            finalized_block_state_root,
+            justified_epoch,
+            finalized_epoch,
+            finalized_root,
+        )?;
+
+        Ok(Self {
+            fc_store,
+            proto_array,
+            genesis_block_root,
+            _phantom: PhantomData,
+        })
+    }
+
     /// Run the fork choice rule to determine the head.
-    pub fn find_head(&mut self) -> Result<Hash256, Error<T, E>> {
+    pub fn find_head(&mut self) -> Result<Hash256, Error<T::Error>> {
         self.fc_store
             .update_time()
             .map_err(Error::ForkChoiceStoreError)?;
@@ -81,7 +108,7 @@ where
     pub fn on_attestation(
         &mut self,
         attestation: &IndexedAttestation<E>,
-    ) -> Result<(), Error<T, E>> {
+    ) -> Result<(), Error<T::Error>> {
         self.fc_store
             .update_time()
             .map_err(Error::ForkChoiceStoreError)?;
@@ -122,7 +149,7 @@ where
         block: &BeaconBlock<E>,
         block_root: Hash256,
         state: &BeaconState<E>,
-    ) -> Result<(), Error<T, E>> {
+    ) -> Result<(), Error<T::Error>> {
         self.fc_store
             .update_time()
             .map_err(Error::ForkChoiceStoreError)?;
@@ -134,7 +161,9 @@ where
             if state.current_justified_checkpoint.epoch > store.best_justified_checkpoint().epoch {
                 store.set_best_justified_checkpoint(state);
             }
-            if Self::should_update_justified_checkpoint(store, state).map_err(Into::into)? {
+            if Self::should_update_justified_checkpoint(store, state)
+                .map_err(Error::ForkChoiceStoreError)?
+            {
                 store.set_justified_checkpoint(state);
             }
         }
@@ -147,7 +176,7 @@ where
             if state.current_justified_checkpoint.epoch > store.justified_checkpoint().epoch
                 || store
                     .get_ancestor(state, store.justified_checkpoint().root, finalized_slot)
-                    .map_err(Into::into)?
+                    .map_err(Error::ForkChoiceStoreError)?
                     != store.finalized_checkpoint().root
             {
                 store.set_justified_checkpoint(state);
@@ -194,7 +223,7 @@ where
         &self.proto_array
     }
 
-    pub fn prune(&self) -> Result<(), Error<T, E>> {
+    pub fn prune(&self) -> Result<(), Error<T::Error>> {
         let finalized_root = self.fc_store.finalized_checkpoint().root;
 
         self.proto_array

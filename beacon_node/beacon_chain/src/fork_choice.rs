@@ -1,19 +1,16 @@
-mod checkpoint_manager;
 mod fork_choice_store;
 
-use crate::{errors::BeaconChainError, metrics, BeaconChain, BeaconChainTypes};
-use checkpoint_manager::{get_effective_balances, CheckpointManager, CheckpointWithBalances};
-use fork_choice_store::ForkChoiceStore;
-use lmd_ghost::ForkChoiceStore as ForkChoiceStoreTrait;
+use crate::{errors::BeaconChainError, metrics, BeaconChainTypes, BeaconSnapshot};
+use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
+use lmd_ghost::Error as LmdGhostError;
 use parking_lot::{RwLock, RwLockReadGuard};
-use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
+use proto_array_fork_choice::core::ProtoArray;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use state_processing::common::get_indexed_attestation;
-use std::marker::PhantomData;
+use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, SimpleStoreItem};
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, IndexedAttestation, Slot,
+    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Epoch, Hash256, IndexedAttestation, Slot,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -24,7 +21,8 @@ type LmdGhost<T: BeaconChainTypes> = lmd_ghost::ForkChoice<ForkChoiceStore<T>, T
 pub enum Error {
     MissingBlock(Hash256),
     MissingState(Hash256),
-    BackendError(String),
+    BackendError(LmdGhostError<ForkChoiceStoreError>),
+    ForkChoiceStoreError(ForkChoiceStoreError),
     BeaconStateError(BeaconStateError),
     StoreError(StoreError),
     BeaconChainError(Box<BeaconChainError>),
@@ -36,12 +34,7 @@ pub enum Error {
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
-    backend: LmdGhost<T>,
-    /// Used for resolving the `0x00..00` alias back to genesis.
-    ///
-    /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
-    /// whenever the struct was instantiated.
-    genesis_block_root: Hash256,
+    backend: RwLock<LmdGhost<T>>,
 }
 
 /*
@@ -60,31 +53,42 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     ///
     /// "Genesis" does not necessarily need to be the absolute genesis, it can be some finalized
     /// block.
-    pub fn new(
-        backend: LmdGhost<T>,
-        genesis_block_root: Hash256,
-        genesis_state: &BeaconState<T::EthSpec>,
-    ) -> Self {
-        Self {
-            backend,
-            genesis_block_root,
-        }
+    pub fn from_genesis(
+        store: Arc<T::Store>,
+        slot_clock: T::SlotClock,
+        genesis: &BeaconSnapshot<T::EthSpec>,
+        spec: &ChainSpec,
+    ) -> Result<Self> {
+        let fc_store = ForkChoiceStore::from_genesis(store, slot_clock, genesis, spec)
+            .map_err(Error::ForkChoiceStoreError)?;
+
+        let backend = LmdGhost::from_genesis(
+            fc_store,
+            genesis.beacon_block_root,
+            &genesis.beacon_block.message,
+            &genesis.beacon_state,
+        )?;
+
+        Ok(Self {
+            backend: RwLock::new(backend),
+        })
     }
 
     /// Run the fork choice rule to determine the head.
     pub fn find_head(&self) -> Result<Hash256> {
-        let timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
-        self.backend.find_head()
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
+        self.backend.write().find_head().map_err(Into::into)
     }
 
     /// Returns true if the given block is known to fork choice.
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.backend.proto_array().contains_block(block_root)
+        self.backend.read().proto_array().contains_block(block_root)
     }
 
     /// Returns the state root for the given block root.
     pub fn block_slot_and_state_root(&self, block_root: &Hash256) -> Option<(Slot, Hash256)> {
         self.backend
+            .read()
             .proto_array()
             .block_slot_and_state_root(block_root)
     }
@@ -99,9 +103,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         block: &BeaconBlock<T::EthSpec>,
         block_root: Hash256,
     ) -> Result<()> {
-        let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
 
-        self.backend.on_block(block, block_root, state)?;
+        self.backend.write().on_block(block, block_root, state)?;
 
         Ok(())
     }
@@ -113,9 +117,9 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         &self,
         attestation: &IndexedAttestation<T::EthSpec>,
     ) -> Result<()> {
-        let timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
-        self.backend.on_attestation(attestation)?;
+        self.backend.write().on_attestation(attestation)?;
 
         Ok(())
     }
@@ -124,42 +128,50 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     ///
     /// Returns `(block_root, block_slot)`.
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
-        self.backend.proto_array().latest_message(validator_index)
+        self.backend
+            .read()
+            .proto_array()
+            .latest_message(validator_index)
     }
 
     /// Trigger a prune on the underlying fork choice backend.
     pub fn prune(&self) -> Result<()> {
-        self.backend.prune().map_err(Into::into)
+        self.backend.write().prune().map_err(Into::into)
     }
 
     /// Returns a read-lock to the core `ProtoArray` struct.
     ///
     /// Should only be used when encoding/decoding during troubleshooting.
     pub fn core_proto_array(&self) -> RwLockReadGuard<ProtoArray> {
-        self.backend.proto_array().core_proto_array()
+        todo!()
+        // self.backend.read().proto_array().core_proto_array()
     }
 
     /// Returns a `SszForkChoice` which contains the current state of `Self`.
     pub fn as_ssz_container(&self) -> SszForkChoice {
+        todo!()
+        /*
         SszForkChoice {
             genesis_block_root: self.genesis_block_root.clone(),
-            checkpoint_manager: self.checkpoint_manager.read().clone(),
             backend_bytes: self.backend.as_bytes(),
         }
+        */
     }
 
     /// Instantiates `Self` from a prior `SszForkChoice`.
     ///
     /// The created `Self` will have the same state as the `Self` that created the `SszForkChoice`.
     pub fn from_ssz_container(ssz_container: SszForkChoice) -> Result<Self> {
+        todo!()
+        /*
         let backend = ProtoArrayForkChoice::from_bytes(&ssz_container.backend_bytes)?;
 
         Ok(Self {
             backend,
             genesis_block_root: ssz_container.genesis_block_root,
-            checkpoint_manager: RwLock::new(ssz_container.checkpoint_manager),
             _phantom: PhantomData,
         })
+        */
     }
 }
 
@@ -169,10 +181,16 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 #[derive(Encode, Decode, Clone)]
 pub struct SszForkChoice {
     genesis_block_root: Hash256,
-    checkpoint_manager: CheckpointManager,
     backend_bytes: Vec<u8>,
 }
 
+impl From<LmdGhostError<ForkChoiceStoreError>> for Error {
+    fn from(e: LmdGhostError<ForkChoiceStoreError>) -> Error {
+        Error::BackendError(e)
+    }
+}
+
+/*
 impl<T, E> From<lmd_ghost::Error<T, E>> for Error
 where
     T: lmd_ghost::ForkChoiceStore<E> + std::fmt::Debug,
@@ -183,6 +201,7 @@ where
         Error::BackendError(format!("{:?}", e))
     }
 }
+*/
 
 impl From<BeaconStateError> for Error {
     fn from(e: BeaconStateError) -> Error {
@@ -199,12 +218,6 @@ impl From<BeaconChainError> for Error {
 impl From<StoreError> for Error {
     fn from(e: StoreError) -> Error {
         Error::StoreError(e)
-    }
-}
-
-impl From<String> for Error {
-    fn from(e: String) -> Error {
-        Error::BackendError(e)
     }
 }
 

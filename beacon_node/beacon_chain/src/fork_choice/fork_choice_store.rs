@@ -1,26 +1,17 @@
-use crate::BeaconChainTypes;
-use lmd_ghost::{Error as LmdGhostError, ForkChoiceStore as StoreTrait};
+use crate::{BeaconChainTypes, BeaconSnapshot};
+use lmd_ghost::ForkChoiceStore as StoreTrait;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::iter::{BlockRootsIterator, ReverseBlockRootIterator};
-use types::{BeaconState, Checkpoint, EthSpec, Hash256, Slot};
+use types::{BeaconState, ChainSpec, Checkpoint, Hash256, Slot};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     UnableToReadSlot,
+    InvalidGenesisSnapshot(Slot),
     AncestorUnknown(Hash256),
     UninitializedBestJustifiedBalances,
-}
-
-impl<T, E> Into<LmdGhostError<T, E>> for Error
-where
-    T: StoreTrait<E, Error = Error>,
-    E: EthSpec,
-{
-    fn into(self) -> LmdGhostError<T, E> {
-        LmdGhostError::ForkChoiceStoreError(self)
-    }
 }
 
 #[derive(Debug)]
@@ -33,6 +24,32 @@ pub struct ForkChoiceStore<T: BeaconChainTypes> {
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
     best_justified_balances: Option<Vec<u64>>,
+}
+
+impl<T: BeaconChainTypes> ForkChoiceStore<T> {
+    pub fn from_genesis(
+        store: Arc<T::Store>,
+        slot_clock: T::SlotClock,
+        genesis: &BeaconSnapshot<T::EthSpec>,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
+        let time = slot_clock.now().ok_or_else(|| Error::UnableToReadSlot)?;
+
+        if genesis.beacon_state.slot != spec.genesis_slot {
+            return Err(Error::InvalidGenesisSnapshot(genesis.beacon_state.slot));
+        }
+
+        Ok(Self {
+            store,
+            slot_clock,
+            time,
+            finalized_checkpoint: genesis.beacon_state.finalized_checkpoint,
+            justified_checkpoint: genesis.beacon_state.current_justified_checkpoint,
+            justified_balances: genesis.beacon_state.balances.clone().into(),
+            best_justified_checkpoint: genesis.beacon_state.current_justified_checkpoint,
+            best_justified_balances: None,
+        })
+    }
 }
 
 impl<T: BeaconChainTypes> StoreTrait<T::EthSpec> for ForkChoiceStore<T> {
