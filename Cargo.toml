@@ -32,6 +32,7 @@ members = [
 
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",
+    "consensus/lmd_ghost",
     "consensus/proto_array_fork_choice",
     "consensus/safe_arith",
     "consensus/ssz",

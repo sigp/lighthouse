@@ -1,0 +1,11 @@
+[package]
+name = "lmd_ghost"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+types = { path = "../types" }
+proto_array_fork_choice = { path = "../proto_array_fork_choice" }
