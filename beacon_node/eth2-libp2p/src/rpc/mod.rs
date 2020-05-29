@@ -115,7 +115,7 @@ where
             SubstreamProtocol::new(RPCProtocol {
                 phantom: PhantomData,
             }),
-            Duration::from_secs(30),
+            Duration::from_secs(5),
             &self.log,
         )
     }

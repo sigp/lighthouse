@@ -18,4 +18,4 @@ pub use validator::{
 
 pub use consensus::{IndividualVote, IndividualVotesRequest, IndividualVotesResponse};
 
-pub use node::{SyncingResponse, SyncingStatus};
+pub use node::{Health, SyncingResponse, SyncingStatus};
