@@ -1,6 +1,6 @@
 extern crate rand;
 
-use crate::PlainText;
+use crate::SecretHash;
 use milagro_bls::SecretKey as RawSecretKey;
 use ssz::DecodeError;
 
@@ -21,12 +21,12 @@ impl SecretKey {
         Self(raw)
     }
 
-    /// Returns the secret key as a byte array (wrapped in `PlainText` wrapper so it is zeroized on
+    /// Returns the secret key as a byte array (wrapped in `SecretHash` wrapper so it is zeroized on
     /// `Drop`).
     ///
     /// Extreme care should be taken not to leak these bytes as they are the unencrypted secret
     /// key.
-    pub fn as_bytes(&self) -> PlainText {
+    pub fn as_bytes(&self) -> SecretHash {
         self.as_raw().as_bytes().into()
     }
 
@@ -63,6 +63,6 @@ mod tests {
         let bytes = original.as_bytes();
         let decoded = SecretKey::from_bytes(bytes.as_ref()).unwrap();
 
-        assert!(original.as_bytes() == decoded.as_bytes());
+        assert!(original.as_bytes().as_ref().to_vec() == decoded.as_bytes().as_ref().to_vec());
     }
 }
