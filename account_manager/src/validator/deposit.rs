@@ -19,7 +19,7 @@ use web3::{
 pub const CMD: &str = "deposit";
 pub const VALIDATOR_FLAG: &str = "validator";
 pub const ETH1_IPC_FLAG: &str = "eth1-ipc";
-pub const ETH1_RPC_FLAG: &str = "eth1-rpc";
+pub const ETH1_HTTP_FLAG: &str = "eth1-http";
 pub const FROM_ADDRESS_FLAG: &str = "from-address";
 
 const GWEI: u64 = 1_000_000_000;
@@ -66,14 +66,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("ETH1_IPC_PATH")
                 .help("Path to an Eth1 JSON-RPC IPC endpoint")
                 .takes_value(true)
-                .required_unless(ETH1_RPC_FLAG)
-                .conflicts_with(ETH1_RPC_FLAG),
+                .required_unless(ETH1_HTTP_FLAG)
+                .conflicts_with(ETH1_HTTP_FLAG),
         )
         .arg(
-            Arg::with_name(ETH1_RPC_FLAG)
-                .long(ETH1_RPC_FLAG)
-                .value_name("ETH1_RPC_URL")
-                .help("Path to an Eth1 JSON-RPC endpoint")
+            Arg::with_name(ETH1_HTTP_FLAG)
+                .long(ETH1_HTTP_FLAG)
+                .value_name("ETH1_HTTP_URL")
+                .help("URL to an Eth1 JSON-RPC endpoint")
                 .takes_value(true)
                 .required_unless(ETH1_IPC_FLAG)
                 .conflicts_with(ETH1_IPC_FLAG),
@@ -91,50 +91,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches<'_>,
-    mut env: Environment<T>,
-) -> Result<(), String> {
+fn sendDepositTransactions<T1, T2>(
+    mut env: Environment<T1>,
+    validators: Vec<validator_dir::ValidatorDir>,
+    from_address: Address,
+    transport: Box<dyn Transport>,
+) -> Result<(), String>
+where
+    T1: EthSpec,
+{
     let log = env.core_context().log;
-
-    let data_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        VALIDATOR_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("validators"),
-    )?;
-    let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
-    let eth1_ipc_path: PathBuf =
-        clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?.unwrap_or_else(|| PathBuf::new());
-    let eth1_rpc_url: String =
-        clap_utils::parse_optional(matches, ETH1_RPC_FLAG)?.unwrap_or_else(|| "".to_string());
-    let from_address: Address = clap_utils::parse_required(matches, FROM_ADDRESS_FLAG)?;
-
-    let manager = ValidatorManager::open(&data_dir)
-        .map_err(|e| format!("Unable to read --{}: {:?}", VALIDATOR_DIR_FLAG, e))?;
-
-    let validators = match validator.as_ref() {
-        "all" => manager
-            .open_all_validators()
-            .map_err(|e| format!("Unable to read all validators: {:?}", e)),
-        name => {
-            let path = manager
-                .directory_names()
-                .map_err(|e| {
-                    format!(
-                        "Unable to read --{} directory names: {:?}",
-                        VALIDATOR_DIR_FLAG, e
-                    )
-                })?
-                .get(name)
-                .ok_or_else(|| format!("Unknown validator:  {}", name))?
-                .clone();
-
-            manager
-                .open_validator(&path)
-                .map_err(|e| format!("Unable to open {}: {:?}", name, e))
-                .map(|v| vec![v])
-        }
-    }?;
 
     let eth1_deposit_datas = validators
         .into_iter()
@@ -182,81 +148,103 @@ pub fn cli_run<T: EthSpec>(
         return Err("Refusing to deposit to the zero address. Check testnet configuration.".into());
     }
 
-    if eth1_rpc_url.len() > 0 {
-        let (_event_loop_handle, http_transport) = Http::new(eth1_rpc_url.as_str())
-            .map_err(|e| format!("Unable to connect to eth1 RPC: {:?}", e))?;
-        let web3_http = Web3::new(http_transport);
+    let web3 = Web3::new(*transport);
+    let deposits_fut = async {
+        poll_until_synced(web3.clone(), log.clone()).await?;
 
-        let deposits_fut = async {
-            poll_until_synced(web3_http.clone(), log.clone()).await?;
+        for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
+            let tx_hash = web3
+                .eth()
+                .send_transaction(TransactionRequest {
+                    from: from_address,
+                    to: Some(deposit_contract),
+                    gas: Some(DEPOSIT_GAS.into()),
+                    gas_price: None,
+                    value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
+                    data: Some(eth1_deposit_data.rlp.into()),
+                    nonce: None,
+                    condition: None,
+                })
+                .compat()
+                .await
+                .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
 
-            for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
-                let tx_hash = web3_http
-                    .eth()
-                    .send_transaction(TransactionRequest {
-                        from: from_address,
-                        to: Some(deposit_contract),
-                        gas: Some(DEPOSIT_GAS.into()),
-                        gas_price: None,
-                        value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
-                        data: Some(eth1_deposit_data.rlp.into()),
-                        nonce: None,
-                        condition: None,
-                    })
-                    .compat()
-                    .await
-                    .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
+            validator_dir
+                .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
+                .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
+        }
 
-                validator_dir
-                    .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
-                    .map_err(|e| {
-                        format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e)
-                    })?;
-            }
+        Ok::<(), String>(())
+    };
 
-            Ok::<(), String>(())
-        };
-
-        env.runtime().block_on(deposits_fut)?;
-    } else {
-        let (_event_loop_handle, ipc_transport) = Ipc::new(eth1_ipc_path)
-            .map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
-        let web3_ipc = Web3::new(ipc_transport);
-
-        let deposits_fut = async {
-            poll_until_synced(web3_ipc.clone(), log.clone()).await?;
-
-            for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
-                let tx_hash = web3_ipc
-                    .eth()
-                    .send_transaction(TransactionRequest {
-                        from: from_address,
-                        to: Some(deposit_contract),
-                        gas: Some(DEPOSIT_GAS.into()),
-                        gas_price: None,
-                        value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
-                        data: Some(eth1_deposit_data.rlp.into()),
-                        nonce: None,
-                        condition: None,
-                    })
-                    .compat()
-                    .await
-                    .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
-
-                validator_dir
-                    .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
-                    .map_err(|e| {
-                        format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e)
-                    })?;
-            }
-
-            Ok::<(), String>(())
-        };
-
-        env.runtime().block_on(deposits_fut)?;
-    }
+    env.runtime().block_on(deposits_fut)?;
 
     Ok(())
+}
+
+pub fn cli_run<T: EthSpec>(
+    matches: &ArgMatches<'_>,
+    mut env: Environment<T>,
+) -> Result<(), String> {
+    let data_dir = clap_utils::parse_path_with_default_in_home_dir(
+        matches,
+        VALIDATOR_DIR_FLAG,
+        PathBuf::new().join(".lighthouse").join("validators"),
+    )?;
+    let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
+
+    let eth1_ipc_path: Option<PathBuf> = clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?;
+    let eth1_http_url: Option<String> = clap_utils::parse_optional(matches, ETH1_HTTP_FLAG)?;
+    let from_address: Address = clap_utils::parse_required(matches, FROM_ADDRESS_FLAG)?;
+
+    let manager = ValidatorManager::open(&data_dir)
+        .map_err(|e| format!("Unable to read --{}: {:?}", VALIDATOR_DIR_FLAG, e))?;
+
+    let validators = match validator.as_ref() {
+        "all" => manager
+            .open_all_validators()
+            .map_err(|e| format!("Unable to read all validators: {:?}", e)),
+        name => {
+            let path = manager
+                .directory_names()
+                .map_err(|e| {
+                    format!(
+                        "Unable to read --{} directory names: {:?}",
+                        VALIDATOR_DIR_FLAG, e
+                    )
+                })?
+                .get(name)
+                .ok_or_else(|| format!("Unknown validator:  {}", name))?
+                .clone();
+
+            manager
+                .open_validator(&path)
+                .map_err(|e| format!("Unable to open {}: {:?}", name, e))
+                .map(|v| vec![v])
+        }
+    }?;
+
+    match (eth1_ipc_path, eth1_http_url) {
+        (Some(_), Some(_)) => Err(format!(
+            "Cannot supply --{} and --{}",
+            ETH1_IPC_FLAG, ETH1_HTTP_FLAG
+        )),
+        (None, None) => Err(format!(
+            "Must supply one of --{} or --{}",
+            ETH1_IPC_FLAG, ETH1_HTTP_FLAG
+        )),
+        (Some(ipc_path), None) => {
+            let (_event_loop_handle, ipc_transport) = Ipc::new(ipc_path)
+                .map_err(|e| format!("Unable to connect to eth1 IPC: {:?}", e))?;
+            sendDepositTransactions(env, validators, from_address, ipc_transport)
+        }
+        (None, Some(http_url)) => {
+            let (_event_loop_handle, http_transport) =
+                Http::new(eth1_http_url.unwrap().as_str())
+                    .map_err(|e| format!("Unable to connect to eth1 RPC: {:?}", e))?;
+            sendDepositTransactions(env, validators, from_address, http_transport)
+        }
+    }
 }
 
 /// Converts gwei to wei.
