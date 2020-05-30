@@ -30,12 +30,43 @@ mod protocol;
 /// The return type used in the behaviour and the resultant event from the protocols handler.
 #[derive(Debug, Clone)]
 pub enum RPCEvent<T: EthSpec> {
-    /// An inbound/outbound request for RPC protocol. The first parameter is a sequential
-    /// id which tracks an awaiting substream for the response.
+    /// Ask the RPC to send this message.
+    Senc(RPCSend<T>),
+    /// RPC received this message.
+    Received(RPCReceived<T>),
+    /// An Error occurred.
+    Error(Option<RequestId>, Protocol, RPCError),
+}
+
+/// RPC events sent from Lighthouse.
+#[derive(Debug, Clone)]
+pub enum RPCSend<T: EthSpec> {
+    /// A request sent from Lighthouse.
+    ///
+    /// The `RequestId` is optional since it's given by the application making the request.  These
+    /// go over *outbound* connections.
     Request(Option<RequestId>, RPCRequest<T>),
-    /// A response that is being sent or has been received from the RPC protocol. The first parameter returns
-    /// that which was sent with the corresponding request, the second is a single chunk of a
-    /// response.
+    /// A response sent from Lighthouse.
+    ///
+    /// The `RequestId` must correspond to the RPC-given ID of the original request received by the
+    /// peer. The second parameter is a single chunk of a response. These go over *inbound*
+    /// connections.
+    Response(RequestId, RPCCodedResponse<T>),
+}
+
+/// RPC events received from outside Lighthouse.
+#[derive(Debug, Clone)]
+pub enum RPCReceived<T: EthSpec> {
+    /// A request received from the outside.
+    ///
+    /// The `RequestId` is given by the `RPCHandler` as it identifies this request with the
+    /// *inbound* substream over which it is managed.
+    Request(RequestId, RPCRequest<T>),
+    /// A response received from the outside.
+    ///
+    /// The `RequestId` corresponds to the application given ID of the original request sent to the
+    /// peer. The second parameter is a single chunk of a response. These go over *outbound*
+    /// connections.
     Response(Option<RequestId>, RPCCodedResponse<T>),
     /// An Error occurred.
     Error(Option<RequestId>, Protocol, RPCError),
@@ -46,38 +77,38 @@ pub struct RPCMessage<TSpec: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
     /// The message that was sent.
-    pub event: RPCEvent<TSpec>,
+    pub event: RPCReceived<TSpec>,
 }
 
-impl<T: EthSpec> RPCEvent<T> {
-    pub fn id(&self) -> Option<RequestId> {
-        match *self {
-            RPCEvent::Request(id, _) => id,
-            RPCEvent::Response(id, _) => id,
-            RPCEvent::Error(id, _, _) => id,
-        }
-    }
-}
+// impl<T: EthSpec> RPCEvent<T> {
+//     pub fn id(&self) -> Option<RequestId> {
+//         match *self {
+//             RPCEvent::Request(id, _) => id,
+//             RPCEvent::Response(id, _) => id,
+//             RPCEvent::Error(id, _, _) => id,
+//         }
+//     }
+// }
 
-impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
-            RPCEvent::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
-            RPCEvent::Error(id, prot, err) => write!(
-                f,
-                "RPC Error(id: {:?}, protocol: {:?} error: {:?})",
-                id, prot, err
-            ),
-        }
-    }
-}
+// impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
+//             RPCEvent::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
+//             RPCEvent::Error(id, prot, err) => write!(
+//                 f,
+//                 "RPC Error(id: {:?}, protocol: {:?} error: {:?})",
+//                 id, prot, err
+//             ),
+//         }
+//     }
+// }
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<TSpec: EthSpec> {
     /// Queue of events to processed.
-    events: Vec<NetworkBehaviourAction<RPCEvent<TSpec>, RPCMessage<TSpec>>>,
+    events: Vec<NetworkBehaviourAction<RPCSend<TSpec>, RPCMessage<TSpec>>>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
@@ -93,12 +124,12 @@ impl<TSpec: EthSpec> RPC<TSpec> {
 
     /// Submits an RPC request.
     ///
-    /// The peer must be connected for this to succeed.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
+    /// The peer must be connected for this to event.
+    pub fn send_rpc(&mut self, peer_id: PeerId, event: RPCSend<TSpec>) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
-            event: rpc_event,
+            event: event,
         });
     }
 }
@@ -129,7 +160,7 @@ where
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
-        let rpc_event = RPCEvent::Request(None, RPCRequest::MetaData(PhantomData));
+        let rpc_event = RPCSend::Request(None, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id: peer_id.clone(),
             handler: NotifyHandler::Any,
@@ -157,14 +188,14 @@ where
 
     fn inject_event(
         &mut self,
-        source: PeerId,
+        peer_id: PeerId,
         _: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         // send the event to the user
         self.events
             .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
-                peer_id: source,
+                peer_id,
                 event,
             }));
     }

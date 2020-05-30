@@ -394,7 +394,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Eth2 RPC behaviour functions */
 
     /// Sends an RPC Request/Response via the RPC protocol.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
+    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCSend<TSpec>) {
         self.eth2_rpc.send_rpc(peer_id, rpc_event);
     }
 
@@ -476,31 +476,35 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Local discovery must have bitfield");
     }
 
-    /// Sends a PING/PONG request/response to a peer.
-    fn send_ping(&mut self, id: Option<RequestId>, peer_id: PeerId, is_request: bool) {
+    fn ping(&mut self, id: Option<RequestId>, peer_id: PeerId) {
         let ping = crate::rpc::methods::Ping {
             data: self.meta_data.seq_number,
         };
+        debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
+        let event = RPCSend::Request(id, RPCRequest::Ping(ping));
 
-        let event = if is_request {
-            debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
-            RPCEvent::Request(id, RPCRequest::Ping(ping))
-        } else {
-            debug!(self.log, "Sending Pong"; "request_id" => id, "peer_id" => peer_id.to_string());
-            RPCEvent::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)))
+        self.send_rpc(peer_id, event);
+    }
+
+    fn pong(&mut self, id: RequestId, peer_id: PeerId) {
+        let ping = crate::rpc::methods::Ping {
+            data: self.meta_data.seq_number,
         };
+        debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
+        let event = RPCSend::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)));
+
         self.send_rpc(peer_id, event);
     }
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        let metadata_request = RPCEvent::Request(None, RPCRequest::MetaData(PhantomData));
+        let metadata_request = RPCSend::Request(None, RPCRequest::MetaData(PhantomData));
         self.send_rpc(peer_id, metadata_request);
     }
 
     /// Sends a METADATA response to a peer.
-    fn send_meta_data_response(&mut self, id: Option<RequestId>, peer_id: PeerId) {
-        let metadata_response = RPCEvent::Response(
+    fn send_meta_data_response(&mut self, id: RequestId, peer_id: PeerId) {
+        let metadata_response = RPCSend::Response(
             id,
             RPCCodedResponse::Success(RPCResponse::MetaData(self.meta_data.clone())),
         );
@@ -591,34 +595,41 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         // The METADATA and PING RPC responses are handled within the behaviour and not
         // propagated
         // TODO: Improve the RPC types to better handle this logic discrepancy
+        // TODO: huge todo here
         match message.event {
-            RPCEvent::Request(id, RPCRequest::Ping(ping)) => {
+            RPCReceived::Request(id, RPCRequest::Ping(ping)) => {
                 // inform the peer manager and send the response
                 self.peer_manager.ping_request(&peer_id, ping.data);
                 // send a ping response
-                self.send_ping(id, peer_id, false);
+                self.pong(id, peer_id);
             }
-            RPCEvent::Request(id, RPCRequest::MetaData(_)) => {
+            RPCReceived::Request(id, RPCRequest::MetaData(_)) => {
                 // send the requested meta-data
                 self.send_meta_data_response(id, peer_id);
             }
-            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
+            RPCReceived::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
                 self.peer_manager.pong_response(&peer_id, ping.data);
             }
-            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::MetaData(meta_data))) => {
+            RPCReceived::Response(
+                _,
+                RPCCodedResponse::Success(RPCResponse::MetaData(meta_data)),
+            ) => {
                 self.peer_manager.meta_data_response(&peer_id, meta_data);
             }
-            RPCEvent::Request(_, RPCRequest::Status(_))
-            | RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
+            RPCReceived::Request(_, RPCRequest::Status(_))
+            | RPCReceived::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
                 // inform the peer manager that we have received a status from a peer
                 self.peer_manager.peer_statusd(&peer_id);
                 // propagate the STATUS message upwards
                 self.events
+                    // TODO: check if the BehaviourEvent can be made a Received
+                    // Otherwise send the correct type
                     .push(BehaviourEvent::RPC(peer_id, message.event));
             }
-            RPCEvent::Error(_, protocol, ref err) => {
+            RPCReceived::Error(_, protocol, ref err) => {
                 self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
                 self.events
+                    // TODO: same here
                     .push(BehaviourEvent::RPC(peer_id, message.event));
             }
             _ => {
@@ -647,7 +658,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                     PeerManagerEvent::Ping(peer_id) => {
                         // send a ping request to this peer
-                        self.send_ping(None, peer_id, true);
+                        self.ping(None, peer_id);
                     }
                     PeerManagerEvent::MetaData(peer_id) => {
                         self.send_meta_data_request(peer_id);
@@ -710,7 +721,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 #[derive(Debug)]
 pub enum BehaviourEvent<TSpec: EthSpec> {
     /// A received RPC event and the peer that it was received from.
-    RPC(PeerId, RPCEvent<TSpec>),
+    RPC(PeerId, RPCReceived<TSpec>),
     PubsubMessage {
         /// The gossipsub message id. Used when propagating blocks after validation.
         id: MessageId,

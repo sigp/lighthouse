@@ -3,7 +3,7 @@
 
 use super::methods::{RPCCodedResponse, RequestId, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
-use super::RPCEvent;
+use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use fnv::FnvHashMap;
 use futures::prelude::*;
@@ -49,7 +49,7 @@ where
     pending_error: Vec<(Option<RequestId>, Protocol, RPCError)>,
 
     /// Queue of events to produce in `poll()`.
-    events_out: SmallVec<[RPCEvent<TSpec>; 4]>,
+    events_out: SmallVec<[RPCReceived<TSpec>; 4]>,
 
     /// Queue of outbound substreams to open.
     dial_queue: SmallVec<[(Option<RequestId>, RPCRequest<TSpec>); 4]>,
@@ -305,8 +305,8 @@ impl<TSpec> ProtocolsHandler for RPCHandler<TSpec>
 where
     TSpec: EthSpec,
 {
-    type InEvent = RPCEvent<TSpec>;
-    type OutEvent = RPCEvent<TSpec>;
+    type InEvent = RPCSend<TSpec>;
+    type OutEvent = RPCReceived<TSpec>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RPCRequest<TSpec>;
@@ -322,8 +322,10 @@ where
     ) {
         let (req, substream) = substream;
         // drop the stream
-        if let r @ RPCRequest::Goodbye(_) = req {
-            self.events_out.push(RPCEvent::Request(None, r));
+        if let RPCRequest::Goodbye(_) = req {
+            self.events_out
+                .push(RPCReceived::Request(self.current_inbound_substream_id, req));
+            self.current_inbound_substream_id += 1;
             return;
         }
 
@@ -338,10 +340,8 @@ where
             (awaiting_stream, Some(delay_key), req.protocol()),
         );
 
-        self.events_out.push(RPCEvent::Request(
-            Some(self.current_inbound_substream_id),
-            req,
-        ));
+        self.events_out
+            .push(RPCReceived::Request(self.current_inbound_substream_id, req));
         self.current_inbound_substream_id += 1;
     }
 
@@ -396,27 +396,22 @@ where
     // wrong state a response will fail silently.
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
-            RPCEvent::Request(id, req) => self.send_request(id, req),
-            RPCEvent::Response(rpc_id, response) => {
+            RPCSend::Request(id, req) => self.send_request(id, req),
+            RPCSend::Response(inbound_id, response) => {
                 // Variables indicating if the response is an error response or a multi-part
                 // response
                 let res_is_error = response.is_error();
                 let res_is_multiple = response.multiple_responses();
 
-                let (substream_state, protocol, inbound_id) = match rpc_id {
+                // check if the stream matching the response still exists
+                let (substream_state, protocol) = match self.inbound_substreams.get_mut(&inbound_id)
+                {
+                    Some((substream_state, _, protocol)) => (substream_state, protocol),
                     None => {
-                        crit!(self.log, "Responses to inbound requests must have an Id");
+                        warn!(self.log, "Stream has expired. Response not sent";
+                            "response" => response.to_string(), "id" => inbound_id);
                         return;
                     }
-                    // check if the stream matching the response still exists
-                    Some(req_id) => match self.inbound_substreams.get_mut(&req_id) {
-                        Some((substream_state, _, protocol)) => (substream_state, protocol, req_id),
-                        None => {
-                            warn!(self.log, "Stream has expired. Response not sent";
-                                "response" => response.to_string(), "id" => rpc_id);
-                            return;
-                        }
-                    },
                 };
 
                 match std::mem::replace(substream_state, InboundSubstreamState::Poisoned) {
@@ -429,7 +424,7 @@ where
                             _ => {
                                 if let Some(error_code) = response.error_code() {
                                     self.pending_error.push((
-                                        rpc_id,
+                                        Some(inbound_id),
                                         *protocol,
                                         RPCError::ErrorResponse(error_code),
                                     ));
@@ -507,9 +502,9 @@ where
                         unreachable!("Coding error: Poisoned substream");
                     }
                 }
-            }
-            // We do not send errors as responses
-            RPCEvent::Error(..) => {}
+            } // TODO: don't we?
+              // We do not send errors as responses
+              // RPCEvent::Error(..) => {}
         }
     }
 
@@ -572,7 +567,7 @@ where
     > {
         if !self.pending_error.is_empty() {
             let (id, protocol, err) = self.pending_error.remove(0);
-            return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+            return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
                 id, protocol, err,
             )));
         }
@@ -623,7 +618,7 @@ where
                         self.update_keep_alive();
 
                         // notify the user
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
                             req_id,
                             proto,
                             RPCError::StreamTimeout,
@@ -853,7 +848,7 @@ where
                             entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                         }
 
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCEvent::Response(
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Response(
                             entry.get().req_id,
                             response,
                         )));
@@ -872,12 +867,16 @@ where
                         // notify the application error
                         if request.multiple_responses() {
                             // return an end of stream result
-                            return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCEvent::Response(
-                                request_id,
-                                RPCCodedResponse::StreamTermination(request.stream_termination()),
-                            )));
+                            return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                RPCReceived::Response(
+                                    request_id,
+                                    RPCCodedResponse::StreamTermination(
+                                        request.stream_termination(),
+                                    ),
+                                ),
+                            ));
                         } // else we return an error, stream should not have closed early.
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
                             request_id,
                             request.protocol(),
                             RPCError::IncompleteStream,
@@ -895,7 +894,7 @@ where
                         let request_id = entry.get().req_id;
                         entry.remove_entry();
                         self.update_keep_alive();
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCEvent::Error(
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
                             request_id, protocol, e,
                         )));
                     }
@@ -920,7 +919,7 @@ where
                             match protocol {
                                 Protocol::BlocksByRange => {
                                     return Poll::Ready(ProtocolsHandlerEvent::Custom(
-                                        RPCEvent::Response(
+                                        RPCReceived::Response(
                                             request_id,
                                             RPCCodedResponse::StreamTermination(
                                                 ResponseTermination::BlocksByRange,
@@ -930,7 +929,7 @@ where
                                 }
                                 Protocol::BlocksByRoot => {
                                     return Poll::Ready(ProtocolsHandlerEvent::Custom(
-                                        RPCEvent::Response(
+                                        RPCReceived::Response(
                                             request_id,
                                             RPCCodedResponse::StreamTermination(
                                                 ResponseTermination::BlocksByRoot,
