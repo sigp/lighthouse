@@ -5,7 +5,7 @@ use crate::router::processor::status_message;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RequestId};
+use eth2_libp2p::rpc::{RPCRequest, RPCSend, RequestId};
 use eth2_libp2p::{Client, NetworkGlobals, PeerId};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
@@ -139,14 +139,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     ) -> Result<RequestId, &'static str> {
         let request_id = self.request_id;
         self.request_id += 1;
-        self.send_rpc_event(peer_id, RPCEvent::Request(Some(request_id), rpc_request))?;
+        self.send_rpc_event(peer_id, RPCSend::Request(Some(request_id), rpc_request))?;
         Ok(request_id)
     }
 
     fn send_rpc_event(
         &mut self,
         peer_id: PeerId,
-        rpc_event: RPCEvent<T>,
+        rpc_event: RPCSend<T>,
     ) -> Result<(), &'static str> {
         self.network_send
             .send(NetworkMessage::RPC(peer_id, rpc_event))

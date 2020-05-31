@@ -8,7 +8,7 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{rpc::RPCRequest, BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
-use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCEvent};
+use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCReceived, RPCSend};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
@@ -259,7 +259,7 @@ fn spawn_service<T: BeaconChainTypes>(
                     Libp2pEvent::Behaviour(event) => match event {
                         BehaviourEvent::RPC(peer_id, rpc_event) => {
                             // if we received a Goodbye message, drop and ban the peer
-                            if let RPCEvent::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
+                            if let RPCReceived::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
                                 //peers_to_ban.push(peer_id.clone());
                                 service.libp2p.disconnect_and_ban_peer(
                                     peer_id.clone(),
@@ -386,7 +386,8 @@ pub enum NetworkMessage<T: EthSpec> {
         subscriptions: Vec<ValidatorSubscription>,
     },
     /// Send an RPC message to the libp2p service.
-    RPC(PeerId, RPCEvent<T>),
+    // Used by the sync service to request stuff TODO: remove notes
+    RPC(PeerId, RPCSend<T>),
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },
     /// Propagate a received gossipsub message.

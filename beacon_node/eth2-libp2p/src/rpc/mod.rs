@@ -27,17 +27,6 @@ mod handler;
 pub mod methods;
 mod protocol;
 
-/// The return type used in the behaviour and the resultant event from the protocols handler.
-#[derive(Debug, Clone)]
-pub enum RPCEvent<T: EthSpec> {
-    /// Ask the RPC to send this message.
-    Senc(RPCSend<T>),
-    /// RPC received this message.
-    Received(RPCReceived<T>),
-    /// An Error occurred.
-    Error(Option<RequestId>, Protocol, RPCError),
-}
-
 /// RPC events sent from Lighthouse.
 #[derive(Debug, Clone)]
 pub enum RPCSend<T: EthSpec> {
@@ -72,6 +61,15 @@ pub enum RPCReceived<T: EthSpec> {
     Error(Option<RequestId>, Protocol, RPCError),
 }
 
+impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
+            RPCSend::Response(id, res) => write!(f, "RPC Response(id: {}, {})", id, res),
+        }
+    }
+}
+
 /// Messages sent to the user from the RPC protocol.
 pub struct RPCMessage<TSpec: EthSpec> {
     /// The peer that sent the message.
@@ -79,30 +77,6 @@ pub struct RPCMessage<TSpec: EthSpec> {
     /// The message that was sent.
     pub event: RPCReceived<TSpec>,
 }
-
-// impl<T: EthSpec> RPCEvent<T> {
-//     pub fn id(&self) -> Option<RequestId> {
-//         match *self {
-//             RPCEvent::Request(id, _) => id,
-//             RPCEvent::Response(id, _) => id,
-//             RPCEvent::Error(id, _, _) => id,
-//         }
-//     }
-// }
-
-// impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
-//             RPCEvent::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
-//             RPCEvent::Error(id, prot, err) => write!(
-//                 f,
-//                 "RPC Error(id: {:?}, protocol: {:?} error: {:?})",
-//                 id, prot, err
-//             ),
-//         }
-//     }
-// }
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.

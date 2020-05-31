@@ -504,7 +504,6 @@ where
                 }
             } // TODO: don't we?
               // We do not send errors as responses
-              // RPCEvent::Error(..) => {}
         }
     }
 

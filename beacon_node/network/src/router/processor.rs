@@ -8,7 +8,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCCodedResponse, RPCEvent, RPCRequest, RPCResponse, RequestId};
+use eth2_libp2p::rpc::{RPCCodedResponse, RPCRequest, RPCResponse, RPCSend, RequestId};
 use eth2_libp2p::{NetworkGlobals, PeerId};
 use slog::{crit, debug, error, o, trace, warn};
 use ssz::Encode;
@@ -125,7 +125,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        request_id: Option<RequestId>,
+        request_id: RequestId,
         status: StatusMessage,
     ) {
         debug!(
@@ -290,7 +290,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_root_request(
         &mut self,
         peer_id: PeerId,
-        request_id: Option<RequestId>,
+        request_id: RequestId,
         request: BlocksByRootRequest,
     ) {
         let mut send_block_count = 0;
@@ -331,7 +331,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_range_request(
         &mut self,
         peer_id: PeerId,
-        request_id: Option<RequestId>,
+        request_id: RequestId,
         req: BlocksByRangeRequest,
     ) {
         debug!(
@@ -446,9 +446,19 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
+        let request_id = match request_id {
+            Some(req_id) => req_id,
+            None => {
+                crit!(
+                    self.log,
+                    "Received a BlocksByRange response with a None RequestId"
+                );
+                return;
+            }
+        };
         trace!(
             self.log,
             "Received BlocksByRange Response";
@@ -466,9 +476,19 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: Option<RequestId>,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
+        let request_id = match request_id {
+            Some(req_id) => req_id,
+            None => {
+                crit!(
+                    self.log,
+                    "Received a BlocksByRoot response for sync with a None RequestId"
+                );
+                return;
+            }
+        };
         trace!(
             self.log,
             "Received BlocksByRoot Response";
@@ -946,19 +966,19 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest<T>) {
         // the message handler cannot send requests with ids. Id's are managed by the sync
         // manager.
-        self.send_rpc_event(peer_id, RPCEvent::Request(None, rpc_request));
+        self.send_rpc_event(peer_id, RPCSend::Request(None, rpc_request));
     }
 
     /// Convenience function to wrap successful RPC Responses.
     pub fn send_rpc_response(
         &mut self,
         peer_id: PeerId,
-        request_id: Option<RequestId>,
+        request_id: RequestId,
         rpc_response: RPCResponse<T>,
     ) {
         self.send_rpc_event(
             peer_id,
-            RPCEvent::Response(request_id, RPCCodedResponse::Success(rpc_response)),
+            RPCSend::Response(request_id, RPCCodedResponse::Success(rpc_response)),
         );
     }
 
@@ -966,13 +986,13 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     pub fn send_rpc_error_response(
         &mut self,
         peer_id: PeerId,
-        request_id: Option<RequestId>,
+        request_id: RequestId,
         rpc_error_response: RPCCodedResponse<T>,
     ) {
-        self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_error_response));
+        self.send_rpc_event(peer_id, RPCSend::Response(request_id, rpc_error_response));
     }
 
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent<T>) {
+    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCSend<T>) {
         self.network_send
             .send(NetworkMessage::RPC(peer_id, rpc_event))
             .unwrap_or_else(|_| {

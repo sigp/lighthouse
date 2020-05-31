@@ -802,7 +802,6 @@ async fn test_goodbye_rpc() {
                         // Should receive sent RPC request
                         RPCReceived::Request(_id, request) => {
                             if request == rpc_request {
-                                // assert_eq!(id, None);
                                 assert_eq!(rpc_request.clone(), request); // receives the goodbye. Nothing left to do
                                 return;
                             }
