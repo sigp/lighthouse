@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::iter::DoubleEndedIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem, Store};
+use store::{DBColumn, Error as StoreError, Store, StoreItem};
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
     DEPOSIT_TREE_DEPTH,
@@ -59,7 +59,7 @@ pub struct SszEth1 {
     backend_bytes: Vec<u8>,
 }
 
-impl SimpleStoreItem for SszEth1 {
+impl StoreItem for SszEth1 {
     fn db_column() -> DBColumn {
         DBColumn::Eth1Cache
     }

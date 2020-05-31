@@ -7,15 +7,16 @@ use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
+use store::hot_cold_store::{process_finalization, HotColdDBError};
 use store::iter::{ParentRootBlockIterator, RootsIterator};
-use store::{hot_cold_store::HotColdDBError, Error, SimpleDiskStore, Store, StoreOp};
-pub use store::{DiskStore, MemoryStore};
+use store::{Error, Store, StoreOp};
+pub use store::{HotColdDB, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
 
 /// Trait for migration processes that update the database upon finalization.
-pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
-    fn new(db: Arc<S>, log: Logger) -> Self;
+pub trait Migrate<E: EthSpec>: Send + Sync + 'static {
+    fn new(db: Arc<HotColdDB<E>>, log: Logger) -> Self;
 
     fn process_finalization(
         &self,
@@ -35,7 +36,7 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
     /// Assumptions:
     ///  * It is called after every finalization.
     fn prune_abandoned_forks(
-        store: Arc<S>,
+        store: Arc<HotColdDB<E>>,
         head_tracker: Arc<HeadTracker>,
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
@@ -164,14 +165,8 @@ pub trait Migrate<S: Store<E>, E: EthSpec>: Send + Sync + 'static {
 /// Migrator that does nothing, for stores that don't need migration.
 pub struct NullMigrator;
 
-impl<E: EthSpec> Migrate<SimpleDiskStore<E>, E> for NullMigrator {
-    fn new(_: Arc<SimpleDiskStore<E>>, _: Logger) -> Self {
-        NullMigrator
-    }
-}
-
-impl<E: EthSpec> Migrate<MemoryStore<E>, E> for NullMigrator {
-    fn new(_: Arc<MemoryStore<E>>, _: Logger) -> Self {
+impl<E: EthSpec> Migrate<E> for NullMigrator {
+    fn new(_: Arc<HotColdDB<E>>, _: Logger) -> Self {
         NullMigrator
     }
 }
@@ -179,12 +174,12 @@ impl<E: EthSpec> Migrate<MemoryStore<E>, E> for NullMigrator {
 /// Migrator that immediately calls the store's migration function, blocking the current execution.
 ///
 /// Mostly useful for tests.
-pub struct BlockingMigrator<S> {
-    db: Arc<S>,
+pub struct BlockingMigrator<E: EthSpec> {
+    db: Arc<HotColdDB<E>>,
 }
 
-impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
-    fn new(db: Arc<S>, _: Logger) -> Self {
+impl<E: EthSpec> Migrate<E> for BlockingMigrator<E> {
+    fn new(db: Arc<HotColdDB<E>>, _: Logger) -> Self {
         BlockingMigrator { db }
     }
 
@@ -197,7 +192,7 @@ impl<E: EthSpec, S: Store<E>> Migrate<S, E> for BlockingMigrator<S> {
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
     ) {
-        if let Err(e) = S::process_finalization(self.db.clone(), state_root, &new_finalized_state) {
+        if let Err(e) = process_finalization(self.db.clone(), state_root, &new_finalized_state) {
             // This migrator is only used for testing, so we just log to stderr without a logger.
             eprintln!("Migration error: {:?}", e);
         }
@@ -225,13 +220,13 @@ type MpscSender<E> = mpsc::Sender<(
 
 /// Migrator that runs a background thread to migrate state from the hot to the cold database.
 pub struct BackgroundMigrator<E: EthSpec> {
-    db: Arc<DiskStore<E>>,
+    db: Arc<HotColdDB<E>>,
     tx_thread: Mutex<(MpscSender<E>, thread::JoinHandle<()>)>,
     log: Logger,
 }
 
-impl<E: EthSpec> Migrate<DiskStore<E>, E> for BackgroundMigrator<E> {
-    fn new(db: Arc<DiskStore<E>>, log: Logger) -> Self {
+impl<E: EthSpec> Migrate<E> for BackgroundMigrator<E> {
+    fn new(db: Arc<HotColdDB<E>>, log: Logger) -> Self {
         let tx_thread = Mutex::new(Self::spawn_thread(db.clone(), log.clone()));
         Self { db, tx_thread, log }
     }
@@ -293,7 +288,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
     ///
     /// Return a channel handle for sending new finalized states to the thread.
     fn spawn_thread(
-        db: Arc<DiskStore<E>>,
+        db: Arc<HotColdDB<E>>,
         log: Logger,
     ) -> (
         mpsc::Sender<(
@@ -317,7 +312,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
                 new_finalized_slot,
             )) = rx.recv()
             {
-                match DiskStore::process_finalization(db.clone(), state_root, &state) {
+                match process_finalization(db.clone(), state_root, &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                         debug!(

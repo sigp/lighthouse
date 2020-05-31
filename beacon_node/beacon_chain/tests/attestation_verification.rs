@@ -988,7 +988,7 @@ fn attestation_that_skips_epochs() {
     let block_slot = harness
         .chain
         .store
-        .get::<SignedBeaconBlock<E>>(&block_root)
+        .get_item::<SignedBeaconBlock<E>>(&block_root)
         .expect("should not error getting block")
         .expect("should find attestation block")
         .message

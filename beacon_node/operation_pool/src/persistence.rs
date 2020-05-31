@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
+use store::{DBColumn, Error as StoreError, StoreItem};
 use types::*;
 
 /// SSZ-serializable version of `OperationPool`.
@@ -102,7 +102,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     }
 }
 
-impl<T: EthSpec> SimpleStoreItem for PersistedOperationPool<T> {
+impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
     }

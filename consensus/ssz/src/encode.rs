@@ -91,13 +91,6 @@ pub struct SszEncoder<'a> {
 }
 
 impl<'a> SszEncoder<'a> {
-    /// Instantiate a new encoder for encoding a SSZ list.
-    ///
-    /// Identical to `Self::container`.
-    pub fn list(buf: &'a mut Vec<u8>, num_fixed_bytes: usize) -> Self {
-        Self::container(buf, num_fixed_bytes)
-    }
-
     /// Instantiate a new encoder for encoding a SSZ container.
     pub fn container(buf: &'a mut Vec<u8>, num_fixed_bytes: usize) -> Self {
         buf.reserve(num_fixed_bytes);

@@ -1,5 +1,5 @@
 use crate::chunked_vector::{chunk_key, Chunk, Field};
-use crate::DiskStore;
+use crate::HotColdDB;
 use slog::error;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec, Slot};
@@ -12,7 +12,7 @@ where
     F: Field<E>,
     E: EthSpec,
 {
-    pub(crate) store: Arc<DiskStore<E>>,
+    pub(crate) store: Arc<HotColdDB<E>>,
     current_vindex: usize,
     pub(crate) end_vindex: usize,
     next_cindex: usize,
@@ -28,10 +28,10 @@ where
     /// index stored by the restore point at `last_restore_point_slot`.
     ///
     /// The `last_restore_point` slot should be the slot of a recent restore point as obtained from
-    /// `DiskStore::get_latest_restore_point_slot`. We pass it as a parameter so that the caller can
+    /// `HotColdDB::get_latest_restore_point_slot`. We pass it as a parameter so that the caller can
     /// maintain a stable view of the database (see `HybridForwardsBlockRootsIterator`).
     pub fn new(
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E>>,
         start_vindex: usize,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,
