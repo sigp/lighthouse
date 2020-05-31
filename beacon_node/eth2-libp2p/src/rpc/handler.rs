@@ -502,8 +502,7 @@ where
                         unreachable!("Coding error: Poisoned substream");
                     }
                 }
-            } // TODO: don't we?
-              // We do not send errors as responses
+            }
         }
     }
 

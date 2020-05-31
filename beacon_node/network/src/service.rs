@@ -386,7 +386,6 @@ pub enum NetworkMessage<T: EthSpec> {
         subscriptions: Vec<ValidatorSubscription>,
     },
     /// Send an RPC message to the libp2p service.
-    // Used by the sync service to request stuff TODO: remove notes
     RPC(PeerId, RPCSend<T>),
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },

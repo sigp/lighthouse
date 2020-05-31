@@ -490,7 +490,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let ping = crate::rpc::methods::Ping {
             data: self.meta_data.seq_number,
         };
-        debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
+        debug!(self.log, "Sending Pong"; "request_id" => id, "peer_id" => peer_id.to_string());
         let event = RPCSend::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)));
 
         self.send_rpc(peer_id, event);
@@ -595,7 +595,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         // The METADATA and PING RPC responses are handled within the behaviour and not
         // propagated
         // TODO: Improve the RPC types to better handle this logic discrepancy
-        // TODO: huge todo here
         match message.event {
             RPCReceived::Request(id, RPCRequest::Ping(ping)) => {
                 // inform the peer manager and send the response
@@ -622,14 +621,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 self.peer_manager.peer_statusd(&peer_id);
                 // propagate the STATUS message upwards
                 self.events
-                    // TODO: check if the BehaviourEvent can be made a Received
-                    // Otherwise send the correct type
                     .push(BehaviourEvent::RPC(peer_id, message.event));
             }
             RPCReceived::Error(_, protocol, ref err) => {
                 self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
                 self.events
-                    // TODO: same here
                     .push(BehaviourEvent::RPC(peer_id, message.event));
             }
             _ => {

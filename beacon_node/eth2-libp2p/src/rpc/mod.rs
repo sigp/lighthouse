@@ -81,7 +81,7 @@ pub struct RPCMessage<TSpec: EthSpec> {
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<TSpec: EthSpec> {
-    /// Queue of events to processed.
+    /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCSend<TSpec>, RPCMessage<TSpec>>>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
@@ -98,12 +98,12 @@ impl<TSpec: EthSpec> RPC<TSpec> {
 
     /// Submits an RPC request.
     ///
-    /// The peer must be connected for this to event.
+    /// The peer must be connected for this to succeed.
     pub fn send_rpc(&mut self, peer_id: PeerId, event: RPCSend<TSpec>) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
-            event: event,
+            event,
         });
     }
 }
