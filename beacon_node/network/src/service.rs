@@ -12,7 +12,6 @@ use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCEvent};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
-use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Handle;
@@ -249,13 +248,8 @@ fn spawn_service<T: BeaconChainTypes>(
                     AttServiceMessage::EnrRemove(subnet_id) => {
                         service.libp2p.swarm.update_enr_subnet(subnet_id, false);
                     }
-                    AttServiceMessage::DiscoverPeers(exact_subnet) => {
-                        // add one slot to ensure we keep the peer for the subscription slot
-                        // Note: For long-lived subnets we hold on to peers for an extra slot here
-                        // also.
-                        // TODO: Shift this logic into the attestation service.
-                        let min_ttl = service.beacon_chain.slot_clock.duration_to_slot(exact_subnet.slot + 1).map(|duration| std::time::Instant::now() + duration);
-                        service.libp2p.swarm.discover_subnet_peers(exact_subnet.subnet_id, min_ttl);
+                    AttServiceMessage::DiscoverPeers{subnet_id, min_ttl} => {
+                        service.libp2p.swarm.discover_subnet_peers(subnet_id, min_ttl);
                     }
                 }
             }
