@@ -1,8 +1,8 @@
 use crate::response_builder::ResponseBuilder;
-use crate::ApiResult;
+use crate::{ApiError, ApiResult};
 use eth2_libp2p::{types::SyncState, NetworkGlobals};
 use hyper::{Body, Request};
-use rest_types::{SyncingResponse, SyncingStatus};
+use rest_types::{Health, SyncingResponse, SyncingStatus};
 use std::sync::Arc;
 use types::{EthSpec, Slot};
 use version;
@@ -40,4 +40,10 @@ pub fn syncing<T: EthSpec>(
         is_syncing: network.is_syncing(),
         sync_status,
     })
+}
+
+pub fn get_health(req: Request<Body>) -> ApiResult {
+    let health = Health::observe().map_err(|e| ApiError::ServerError(e))?;
+
+    ResponseBuilder::new(&req)?.body_no_ssz(&health)
 }

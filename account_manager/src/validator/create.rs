@@ -1,5 +1,5 @@
 use crate::{
-    common::{ensure_dir_exists, random_password},
+    common::{ensure_dir_exists, random_password, strip_off_newlines},
     SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
 };
 use clap::{App, Arg, ArgMatches};
@@ -155,7 +155,7 @@ pub fn cli_run<T: EthSpec>(
 
     let wallet_password = fs::read(&wallet_password_path)
         .map_err(|e| format!("Unable to read {:?}: {:?}", wallet_password_path, e))
-        .map(|bytes| PlainText::from(bytes))?;
+        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
 
     let mgr = WalletManager::open(&wallet_base_dir)
         .map_err(|e| format!("Unable to open --{}: {:?}", BASE_DIR_FLAG, e))?;

@@ -33,6 +33,7 @@ pub async fn route<T: BeaconChainTypes>(
     let log = local_log.clone();
     let request_result = match (req.method(), path.as_ref()) {
         // Methods for Client
+        (&Method::GET, "/node/health") => node::get_health(req),
         (&Method::GET, "/node/version") => node::get_version(req),
         (&Method::GET, "/node/syncing") => {
             // inform the current slot, or set to 0

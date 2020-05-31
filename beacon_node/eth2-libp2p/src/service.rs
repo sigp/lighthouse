@@ -474,8 +474,8 @@ fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
 /// Generate authenticated XX Noise config from identity keys
 fn generate_noise_config(
     identity_keypair: &Keypair,
-) -> noise::NoiseAuthenticated<noise::XX, noise::X25519, ()> {
-    let static_dh_keys = noise::Keypair::<noise::X25519>::new()
+) -> noise::NoiseAuthenticated<noise::XX, noise::X25519Spec, ()> {
+    let static_dh_keys = noise::Keypair::<noise::X25519Spec>::new()
         .into_authentic(identity_keypair)
         .expect("signing can fail only once during starting a node");
     noise::NoiseConfig::xx(static_dh_keys).into_authenticated()
