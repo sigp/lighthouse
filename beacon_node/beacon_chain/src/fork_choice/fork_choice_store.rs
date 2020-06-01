@@ -13,6 +13,7 @@ pub enum Error {
     InvalidGenesisSnapshot(Slot),
     AncestorUnknown(Hash256),
     UninitializedBestJustifiedBalances,
+    InvalidPersistedBytes(ssz::DecodeError),
 }
 
 #[derive(Debug)]
@@ -61,6 +62,30 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
             justified_balances: genesis.beacon_state.balances.clone().into(),
             best_justified_checkpoint: genesis.beacon_state.current_justified_checkpoint,
             best_justified_balances: None,
+        })
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        PersistedForkChoiceStore::from(self).as_ssz_bytes()
+    }
+
+    pub fn from_bytes(
+        bytes: &[u8],
+        store: Arc<T::Store>,
+        slot_clock: T::SlotClock,
+    ) -> Result<Self, Error> {
+        let persisted = PersistedForkChoiceStore::from_ssz_bytes(bytes)
+            .map_err(Error::InvalidPersistedBytes)?;
+
+        Ok(Self {
+            store,
+            slot_clock,
+            time: persisted.time,
+            finalized_checkpoint: persisted.finalized_checkpoint,
+            justified_checkpoint: persisted.justified_checkpoint,
+            justified_balances: persisted.justified_balances,
+            best_justified_checkpoint: persisted.best_justified_checkpoint,
+            best_justified_balances: persisted.best_justified_balances,
         })
     }
 }
@@ -156,14 +181,6 @@ impl<T: BeaconChainTypes> StoreTrait<T::EthSpec> for ForkChoiceStore<T> {
         };
 
         Ok(root)
-    }
-
-    fn as_bytes(&self) -> Vec<u8> {
-        PersistedForkChoiceStore::from(self).as_ssz_bytes()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        PersistedForkChoiceStore::from(self).as_ssz_bytes()
     }
 }
 

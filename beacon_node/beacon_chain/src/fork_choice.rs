@@ -2,9 +2,9 @@ mod fork_choice_store;
 
 use crate::{errors::BeaconChainError, metrics, BeaconChainTypes, BeaconSnapshot};
 use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
-use lmd_ghost::{Error as LmdGhostError, PersistedForkChoice as PersistedLmdGhost};
+use lmd_ghost::Error as LmdGhostError;
 use parking_lot::{RwLock, RwLockReadGuard};
-use proto_array_fork_choice::core::ProtoArray;
+use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
@@ -31,6 +31,9 @@ pub enum Error {
     UnknownJustifiedState(Hash256),
     UnableToJsonEncode(String),
     InvalidAttestation,
+    InvalidPersistedBytes(ssz::DecodeError),
+    InvalidProtoArrayBytes(String),
+    InvalidForkChoiceStoreBytes(ForkChoiceStoreError),
 }
 
 pub struct ForkChoice<T: BeaconChainTypes> {
@@ -142,20 +145,33 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         // self.backend.read().proto_array().core_proto_array()
     }
 
-    /// Returns a `SszForkChoice` which contains the current state of `Self`.
-    pub fn as_ssz_container(&self) -> SszForkChoice {
-        SszForkChoice {
-            lmd_ghost: self.backend.read().to_persisted(),
-        }
+    pub fn from_persisted(
+        persisted: &PersistedForkChoice,
+        store: Arc<T::Store>,
+        slot_clock: T::SlotClock,
+    ) -> Result<Self> {
+        let fc_store = ForkChoiceStore::from_bytes(&persisted.fc_store_bytes, store, slot_clock)
+            .map_err(Error::InvalidForkChoiceStoreBytes)?;
+        let proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
+            .map_err(Error::InvalidProtoArrayBytes)?;
+
+        Ok(Self {
+            backend: RwLock::new(LmdGhost::from_components(
+                fc_store,
+                proto_array,
+                persisted.genesis_block_root,
+            )),
+        })
     }
 
-    /// Instantiates `Self` from a prior `SszForkChoice`.
-    ///
-    /// The created `Self` will have the same state as the `Self` that created the `SszForkChoice`.
-    pub fn from_ssz_container(ssz_container: &SszForkChoice) -> Result<Self> {
-        Ok(Self {
-            backend: RwLock::new(LmdGhost::from_persisted(&ssz_container.lmd_ghost)?),
-        })
+    pub fn to_persisted(&self) -> PersistedForkChoice {
+        let backend = self.backend.read();
+
+        PersistedForkChoice {
+            fc_store_bytes: backend.fc_store().to_bytes(),
+            proto_array_bytes: backend.proto_array().as_bytes(),
+            genesis_block_root: *backend.genesis_block_root(),
+        }
     }
 }
 
@@ -187,11 +203,13 @@ impl From<StoreError> for Error {
 ///
 /// This is used when persisting the state of the `BeaconChain` to disk.
 #[derive(Encode, Decode, Clone)]
-pub struct SszForkChoice {
-    lmd_ghost: PersistedLmdGhost,
+pub struct PersistedForkChoice {
+    pub(crate) fc_store_bytes: Vec<u8>,
+    pub(crate) proto_array_bytes: Vec<u8>,
+    pub(crate) genesis_block_root: Hash256,
 }
 
-impl SimpleStoreItem for SszForkChoice {
+impl SimpleStoreItem for PersistedForkChoice {
     fn db_column() -> DBColumn {
         DBColumn::ForkChoice
     }

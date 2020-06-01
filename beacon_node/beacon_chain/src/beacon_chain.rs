@@ -243,7 +243,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.store.put(
             &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
-            &self.fork_choice.as_ssz_container(),
+            &self.fork_choice.to_persisted(),
         )?;
 
         metrics::stop_timer(fork_choice_timer);

@@ -1,4 +1,4 @@
-use crate::{ForkChoiceStore, PersistedForkChoice};
+use crate::ForkChoiceStore;
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use std::marker::PhantomData;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, IndexedAttestation, Slot};
@@ -85,6 +85,19 @@ where
             genesis_block_root,
             _phantom: PhantomData,
         })
+    }
+
+    pub fn from_components(
+        fc_store: T,
+        proto_array: ProtoArrayForkChoice,
+        genesis_block_root: Hash256,
+    ) -> Self {
+        Self {
+            fc_store,
+            proto_array,
+            genesis_block_root,
+            _phantom: PhantomData,
+        }
     }
 
     /// Run the fork choice rule to determine the head.
@@ -235,29 +248,19 @@ where
         &self.proto_array
     }
 
+    pub fn fc_store(&self) -> &T {
+        &self.fc_store
+    }
+
+    pub fn genesis_block_root(&self) -> &Hash256 {
+        &self.genesis_block_root
+    }
+
     pub fn prune(&self) -> Result<(), Error<T::Error>> {
         let finalized_root = self.fc_store.finalized_checkpoint().root;
 
         self.proto_array
             .maybe_prune(finalized_root)
             .map_err(Into::into)
-    }
-
-    pub fn to_persisted(&self) -> PersistedForkChoice {
-        PersistedForkChoice {
-            fc_store_bytes: self.fc_store.as_bytes(),
-            proto_array_bytes: self.proto_array.as_bytes(),
-            genesis_block_root: self.genesis_block_root,
-        }
-    }
-
-    pub fn from_persisted(persisted: &PersistedForkChoice) -> Result<Self, Error<T::Error>> {
-        Ok(Self {
-            fc_store: T::from_bytes(&persisted.fc_store_bytes)
-                .map_err(Error::ForkChoiceStoreError)?,
-            proto_array: ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)?,
-            genesis_block_root: persisted.genesis_block_root,
-            _phantom: PhantomData,
-        })
     }
 }

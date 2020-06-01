@@ -3,7 +3,7 @@ use crate::beacon_chain::{
 };
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
-use crate::fork_choice::SszForkChoice;
+use crate::fork_choice::PersistedForkChoice;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::Migrate;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -420,12 +420,12 @@ where
             })?;
 
         let persisted_fork_choice = store
-            .get::<SszForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
+            .get::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {
-            ForkChoice::from_ssz_container(persisted)
-                .map_err(|e| format!("Unable to read persisted fork choice from disk: {:?}", e))?
+            ForkChoice::from_persisted(&persisted, store.clone(), slot_clock.clone())
+                .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?
         } else {
             let genesis_snapshot = &canonical_head;
 
