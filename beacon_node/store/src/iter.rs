@@ -294,8 +294,6 @@ fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
     (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
 }
 
-pub type ReverseBlockRootIterator<'a, E, S> =
-    ReverseHashAndSlotIterator<BlockRootsIterator<'a, E, S>>;
 pub type ReverseStateRootIterator<'a, E, S> =
     ReverseHashAndSlotIterator<StateRootsIterator<'a, E, S>>;
 

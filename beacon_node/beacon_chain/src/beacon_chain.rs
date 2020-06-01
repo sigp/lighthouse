@@ -39,7 +39,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
-    BlockRootsIterator, ParentRootBlockIterator, ReverseBlockRootIterator,
+    BlockRootsIterator, ParentRootBlockIterator,
     ReverseStateRootIterator, StateRootsIterator,
 };
 use store::{Error as DBError, Store};
@@ -324,15 +324,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_block_roots(
         &self,
-    ) -> Result<ReverseBlockRootIterator<T::EthSpec, T::Store>, Error> {
+    ) -> Result<impl Iterator<Item=(Hash256, Slot)>, Error> {
         let head = self.head()?;
 
         let iter = BlockRootsIterator::owned(self.store.clone(), head.beacon_state);
 
-        Ok(ReverseBlockRootIterator::new(
-            (head.beacon_block_root, head.beacon_block.slot()),
-            iter,
-        ))
+        Ok(std::iter::once((head.beacon_block_root, head.beacon_block.slot())).chain(iter))
     }
 
     pub fn forwards_iter_block_roots(
@@ -362,7 +359,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn rev_iter_block_roots_from(
         &self,
         block_root: Hash256,
-    ) -> Result<ReverseBlockRootIterator<T::EthSpec, T::Store>, Error> {
+    ) -> Result<impl Iterator<Item=(Hash256, Slot)>, Error> {
         let block = self
             .get_block(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
@@ -370,10 +367,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_state(&block.state_root(), Some(block.slot()))?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root()))?;
         let iter = BlockRootsIterator::owned(self.store.clone(), state);
-        Ok(ReverseBlockRootIterator::new(
-            (block_root, block.slot()),
-            iter,
-        ))
+        Ok(std::iter::once((block_root, block.slot())).chain(iter))
     }
 
     /// Traverse backwards from `block_root` to find the root of the ancestor block at `slot`.
