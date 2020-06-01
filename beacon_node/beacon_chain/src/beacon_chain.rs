@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{
     BlockRootsIterator, ParentRootBlockIterator,
-    ReverseStateRootIterator, StateRootsIterator,
+    StateRootsIterator,
 };
 use store::{Error as DBError, Store};
 use types::*;
@@ -393,16 +393,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots(
         &self,
-    ) -> Result<ReverseStateRootIterator<T::EthSpec, T::Store>, Error> {
+    ) -> Result<impl Iterator<Item=(Hash256, Slot)>, Error> {
         let head = self.head()?;
         let slot = head.beacon_state.slot;
 
         let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
 
-        Ok(ReverseStateRootIterator::new(
-            (head.beacon_state_root, slot),
-            iter,
-        ))
+        Ok(std::iter::once((head.beacon_state_root, slot)).chain(iter))
     }
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
