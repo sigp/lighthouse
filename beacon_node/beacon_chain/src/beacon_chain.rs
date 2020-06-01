@@ -38,10 +38,7 @@ use std::collections::HashSet;
 use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use store::iter::{
-    BlockRootsIterator, ParentRootBlockIterator,
-    StateRootsIterator,
-};
+use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, Store};
 use types::*;
 
@@ -322,9 +319,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - Iterator returns `(Hash256, Slot)`.
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
     ///     returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_block_roots(
-        &self,
-    ) -> Result<impl Iterator<Item=(Hash256, Slot)>, Error> {
+    pub fn rev_iter_block_roots(&self) -> Result<impl Iterator<Item = (Hash256, Slot)>, Error> {
         let head = self.head()?;
 
         let iter = BlockRootsIterator::owned(self.store.clone(), head.beacon_state);
@@ -359,7 +354,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn rev_iter_block_roots_from(
         &self,
         block_root: Hash256,
-    ) -> Result<impl Iterator<Item=(Hash256, Slot)>, Error> {
+    ) -> Result<impl Iterator<Item = (Hash256, Slot)>, Error> {
         let block = self
             .get_block(&block_root)?
             .ok_or_else(|| Error::MissingBeaconBlock(block_root))?;
@@ -391,9 +386,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - Iterator returns `(Hash256, Slot)`.
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
     ///     returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_state_roots(
-        &self,
-    ) -> Result<impl Iterator<Item=(Hash256, Slot)>, Error> {
+    pub fn rev_iter_state_roots(&self) -> Result<impl Iterator<Item = (Hash256, Slot)>, Error> {
         let head = self.head()?;
         let slot = head.beacon_state.slot;
 
