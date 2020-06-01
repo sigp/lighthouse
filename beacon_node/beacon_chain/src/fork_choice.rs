@@ -14,8 +14,7 @@ use types::{
 };
 
 type Result<T> = std::result::Result<T, Error>;
-
-type LmdGhost<T: BeaconChainTypes> = lmd_ghost::ForkChoice<ForkChoiceStore<T>, T::EthSpec>;
+type LmdGhost<T> = lmd_ghost::ForkChoice<ForkChoiceStore<T>, <T as BeaconChainTypes>::EthSpec>;
 
 #[derive(Debug)]
 pub enum Error {

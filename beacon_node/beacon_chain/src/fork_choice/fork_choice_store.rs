@@ -194,25 +194,6 @@ pub struct PersistedForkChoiceStore {
     best_justified_balances: Option<Vec<u64>>,
 }
 
-impl PersistedForkChoiceStore {
-    pub fn into_store<T: BeaconChainTypes>(
-        self,
-        store: Arc<T::Store>,
-        slot_clock: T::SlotClock,
-    ) -> ForkChoiceStore<T> {
-        ForkChoiceStore {
-            store,
-            slot_clock,
-            time: self.time,
-            finalized_checkpoint: self.finalized_checkpoint,
-            justified_checkpoint: self.justified_checkpoint,
-            justified_balances: self.justified_balances,
-            best_justified_checkpoint: self.best_justified_checkpoint,
-            best_justified_balances: self.best_justified_balances,
-        }
-    }
-}
-
 impl<T: BeaconChainTypes> From<&ForkChoiceStore<T>> for PersistedForkChoiceStore {
     fn from(store: &ForkChoiceStore<T>) -> Self {
         Self {
