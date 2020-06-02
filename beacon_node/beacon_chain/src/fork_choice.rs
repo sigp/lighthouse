@@ -2,7 +2,7 @@ mod fork_choice_store;
 
 use crate::{metrics, BeaconChainTypes, BeaconSnapshot};
 use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
-use lmd_ghost::{Error as LmdGhostError, InvalidAttestation, QueuedAttestation};
+use lmd_ghost::{Error as LmdGhostError, QueuedAttestation};
 use parking_lot::{RwLock, RwLockReadGuard};
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz::{Decode, Encode};
@@ -10,6 +10,8 @@ use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::{BeaconBlock, BeaconState, ChainSpec, Epoch, Hash256, IndexedAttestation, Slot};
+
+pub use lmd_ghost::InvalidAttestation;
 
 type LmdGhost<T> = lmd_ghost::ForkChoice<ForkChoiceStore<T>, <T as BeaconChainTypes>::EthSpec>;
 

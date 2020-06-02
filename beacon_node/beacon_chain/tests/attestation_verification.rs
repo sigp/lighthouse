@@ -6,7 +6,7 @@ extern crate lazy_static;
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    BeaconChain, BeaconChainTypes,
+    BeaconChain, BeaconChainTypes, ForkChoiceError, InvalidAttestation,
 };
 use state_processing::per_slot_processing;
 use store::Store;
@@ -765,7 +765,7 @@ fn fork_choice_verification() {
                             "{} should error during apply_attestation_to_fork_choice",
                             $desc
                         )),
-                    $( $error ) |+ $( if $guard )?
+                    $( ForkChoiceError::InvalidAttestation($error) ) |+ $( if $guard )?
                 ),
                 "case: {}",
                 $desc,
@@ -780,7 +780,7 @@ fn fork_choice_verification() {
             a.__indexed_attestation_mut().attesting_indices = vec![].into();
             a
         },
-        AttnError::EmptyAggregationBitfield
+        InvalidAttestation::EmptyAggregationBitfield
     );
 
     /*
@@ -799,7 +799,7 @@ fn fork_choice_verification() {
             a.__indexed_attestation_mut().data.target.epoch = future_epoch;
             a
         },
-        AttnError::FutureEpoch {
+        InvalidAttestation::FutureEpoch {
             attestation_epoch,
             current_epoch,
         }
@@ -819,7 +819,7 @@ fn fork_choice_verification() {
             a.__indexed_attestation_mut().data.target.epoch = past_epoch;
             a
         },
-        AttnError::PastEpoch {
+        InvalidAttestation::PastEpoch {
             attestation_epoch,
             current_epoch,
         }
@@ -843,7 +843,7 @@ fn fork_choice_verification() {
             indexed.data.target.epoch = indexed.data.slot.epoch(E::slots_per_epoch()) - 1;
             a
         },
-        AttnError::BadTargetEpoch
+        InvalidAttestation::BadTargetEpoch
     );
 
     /*
@@ -867,7 +867,7 @@ fn fork_choice_verification() {
             indexed.data.target.root = unknown_root;
             a
         },
-        AttnError::UnknownTargetRoot(hash) if hash == unknown_root
+        InvalidAttestation::UnknownTargetRoot(hash) if hash == unknown_root
     );
 
     // NOTE: we're not testing an assert from the spec:
@@ -898,7 +898,7 @@ fn fork_choice_verification() {
             indexed.data.beacon_block_root = unknown_root;
             a
         },
-        AttnError::UnknownHeadBlock {
+        InvalidAttestation::UnknownHeadBlock {
             beacon_block_root
         }
         if beacon_block_root == unknown_root
@@ -924,7 +924,7 @@ fn fork_choice_verification() {
             indexed.data.beacon_block_root = future_block.canonical_root();
             a
         },
-        AttnError::AttestsToFutureBlock {
+        InvalidAttestation::AttestsToFutureBlock {
             block: current_slot,
             attestation: slot,
         }
