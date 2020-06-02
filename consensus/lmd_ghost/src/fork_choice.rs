@@ -51,13 +51,15 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
 fn should_update_justified_checkpoint<T, E>(
-    store: &T,
+    store: &mut T,
     state: &BeaconState<E>,
 ) -> Result<bool, T::Error>
 where
     T: ForkChoiceStore<E>,
     E: EthSpec,
 {
+    store.update_time()?;
+
     let new_justified_checkpoint = &state.current_justified_checkpoint;
 
     if compute_slots_since_epoch_start::<E>(store.get_current_slot())
@@ -341,6 +343,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing_utils::{StateBuilder, TestingStore};
     use types::{EthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
@@ -363,5 +366,35 @@ mod tests {
                 epoch * E::slots_per_epoch()
             )
         }
+    }
+
+    #[test]
+    fn update_justified_checkpoint() {
+        let mut store = TestingStore::from_state(
+            StateBuilder::genesis()
+                .at_slot(Slot::new(E::slots_per_epoch() * 5))
+                .justified_at(Epoch::new(1))
+                .build(),
+        );
+        let state = StateBuilder::genesis()
+            .at_slot(Slot::new(E::slots_per_epoch() * 6))
+            .justified_at(Epoch::new(2))
+            .build();
+
+        assert_ne!(
+            store.get_ancestor(
+                &state,
+                state.current_justified_checkpoint.root,
+                compute_start_slot_at_epoch::<E>(store.justified_checkpoint().epoch),
+            ),
+            Ok(store.justified_checkpoint().root),
+            "precondition: state must not be a descendant of current justified state"
+        );
+
+        assert_eq!(
+            should_update_justified_checkpoint::<TestingStore<E>, E>(&mut store, &state,),
+            Ok(true),
+            "during safe-to-update slots"
+        );
     }
 }

@@ -1,5 +1,5 @@
 use crate::{BeaconChainTypes, BeaconSnapshot};
-use lmd_ghost::ForkChoiceStore as StoreTrait;
+use lmd_ghost::ForkChoiceStore as ForkChoiceStoreTrait;
 use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -90,22 +90,22 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
     }
 }
 
-impl<T: BeaconChainTypes> StoreTrait<T::EthSpec> for ForkChoiceStore<T> {
+impl<T: BeaconChainTypes> ForkChoiceStoreTrait<T::EthSpec> for ForkChoiceStore<T> {
     type Error = Error;
 
     fn update_time(&mut self) -> Result<(), Error> {
-        loop {
-            let time = self
+        while self.time
+            < self
                 .slot_clock
                 .now()
-                .ok_or_else(|| Error::UnableToReadSlot)?;
-
-            if self.time < time {
-                self.on_tick(time)?;
-            } else {
-                break Ok(());
-            }
+                .ok_or_else(|| Error::UnableToReadSlot)?
+        {
+            // Note: we are relying upon `Self::on_tick` to update `self.time` to ensure we don't
+            // get stuck in a loop.
+            self.on_tick(self.time + 1)?
         }
+
+        Ok(())
     }
 
     fn get_current_slot(&self) -> Slot {
