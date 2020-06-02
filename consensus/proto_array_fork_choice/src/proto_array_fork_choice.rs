@@ -69,6 +69,9 @@ impl ProtoArrayForkChoice {
             .on_block(
                 finalized_block_slot,
                 finalized_root,
+                // We are using the finalized_root as the target_root, since it always lies on an
+                // epoch boundary.
+                finalized_root,
                 None,
                 finalized_block_state_root,
                 justified_epoch,
@@ -104,6 +107,7 @@ impl ProtoArrayForkChoice {
         slot: Slot,
         block_root: Hash256,
         parent_root: Hash256,
+        target_root: Hash256,
         state_root: Hash256,
         justified_epoch: Epoch,
         finalized_epoch: Epoch,
@@ -112,6 +116,7 @@ impl ProtoArrayForkChoice {
             .on_block(
                 slot,
                 block_root,
+                target_root,
                 Some(parent_root),
                 state_root,
                 justified_epoch,

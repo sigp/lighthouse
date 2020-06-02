@@ -126,6 +126,7 @@ impl ForkChoiceTestDefinition {
                             root,
                             parent_root,
                             Hash256::zero(),
+                            Hash256::zero(),
                             justified_epoch,
                             finalized_epoch,
                         )

@@ -2,7 +2,9 @@ use crate::ForkChoiceStore;
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
-use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, IndexedAttestation, Slot};
+use types::{
+    BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, IndexedAttestation, Slot,
+};
 
 /// Defined here:
 ///
@@ -13,6 +15,7 @@ const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 pub enum Error<T> {
     // TODO: make this an actual error enum.
     ProtoArrayError(String),
+    BeaconStateError(BeaconStateError),
     ForkChoiceStoreError(T),
 }
 
@@ -313,12 +316,25 @@ where
             }
         }
 
+        let target_slot = block
+            .slot
+            .epoch(E::slots_per_epoch())
+            .start_slot(E::slots_per_epoch());
+        let target_root = if block.slot == target_slot {
+            block_root
+        } else {
+            *state
+                .get_block_root(target_slot)
+                .map_err(Error::BeaconStateError)?
+        };
+
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
         self.proto_array.process_block(
             block.slot,
             block_root,
             block.parent_root,
+            target_root,
             block.state_root,
             state.current_justified_checkpoint.epoch,
             state.finalized_checkpoint.epoch,

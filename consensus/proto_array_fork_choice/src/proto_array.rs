@@ -12,6 +12,12 @@ pub struct ProtoNode {
     /// The `state_root` is not necessary for `ProtoArray` either, it also just exists for upstream
     /// components (namely attestation verification).
     pub state_root: Hash256,
+    /// The root that would be used for the `attestation.data.target.root` if a LMD vote was cast
+    /// for this block.
+    ///
+    /// The `target_root` is not necessary for `ProtoArray` either, it also just exists for upstream
+    /// components (namely fork choice attestation verification).
+    pub target_root: Hash256,
     root: Hash256,
     parent: Option<usize>,
     justified_epoch: Epoch,
@@ -128,6 +134,7 @@ impl ProtoArray {
         &mut self,
         slot: Slot,
         root: Hash256,
+        target_root: Hash256,
         parent_opt: Option<Hash256>,
         state_root: Hash256,
         justified_epoch: Epoch,
@@ -142,6 +149,7 @@ impl ProtoArray {
 
         let node = ProtoNode {
             slot,
+            target_root,
             state_root,
             root,
             parent: parent_opt.and_then(|parent| self.indices.get(&parent).copied()),
