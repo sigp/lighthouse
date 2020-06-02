@@ -1,5 +1,6 @@
 use crate::ForkChoiceStore;
 use proto_array_fork_choice::ProtoArrayForkChoice;
+use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, Hash256, IndexedAttestation, Slot};
 
@@ -81,14 +82,37 @@ where
     Ok(true)
 }
 
+/// Used for queuing attestations from the current slot. Only contains the minimum necessary
+/// information about the attestation (i.e., it is simplified).
+#[derive(Clone, Encode, Decode)]
+pub struct QueuedAttestation {
+    slot: Slot,
+    attesting_indices: Vec<u64>,
+    block_root: Hash256,
+    target_epoch: Epoch,
+}
+
+impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
+    fn from(a: &IndexedAttestation<E>) -> Self {
+        Self {
+            slot: a.data.slot,
+            attesting_indices: a.attesting_indices[..].to_vec(),
+            block_root: a.data.beacon_block_root,
+            target_epoch: a.data.target.epoch,
+        }
+    }
+}
+
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
 ///
 /// ## Detail
 ///
-/// This struct wraps `ProtoArrayForkChoice` in order to manage the justified state. The justified
-/// state provides the start block and balances when finding the head.
+/// This struct wraps `ProtoArrayForkChoice` and provides:
+///
+/// - Management of the justified state and caching of balances.
+/// - Queuing of attestations from the current slot.
 pub struct ForkChoice<T, E> {
     /// Storage for `ForkChoice`, modelled off the spec `Store` object.
     fc_store: T,
@@ -99,6 +123,8 @@ pub struct ForkChoice<T, E> {
     /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
     /// whenever the struct was instantiated.
     genesis_block_root: Hash256,
+    /// Stores queued attestations that can be applied once we have advanced a slot.
+    queued_attestations: Vec<QueuedAttestation>,
     _phantom: PhantomData<E>,
 }
 
@@ -144,6 +170,7 @@ where
             fc_store,
             proto_array,
             genesis_block_root,
+            queued_attestations: vec![],
             _phantom: PhantomData,
         })
     }
@@ -156,11 +183,13 @@ where
         fc_store: T,
         proto_array: ProtoArrayForkChoice,
         genesis_block_root: Hash256,
+        queued_attestations: Vec<QueuedAttestation>,
     ) -> Self {
         Self {
             fc_store,
             proto_array,
             genesis_block_root,
+            queued_attestations,
             _phantom: PhantomData,
         }
     }
@@ -176,6 +205,9 @@ where
         self.fc_store
             .update_time()
             .map_err(Error::ForkChoiceStoreError)?;
+
+        // Process any attestations that were delayed for consideration.
+        self.process_attestation_queue()?;
 
         let store = &mut self.fc_store;
         let genesis_block_root = self.genesis_block_root;
@@ -306,16 +338,56 @@ where
         //
         // Additionally, don't add any block hash to fork choice unless we have imported the block.
         if block_hash != Hash256::zero() {
+            if attestation.data.slot < self.fc_store.get_current_slot() {
+                for validator_index in attestation.attesting_indices.iter() {
+                    self.proto_array.process_attestation(
+                        *validator_index as usize,
+                        block_hash,
+                        attestation.data.target.epoch,
+                    )?;
+                }
+            } else {
+                // The spec declares:
+                //
+                // ```
+                // Attestations can only affect the fork choice of subsequent slots.
+                // Delay consideration in the fork choice until their slot is in the past.
+                // ```
+                self.queued_attestations
+                    .push(QueuedAttestation::from(attestation));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Processes and removes from the queue any queued attestations which are now able to be
+    /// processed due to the slot clock incrementing.
+    fn process_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
+        for attestation in self.dequeue_attestations() {
             for validator_index in attestation.attesting_indices.iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
-                    block_hash,
-                    attestation.data.target.epoch,
+                    attestation.block_root,
+                    attestation.target_epoch,
                 )?;
             }
         }
 
         Ok(())
+    }
+
+    /// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
+    /// current slot. Also removes those values from `self.queued_attestations`.
+    fn dequeue_attestations(&mut self) -> Vec<QueuedAttestation> {
+        let slot = self.fc_store.get_current_slot();
+
+        if let Some(i) = self.queued_attestations.iter().position(|a| a.slot >= slot) {
+            let remaining = self.queued_attestations.split_off(i);
+            std::mem::replace(&mut self.queued_attestations, remaining)
+        } else {
+            vec![]
+        }
     }
 
     /// Returns a reference to the underlying fork choice DAG.
@@ -331,6 +403,11 @@ where
     /// Returns a reference to the genesis block root.
     pub fn genesis_block_root(&self) -> &Hash256 {
         &self.genesis_block_root
+    }
+
+    /// Returns a reference to the currently queued attestations.
+    pub fn queued_attestations(&self) -> &[QueuedAttestation] {
+        &self.queued_attestations
     }
 
     /// Prunes the underlying fork choice DAG.
