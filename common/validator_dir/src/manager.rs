@@ -103,7 +103,7 @@ impl Manager {
                             info!(
                                 log,
                                 "Decrypted validator keystore";
-                                "pubkey" => kp.pk.as_hex_string()
+                                "voting_pubkey" => kp.pk.as_hex_string()
                             )
                         }
                         (kp, v)

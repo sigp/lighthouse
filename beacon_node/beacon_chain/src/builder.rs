@@ -48,7 +48,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler> 
     for Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -98,7 +98,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -184,7 +184,7 @@ where
             .ok_or_else(|| "get_persisted_eth1_backend requires a store.".to_string())?;
 
         store
-            .get::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY))
+            .get_item::<SszEth1>(&Hash256::from_slice(&ETH1_CACHE_DB_KEY))
             .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
     }
 
@@ -196,7 +196,7 @@ where
             .ok_or_else(|| "store_contains_beacon_chain requires a store.".to_string())?;
 
         Ok(store
-            .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
+            .get_item::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .is_some())
     }
@@ -227,7 +227,7 @@ where
             .ok_or_else(|| "resume_from_db requires a store.".to_string())?;
 
         let chain = store
-            .get::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
+            .get_item::<PersistedBeaconChain>(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted beacon chain: {:?}", e))?
             .ok_or_else(|| {
                 "No persisted beacon chain found in store. Try purging the beacon chain database."
@@ -242,7 +242,7 @@ where
 
         let head_block_root = chain.canonical_head_block_root;
         let head_block = store
-            .get::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
+            .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
             .map_err(|e| format!("DB error when reading head block: {:?}", e))?
             .ok_or_else(|| "Head block not found in store".to_string())?;
         let head_state_root = head_block.state_root();
@@ -253,7 +253,7 @@ where
 
         self.op_pool = Some(
             store
-                .get::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(&OP_POOL_DB_KEY))
+                .get_item::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(&OP_POOL_DB_KEY))
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
                 .map(|persisted| persisted.into_operation_pool(&head_state, &self.spec))
                 .unwrap_or_else(|| OperationPool::new()),
@@ -261,7 +261,7 @@ where
 
         let finalized_block_root = head_state.finalized_checkpoint.root;
         let finalized_block = store
-            .get::<SignedBeaconBlock<TEthSpec>>(&finalized_block_root)
+            .get_item::<SignedBeaconBlock<TEthSpec>>(&finalized_block_root)
             .map_err(|e| format!("DB error when reading finalized block: {:?}", e))?
             .ok_or_else(|| "Finalized block not found in store".to_string())?;
         let finalized_state_root = finalized_block.state_root();
@@ -317,16 +317,18 @@ where
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
-            .put(&beacon_block_root, &beacon_block)
+            .put_item(&beacon_block_root, &beacon_block)
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
-        store.put(&Hash256::zero(), &beacon_block).map_err(|e| {
-            format!(
-                "Failed to store genesis block under 0x00..00 alias: {:?}",
-                e
-            )
-        })?;
+        store
+            .put_item(&Hash256::zero(), &beacon_block)
+            .map_err(|e| {
+                format!(
+                    "Failed to store genesis block under 0x00..00 alias: {:?}",
+                    e
+                )
+            })?;
 
         self.finalized_snapshot = Some(BeaconSnapshot {
             beacon_block_root,
@@ -484,7 +486,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -501,7 +503,7 @@ where
             .ok_or_else(|| "reduced_tree_fork_choice requires a store.".to_string())?;
 
         let persisted_fork_choice = store
-            .get::<SszForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
+            .get_item::<SszForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {
@@ -554,7 +556,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -592,7 +594,7 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -631,7 +633,7 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TStore, TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,

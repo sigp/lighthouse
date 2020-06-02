@@ -8,7 +8,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::common::get_indexed_attestation;
 use std::marker::PhantomData;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
+use store::{DBColumn, Error as StoreError, StoreItem};
 use types::{BeaconBlock, BeaconState, BeaconStateError, Epoch, Hash256, IndexedAttestation, Slot};
 
 type Result<T> = std::result::Result<T, Error>;
@@ -285,7 +285,7 @@ impl From<String> for Error {
     }
 }
 
-impl SimpleStoreItem for SszForkChoice {
+impl StoreItem for SszForkChoice {
     fn db_column() -> DBColumn {
         DBColumn::ForkChoice
     }

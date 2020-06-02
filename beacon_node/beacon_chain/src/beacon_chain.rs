@@ -151,7 +151,7 @@ pub struct HeadInfo {
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type Store: store::Store<Self::EthSpec>;
-    type StoreMigrator: Migrate<Self::Store, Self::EthSpec>;
+    type StoreMigrator: Migrate<Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec, Self::Store>;
     type EthSpec: types::EthSpec;
@@ -241,7 +241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
 
-        self.store.put(
+        self.store.put_item(
             &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
             &self.fork_choice.as_ssz_container(),
         )?;
@@ -250,7 +250,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
 
         self.store
-            .put(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
+            .put_item(&Hash256::from_slice(&BEACON_CHAIN_DB_KEY), &persisted_head)?;
 
         metrics::stop_timer(head_timer);
 
@@ -266,7 +266,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist_op_pool(&self) -> Result<(), Error> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
-        self.store.put(
+        self.store.put_item(
             &Hash256::from_slice(&OP_POOL_DB_KEY),
             &PersistedOperationPool::from_operation_pool(&self.op_pool),
         )?;
@@ -281,7 +281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
-            self.store.put(
+            self.store.put_item(
                 &Hash256::from_slice(&ETH1_CACHE_DB_KEY),
                 &eth1_chain.as_ssz_container(),
             )?;
@@ -426,7 +426,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|(root, _)| root);
 
         if let Some(block_root) = root {
-            Ok(self.store.get(&block_root)?)
+            Ok(self.store.get_item(&block_root)?)
         } else {
             Ok(None)
         }
@@ -1934,7 +1934,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
         Ok(!self
             .store
-            .exists::<SignedBeaconBlock<T::EthSpec>>(beacon_block_root)?)
+            .item_exists::<SignedBeaconBlock<T::EthSpec>>(beacon_block_root)?)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.

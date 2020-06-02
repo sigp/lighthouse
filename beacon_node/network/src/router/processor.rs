@@ -252,7 +252,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         } else if self
             .chain
             .store
-            .exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)
+            .item_exists::<SignedBeaconBlock<T::EthSpec>>(&remote.head_root)
             .unwrap_or_else(|_| false)
         {
             debug!(

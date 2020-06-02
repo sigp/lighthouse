@@ -12,6 +12,7 @@
 * [Local Testnets](./local-testnets.md)
 * [API](./api.md)
 	* [HTTP (RESTful JSON)](./http.md)
+	    * [/node](./http/node.md)
 	    * [/beacon](./http/beacon.md)
 	    * [/validator](./http/validator.md)
 	    * [/consensus](./http/consensus.md)

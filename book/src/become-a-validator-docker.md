@@ -45,7 +45,6 @@ START_GETH=true
 START_VALIDATOR=true
 VALIDATOR_COUNT=1
 VOTING_ETH1_NODE=http://geth:8545
-DEPOSIT_VALUE=3200000000
 ```
 
 _This `.env` file should live in the `lighthouse-docker` directory alongside the
@@ -59,14 +58,15 @@ Start the docker-compose environment (you may need to prefix the below command w
  docker-compose up
 ```
 
-Watch the output of this command for the `Saved new validator to disk` log, as
-it contains your `voting_pubkey` -- the primary identifier for your new validator. This key is useful for finding your validator in block explorers. Here's an example of the log:
+Watch the output of this command for the `Decrypted validator keystore pubkey`
+log, as it contains your `voting_pubkey` -- the primary identifier for your new
+validator. This key is useful for finding your validator in block explorers.
+Here's an example of the log:
 
 ```bash
-validator_client_1  |  Jan 10 12:06:05.632 INFO Saved new validator to disk
-voting_pubkey: 0x8fc28504448783b10b0a7f5a321505b07ad2ad8d6a8430b8868a0fcdedee43766bee725855506626085776e020dfa472
+validator_client_1  | Jun 01 00:29:24.418 INFO Decrypted validator keystore      voting_pubkey: 0x9986ade7a974d2fe2d0fc84a8c04153873337d533d43a83439cab8ec276410686dd69aa808605a7324f34e52497a3f41
 ```
-This is one of the first logs outputted, so you may have to scroll up or perform a search in your terminal to find it.
+This is one of the earlier logs outputted, so you may have to scroll up or perform a search in your terminal to find it.
 
 > Note: `docker-compose up` generates  a new  sub-directory -- to store your validator's deposit data, along with its voting and withdrawal keys -- in the `.lighthouse/validators` directory. This sub-directory is identified by your validator's `voting_pubkey` (the same `voting_pubkey` you see in the logs). So this is another way you can find it.
 
