@@ -19,16 +19,37 @@ impl<T> From<String> for Error<T> {
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
+///
+/// ## Specification
+///
+/// Equivalent to:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#compute_slots_since_epoch_start
 pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
     slot - slot
         .epoch(E::slots_per_epoch())
         .start_slot(E::slots_per_epoch())
 }
 
+/// Calculate the first slot in `epoch`.
+///
+/// ## Specification
+///
+/// Equivalent to:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/beacon-chain.md#compute_start_slot_at_epoch
 fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
 
+/// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
+///
+/// ## Detail
+///
+/// This struct wraps `ProtoArrayForkChoice` in order to manage the justified state. The justified
+/// state provides the start block and balances when finding the head.
 pub struct ForkChoice<T, E> {
     /// Storage for `ForkChoice`, modelled off the spec `Store` object.
     fc_store: T,
@@ -59,6 +80,7 @@ where
     T: ForkChoiceStore<E>,
     E: EthSpec,
 {
+    /// Instantiates `Self` from the genesis parameters.
     pub fn from_genesis(
         fc_store: T,
         genesis_block_root: Hash256,
@@ -87,6 +109,10 @@ where
         })
     }
 
+    /// Instantiates `Self` from some existing components.
+    ///
+    /// This is useful if the existing components have been loaded from disk after a process
+    /// restart.
     pub fn from_components(
         fc_store: T,
         proto_array: ProtoArrayForkChoice,
@@ -101,7 +127,13 @@ where
     }
 
     /// Run the fork choice rule to determine the head.
-    pub fn find_head(&mut self) -> Result<Hash256, Error<T::Error>> {
+    ///
+    /// ## Specification
+    ///
+    /// Is equivalent to:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_head
+    pub fn get_head(&mut self) -> Result<Hash256, Error<T::Error>> {
         self.fc_store
             .update_time()
             .map_err(Error::ForkChoiceStoreError)?;
@@ -130,45 +162,49 @@ where
         result
     }
 
-    pub fn on_attestation(
-        &mut self,
-        attestation: &IndexedAttestation<E>,
-    ) -> Result<(), Error<T::Error>> {
-        self.fc_store
-            .update_time()
-            .map_err(Error::ForkChoiceStoreError)?;
+    /// Returns `true` if the given `store` should be updated to set
+    /// `state.current_justified_checkpoint` its `justified_checkpoint`.
+    ///
+    /// ## Specification
+    ///
+    /// Is equivalent to:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
+    fn should_update_justified_checkpoint(
+        store: &T,
+        state: &BeaconState<E>,
+    ) -> Result<bool, T::Error> {
+        let new_justified_checkpoint = &state.current_justified_checkpoint;
 
-        // Ensure the store is up-to-date.
-        let block_hash = attestation.data.beacon_block_root;
-
-        // Ignore any attestations to the zero hash.
-        //
-        // This is an edge case that results from the spec aliasing the zero hash to the genesis
-        // block. Attesters may attest to the zero hash if they have never seen a block.
-        //
-        // We have two options here:
-        //
-        //  1. Apply all zero-hash attestations to the zero hash.
-        //  2. Ignore all attestations to the zero hash.
-        //
-        // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
-        // fine because votes to the genesis block are not useful; all validators implicitly attest
-        // to genesis just by being present in the chain.
-        //
-        // Additionally, don't add any block hash to fork choice unless we have imported the block.
-        if block_hash != Hash256::zero() {
-            for validator_index in attestation.attesting_indices.iter() {
-                self.proto_array.process_attestation(
-                    *validator_index as usize,
-                    block_hash,
-                    attestation.data.target.epoch,
-                )?;
-            }
+        if compute_slots_since_epoch_start::<E>(store.get_current_slot())
+            < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
+        {
+            return Ok(true);
         }
 
-        Ok(())
+        let justified_slot = compute_start_slot_at_epoch::<E>(store.justified_checkpoint().epoch);
+        if store.get_ancestor(state, new_justified_checkpoint.root, justified_slot)?
+            != store.justified_checkpoint().root
+        {
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
+    /// Add `block` to the fork choice DAG.
+    ///
+    /// - `block_root_root` is the root of `block.
+    /// - The root of `state` matches `block.state_root`.
+    ///
+    /// ## Specification
+    ///
+    /// Approximates:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_block
+    ///
+    /// It only approximates the specification since it does not perform verification on the
+    /// `block`. It is assumed that this verification has already been completed by the caller.
     pub fn on_block(
         &mut self,
         block: &BeaconBlock<E>,
@@ -222,45 +258,106 @@ where
         Ok(())
     }
 
-    fn should_update_justified_checkpoint(
-        store: &T,
-        state: &BeaconState<E>,
-    ) -> Result<bool, T::Error> {
-        let new_justified_checkpoint = &state.current_justified_checkpoint;
+    /// Register `attestation` with the fork choice DAG so that it may influence future calls to
+    /// `Self::get_head`.
+    ///
+    /// ## Specification
+    ///
+    /// Approximates:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_attestation
+    ///
+    /// It only approximates the specification since it does not perform verification on the
+    /// `attestation`. It is assumed that this verification has already been completed by the
+    /// caller.
+    pub fn on_attestation(
+        &mut self,
+        attestation: &IndexedAttestation<E>,
+    ) -> Result<(), Error<T::Error>> {
+        self.fc_store
+            .update_time()
+            .map_err(Error::ForkChoiceStoreError)?;
 
-        if compute_slots_since_epoch_start::<E>(store.get_current_slot())
-            < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
-        {
-            return Ok(true);
+        // Ensure the store is up-to-date.
+        let block_hash = attestation.data.beacon_block_root;
+
+        // Ignore any attestations to the zero hash.
+        //
+        // This is an edge case that results from the spec aliasing the zero hash to the genesis
+        // block. Attesters may attest to the zero hash if they have never seen a block.
+        //
+        // We have two options here:
+        //
+        //  1. Apply all zero-hash attestations to the zero hash.
+        //  2. Ignore all attestations to the zero hash.
+        //
+        // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
+        // fine because votes to the genesis block are not useful; all validators implicitly attest
+        // to genesis just by being present in the chain.
+        //
+        // Additionally, don't add any block hash to fork choice unless we have imported the block.
+        if block_hash != Hash256::zero() {
+            for validator_index in attestation.attesting_indices.iter() {
+                self.proto_array.process_attestation(
+                    *validator_index as usize,
+                    block_hash,
+                    attestation.data.target.epoch,
+                )?;
+            }
         }
 
-        let justified_slot = compute_start_slot_at_epoch::<E>(store.justified_checkpoint().epoch);
-        if store.get_ancestor(state, new_justified_checkpoint.root, justified_slot)?
-            != store.justified_checkpoint().root
-        {
-            return Ok(false);
-        }
-
-        Ok(true)
+        Ok(())
     }
 
+    /// Returns a reference to the underlying fork choice DAG.
     pub fn proto_array(&self) -> &ProtoArrayForkChoice {
         &self.proto_array
     }
 
+    /// Returns a reference to the underlying `fc_store`.
     pub fn fc_store(&self) -> &T {
         &self.fc_store
     }
 
+    /// Returns a reference to the genesis block root.
     pub fn genesis_block_root(&self) -> &Hash256 {
         &self.genesis_block_root
     }
 
+    /// Prunes the underlying fork choice DAG.
     pub fn prune(&mut self) -> Result<(), Error<T::Error>> {
         let finalized_root = self.fc_store.finalized_checkpoint().root;
 
         self.proto_array
             .maybe_prune(finalized_root)
             .map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{EthSpec, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    #[test]
+    fn slots_since_epoch_start() {
+        for epoch in 0..3 {
+            for slot in 0..E::slots_per_epoch() {
+                let input = epoch * E::slots_per_epoch() + slot;
+                assert_eq!(compute_slots_since_epoch_start::<E>(Slot::new(input)), slot)
+            }
+        }
+    }
+
+    #[test]
+    fn start_slot_at_epoch() {
+        for epoch in 0..3 {
+            assert_eq!(
+                compute_start_slot_at_epoch::<E>(Epoch::new(epoch)),
+                epoch * E::slots_per_epoch()
+            )
+        }
     }
 }
