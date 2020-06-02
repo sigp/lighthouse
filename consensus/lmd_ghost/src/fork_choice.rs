@@ -278,6 +278,12 @@ where
             .update_time()
             .map_err(Error::ForkChoiceStoreError)?;
 
+        // Process any attestations that were delayed for consideration.
+        //
+        // It's not strictly necessary to run this here, however it is a nice way to keep the
+        // attestation queue small without adding a heartbeat timer.
+        self.process_attestation_queue()?;
+
         let store = &mut self.fc_store;
 
         // TODO: stuff here
