@@ -103,6 +103,28 @@ impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
     }
 }
 
+/// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
+/// current slot. Also removes those values from `self.queued_attestations`.
+fn dequeue_attestations<T, E>(
+    fc_store: &T,
+    queued_attestations: &mut Vec<QueuedAttestation>,
+) -> Vec<QueuedAttestation>
+where
+    T: ForkChoiceStore<E>,
+    E: EthSpec,
+{
+    let slot = fc_store.get_current_slot();
+
+    let remaining = queued_attestations.split_off(
+        queued_attestations
+            .iter()
+            .position(|a| a.slot >= slot)
+            .unwrap_or(queued_attestations.len()),
+    );
+
+    std::mem::replace(queued_attestations, remaining)
+}
+
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
@@ -315,12 +337,10 @@ where
         &mut self,
         attestation: &IndexedAttestation<E>,
     ) -> Result<(), Error<T::Error>> {
+        // Ensure the store is up-to-date.
         self.fc_store
             .update_time()
             .map_err(Error::ForkChoiceStoreError)?;
-
-        // Ensure the store is up-to-date.
-        let block_hash = attestation.data.beacon_block_root;
 
         // Ignore any attestations to the zero hash.
         //
@@ -337,25 +357,27 @@ where
         // to genesis just by being present in the chain.
         //
         // Additionally, don't add any block hash to fork choice unless we have imported the block.
-        if block_hash != Hash256::zero() {
-            if attestation.data.slot < self.fc_store.get_current_slot() {
-                for validator_index in attestation.attesting_indices.iter() {
-                    self.proto_array.process_attestation(
-                        *validator_index as usize,
-                        block_hash,
-                        attestation.data.target.epoch,
-                    )?;
-                }
-            } else {
-                // The spec declares:
-                //
-                // ```
-                // Attestations can only affect the fork choice of subsequent slots.
-                // Delay consideration in the fork choice until their slot is in the past.
-                // ```
-                self.queued_attestations
-                    .push(QueuedAttestation::from(attestation));
+        if attestation.data.beacon_block_root != Hash256::zero() {
+            return Ok(());
+        }
+
+        if attestation.data.slot < self.fc_store.get_current_slot() {
+            for validator_index in attestation.attesting_indices.iter() {
+                self.proto_array.process_attestation(
+                    *validator_index as usize,
+                    attestation.data.beacon_block_root,
+                    attestation.data.target.epoch,
+                )?;
             }
+        } else {
+            // The spec declares:
+            //
+            // ```
+            // Attestations can only affect the fork choice of subsequent slots.
+            // Delay consideration in the fork choice until their slot is in the past.
+            // ```
+            self.queued_attestations
+                .push(QueuedAttestation::from(attestation));
         }
 
         Ok(())
@@ -364,7 +386,7 @@ where
     /// Processes and removes from the queue any queued attestations which are now able to be
     /// processed due to the slot clock incrementing.
     fn process_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
-        for attestation in self.dequeue_attestations() {
+        for attestation in dequeue_attestations(&self.fc_store, &mut self.queued_attestations) {
             for validator_index in attestation.attesting_indices.iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
@@ -375,19 +397,6 @@ where
         }
 
         Ok(())
-    }
-
-    /// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
-    /// current slot. Also removes those values from `self.queued_attestations`.
-    fn dequeue_attestations(&mut self) -> Vec<QueuedAttestation> {
-        let slot = self.fc_store.get_current_slot();
-
-        if let Some(i) = self.queued_attestations.iter().position(|a| a.slot >= slot) {
-            let remaining = self.queued_attestations.split_off(i);
-            std::mem::replace(&mut self.queued_attestations, remaining)
-        } else {
-            vec![]
-        }
     }
 
     /// Returns a reference to the underlying fork choice DAG.
@@ -446,6 +455,57 @@ mod tests {
                 epoch * E::slots_per_epoch()
             )
         }
+    }
+
+    fn get_queued_attestations() -> Vec<QueuedAttestation> {
+        (1..4)
+            .into_iter()
+            .map(|i| QueuedAttestation {
+                slot: Slot::new(i),
+                attesting_indices: vec![],
+                block_root: Hash256::zero(),
+                target_epoch: Epoch::new(0),
+            })
+            .collect()
+    }
+
+    fn get_slots(queued_attestations: &[QueuedAttestation]) -> Vec<u64> {
+        queued_attestations.iter().map(|a| a.slot.into()).collect()
+    }
+
+    fn test_queued_attestations(current_time: Slot) -> (Vec<u64>, Vec<u64>) {
+        let mut store = TestingStore::from_state(StateBuilder::genesis().build());
+        store.current_time = current_time;
+        store.update_time().unwrap();
+
+        let mut queued = get_queued_attestations();
+        let dequeued = dequeue_attestations::<_, E>(&store, &mut queued);
+
+        (get_slots(&queued), get_slots(&dequeued))
+    }
+
+    #[test]
+    fn dequeing_attestations() {
+        let (queued, dequeued) = test_queued_attestations(Slot::new(0));
+        assert_eq!(queued, vec![1, 2, 3]);
+        assert!(dequeued.is_empty());
+
+        let (queued, dequeued) = test_queued_attestations(Slot::new(1));
+        assert_eq!(queued, vec![1, 2, 3]);
+        assert!(dequeued.is_empty());
+
+        let (queued, dequeued) = test_queued_attestations(Slot::new(2));
+        assert_eq!(queued, vec![2, 3]);
+        assert_eq!(dequeued, vec![1]);
+
+        let (queued, dequeued) = test_queued_attestations(Slot::new(3));
+        assert_eq!(queued, vec![3]);
+        assert_eq!(dequeued, vec![1, 2]);
+
+        let (queued, dequeued) = test_queued_attestations(Slot::new(4));
+        dbg!(&queued);
+        assert!(queued.is_empty());
+        assert_eq!(dequeued, vec![1, 2, 3]);
     }
 
     #[test]
