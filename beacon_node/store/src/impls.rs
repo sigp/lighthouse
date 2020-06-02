@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 pub mod beacon_state;
 pub mod partial_beacon_state;
 
-impl<T: EthSpec> SimpleStoreItem for SignedBeaconBlock<T> {
+impl<T: EthSpec> StoreItem for SignedBeaconBlock<T> {
     fn db_column() -> DBColumn {
         DBColumn::BeaconBlock
     }

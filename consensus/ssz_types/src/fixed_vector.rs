@@ -196,7 +196,8 @@ where
                 item.ssz_append(buf);
             }
         } else {
-            let mut encoder = ssz::SszEncoder::list(buf, self.len() * ssz::BYTES_PER_LENGTH_OFFSET);
+            let mut encoder =
+                ssz::SszEncoder::container(buf, self.len() * ssz::BYTES_PER_LENGTH_OFFSET);
 
             for item in &self.vec {
                 encoder.append(item);

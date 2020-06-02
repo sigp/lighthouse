@@ -1254,3 +1254,16 @@ mod validator_attestation {
         );
     }
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn get_health() {
+    let mut env = build_env();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    env.runtime()
+        .block_on(remote_node.http.node().get_health())
+        .unwrap();
+}

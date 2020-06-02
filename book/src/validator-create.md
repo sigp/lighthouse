@@ -1,14 +1,14 @@
 # Create a validator
 
 Validators are fundamentally represented by a BLS keypair. In Lighthouse, we
-use a [wallet](./wallet-create) to generate these keypairs. Once a wallet
+use a [wallet](./wallet-create.md) to generate these keypairs. Once a wallet
 exists, the `lighthouse account validator create` command is used to generate
 the BLS keypair and all necessary information to submit a validator deposit and
 have that validator operate in the `lighthouse validator_client`.
 
 ## Usage
 
-To create a validator from a [wallet](./wallet-create), use the `lighthouse
+To create a validator from a [wallet](./wallet-create.md), use the `lighthouse
 account validator create` command:
 
 ```bash
@@ -57,7 +57,7 @@ OPTIONS:
 ## Example
 
 The example assumes that the `wally` wallet was generated from the
-[wallet](./wallet-create) example.
+[wallet](./wallet-create.md) example.
 
 ```bash
 lighthouse account wallet validator --name wally --wallet-password wally.pass
