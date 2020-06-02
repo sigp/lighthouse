@@ -1,7 +1,7 @@
 use crate::head_tracker::SszHeadTracker;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
+use store::{DBColumn, Error as StoreError, StoreItem};
 use types::Hash256;
 
 #[derive(Clone, Encode, Decode)]
@@ -11,7 +11,7 @@ pub struct PersistedBeaconChain {
     pub ssz_head_tracker: SszHeadTracker,
 }
 
-impl SimpleStoreItem for PersistedBeaconChain {
+impl StoreItem for PersistedBeaconChain {
     fn db_column() -> DBColumn {
         DBColumn::BeaconChain
     }

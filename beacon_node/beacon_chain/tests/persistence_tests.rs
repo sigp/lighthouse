@@ -9,7 +9,7 @@ use beacon_chain::{
 };
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::{DiskStore, StoreConfig};
+use store::{HotColdDB, StoreConfig};
 use tempfile::{tempdir, TempDir};
 use types::{EthSpec, Keypair, MinimalEthSpec};
 
@@ -23,14 +23,14 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_store(db_path: &TempDir) -> Arc<DiskStore<E>> {
+fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E>> {
     let spec = E::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open(&hot_path, &cold_path, config, spec, log)
+        HotColdDB::open(&hot_path, &cold_path, config, spec, log)
             .expect("disk store should initialize"),
     )
 }

@@ -354,7 +354,7 @@ fn roundtrip_operation_pool() {
     let restored_op_pool = harness
         .chain
         .store
-        .get::<PersistedOperationPool<MinimalEthSpec>>(&key)
+        .get_item::<PersistedOperationPool<MinimalEthSpec>>(&key)
         .expect("should read db")
         .expect("should find op pool")
         .into_operation_pool(&head_state, &harness.spec);

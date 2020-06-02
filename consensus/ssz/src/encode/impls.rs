@@ -256,7 +256,8 @@ macro_rules! impl_for_vec {
                         item.ssz_append(buf);
                     }
                 } else {
-                    let mut encoder = SszEncoder::list(buf, self.len() * BYTES_PER_LENGTH_OFFSET);
+                    let mut encoder =
+                        SszEncoder::container(buf, self.len() * BYTES_PER_LENGTH_OFFSET);
 
                     for item in self {
                         encoder.append(item);

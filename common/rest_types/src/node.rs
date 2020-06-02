@@ -1,9 +1,10 @@
 //! Collection of types for the /node HTTP
-use procinfo::pid;
-use psutil::process::Process;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use types::Slot;
+
+#[cfg(target_os = "linux")]
+use {procinfo::pid, psutil::process::Process};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 /// The current syncing status of the node.
@@ -63,6 +64,12 @@ pub struct Health {
 }
 
 impl Health {
+    #[cfg(not(target_os = "linux"))]
+    pub fn observe() -> Result<Self, String> {
+        Err("Health is only available on Linux".into())
+    }
+
+    #[cfg(target_os = "linux")]
     pub fn observe() -> Result<Self, String> {
         let process =
             Process::current().map_err(|e| format!("Unable to get current process: {:?}", e))?;

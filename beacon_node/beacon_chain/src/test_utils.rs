@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{DiskStore, MemoryStore, Store};
+use store::{HotColdDB, MemoryStore, Store};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -44,7 +44,7 @@ pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
 >;
 
 pub type HarnessType<E> = BaseHarnessType<MemoryStore<E>, NullMigrator, E>;
-pub type DiskHarnessType<E> = BaseHarnessType<DiskStore<E>, BlockingMigrator<DiskStore<E>>, E>;
+pub type DiskHarnessType<E> = BaseHarnessType<HotColdDB<E>, BlockingMigrator<E>, E>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -140,7 +140,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
@@ -152,10 +152,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
-                store,
-                log.clone(),
-            ))
+            .store_migrator(BlockingMigrator::new(store, log.clone()))
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
@@ -183,7 +180,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E>>,
         keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
@@ -195,10 +192,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
-                store,
-                log.clone(),
-            ))
+            .store_migrator(<BlockingMigrator<_> as Migrate<E>>::new(store, log.clone()))
             .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
@@ -224,7 +218,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
 impl<S, M, E> BeaconChainHarness<BaseHarnessType<S, M, E>>
 where
     S: Store<E>,
-    M: Migrate<S, E>,
+    M: Migrate<E>,
     E: EthSpec,
 {
     /// Advance the slot of the `BeaconChain`.
