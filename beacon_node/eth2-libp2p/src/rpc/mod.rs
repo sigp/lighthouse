@@ -4,7 +4,7 @@
 //! direct peer-to-peer communication primarily for sending/receiving chain information for
 //! syncing.
 
-use handler::RPCHandler;
+use handler::{RPCHandler, SubstreamId};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
@@ -34,13 +34,13 @@ pub enum RPCSend<T: EthSpec> {
     ///
     /// The `RequestId` is optional since it's given by the application making the request.  These
     /// go over *outbound* connections.
-    Request(Option<RequestId>, RPCRequest<T>),
+    Request(RequestId, RPCRequest<T>),
     /// A response sent from Lighthouse.
     ///
     /// The `RequestId` must correspond to the RPC-given ID of the original request received by the
     /// peer. The second parameter is a single chunk of a response. These go over *inbound*
     /// connections.
-    Response(RequestId, RPCCodedResponse<T>),
+    Response(SubstreamId, RPCCodedResponse<T>),
 }
 
 /// RPC events received from outside Lighthouse.
@@ -50,22 +50,20 @@ pub enum RPCReceived<T: EthSpec> {
     ///
     /// The `RequestId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(RequestId, RPCRequest<T>),
+    Request(SubstreamId, RPCRequest<T>),
     /// A response received from the outside.
     ///
     /// The `RequestId` corresponds to the application given ID of the original request sent to the
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
-    Response(Option<RequestId>, RPCCodedResponse<T>),
-    /// An Error occurred.
-    Error(Option<RequestId>, Protocol, RPCError),
+    Response(RequestId, RPCCodedResponse<T>),
 }
 
 impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
-            RPCSend::Response(id, res) => write!(f, "RPC Response(id: {}, {})", id, res),
+            RPCSend::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
         }
     }
 }
