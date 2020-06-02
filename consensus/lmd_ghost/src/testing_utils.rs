@@ -25,6 +25,24 @@ impl<T: EthSpec> StateBuilder<T> {
 
     pub fn at_slot(mut self, slot: Slot) -> Self {
         self.state.slot = slot;
+
+        let lowest_slot = slot
+            .as_u64()
+            .saturating_sub(T::slots_per_historical_root() as u64);
+
+        for i in lowest_slot..slot.as_u64() {
+            self.state
+                .set_block_root(Slot::from(i), Hash256::from_low_u64_be(i))
+                .unwrap()
+        }
+
+        self
+    }
+
+    pub fn ancestor_root_at_epoch(mut self, epoch: Epoch, root: Hash256) -> Self {
+        self.state
+            .set_block_root(epoch.start_slot(T::slots_per_epoch()), root)
+            .unwrap();
         self
     }
 
