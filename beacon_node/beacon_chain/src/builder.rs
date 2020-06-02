@@ -422,7 +422,7 @@ where
             })?;
 
         let persisted_fork_choice = store
-            .get::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
+            .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {

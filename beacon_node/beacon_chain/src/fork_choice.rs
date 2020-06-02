@@ -8,7 +8,7 @@ use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem};
+use store::{DBColumn, Error as StoreError, StoreItem};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Epoch, Hash256, IndexedAttestation, Slot,
 };
@@ -207,7 +207,7 @@ pub struct PersistedForkChoice {
     pub(crate) genesis_block_root: Hash256,
 }
 
-impl SimpleStoreItem for PersistedForkChoice {
+impl StoreItem for PersistedForkChoice {
     fn db_column() -> DBColumn {
         DBColumn::ForkChoice
     }
