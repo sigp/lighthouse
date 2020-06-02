@@ -33,9 +33,25 @@ pub const RESPONSE_TIMEOUT: u64 = 10;
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
 
-/// Outbound requests are associated with an id that is given by the application that sent the
-/// request.
-type OutboundRequestId = RequestId;
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+pub struct SubstreamId(usize);
+
+impl slog::Value for SubstreamId {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        slog::Value::serialize(&self.0, record, key, serializer)
+    }
+}
+
+pub struct OutboundError {
+    pub id: RequestId,
+    pub proto: Protocol,
+    pub error: RPCError,
+}
 
 /// Implementation of `ProtocolsHandler` for the RPC protocol.
 pub struct RPCHandler<TSpec>
@@ -45,21 +61,21 @@ where
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>,
 
-    /// If something bad happened and we should shut down the handler with an error.
-    pending_error: Vec<(Option<RequestId>, Protocol, RPCError)>,
+    /// Errors ocurring on outbound connections.
+    pending_outbound_errors: Vec<OutboundError>,
 
     /// Queue of events to produce in `poll()`.
     events_out: SmallVec<[RPCReceived<TSpec>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(Option<RequestId>, RPCRequest<TSpec>); 4]>,
+    dial_queue: SmallVec<[(RequestId, RPCRequest<TSpec>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
 
     /// Current inbound substreams awaiting processing.
     inbound_substreams: FnvHashMap<
-        RequestId,
+        SubstreamId,
         (
             InboundSubstreamState<TSpec>,
             Option<delay_queue::Key>,
@@ -68,22 +84,22 @@ where
     >,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
-    inbound_substreams_delay: DelayQueue<RequestId>,
+    inbound_substreams_delay: DelayQueue<SubstreamId>,
 
     /// Map of outbound substreams that need to be driven to completion.
-    outbound_substreams: FnvHashMap<OutboundRequestId, OutboundInfo<TSpec>>,
+    outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<TSpec>>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
-    outbound_substreams_delay: DelayQueue<OutboundRequestId>,
+    outbound_substreams_delay: DelayQueue<SubstreamId>,
 
     /// Map of outbound items that are queued as the stream processes them.
-    queued_outbound_items: FnvHashMap<RequestId, Vec<RPCCodedResponse<TSpec>>>,
+    queued_outbound_items: FnvHashMap<SubstreamId, Vec<RPCCodedResponse<TSpec>>>,
 
     /// Sequential ID for waiting substreams. For inbound substreams, this is also the inbound request ID.
-    current_inbound_substream_id: RequestId,
+    current_inbound_substream_id: SubstreamId,
 
     /// Sequential ID for outbound substreams.
-    current_outbound_substream_id: OutboundRequestId,
+    current_outbound_substream_id: SubstreamId,
 
     /// Maximum number of concurrent outbound substreams being opened. Value is never modified.
     max_dial_negotiated: u32,
@@ -113,7 +129,7 @@ struct OutboundInfo<TSpec: EthSpec> {
     /// Number of chunks to be seen from the peer's response.
     remaining_chunks: Option<u64>,
     /// RequestId as given by the application that sent the request.
-    req_id: Option<RequestId>,
+    req_id: RequestId,
 }
 
 pub enum InboundSubstreamState<TSpec>
@@ -164,6 +180,12 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
     /// Temporary state during processing
     Poisoned,
 }
+
+// / An error
+// pub struct RPCConnectionError {
+//     Inbound{id: SubstreamId, proto: Protocol, err: RPCError},
+//     Outbound{id: RequestId, proto: Protocol, err: RPCError}
+// }
 
 impl<TSpec> InboundSubstreamState<TSpec>
 where
@@ -239,7 +261,7 @@ where
     ) -> Self {
         RPCHandler {
             listen_protocol,
-            pending_error: Vec::new(),
+            pending_outbound_errors: Vec::new(),
             events_out: SmallVec::new(),
             dial_queue: SmallVec::new(),
             dial_negotiated: 0,
@@ -248,8 +270,8 @@ where
             outbound_substreams: FnvHashMap::default(),
             inbound_substreams_delay: DelayQueue::new(),
             outbound_substreams_delay: DelayQueue::new(),
-            current_inbound_substream_id: 1,
-            current_outbound_substream_id: 1,
+            current_inbound_substream_id: SubstreamId(0),
+            current_outbound_substream_id: SubstreamId(0),
             max_dial_negotiated: 8,
             keep_alive: KeepAlive::Yes,
             inactive_timeout,
@@ -275,7 +297,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: Option<RequestId>, req: RPCRequest<TSpec>) {
+    fn send_request(&mut self, id: RequestId, req: RPCRequest<TSpec>) {
         self.dial_queue.push((id, req));
         self.update_keep_alive();
     }
@@ -306,11 +328,12 @@ where
     TSpec: EthSpec,
 {
     type InEvent = RPCSend<TSpec>;
-    type OutEvent = RPCReceived<TSpec>;
+    /// Either a request/response is received, or an error ocurrs dialing a peer.
+    type OutEvent = Result<RPCReceived<TSpec>, OutboundError>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RPCRequest<TSpec>;
-    type OutboundOpenInfo = (Option<RequestId>, RPCRequest<TSpec>); // Keep track of the id and the request
+    type OutboundOpenInfo = (RequestId, RPCRequest<TSpec>); // Keep track of the id and the request
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol> {
         self.listen_protocol.clone()
@@ -325,7 +348,7 @@ where
         if let RPCRequest::Goodbye(_) = req {
             self.events_out
                 .push(RPCReceived::Request(self.current_inbound_substream_id, req));
-            self.current_inbound_substream_id += 1;
+            self.current_inbound_substream_id.0 += 1;
             return;
         }
 
@@ -342,7 +365,7 @@ where
 
         self.events_out
             .push(RPCReceived::Request(self.current_inbound_substream_id, req));
-        self.current_inbound_substream_id += 1;
+        self.current_inbound_substream_id.0 += 1;
     }
 
     fn inject_fully_negotiated_outbound(
@@ -386,7 +409,7 @@ where
             {
                 crit!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", self.current_outbound_substream_id));
             }
-            self.current_outbound_substream_id += 1;
+            self.current_outbound_substream_id.0 += 1;
         }
 
         self.update_keep_alive();
@@ -422,13 +445,6 @@ where
                                 *substream_state = InboundSubstreamState::Closing(substream);
                             }
                             _ => {
-                                if let Some(error_code) = response.error_code() {
-                                    self.pending_error.push((
-                                        Some(inbound_id),
-                                        *protocol,
-                                        RPCError::ErrorResponse(error_code),
-                                    ));
-                                }
                                 // send the response
                                 // if it's a single rpc request or an error, close the stream after
                                 *substream_state = InboundSubstreamState::ResponsePendingSend {
@@ -524,7 +540,7 @@ where
 
         self.outbound_io_error_retries = 0;
         // map the error
-        let rpc_error = match error {
+        let error = match error {
             ProtocolsHandlerUpgrErr::Timer => RPCError::InternalError("Timer failed"),
             ProtocolsHandlerUpgrErr::Timeout => RPCError::NegotiationTimeout,
             ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(e)) => e,
@@ -545,7 +561,11 @@ where
                 }
             },
         };
-        self.pending_error.push((id, req.protocol(), rpc_error));
+        self.pending_outbound_errors.push(OutboundError {
+            id,
+            proto: req.protocol(),
+            error,
+        });
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
@@ -563,16 +583,15 @@ where
             Self::Error,
         >,
     > {
-        if !self.pending_error.is_empty() {
-            let (id, protocol, err) = self.pending_error.remove(0);
-            return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
-                id, protocol, err,
-            )));
+        // report failed outbound requests
+        if !self.pending_outbound_errors.is_empty() {
+            let err_info = self.pending_outbound_errors.remove(0);
+            return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(err_info)));
         }
 
         // return any events that need to be reported
         if !self.events_out.is_empty() {
-            return Poll::Ready(ProtocolsHandlerEvent::Custom(self.events_out.remove(0)));
+            return Poll::Ready(ProtocolsHandlerEvent::Custom(Ok(self.events_out.remove(0))));
         } else {
             self.events_out.shrink_to_fit();
         }
@@ -615,12 +634,13 @@ where
                     {
                         self.update_keep_alive();
 
-                        // notify the user
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
-                            req_id,
+                        let outbound_err = OutboundError {
+                            id: req_id,
                             proto,
-                            RPCError::StreamTimeout,
-                        )));
+                            error: RPCError::StreamTimeout,
+                        };
+                        // notify the user
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(outbound_err)));
                     } else {
                         crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
                     }
@@ -846,9 +866,8 @@ where
                             entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                         }
 
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Response(
-                            entry.get().req_id,
-                            response,
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(Ok(
+                            RPCReceived::Response(entry.get().req_id, response),
                         )));
                     }
                     Poll::Ready(None) => {
@@ -865,20 +884,23 @@ where
                         // notify the application error
                         if request.multiple_responses() {
                             // return an end of stream result
-                            return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                            return Poll::Ready(ProtocolsHandlerEvent::Custom(Ok(
                                 RPCReceived::Response(
                                     request_id,
                                     RPCCodedResponse::StreamTermination(
                                         request.stream_termination(),
                                     ),
                                 ),
-                            ));
-                        } // else we return an error, stream should not have closed early.
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
-                            request_id,
-                            request.protocol(),
-                            RPCError::IncompleteStream,
-                        )));
+                            )));
+                        }
+
+                        // else we return an error, stream should not have closed early.
+                        let outbound_err = OutboundError {
+                            id: request_id,
+                            proto: request.protocol(),
+                            error: RPCError::IncompleteStream,
+                        };
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(outbound_err)));
                     }
                     Poll::Pending => {
                         entry.get_mut().state =
@@ -888,13 +910,14 @@ where
                         // drop the stream
                         let delay_key = &entry.get().delay_key;
                         self.outbound_substreams_delay.remove(delay_key);
-                        let protocol = entry.get().proto;
-                        let request_id = entry.get().req_id;
+                        let outbound_err = OutboundError {
+                            id: entry.get().req_id,
+                            proto: entry.get().proto,
+                            error: e,
+                        };
                         entry.remove_entry();
                         self.update_keep_alive();
-                        return Poll::Ready(ProtocolsHandlerEvent::Custom(RPCReceived::Error(
-                            request_id, protocol, e,
-                        )));
+                        return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(outbound_err)));
                     }
                 },
                 OutboundSubstreamState::Closing(mut substream) => {
@@ -916,24 +939,24 @@ where
                             // termination to the application
                             match protocol {
                                 Protocol::BlocksByRange => {
-                                    return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                    return Poll::Ready(ProtocolsHandlerEvent::Custom(Ok(
                                         RPCReceived::Response(
                                             request_id,
                                             RPCCodedResponse::StreamTermination(
                                                 ResponseTermination::BlocksByRange,
                                             ),
                                         ),
-                                    ));
+                                    )));
                                 }
                                 Protocol::BlocksByRoot => {
-                                    return Poll::Ready(ProtocolsHandlerEvent::Custom(
+                                    return Poll::Ready(ProtocolsHandlerEvent::Custom(Ok(
                                         RPCReceived::Response(
                                             request_id,
                                             RPCCodedResponse::StreamTermination(
                                                 ResponseTermination::BlocksByRoot,
                                             ),
                                         ),
-                                    ));
+                                    )));
                                 }
                                 _ => {} // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
                             }

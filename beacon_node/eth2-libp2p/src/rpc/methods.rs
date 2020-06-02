@@ -9,7 +9,7 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /* Requests */
 
-pub type RequestId = usize;
+pub type RequestId = Option<usize>;
 
 /// The STATUS request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
@@ -194,7 +194,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum RPCResponseErrorCode {
     InvalidRequest,
     ServerError,

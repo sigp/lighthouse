@@ -4,7 +4,8 @@
 //! direct peer-to-peer communication primarily for sending/receiving chain information for
 //! syncing.
 
-use handler::{RPCHandler, SubstreamId};
+use handler::RPCHandler;
+pub use handler::{SubstreamId, OutboundError};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
@@ -73,7 +74,7 @@ pub struct RPCMessage<TSpec: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
     /// The message that was sent.
-    pub event: RPCReceived<TSpec>,
+    pub event: <RPCHandler<TSpec> as ProtocolsHandler>::OutEvent,
 }
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
