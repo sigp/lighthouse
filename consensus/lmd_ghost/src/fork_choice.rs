@@ -42,6 +42,40 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
 
+/// Returns `true` if the given `store` should be updated to set
+/// `state.current_justified_checkpoint` its `justified_checkpoint`.
+///
+/// ## Specification
+///
+/// Is equivalent to:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
+fn should_update_justified_checkpoint<T, E>(
+    store: &T,
+    state: &BeaconState<E>,
+) -> Result<bool, T::Error>
+where
+    T: ForkChoiceStore<E>,
+    E: EthSpec,
+{
+    let new_justified_checkpoint = &state.current_justified_checkpoint;
+
+    if compute_slots_since_epoch_start::<E>(store.get_current_slot())
+        < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
+    {
+        return Ok(true);
+    }
+
+    let justified_slot = compute_start_slot_at_epoch::<E>(store.justified_checkpoint().epoch);
+    if store.get_ancestor(state, new_justified_checkpoint.root, justified_slot)?
+        != store.justified_checkpoint().root
+    {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
@@ -162,36 +196,6 @@ where
         result
     }
 
-    /// Returns `true` if the given `store` should be updated to set
-    /// `state.current_justified_checkpoint` its `justified_checkpoint`.
-    ///
-    /// ## Specification
-    ///
-    /// Is equivalent to:
-    ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
-    fn should_update_justified_checkpoint(
-        store: &T,
-        state: &BeaconState<E>,
-    ) -> Result<bool, T::Error> {
-        let new_justified_checkpoint = &state.current_justified_checkpoint;
-
-        if compute_slots_since_epoch_start::<E>(store.get_current_slot())
-            < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
-        {
-            return Ok(true);
-        }
-
-        let justified_slot = compute_start_slot_at_epoch::<E>(store.justified_checkpoint().epoch);
-        if store.get_ancestor(state, new_justified_checkpoint.root, justified_slot)?
-            != store.justified_checkpoint().root
-        {
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
     /// Add `block` to the fork choice DAG.
     ///
     /// - `block_root_root` is the root of `block.
@@ -222,7 +226,7 @@ where
             if state.current_justified_checkpoint.epoch > store.best_justified_checkpoint().epoch {
                 store.set_best_justified_checkpoint(state);
             }
-            if Self::should_update_justified_checkpoint(store, state)
+            if should_update_justified_checkpoint(store, state)
                 .map_err(Error::ForkChoiceStoreError)?
             {
                 store.set_justified_checkpoint(state);
