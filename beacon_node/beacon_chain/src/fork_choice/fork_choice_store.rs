@@ -10,6 +10,7 @@ use types::{BeaconState, ChainSpec, Checkpoint, Hash256, Slot};
 #[derive(Debug, PartialEq)]
 pub enum Error {
     UnableToReadSlot,
+    UnableToReadTime,
     InvalidGenesisSnapshot(Slot),
     AncestorUnknown(Hash256),
     UninitializedBestJustifiedBalances,
@@ -49,7 +50,7 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
     ) -> Result<Self, Error> {
         let time = if slot_clock
             .is_prior_to_genesis()
-            .ok_or_else(|| Error::UnableToReadSlot)?
+            .ok_or_else(|| Error::UnableToReadTime)?
         {
             spec.genesis_slot
         } else {
