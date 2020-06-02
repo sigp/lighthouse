@@ -74,7 +74,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Run the fork choice rule to determine the head.
     pub fn find_head(&self) -> Result<Hash256> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
-        self.backend.write().find_head().map_err(Into::into)
+        self.backend.write().get_head().map_err(Into::into)
     }
 
     /// Returns true if the given block is known to fork choice.
