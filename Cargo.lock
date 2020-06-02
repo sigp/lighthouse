@@ -3398,7 +3398,6 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "itertools 0.9.0",
- "parking_lot 0.10.2",
  "serde",
  "serde_derive",
  "serde_yaml",

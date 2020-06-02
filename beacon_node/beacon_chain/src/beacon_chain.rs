@@ -1044,8 +1044,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // pivot block is the same as the current state's pivot block. If it is, then the
         // attestation's shuffling is the same as the current state's.
         // To account for skipped slots, find the first block at *or before* the pivot slot.
-        let fork_choice_lock = self.fork_choice.core_proto_array();
+        let fork_choice_lock = self.fork_choice.backend();
         let pivot_block_root = fork_choice_lock
+            .proto_array()
+            .core_proto_array()
             .iter_block_roots(block_root)
             .find(|(_, slot)| *slot <= pivot_slot)
             .map(|(block_root, _)| block_root);

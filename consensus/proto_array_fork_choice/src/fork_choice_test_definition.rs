@@ -55,7 +55,7 @@ pub struct ForkChoiceTestDefinition {
 
 impl ForkChoiceTestDefinition {
     pub fn run(self) {
-        let fork_choice = ProtoArrayForkChoice::new(
+        let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
             self.justified_epoch,

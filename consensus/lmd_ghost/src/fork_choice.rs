@@ -256,7 +256,7 @@ where
         &self.genesis_block_root
     }
 
-    pub fn prune(&self) -> Result<(), Error<T::Error>> {
+    pub fn prune(&mut self) -> Result<(), Error<T::Error>> {
         let finalized_root = self.fc_store.finalized_checkpoint().root;
 
         self.proto_array

@@ -4,7 +4,7 @@ use crate::{errors::BeaconChainError, metrics, BeaconChainTypes, BeaconSnapshot}
 use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
 use lmd_ghost::Error as LmdGhostError;
 use parking_lot::{RwLock, RwLockReadGuard};
-use proto_array_fork_choice::{core::ProtoArray, ProtoArrayForkChoice};
+use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
@@ -136,12 +136,11 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend.write().prune().map_err(Into::into)
     }
 
-    /// Returns a read-lock to the core `ProtoArray` struct.
+    /// Returns a read-lock to the backend fork choice algorithm.
     ///
     /// Should only be used when encoding/decoding during troubleshooting.
-    pub fn core_proto_array(&self) -> RwLockReadGuard<ProtoArray> {
-        todo!()
-        // self.backend.read().proto_array().core_proto_array()
+    pub fn backend(&self) -> RwLockReadGuard<LmdGhost<T>> {
+        self.backend.read()
     }
 
     pub fn from_persisted(
