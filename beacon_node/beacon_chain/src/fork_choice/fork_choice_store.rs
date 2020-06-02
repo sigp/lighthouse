@@ -47,7 +47,14 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
         genesis: &BeaconSnapshot<T::EthSpec>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        let time = slot_clock.now().ok_or_else(|| Error::UnableToReadSlot)?;
+        let time = if slot_clock
+            .is_prior_to_genesis()
+            .ok_or_else(|| Error::UnableToReadSlot)?
+        {
+            spec.genesis_slot
+        } else {
+            slot_clock.now().ok_or_else(|| Error::UnableToReadSlot)?
+        };
 
         if genesis.beacon_state.slot != spec.genesis_slot {
             return Err(Error::InvalidGenesisSnapshot(genesis.beacon_state.slot));
