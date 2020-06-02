@@ -51,4 +51,5 @@ fn http_server_genesis_state() {
         api_state, db_state,
         "genesis state from api should match that from the DB"
     );
+    env.fire_signal();
 }
