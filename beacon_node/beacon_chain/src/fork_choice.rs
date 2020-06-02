@@ -1,6 +1,6 @@
 mod fork_choice_store;
 
-use crate::{errors::BeaconChainError, metrics, BeaconChainTypes, BeaconSnapshot};
+use crate::{metrics, BeaconChainTypes, BeaconSnapshot};
 use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
 use lmd_ghost::Error as LmdGhostError;
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -9,32 +9,26 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, StoreItem};
-use types::{
-    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Epoch, Hash256, IndexedAttestation, Slot,
-};
+use types::{BeaconBlock, BeaconState, ChainSpec, Epoch, Hash256, IndexedAttestation, Slot};
 
-type Result<T> = std::result::Result<T, Error>;
 type LmdGhost<T> = lmd_ghost::ForkChoice<ForkChoiceStore<T>, <T as BeaconChainTypes>::EthSpec>;
 
 #[derive(Debug)]
 pub enum Error {
-    MissingBlock(Hash256),
-    MissingState(Hash256),
     BackendError(LmdGhostError<ForkChoiceStoreError>),
     ForkChoiceStoreError(ForkChoiceStoreError),
-    BeaconStateError(BeaconStateError),
-    StoreError(StoreError),
-    BeaconChainError(Box<BeaconChainError>),
-    UnknownBlockSlot(Hash256),
-    UnknownJustifiedBlock(Hash256),
-    UnknownJustifiedState(Hash256),
-    UnableToJsonEncode(String),
-    InvalidAttestation,
-    InvalidPersistedBytes(ssz::DecodeError),
     InvalidProtoArrayBytes(String),
     InvalidForkChoiceStoreBytes(ForkChoiceStoreError),
 }
 
+/// Wraps the `LmdGhost` fork choice and provides:
+///
+/// - Initialization and persistence functions.
+/// - Metrics.
+/// - Helper methods.
+///
+/// This struct does not perform any fork choice "business logic", that is all delegated to
+/// `LmdGhost`.
 pub struct ForkChoice<T: BeaconChainTypes> {
     backend: RwLock<LmdGhost<T>>,
 }
@@ -46,16 +40,13 @@ impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
 }
 
 impl<T: BeaconChainTypes> ForkChoice<T> {
-    /// Instantiate a new fork chooser.
-    ///
-    /// "Genesis" does not necessarily need to be the absolute genesis, it can be some finalized
-    /// block.
+    /// Instantiate a new fork chooser from the genesis `BeaconSnapshot`.
     pub fn from_genesis(
         store: Arc<T::Store>,
         slot_clock: T::SlotClock,
         genesis: &BeaconSnapshot<T::EthSpec>,
         spec: &ChainSpec,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let fc_store = ForkChoiceStore::from_genesis(store, slot_clock, genesis, spec)
             .map_err(Error::ForkChoiceStoreError)?;
 
@@ -72,9 +63,40 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     }
 
     /// Run the fork choice rule to determine the head.
-    pub fn find_head(&self) -> Result<Hash256> {
+    pub fn find_head(&self) -> Result<Hash256, Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
         self.backend.write().get_head().map_err(Into::into)
+    }
+
+    /// Process an attestation which references `block` in `attestation.data.beacon_block_root`.
+    ///
+    /// Assumes the attestation is valid.
+    pub fn process_indexed_attestation(
+        &self,
+        attestation: &IndexedAttestation<T::EthSpec>,
+    ) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+
+        self.backend.write().on_attestation(attestation)?;
+
+        Ok(())
+    }
+
+    /// Process all attestations in the given `block`.
+    ///
+    /// Assumes the block (and therefore its attestations) are valid. It is a logic error to
+    /// provide an invalid block.
+    pub fn process_block(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        block: &BeaconBlock<T::EthSpec>,
+        block_root: Hash256,
+    ) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
+
+        self.backend.write().on_block(block, block_root, state)?;
+
+        Ok(())
     }
 
     /// Returns true if the given block is known to fork choice.
@@ -90,37 +112,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .block_slot_and_state_root(block_root)
     }
 
-    /// Process all attestations in the given `block`.
-    ///
-    /// Assumes the block (and therefore its attestations) are valid. It is a logic error to
-    /// provide an invalid block.
-    pub fn process_block(
-        &self,
-        state: &BeaconState<T::EthSpec>,
-        block: &BeaconBlock<T::EthSpec>,
-        block_root: Hash256,
-    ) -> Result<()> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
-
-        self.backend.write().on_block(block, block_root, state)?;
-
-        Ok(())
-    }
-
-    /// Process an attestation which references `block` in `attestation.data.beacon_block_root`.
-    ///
-    /// Assumes the attestation is valid.
-    pub fn process_indexed_attestation(
-        &self,
-        attestation: &IndexedAttestation<T::EthSpec>,
-    ) -> Result<()> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
-
-        self.backend.write().on_attestation(attestation)?;
-
-        Ok(())
-    }
-
     /// Returns the latest message for a given validator, if any.
     ///
     /// Returns `(block_root, block_slot)`.
@@ -132,7 +123,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     }
 
     /// Trigger a prune on the underlying fork choice backend.
-    pub fn prune(&self) -> Result<()> {
+    pub fn prune(&self) -> Result<(), Error> {
         self.backend.write().prune().map_err(Into::into)
     }
 
@@ -143,11 +134,13 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend.read()
     }
 
+    /// Instantiate `Self` from some `PersistedForkChoice` generated by a earlier call to
+    /// `Self::to_persisted`.
     pub fn from_persisted(
         persisted: &PersistedForkChoice,
         store: Arc<T::Store>,
         slot_clock: T::SlotClock,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let fc_store = ForkChoiceStore::from_bytes(&persisted.fc_store_bytes, store, slot_clock)
             .map_err(Error::InvalidForkChoiceStoreBytes)?;
         let proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
@@ -162,6 +155,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         })
     }
 
+    /// Takes a snapshot of `Self` and stores it in `PersistedForkChoice`, allowing this struct to
+    /// be instantiated again later.
     pub fn to_persisted(&self) -> PersistedForkChoice {
         let backend = self.backend.read();
 
@@ -176,24 +171,6 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 impl From<LmdGhostError<ForkChoiceStoreError>> for Error {
     fn from(e: LmdGhostError<ForkChoiceStoreError>) -> Error {
         Error::BackendError(e)
-    }
-}
-
-impl From<BeaconStateError> for Error {
-    fn from(e: BeaconStateError) -> Error {
-        Error::BeaconStateError(e)
-    }
-}
-
-impl From<BeaconChainError> for Error {
-    fn from(e: BeaconChainError) -> Error {
-        Error::BeaconChainError(Box::new(e))
-    }
-}
-
-impl From<StoreError> for Error {
-    fn from(e: StoreError) -> Error {
-        Error::StoreError(e)
     }
 }
 
