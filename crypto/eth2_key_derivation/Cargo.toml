@@ -11,6 +11,7 @@ rust-crypto = "0.2.36"
 zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
 num-bigint-dig = { version = "0.6.0", features = ["zeroize"] }
 ring = "0.16.9"
+bls = { path = "../bls" }
 
 [dev-dependencies]
 hex = "0.3"

@@ -7,8 +7,8 @@ use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
-// Epoch that the state will be transitioned to by default, equal to PERSISTENT_COMMITTEE_PERIOD.
-pub const STATE_EPOCH: Epoch = Epoch::new(2048);
+// Epoch that the state will be transitioned to by default, equal to SHARD_COMMITTEE_PERIOD.
+pub const STATE_EPOCH: Epoch = Epoch::new(256);
 
 struct ExitTest {
     validator_index: u64,
@@ -62,7 +62,7 @@ impl ExitTest {
     fn run(self) -> BeaconState<E> {
         let spec = &E::default_spec();
         let expected = self.expected.clone();
-        assert_eq!(STATE_EPOCH, spec.persistent_committee_period);
+        assert_eq!(STATE_EPOCH, spec.shard_committee_period);
 
         let (block, mut state) = self.block_and_pre_state();
 

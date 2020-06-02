@@ -40,7 +40,7 @@ impl Signature {
     /// Returns a new empty signature.
     pub fn empty_signature() -> Self {
         // Set RawSignature = infinity
-        let mut empty: Vec<u8> = vec![0; BLS_SIG_BYTE_SIZE];
+        let mut empty = [0u8; BLS_SIG_BYTE_SIZE];
         empty[0] += u8::pow(2, 6) + u8::pow(2, 7);
         Signature {
             signature: RawSignature::from_bytes(&empty).unwrap(),
@@ -49,9 +49,9 @@ impl Signature {
     }
 
     // Converts a BLS Signature to bytes
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_SIG_BYTE_SIZE] {
         if self.is_empty {
-            return vec![0; 96];
+            return [0u8; BLS_SIG_BYTE_SIZE];
         }
         self.signature.as_bytes()
     }
@@ -80,7 +80,7 @@ impl Signature {
     /// Display a signature as a hex string of its bytes.
     #[cfg(test)]
     pub fn as_hex_string(&self) -> String {
-        hex_encode(self.as_bytes())
+        hex_encode(self.as_ssz_bytes())
     }
 }
 
@@ -148,10 +148,10 @@ mod tests {
     }
 
     #[test]
-    pub fn test_empty_signature() {
+    pub fn test_infinity_signature() {
         let sig = Signature::empty_signature();
 
-        let sig_as_bytes: Vec<u8> = sig.as_raw().as_bytes();
+        let sig_as_bytes = sig.as_raw().as_bytes();
 
         assert_eq!(sig_as_bytes.len(), BLS_SIG_BYTE_SIZE);
         for (i, one_byte) in sig_as_bytes.iter().enumerate() {
@@ -161,5 +161,14 @@ mod tests {
                 assert_eq!(*one_byte, 0);
             }
         }
+    }
+
+    #[test]
+    pub fn test_empty_signature() {
+        let sig = Signature::empty_signature();
+
+        let sig_as_bytes = sig.as_bytes().to_vec();
+
+        assert_eq!(sig_as_bytes, vec![0u8; BLS_SIG_BYTE_SIZE]);
     }
 }

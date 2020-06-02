@@ -6,10 +6,10 @@ use crate::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonKeystore,
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
-use crate::PlainText;
 use crate::Uuid;
-use bls::{Keypair, PublicKey, SecretKey};
+use bls::{Keypair, PublicKey, SecretHash, SecretKey};
 use crypto::{digest::Digest, sha2::Sha256};
+use eth2_key_derivation::PlainText;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use ssz::DecodeError;
@@ -136,7 +136,7 @@ impl Keystore {
         uuid: Uuid,
         path: String,
     ) -> Result<Self, Error> {
-        let secret: PlainText = keypair.sk.as_bytes();
+        let secret: SecretHash = keypair.sk.as_bytes();
 
         let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
 

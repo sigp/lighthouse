@@ -1,6 +1,4 @@
-use crate::{
-    lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, secret_hash::SecretHash,
-};
+use crate::{lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, SecretHash};
 use crypto::{digest::Digest, sha2::Sha256};
 use num_bigint_dig::BigUint;
 use ring::hkdf::{KeyType, Prk, Salt, HKDF_SHA256};
