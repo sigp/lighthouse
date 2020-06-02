@@ -2,7 +2,7 @@ mod fork_choice_store;
 
 use crate::{metrics, BeaconChainTypes, BeaconSnapshot};
 use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
-use lmd_ghost::{Error as LmdGhostError, QueuedAttestation};
+use lmd_ghost::{Error as LmdGhostError, InvalidAttestation, QueuedAttestation};
 use parking_lot::{RwLock, RwLockReadGuard};
 use proto_array_fork_choice::ProtoArrayForkChoice;
 use ssz::{Decode, Encode};
@@ -15,6 +15,7 @@ type LmdGhost<T> = lmd_ghost::ForkChoice<ForkChoiceStore<T>, <T as BeaconChainTy
 
 #[derive(Debug)]
 pub enum Error {
+    InvalidAttestation(InvalidAttestation),
     BackendError(LmdGhostError<ForkChoiceStoreError>),
     ForkChoiceStoreError(ForkChoiceStoreError),
     InvalidProtoArrayBytes(String),
@@ -172,7 +173,10 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
 
 impl From<LmdGhostError<ForkChoiceStoreError>> for Error {
     fn from(e: LmdGhostError<ForkChoiceStoreError>) -> Error {
-        Error::BackendError(e)
+        match e {
+            LmdGhostError::InvalidAttestation(e) => Error::InvalidAttestation(e),
+            e => Error::BackendError(e),
+        }
     }
 }
 

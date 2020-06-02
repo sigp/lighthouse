@@ -620,14 +620,16 @@ where
                         spec,
                     );
 
-                    self.chain
+                    let attn = self.chain
                         .verify_aggregated_attestation_for_gossip(signed_aggregate)
-                        .expect("should not error during attestation processing")
-                        .add_to_pool(&self.chain)
-                        .expect("should add attestation to naive aggregation pool")
-                        .add_to_fork_choice(&self.chain)
+                        .expect("should not error during attestation processing");
+
+                    self.chain.apply_attestation_to_fork_choice(&attn)
                         .expect("should add attestation to fork choice");
-                    }
+
+                    self.chain.add_to_block_inclusion_pool(attn)
+                        .expect("should add attestation to op pool");
+                }
             });
     }
 

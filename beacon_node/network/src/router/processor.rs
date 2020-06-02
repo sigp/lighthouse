@@ -2,10 +2,11 @@ use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
     attestation_verification::{
-        Error as AttnError, IntoForkChoiceVerifiedAttestation, VerifiedAggregatedAttestation,
+        Error as AttnError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
         VerifiedUnaggregatedAttestation,
     },
-    BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
+    BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, ForkChoiceError,
+    GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCCodedResponse, RPCEvent, RPCRequest, RPCResponse, RequestId};
@@ -870,16 +871,25 @@ impl<T: BeaconChainTypes> Processor<T> {
         &self,
         peer_id: PeerId,
         beacon_block_root: Hash256,
-        attestation: &'a impl IntoForkChoiceVerifiedAttestation<'a, T>,
+        attestation: &'a impl SignatureVerifiedAttestation<T>,
     ) {
         if let Err(e) = self.chain.apply_attestation_to_fork_choice(attestation) {
-            debug!(
-                self.log,
-                "Attestation invalid for fork choice";
-                "reason" => format!("{:?}", e),
-                "peer" => format!("{:?}", peer_id),
-                "beacon_block_root" => format!("{:?}", beacon_block_root)
-            )
+            match e {
+                ForkChoiceError::InvalidAttestation(e) => debug!(
+                    self.log,
+                    "Attestation invalid for fork choice";
+                    "reason" => format!("{:?}", e),
+                    "peer" => format!("{:?}", peer_id),
+                    "beacon_block_root" => format!("{:?}", beacon_block_root)
+                ),
+                e => error!(
+                    self.log,
+                    "Error applying attestation to fork choice";
+                    "reason" => format!("{:?}", e),
+                    "peer" => format!("{:?}", peer_id),
+                    "beacon_block_root" => format!("{:?}", beacon_block_root)
+                ),
+            }
         }
     }
 }

@@ -13,10 +13,43 @@ const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 
 #[derive(Debug)]
 pub enum Error<T> {
+    InvalidAttestation(InvalidAttestation),
     // TODO: make this an actual error enum.
     ProtoArrayError(String),
     BeaconStateError(BeaconStateError),
     ForkChoiceStoreError(T),
+}
+
+impl<T> From<InvalidAttestation> for Error<T> {
+    fn from(e: InvalidAttestation) -> Self {
+        Error::InvalidAttestation(e)
+    }
+}
+
+#[derive(Debug)]
+pub enum InvalidAttestation {
+    /// The attestations aggregation bits were empty when they shouldn't be.
+    EmptyAggregationBitfield,
+    /// The `attestation.data.beacon_block_root` block is unknown.
+    UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch` and therefore
+    /// the attestation is invalid.
+    BadTargetEpoch,
+    /// The target root of the attestation points to a block that we have not verified.
+    UnknownTargetRoot(Hash256),
+    /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
+    FutureEpoch {
+        attestation_epoch: Epoch,
+        current_epoch: Epoch,
+    },
+    /// The attestation is for an epoch in the past (with respect to the gossip clock disparity).
+    PastEpoch {
+        attestation_epoch: Epoch,
+        current_epoch: Epoch,
+    },
+    /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
+    /// future).
+    AttestsToFutureBlock { block: Slot, attestation: Slot },
 }
 
 impl<T> From<String> for Error<T> {
@@ -343,6 +376,81 @@ where
         Ok(())
     }
 
+    pub fn validate_on_attestation(
+        &self,
+        indexed_attestation: &IndexedAttestation<E>,
+    ) -> Result<(), InvalidAttestation> {
+        // There is no point in processing an attestation with an empty bitfield. Reject
+        // it immediately.
+        //
+        // This is not in the specification, however it should be transparent to other nodes. We
+        // return early here to avoid wasting precious resources verifying the rest of it.
+        if indexed_attestation.attesting_indices.len() == 0 {
+            return Err(InvalidAttestation::EmptyAggregationBitfield);
+        }
+
+        let slot_now = self.fc_store.get_current_slot();
+        let epoch_now = slot_now.epoch(E::slots_per_epoch());
+        let target = indexed_attestation.data.target.clone();
+
+        // Attestation must be from the current or previous epoch.
+        if target.epoch > epoch_now {
+            return Err(InvalidAttestation::FutureEpoch {
+                attestation_epoch: target.epoch,
+                current_epoch: epoch_now,
+            });
+        } else if target.epoch + 1 < epoch_now {
+            return Err(InvalidAttestation::PastEpoch {
+                attestation_epoch: target.epoch,
+                current_epoch: epoch_now,
+            });
+        }
+
+        if target.epoch != indexed_attestation.data.slot.epoch(E::slots_per_epoch()) {
+            return Err(InvalidAttestation::BadTargetEpoch);
+        }
+
+        // Attestation target must be for a known block.
+        if !self.proto_array.contains_block(&target.root) {
+            return Err(InvalidAttestation::UnknownTargetRoot(target.root));
+        }
+
+        // Load the slot and state root for `attestation.data.beacon_block_root`.
+        //
+        // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
+        // choice. Any known, non-finalized block should be in fork choice, so this check
+        // immediately filters out attestations that attest to a block that has not been processed.
+        //
+        // Attestations must be for a known block. If the block is unknown, we simply drop the
+        // attestation and do not delay consideration for later.
+        let (block_slot, _state_root) = self
+            .proto_array
+            .block_slot_and_state_root(&indexed_attestation.data.beacon_block_root)
+            .ok_or_else(|| InvalidAttestation::UnknownHeadBlock {
+                beacon_block_root: indexed_attestation.data.beacon_block_root,
+            })?;
+
+        // TODO: currently we do not check the FFG source/target. This is what the spec dictates
+        // but it seems wrong.
+        //
+        // I have opened an issue on the specs repo for this:
+        //
+        // https://github.com/ethereum/eth2.0-specs/issues/1636
+        //
+        // We should revisit this code once that issue has been resolved.
+
+        // Attestations must not be for blocks in the future. If this is the case, the attestation
+        // should not be considered.
+        if block_slot > indexed_attestation.data.slot {
+            return Err(InvalidAttestation::AttestsToFutureBlock {
+                block: block_slot,
+                attestation: indexed_attestation.data.slot,
+            });
+        }
+
+        Ok(())
+    }
+
     /// Register `attestation` with the fork choice DAG so that it may influence future calls to
     /// `Self::get_head`.
     ///
@@ -382,6 +490,8 @@ where
         if attestation.data.beacon_block_root != Hash256::zero() {
             return Ok(());
         }
+
+        self.validate_on_attestation(attestation)?;
 
         if attestation.data.slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices.iter() {

@@ -1,6 +1,6 @@
 use crate::attestation_verification::{
-    Error as AttestationError, ForkChoiceVerifiedAttestation, IntoForkChoiceVerifiedAttestation,
-    VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
+    Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
+    VerifiedUnaggregatedAttestation,
 };
 use crate::block_verification::{
     check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
@@ -892,23 +892,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accepts some attestation-type object and attempts to verify it in the context of fork
     /// choice. If it is valid it is applied to `self.fork_choice`.
     ///
-    /// Common items that implement `IntoForkChoiceVerifiedAttestation`:
+    /// Common items that implement `SignatureVerifiedAttestation`:
     ///
     /// - `VerifiedUnaggregatedAttestation`
     /// - `VerifiedAggregatedAttestation`
-    /// - `ForkChoiceVerifiedAttestation`
     pub fn apply_attestation_to_fork_choice<'a>(
         &self,
-        unverified_attestation: &'a impl IntoForkChoiceVerifiedAttestation<'a, T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<'a, T>, AttestationError> {
+        verified: &'a impl SignatureVerifiedAttestation<T>,
+    ) -> Result<(), ForkChoiceError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_FORK_CHOICE);
 
-        let verified = unverified_attestation.into_fork_choice_verified_attestation(self)?;
         let indexed_attestation = verified.indexed_attestation();
         self.fork_choice
             .process_indexed_attestation(indexed_attestation)
-            .map_err(|e| Error::from(e))?;
-        Ok(verified)
     }
 
     /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
