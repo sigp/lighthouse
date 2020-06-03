@@ -36,7 +36,7 @@ fn worst_bench<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
     let mut spec = &mut T::default_spec();
 
     // Allows the exits to be processed sucessfully.
-    spec.persistent_committee_period = 0;
+    spec.shard_committee_period = 0;
 
     let (block, state) = get_worst_block(validator_count, spec);
     bench_block::<T>(c, block, state, spec, spec_desc, "high_complexity_block");

@@ -9,14 +9,14 @@ use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
-pub struct SigningRoot {
+pub struct SigningData {
     pub object_root: Hash256,
     pub domain: Hash256,
 }
 
 pub trait SignedRoot: TreeHash {
     fn signing_root(&self, domain: Hash256) -> Hash256 {
-        SigningRoot {
+        SigningData {
             object_root: self.tree_hash_root(),
             domain,
         }

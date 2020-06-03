@@ -27,7 +27,7 @@ struct Metadata {
 pub struct Operations<E: EthSpec, O: Operation<E>> {
     metadata: Metadata,
     pub pre: BeaconState<E>,
-    pub operation: O,
+    pub operation: Option<O>,
     pub post: Option<BeaconState<E>>,
 }
 
@@ -135,8 +135,16 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         } else {
             Metadata::default()
         };
+
         let pre = ssz_decode_file(&path.join("pre.ssz"))?;
-        let operation = ssz_decode_file(&path.join(O::filename()))?;
+
+        // Check BLS setting here before SSZ deserialization, as most types require signatures
+        // to be valid.
+        let operation = if metadata.bls_setting.unwrap_or_default().check().is_ok() {
+            Some(ssz_decode_file(&path.join(O::filename()))?)
+        } else {
+            None
+        };
         let post_filename = path.join("post.ssz");
         let post = if post_filename.is_file() {
             Some(ssz_decode_file(&post_filename)?)
@@ -162,8 +170,6 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     }
 
     fn result(&self, _case_index: usize) -> Result<(), Error> {
-        self.metadata.bls_setting.unwrap_or_default().check()?;
-
         let spec = &E::default_spec();
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
@@ -173,7 +179,12 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .build_all_committee_caches(spec)
             .expect("committee caches OK");
 
-        let mut result = self.operation.apply_to(&mut state, spec).map(|()| state);
+        let mut result = self
+            .operation
+            .as_ref()
+            .ok_or(Error::SkippedBls)?
+            .apply_to(&mut state, spec)
+            .map(|()| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

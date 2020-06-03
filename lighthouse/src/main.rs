@@ -132,13 +132,14 @@ fn run<E: EthSpec>(
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
 
     let log_format = matches.value_of("log-format");
-    let eth2_testnet_config =
+
+    let optional_testnet_config =
         clap_utils::parse_testnet_dir_with_hardcoded_default(matches, "testnet-dir")?;
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .eth2_testnet_config(eth2_testnet_config)?
+        .optional_eth2_testnet_config(optional_testnet_config)?
         .build()?;
 
     let log = environment.core_context().log;

@@ -215,7 +215,7 @@ mod signatures_minimal {
         let mut spec = &mut TestEthSpec::default_spec();
 
         // Allows the test to pass.
-        spec.persistent_committee_period = 0;
+        spec.shard_committee_period = 0;
 
         test_scenario::<TestEthSpec, _, _>(
             |mut builder| {
