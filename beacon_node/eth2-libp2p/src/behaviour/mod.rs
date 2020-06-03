@@ -402,7 +402,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 if let Some(error_code) = resp.error_code() {
                     // TODO: ugh revert this. To get the protocol, even if the response comes from
                     // our side, it needs to be emited from the handler.
-                    self.peer_manager.handle_rpc_error(&peer_id, None, &RPCError::ErrorResponse(error_code));
+                    self.peer_manager.handle_rpc_error(
+                        &peer_id,
+                        None,
+                        &RPCError::ErrorResponse(error_code),
+                    );
                 }
             }
             _ => {}

@@ -8,9 +8,11 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCCodedResponse, RPCRequest, RPCResponse, RPCSend, RequestId, SubstreamId};
+use eth2_libp2p::rpc::{
+    RPCCodedResponse, RPCRequest, RPCResponse, RPCSend, RequestId, SubstreamId,
+};
 use eth2_libp2p::{NetworkGlobals, PeerId};
-use slog::{ debug, error, o, trace, warn};
+use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;

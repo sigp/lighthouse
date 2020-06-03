@@ -5,7 +5,7 @@
 //! syncing.
 
 use handler::RPCHandler;
-pub use handler::{SubstreamId, OutboundError};
+pub use handler::{OutboundError, SubstreamId};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
@@ -13,8 +13,8 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{
-    MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId, ResponseTermination, BehaviourRequestId,
-    StatusMessage,
+    BehaviourRequestId, MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId,
+    ResponseTermination, StatusMessage,
 };
 pub use protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use slog::{debug, o};

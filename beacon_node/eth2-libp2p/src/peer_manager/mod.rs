@@ -257,9 +257,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Option<Protocol>, err: &RPCError) {
+    pub fn handle_rpc_error(
+        &mut self,
+        peer_id: &PeerId,
+        protocol: Option<Protocol>,
+        err: &RPCError,
+    ) {
         let client = self.network_globals.client(peer_id);
-        let protocol_name = protocol.map_or_else(|| "Unknown".to_string(), |proto| proto.to_string());
+        let protocol_name =
+            protocol.map_or_else(|| "Unknown".to_string(), |proto| proto.to_string());
         debug!(self.log, "RPCError"; "protocol" => protocol_name, "err" => err.to_string(), "client" => client.to_string());
 
         // Map this error to a `PeerAction` (if any)
@@ -301,14 +307,26 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Some(Protocol::Goodbye) => return,
                     Some(Protocol::MetaData) => PeerAction::LowToleranceError,
                     Some(Protocol::Status) => PeerAction::LowToleranceError,
-                    None => {debug!(self.log, "Unsupported protocol error without protocol information"); return;}
+                    None => {
+                        debug!(
+                            self.log,
+                            "Unsupported protocol error without protocol information"
+                        );
+                        return;
+                    }
                 }
             }
             RPCError::StreamTimeout => match protocol {
                 Some(Protocol::Ping) => PeerAction::LowToleranceError,
                 Some(Protocol::BlocksByRange) => PeerAction::MidToleranceError,
                 Some(Protocol::BlocksByRoot) => PeerAction::MidToleranceError,
-                None => {debug!(self.log, "Stream timeout error without protocol information"); return;}
+                None => {
+                    debug!(
+                        self.log,
+                        "Stream timeout error without protocol information"
+                    );
+                    return;
+                }
                 _ => return,
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,

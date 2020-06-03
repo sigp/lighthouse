@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{RPCCodedResponse, BehaviourRequestId as RequestId, ResponseTermination};
+use super::methods::{BehaviourRequestId as RequestId, RPCCodedResponse, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -75,13 +75,8 @@ where
     dial_negotiated: u32,
 
     /// Current inbound substreams awaiting processing.
-    inbound_substreams: FnvHashMap<
-        SubstreamId,
-        (
-            InboundSubstreamState<TSpec>,
-            Option<delay_queue::Key>,
-        ),
-    >,
+    inbound_substreams:
+        FnvHashMap<SubstreamId, (InboundSubstreamState<TSpec>, Option<delay_queue::Key>)>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     inbound_substreams_delay: DelayQueue<SubstreamId>,
@@ -427,8 +422,7 @@ where
                 let res_is_multiple = response.multiple_responses();
 
                 // check if the stream matching the response still exists
-                let substream_state = match self.inbound_substreams.get_mut(&inbound_id)
-                {
+                let substream_state = match self.inbound_substreams.get_mut(&inbound_id) {
                     Some((substream_state, _)) => substream_state,
                     None => {
                         warn!(self.log, "Stream has expired. Response not sent";

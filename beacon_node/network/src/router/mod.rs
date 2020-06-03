@@ -10,7 +10,7 @@ use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
-    rpc::{ RequestId, SubstreamId},
+    rpc::{RequestId, SubstreamId},
     MessageId, NetworkGlobals, PeerId, PubsubMessage, Request, Response,
 };
 use futures::prelude::*;
