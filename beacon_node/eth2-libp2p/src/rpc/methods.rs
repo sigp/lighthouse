@@ -9,7 +9,8 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /* Requests */
 
-pub type RequestId = Option<usize>;
+pub type RequestId = usize;
+pub type BehaviourRequestId = Option<RequestId>;
 
 /// The STATUS request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]

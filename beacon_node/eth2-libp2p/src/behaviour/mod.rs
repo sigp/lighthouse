@@ -396,6 +396,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Sends an RPC Request/Response via the RPC protocol.
     pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCSend<TSpec>) {
+        // Check if we are sending an error to the peer, and inform the peer manager
+        match rpc_event {
+            RPCSend::Response(_, ref resp) => {
+                if let Some(error_code) = resp.error_code() {
+                    // TODO: ugh revert this. To get the protocol, even if the response comes from
+                    // our side, it needs to be emited from the handler.
+                    self.peer_manager.handle_rpc_error(&peer_id, None, &RPCError::ErrorResponse(error_code));
+                }
+            }
+            _ => {}
+        }
         self.eth2_rpc.send_rpc(peer_id, rpc_event);
     }
 
@@ -477,7 +488,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Local discovery must have bitfield");
     }
 
-    fn ping(&mut self, id: RequestId, peer_id: PeerId) {
+    fn ping(&mut self, id: BehaviourRequestId, peer_id: PeerId) {
         let ping = crate::rpc::methods::Ping {
             data: self.meta_data.seq_number,
         };
@@ -602,14 +613,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // the user
                 self.peer_manager.handle_rpc_error(
                     &peer_id,
-                    outbound_err.proto,
+                    Some(outbound_err.proto),
                     &outbound_err.error,
                 );
-                self.events.push(BehaviourEvent::RPCFailed {
-                    peer_id,
-                    id: outbound_err.id,
-                    error: outbound_err.error,
-                });
+                if let Some(id) = outbound_err.id {
+                    // inform only failures for protocols that get propagated to the network
+                    self.events.push(BehaviourEvent::RPCFailed {
+                        peer_id,
+                        id,
+                        error: outbound_err.error,
+                    });
+                }
             }
             Ok(RPCReceived::Request(id, request)) => match request {
                 /* Behaviour managed protocols: Ping and Metadata */
@@ -649,8 +663,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     })
                 }
                 RPCRequest::Goodbye(reason) => {
-                    // TODO: why propagate? this could be done via something more user frendly as
-                    // a DC variant
+                    // TODO: do not propagate
                     self.events.push(BehaviourEvent::RequestReceived {
                         peer_id,
                         id,
@@ -675,21 +688,21 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             // propagate the STATUS message upwards
                             self.events.push(BehaviourEvent::ResponseReceived {
                                 peer_id,
-                                id,
+                                id: id.expect("Status should have an id"),
                                 response: Response::Status(msg),
                             });
                         }
                         RPCResponse::BlocksByRange(resp) => {
                             self.events.push(BehaviourEvent::ResponseReceived {
                                 peer_id,
-                                id,
+                                id: id.expect("BlocksByRange should have an id"),
                                 response: Response::BlocksByRange(Some(resp)),
                             })
                         }
                         RPCResponse::BlocksByRoot(resp) => {
                             self.events.push(BehaviourEvent::ResponseReceived {
                                 peer_id,
-                                id,
+                                id: id.expect("BlocksByRoot should have an id"),
                                 response: Response::BlocksByRoot(Some(resp)),
                             })
                         }
@@ -701,7 +714,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         };
                         self.events.push(BehaviourEvent::ResponseReceived {
                             peer_id,
-                            id,
+                            id: id.expect("StreamTermination should have an id"),
                             response,
                         });
                     }
@@ -711,15 +724,19 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         let error_code = coded_response
                             .error_code()
                             .expect("Response that is an error must map to an error code");
-                        debug!(self.log, "Peer sent an error response"; "reason" => reason, "peer_id" => peer_id.to_string());
+                        debug!(self.log, "Peer sent an error response";
+                            "reason" => reason, "peer_id" => peer_id.to_string(), "error" => error_code.to_string());
                         // TODO: we received a response signaling an error, but we lost the
                         // protocol of the original request on the way. Check if it can be
                         // retrieved. Then, inform the peer manager with `self.peer_manager.handle_rpc_error`
-                        self.events.push(BehaviourEvent::RPCFailed {
-                            peer_id,
-                            id,
-                            error: RPCError::ErrorResponse(error_code),
-                        });
+                        if let Some(id) = id {
+                            // inform only failures for protocols that get propagated to the network
+                            self.events.push(BehaviourEvent::RPCFailed {
+                                peer_id,
+                                id,
+                                error: RPCError::ErrorResponse(error_code),
+                            });
+                        }
                     }
                 }
             }
@@ -855,7 +872,6 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     },
     ResponseReceived {
         peer_id: PeerId,
-        // TODO: chec if this can be made an usize directly
         id: RequestId,
         response: Response<TSpec>,
     },

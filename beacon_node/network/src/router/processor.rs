@@ -10,7 +10,7 @@ use beacon_chain::{
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCCodedResponse, RPCRequest, RPCResponse, RPCSend, RequestId, SubstreamId};
 use eth2_libp2p::{NetworkGlobals, PeerId};
-use slog::{crit, debug, error, o, trace, warn};
+use slog::{ debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
@@ -89,13 +89,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
     pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
-        match request_id {
-            Some(request_id) => self.send_to_sync(SyncMessage::RPCError(peer_id, request_id)),
-            None => crit!(
-                self.log,
-                "Coding Err: Received a None request_id on an error reported to sync"
-            ),
-        }
+        self.send_to_sync(SyncMessage::RPCError(peer_id, request_id));
     }
 
     /// Sends a `Status` message to the peer.
@@ -449,16 +443,6 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let request_id = match request_id {
-            Some(req_id) => req_id,
-            None => {
-                crit!(
-                    self.log,
-                    "Received a BlocksByRange response with a None RequestId"
-                );
-                return;
-            }
-        };
         trace!(
             self.log,
             "Received BlocksByRange Response";
@@ -479,16 +463,6 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let request_id = match request_id {
-            Some(req_id) => req_id,
-            None => {
-                crit!(
-                    self.log,
-                    "Received a BlocksByRoot response for sync with a None RequestId"
-                );
-                return;
-            }
-        };
         trace!(
             self.log,
             "Received BlocksByRoot Response";

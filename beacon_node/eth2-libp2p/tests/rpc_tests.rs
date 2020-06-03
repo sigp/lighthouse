@@ -1,7 +1,7 @@
 #![cfg(test)]
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{BehaviourEvent, Libp2pEvent, RPCReceived, RPCSend};
+use eth2_libp2p::{BehaviourEvent, Libp2pEvent, RPCSend};
 use slog::{debug, warn, Level};
 use std::time::Duration;
 use tokio::time::delay_for;

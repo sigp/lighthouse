@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{RPCCodedResponse, RequestId, ResponseTermination};
+use super::methods::{RPCCodedResponse, BehaviourRequestId as RequestId, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -33,6 +33,7 @@ pub const RESPONSE_TIMEOUT: u64 = 10;
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
 
+/// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
@@ -79,7 +80,6 @@ where
         (
             InboundSubstreamState<TSpec>,
             Option<delay_queue::Key>,
-            Protocol,
         ),
     >,
 
@@ -360,7 +360,7 @@ where
         let awaiting_stream = InboundSubstreamState::ResponseIdle(substream);
         self.inbound_substreams.insert(
             self.current_inbound_substream_id,
-            (awaiting_stream, Some(delay_key), req.protocol()),
+            (awaiting_stream, Some(delay_key)),
         );
 
         self.events_out
@@ -427,9 +427,9 @@ where
                 let res_is_multiple = response.multiple_responses();
 
                 // check if the stream matching the response still exists
-                let (substream_state, protocol) = match self.inbound_substreams.get_mut(&inbound_id)
+                let substream_state = match self.inbound_substreams.get_mut(&inbound_id)
                 {
-                    Some((substream_state, _, protocol)) => (substream_state, protocol),
+                    Some((substream_state, _)) => substream_state,
                     None => {
                         warn!(self.log, "Stream has expired. Response not sent";
                             "response" => response.to_string(), "id" => inbound_id);
@@ -601,7 +601,7 @@ where
             match self.inbound_substreams_delay.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(inbound_id))) => {
                     // handle a stream timeout for various states
-                    if let Some((substream_state, delay_key, _)) =
+                    if let Some((substream_state, delay_key)) =
                         self.inbound_substreams.get_mut(inbound_id.get_ref())
                     {
                         // the delay has been removed

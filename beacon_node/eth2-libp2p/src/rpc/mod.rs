@@ -13,7 +13,7 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 pub use methods::{
-    MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
+    MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId, ResponseTermination, BehaviourRequestId,
     StatusMessage,
 };
 pub use protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
@@ -35,7 +35,7 @@ pub enum RPCSend<T: EthSpec> {
     ///
     /// The `RequestId` is optional since it's given by the application making the request.  These
     /// go over *outbound* connections.
-    Request(RequestId, RPCRequest<T>),
+    Request(BehaviourRequestId, RPCRequest<T>),
     /// A response sent from Lighthouse.
     ///
     /// The `RequestId` must correspond to the RPC-given ID of the original request received by the
@@ -57,7 +57,7 @@ pub enum RPCReceived<T: EthSpec> {
     /// The `RequestId` corresponds to the application given ID of the original request sent to the
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
-    Response(RequestId, RPCCodedResponse<T>),
+    Response(BehaviourRequestId, RPCCodedResponse<T>),
 }
 
 impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
