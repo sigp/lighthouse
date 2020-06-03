@@ -8,7 +8,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCCodedResponse, RPCRequest, RPCResponse, RPCSend, RequestId};
+use eth2_libp2p::rpc::{RPCCodedResponse, RPCRequest, RPCResponse, RPCSend, RequestId, SubstreamId};
 use eth2_libp2p::{NetworkGlobals, PeerId};
 use slog::{crit, debug, error, o, trace, warn};
 use ssz::Encode;
@@ -88,7 +88,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
-    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: Option<RequestId>) {
+    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
         match request_id {
             Some(request_id) => self.send_to_sync(SyncMessage::RPCError(peer_id, request_id)),
             None => crit!(
@@ -125,7 +125,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         status: StatusMessage,
     ) {
         debug!(
@@ -290,7 +290,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_root_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         request: BlocksByRootRequest,
     ) {
         let mut send_block_count = 0;
@@ -331,7 +331,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_range_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         req: BlocksByRangeRequest,
     ) {
         debug!(
@@ -446,7 +446,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: Option<RequestId>,
+        request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
@@ -476,7 +476,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: Option<RequestId>,
+        request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
@@ -973,7 +973,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     pub fn send_rpc_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         rpc_response: RPCResponse<T>,
     ) {
         self.send_rpc_event(
@@ -986,7 +986,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     pub fn send_rpc_error_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         rpc_error_response: RPCCodedResponse<T>,
     ) {
         self.send_rpc_event(peer_id, RPCSend::Response(request_id, rpc_error_response));

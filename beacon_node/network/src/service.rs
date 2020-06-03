@@ -7,8 +7,8 @@ use crate::{
 use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{rpc::RPCRequest, BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
-use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCReceived, RPCSend};
+use eth2_libp2p::{BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCSend, Request};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
@@ -257,22 +257,45 @@ fn spawn_service<T: BeaconChainTypes>(
                 // poll the swarm
                 match libp2p_event {
                     Libp2pEvent::Behaviour(event) => match event {
-                        BehaviourEvent::RPC(peer_id, rpc_event) => {
-                            // if we received a Goodbye message, drop and ban the peer
-                            if let RPCReceived::Request(_, RPCRequest::Goodbye(_)) = rpc_event {
+                        BehaviourEvent::RequestReceived{peer_id, id, request} => {
+                            if let Request::Goodbye(_) = request {
+                                // if we received a Goodbye message, drop and ban the peer
                                 //peers_to_ban.push(peer_id.clone());
+                                // TODO: remove this: https://github.com/sigp/lighthouse/issues/1240
                                 service.libp2p.disconnect_and_ban_peer(
                                     peer_id.clone(),
                                     std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
                                 );
                             };
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::RPC(peer_id, rpc_event))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send RPC to router");
-                                });
+                                let _ = service
+                                    .router_send
+                                    .send(RouterMessage::RPCRequestReceived{peer_id, stream_id:id, request})
+                                    .map_err(|_| {
+                                        debug!(service.log, "Failed to send RPC to router");
+                                    });
+
                         }
+                        BehaviourEvent::ResponseReceived{peer_id, id, response} => {
+                                let _ = service
+                                    .router_send
+                                    .send(RouterMessage::RPCResponseReceived{peer_id, request_id:id, response})
+                                    .map_err(|_| {
+                                        debug!(service.log, "Failed to send RPC to router");
+                                    });
+
+                        }
+                        BehaviourEvent::RPCFailed{id, peer_id, error} => {
+                                let _ = service
+                                    .router_send
+                                    .send(RouterMessage::RPCFailed{peer_id, request_id:id})
+                                    .map_err(|_| {
+                                        debug!(service.log, "Failed to send RPC to router");
+                                    });
+
+                        }
+                        // BehaviourEvent::RPC(peer_id, rpc_event) => {
+                        //     // TODO: do not propagate a Goodbye, do this on the eth2_libp2p crate
+                        // }
                         BehaviourEvent::StatusPeer(peer_id) => {
                             let _ = service
                                 .router_send
@@ -323,6 +346,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 }
                             }
                         }
+                        // Then why do we send it?
                         BehaviourEvent::PeerSubscribed(_, _) => {},
                     }
                 Libp2pEvent::NewListenAddr(multiaddr) => {

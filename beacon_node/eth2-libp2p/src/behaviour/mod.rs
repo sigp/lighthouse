@@ -822,7 +822,7 @@ pub enum Request {
 }
 
 /// The type of RPC responses the Behaviour informs it has received, and allows for sending.
-// NOTE: This an application-level wrapper over the lower network leve responses that can be sent.
+// NOTE: This an application-level wrapper over the lower network level responses that can be sent.
 //       The main difference is the absense of Pong and Metadata, which don't leave the Behaviour.
 //       For all protocol reponses managed by RPC see `RPCResponse` and `RPCCodedResponse`.
 #[derive(Debug)]
@@ -855,6 +855,7 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     },
     ResponseReceived {
         peer_id: PeerId,
+        // TODO: chec if this can be made an usize directly
         id: RequestId,
         response: Response<TSpec>,
     },
@@ -871,5 +872,6 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     /// Subscribed to peer for given topic
     PeerSubscribed(PeerId, TopicHash),
     /// Inform the network to send a Status to this peer.
+    /// TODO: why not just do it here?
     StatusPeer(PeerId),
 }

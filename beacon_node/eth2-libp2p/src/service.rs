@@ -234,6 +234,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             event = self.swarm.next_event() => {
                 match event {
                     SwarmEvent::Behaviour(behaviour) => {
+                        // TODO: if we get a Goodbye on the behaviour then request all handlers to
+                        // disconnect. With that we shouldn't need to propagate the message,
+                        // instead we should get a ConnectionClosed Swarm event and with that send
+                        // the DC
                         return Libp2pEvent::Behaviour(behaviour)
                     }
                     SwarmEvent::ConnectionEstablished {
