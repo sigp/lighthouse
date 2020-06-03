@@ -2,7 +2,7 @@ mod ffg_updates;
 mod no_votes;
 mod votes;
 
-use crate::proto_array_fork_choice::ProtoArrayForkChoice;
+use crate::proto_array_fork_choice::{Block, ProtoArrayForkChoice};
 use serde_derive::{Deserialize, Serialize};
 use types::{Epoch, Hash256, Slot};
 
@@ -120,20 +120,19 @@ impl ForkChoiceTestDefinition {
                     justified_epoch,
                     finalized_epoch,
                 } => {
-                    fork_choice
-                        .process_block(
-                            slot,
-                            root,
-                            parent_root,
-                            Hash256::zero(),
-                            Hash256::zero(),
-                            justified_epoch,
-                            finalized_epoch,
-                        )
-                        .expect(&format!(
-                            "process_block op at index {} returned error",
-                            op_index
-                        ));
+                    let block = Block {
+                        slot,
+                        root,
+                        parent_root: Some(parent_root),
+                        state_root: Hash256::zero(),
+                        target_root: Hash256::zero(),
+                        justified_epoch,
+                        finalized_epoch,
+                    };
+                    fork_choice.process_block(block).expect(&format!(
+                        "process_block op at index {} returned error",
+                        op_index
+                    ));
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProcessAttestation {

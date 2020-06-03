@@ -15,6 +15,19 @@ pub struct VoteTracker {
     next_epoch: Epoch,
 }
 
+/// A block that is to be applied to the fork choice.
+///
+/// A simplified version of `types::BeaconBlock`.
+pub struct Block {
+    pub slot: Slot,
+    pub root: Hash256,
+    pub parent_root: Option<Hash256>,
+    pub state_root: Hash256,
+    pub target_root: Hash256,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
+}
+
 /// A Vec-wrapper which will grow to match any request.
 ///
 /// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
@@ -65,18 +78,20 @@ impl ProtoArrayForkChoice {
             indices: HashMap::with_capacity(1),
         };
 
+        let block = Block {
+            slot: finalized_block_slot,
+            root: finalized_root,
+            parent_root: None,
+            state_root: finalized_block_state_root,
+            // We are using the finalized_root as the target_root, since it always lies on an
+            // epoch boundary.
+            target_root: finalized_root,
+            justified_epoch,
+            finalized_epoch,
+        };
+
         proto_array
-            .on_block(
-                finalized_block_slot,
-                finalized_root,
-                // We are using the finalized_root as the target_root, since it always lies on an
-                // epoch boundary.
-                finalized_root,
-                None,
-                finalized_block_state_root,
-                justified_epoch,
-                finalized_epoch,
-            )
+            .on_block(block)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -102,26 +117,13 @@ impl ProtoArrayForkChoice {
         Ok(())
     }
 
-    pub fn process_block(
-        &mut self,
-        slot: Slot,
-        block_root: Hash256,
-        parent_root: Hash256,
-        target_root: Hash256,
-        state_root: Hash256,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
-    ) -> Result<(), String> {
+    pub fn process_block(&mut self, block: Block) -> Result<(), String> {
+        if block.parent_root.is_none() {
+            return Err("Missing parent root".to_string());
+        }
+
         self.proto_array
-            .on_block(
-                slot,
-                block_root,
-                target_root,
-                Some(parent_root),
-                state_root,
-                justified_epoch,
-                finalized_epoch,
-            )
+            .on_block(block)
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
@@ -173,18 +175,23 @@ impl ProtoArrayForkChoice {
         self.proto_array.indices.contains_key(block_root)
     }
 
-    pub fn block_slot(&self, block_root: &Hash256) -> Option<Slot> {
-        let i = self.proto_array.indices.get(block_root)?;
-        let block = self.proto_array.nodes.get(*i)?;
+    pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
+        let block_index = self.proto_array.indices.get(block_root)?;
+        let block = self.proto_array.nodes.get(*block_index)?;
+        let parent_root = block
+            .parent
+            .and_then(|i| self.proto_array.nodes.get(i))
+            .map(|parent| parent.root);
 
-        Some(block.slot)
-    }
-
-    pub fn block_slot_and_state_root(&self, block_root: &Hash256) -> Option<(Slot, Hash256)> {
-        let i = self.proto_array.indices.get(block_root)?;
-        let block = self.proto_array.nodes.get(*i)?;
-
-        Some((block.slot, block.state_root))
+        Some(Block {
+            slot: block.slot,
+            root: block.root,
+            parent_root,
+            state_root: block.state_root,
+            target_root: block.target_root,
+            justified_epoch: block.justified_epoch,
+            finalized_epoch: block.finalized_epoch,
+        })
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {

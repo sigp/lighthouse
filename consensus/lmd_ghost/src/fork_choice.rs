@@ -1,5 +1,5 @@
 use crate::ForkChoiceStore;
-use proto_array_fork_choice::ProtoArrayForkChoice;
+use proto_array_fork_choice::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{
@@ -363,20 +363,20 @@ where
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
-        self.proto_array.process_block(
-            block.slot,
-            block_root,
-            block.parent_root,
+        self.proto_array.process_block(ProtoBlock {
+            slot: block.slot,
+            root: block_root,
+            parent_root: Some(block.parent_root),
             target_root,
-            block.state_root,
-            state.current_justified_checkpoint.epoch,
-            state.finalized_checkpoint.epoch,
-        )?;
+            state_root: block.state_root,
+            justified_epoch: state.current_justified_checkpoint.epoch,
+            finalized_epoch: state.finalized_checkpoint.epoch,
+        })?;
 
         Ok(())
     }
 
-    pub fn validate_on_attestation(
+    fn validate_on_attestation(
         &self,
         indexed_attestation: &IndexedAttestation<E>,
     ) -> Result<(), InvalidAttestation> {
@@ -415,7 +415,7 @@ where
             return Err(InvalidAttestation::UnknownTargetRoot(target.root));
         }
 
-        // Load the slot and state root for `attestation.data.beacon_block_root`.
+        // Load the slot for `attestation.data.beacon_block_root`.
         //
         // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
         // choice. Any known, non-finalized block should be in fork choice, so this check
@@ -423,9 +423,10 @@ where
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let (block_slot, _state_root) = self
+        let block_slot = self
             .proto_array
-            .block_slot_and_state_root(&indexed_attestation.data.beacon_block_root)
+            .get_block(&indexed_attestation.data.beacon_block_root)
+            .map(|block| block.slot)
             .ok_or_else(|| InvalidAttestation::UnknownHeadBlock {
                 beacon_block_root: indexed_attestation.data.beacon_block_root,
             })?;
