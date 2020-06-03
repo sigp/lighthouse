@@ -245,7 +245,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         endpoint,
                         num_established,
                     } => {
-                        debug!(self.log, "Connection established"; "peer_id"=> peer_id.to_string(), "connections" => num_established.get());
+                        debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connections" => num_established.get());
                         // if this is the first connection inform the network layer a new connection
                         // has been established and update the db
                         if num_established.get() == 1 {
@@ -350,8 +350,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 }
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption layer, and
-/// mplex or yamux as the multiplexing layer.
+/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption
+/// layer, and mplex or yamux as the multiplexing layer.
 fn build_transport(
     local_private_key: Keypair,
 ) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {

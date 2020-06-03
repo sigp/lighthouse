@@ -5,7 +5,7 @@
 //! syncing.
 
 use handler::RPCHandler;
-pub use handler::{OutboundError, SubstreamId};
+pub use handler::{HandlerErr, SubstreamId};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
@@ -51,13 +51,17 @@ pub enum RPCReceived<T: EthSpec> {
     ///
     /// The `RequestId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
+    /// TODO: fix docs
     Request(SubstreamId, RPCRequest<T>),
     /// A response received from the outside.
     ///
     /// The `RequestId` corresponds to the application given ID of the original request sent to the
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
-    Response(BehaviourRequestId, RPCCodedResponse<T>),
+    /// TODO: fix docs.
+    Response(BehaviourRequestId, RPCResponse<T>),
+    // TODO: add docs
+    EndOfStream(BehaviourRequestId, ResponseTermination),
 }
 
 impl<T: EthSpec> std::fmt::Display for RPCSend<T> {

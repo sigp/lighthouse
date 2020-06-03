@@ -394,23 +394,37 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /* Eth2 RPC behaviour functions */
 
+    /// Send a request to a peer over RPC.
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
+        self.send_rpc(peer_id, RPCSend::Request(Some(request_id), request.into()))
+    }
+
+    /// Send a successful response to a peer over RPC.
+    pub fn send_successful_response(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        response: Response<TSpec>,
+    ) {
+        self.send_rpc(peer_id, RPCSend::Response(stream_id, response.into()))
+    }
+
+    /// Inform the peer that their request producen an error
+    pub fn send_error_reponse(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        error: RPCResponseErrorCode,
+        reason: String,
+    ) {
+        self.send_rpc(
+            peer_id,
+            RPCSend::Response(stream_id, RPCCodedResponse::from_error_code(error, reason)),
+        )
+    }
     /// Sends an RPC Request/Response via the RPC protocol.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCSend<TSpec>) {
+    fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCSend<TSpec>) {
         // Check if we are sending an error to the peer, and inform the peer manager
-        match rpc_event {
-            RPCSend::Response(_, ref resp) => {
-                if let Some(error_code) = resp.error_code() {
-                    // TODO: ugh revert this. To get the protocol, even if the response comes from
-                    // our side, it needs to be emited from the handler.
-                    self.peer_manager.handle_rpc_error(
-                        &peer_id,
-                        None,
-                        &RPCError::ErrorResponse(error_code),
-                    );
-                }
-            }
-            _ => {}
-        }
         self.eth2_rpc.send_rpc(peer_id, rpc_event);
     }
 
@@ -608,25 +622,30 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     fn on_rpc_event(&mut self, message: RPCMessage<TSpec>) {
         let peer_id = message.peer_id;
-        // The METADATA and PING RPC responses are handled within the behaviour and not
-        // propagated
-        // TODO: here is where the magic happens
+        // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match message.event {
-            Err(outbound_err) => {
-                // an error ocurred for a request we made to the peer, inform the Peer Manager and
-                // the user
-                self.peer_manager.handle_rpc_error(
-                    &peer_id,
-                    Some(outbound_err.proto),
-                    &outbound_err.error,
-                );
-                if let Some(id) = outbound_err.id {
-                    // inform only failures for protocols that get propagated to the network
-                    self.events.push(BehaviourEvent::RPCFailed {
-                        peer_id,
-                        id,
-                        error: outbound_err.error,
-                    });
+            Err(handler_err) => {
+                match handler_err {
+                    HandlerErr::Inbound {
+                        id: _,
+                        proto,
+                        error,
+                    } => {
+                        // Inform the peer manager of the error.
+                        // An inbound error here means we sent an error to the peer, or the stream
+                        // timed out.
+                        self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
+                    }
+                    HandlerErr::Outbound { id, proto, error } => {
+                        // Inform the peer manager that a request we sent to the peer failed
+                        self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
+                        if let Some(id) = id {
+                            // for failed rpc requests, inform only failures for protocols that get
+                            // propagated to the network
+                            self.events
+                                .push(BehaviourEvent::RPCFailed { peer_id, id, error });
+                        }
+                    }
                 }
             }
             Ok(RPCReceived::Request(id, request)) => match request {
@@ -675,74 +694,50 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     });
                 }
             },
-            Ok(RPCReceived::Response(id, coded_response)) => {
-                match coded_response {
-                    RPCCodedResponse::Success(resp) => match resp {
-                        /* Behaviour managed protocols */
-                        RPCResponse::Pong(ping) => {
-                            self.peer_manager.pong_response(&peer_id, ping.data)
-                        }
-                        RPCResponse::MetaData(meta_data) => {
-                            self.peer_manager.meta_data_response(&peer_id, meta_data)
-                        }
-                        /* Network propagated protocols */
-                        RPCResponse::Status(msg) => {
-                            // inform the peer manager that we have received a status from a peer
-                            self.peer_manager.peer_statusd(&peer_id);
-                            // propagate the STATUS message upwards
-                            self.events.push(BehaviourEvent::ResponseReceived {
-                                peer_id,
-                                id: id.expect("Status should have an id"),
-                                response: Response::Status(msg),
-                            });
-                        }
-                        RPCResponse::BlocksByRange(resp) => {
-                            self.events.push(BehaviourEvent::ResponseReceived {
-                                peer_id,
-                                id: id.expect("BlocksByRange should have an id"),
-                                response: Response::BlocksByRange(Some(resp)),
-                            })
-                        }
-                        RPCResponse::BlocksByRoot(resp) => {
-                            self.events.push(BehaviourEvent::ResponseReceived {
-                                peer_id,
-                                id: id.expect("BlocksByRoot should have an id"),
-                                response: Response::BlocksByRoot(Some(resp)),
-                            })
-                        }
-                    },
-                    RPCCodedResponse::StreamTermination(termination) => {
-                        let response = match termination {
-                            ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
-                            ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
-                        };
+            Ok(RPCReceived::Response(id, resp)) => {
+                match resp {
+                    /* Behaviour managed protocols */
+                    RPCResponse::Pong(ping) => self.peer_manager.pong_response(&peer_id, ping.data),
+                    RPCResponse::MetaData(meta_data) => {
+                        self.peer_manager.meta_data_response(&peer_id, meta_data)
+                    }
+                    /* Network propagated protocols */
+                    RPCResponse::Status(msg) => {
+                        // inform the peer manager that we have received a status from a peer
+                        self.peer_manager.peer_statusd(&peer_id);
+                        // propagate the STATUS message upwards
                         self.events.push(BehaviourEvent::ResponseReceived {
                             peer_id,
-                            id: id.expect("StreamTermination should have an id"),
-                            response,
+                            id: id.expect("Status should have an id"),
+                            response: Response::Status(msg),
                         });
                     }
-                    RPCCodedResponse::InvalidRequest(ref reason)
-                    | RPCCodedResponse::ServerError(ref reason)
-                    | RPCCodedResponse::Unknown(ref reason) => {
-                        let error_code = coded_response
-                            .error_code()
-                            .expect("Response that is an error must map to an error code");
-                        debug!(self.log, "Peer sent an error response";
-                            "reason" => reason, "peer_id" => peer_id.to_string(), "error" => error_code.to_string());
-                        // TODO: we received a response signaling an error, but we lost the
-                        // protocol of the original request on the way. Check if it can be
-                        // retrieved. Then, inform the peer manager with `self.peer_manager.handle_rpc_error`
-                        if let Some(id) = id {
-                            // inform only failures for protocols that get propagated to the network
-                            self.events.push(BehaviourEvent::RPCFailed {
-                                peer_id,
-                                id,
-                                error: RPCError::ErrorResponse(error_code),
-                            });
-                        }
+                    RPCResponse::BlocksByRange(resp) => {
+                        self.events.push(BehaviourEvent::ResponseReceived {
+                            peer_id,
+                            id: id.expect("BlocksByRange should have an id"),
+                            response: Response::BlocksByRange(Some(resp)),
+                        })
+                    }
+                    RPCResponse::BlocksByRoot(resp) => {
+                        self.events.push(BehaviourEvent::ResponseReceived {
+                            peer_id,
+                            id: id.expect("BlocksByRoot should have an id"),
+                            response: Response::BlocksByRoot(Some(resp)),
+                        })
                     }
                 }
+            }
+            Ok(RPCReceived::EndOfStream(id, termination)) => {
+                let response = match termination {
+                    ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
+                    ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                };
+                self.events.push(BehaviourEvent::ResponseReceived {
+                    peer_id,
+                    id: id.expect("StreamTermination should have an id"),
+                    response,
+                });
             }
         }
     }
@@ -827,10 +822,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 /* Public API types */
 
 /// The type of RPC requests the Behaviour informs it has received and allows for sending.
-// NOTE: This an application-level wrapper over the lower network leve requests that can be sent.
-//       The main difference is the absense of the Ping and Metadata protocols, which don't leave
-//       the Behaviour. For all protocols managed by RPC see `RPCRequest`.
-#[derive(Debug)]
+///
+// NOTE: This is an application-level wrapper over the lower network leve requests that can be
+//       sent. The main difference is the absense of the Ping and Metadata protocols, which don't
+//       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Request {
     /// A Status message.
     Status(StatusMessage),
@@ -842,11 +838,24 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
 }
 
+impl<TSpec: EthSpec> std::convert::From<Request> for RPCRequest<TSpec> {
+    fn from(req: Request) -> RPCRequest<TSpec> {
+        match req {
+            Request::BlocksByRoot(r) => RPCRequest::BlocksByRoot(r),
+            Request::BlocksByRange(r) => RPCRequest::BlocksByRange(r),
+            Request::Goodbye(r) => RPCRequest::Goodbye(r),
+            Request::Status(s) => RPCRequest::Status(s),
+        }
+    }
+}
+
 /// The type of RPC responses the Behaviour informs it has received, and allows for sending.
-// NOTE: This an application-level wrapper over the lower network level responses that can be sent.
-//       The main difference is the absense of Pong and Metadata, which don't leave the Behaviour.
-//       For all protocol reponses managed by RPC see `RPCResponse` and `RPCCodedResponse`.
-#[derive(Debug)]
+///
+// NOTE: This is an application-level wrapper over the lower network level responses that can be
+//       sent. The main difference is the absense of Pong and Metadata, which don't leave the
+//       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
+//       `RPCCodedResponse`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Response<TSpec: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
@@ -856,17 +865,32 @@ pub enum Response<TSpec: EthSpec> {
     BlocksByRoot(Option<Box<SignedBeaconBlock<TSpec>>>),
 }
 
+impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
+    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
+        match resp {
+            Response::BlocksByRoot(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRoot),
+            },
+            Response::BlocksByRange(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
+            },
+            Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
+        }
+    }
+}
+
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
 pub enum BehaviourEvent<TSpec: EthSpec> {
-    /// An RPC Request that was sent failed
+    /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
         id: RequestId,
         /// The peer_id to which this request was sent.
         peer_id: PeerId,
         /// The error that occurred.
-        // TODO: error not needed? remove
         error: RPCError,
     },
     RequestReceived {
@@ -892,6 +916,5 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     /// Subscribed to peer for given topic
     PeerSubscribed(PeerId, TopicHash),
     /// Inform the network to send a Status to this peer.
-    /// TODO: why not just do it here?
     StatusPeer(PeerId),
 }

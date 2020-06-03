@@ -260,13 +260,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn handle_rpc_error(
         &mut self,
         peer_id: &PeerId,
-        protocol: Option<Protocol>,
+        protocol: Protocol,
         err: &RPCError,
     ) {
         let client = self.network_globals.client(peer_id);
-        let protocol_name =
-            protocol.map_or_else(|| "Unknown".to_string(), |proto| proto.to_string());
-        debug!(self.log, "RPCError"; "protocol" => protocol_name, "err" => err.to_string(), "client" => client.to_string());
+        debug!(self.log, "RPCError"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string());
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -286,7 +284,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // this could their fault or ours, so we tolerate this
                 PeerAction::HighToleranceError
             }
-            RPCError::ErrorResponse(code) => match code {
+            RPCError::ErrorResponse(code, _) => match code {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
@@ -301,32 +299,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // protocol to this peer. Similarly, to avoid blacklisting a peer for a protocol
                 // forever, if stored this information should expire.
                 match protocol {
-                    Some(Protocol::Ping) => PeerAction::Fatal,
-                    Some(Protocol::BlocksByRange) => return,
-                    Some(Protocol::BlocksByRoot) => return,
-                    Some(Protocol::Goodbye) => return,
-                    Some(Protocol::MetaData) => PeerAction::LowToleranceError,
-                    Some(Protocol::Status) => PeerAction::LowToleranceError,
-                    None => {
-                        debug!(
-                            self.log,
-                            "Unsupported protocol error without protocol information"
-                        );
-                        return;
-                    }
+                    Protocol::Ping => PeerAction::Fatal,
+                    Protocol::BlocksByRange => return,
+                    Protocol::BlocksByRoot => return,
+                    Protocol::Goodbye => return,
+                    Protocol::MetaData => PeerAction::LowToleranceError,
+                    Protocol::Status => PeerAction::LowToleranceError,
                 }
             }
             RPCError::StreamTimeout => match protocol {
-                Some(Protocol::Ping) => PeerAction::LowToleranceError,
-                Some(Protocol::BlocksByRange) => PeerAction::MidToleranceError,
-                Some(Protocol::BlocksByRoot) => PeerAction::MidToleranceError,
-                None => {
-                    debug!(
-                        self.log,
-                        "Stream timeout error without protocol information"
-                    );
-                    return;
-                }
+                Protocol::Ping => PeerAction::LowToleranceError,
+                Protocol::BlocksByRange => PeerAction::MidToleranceError,
+                Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                 _ => return,
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,

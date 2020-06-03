@@ -231,6 +231,15 @@ impl<T: EthSpec> RPCCodedResponse<T> {
         }
     }
 
+    /// Builds an RPCCodedResponse from a response code and an ErrorMessage
+    pub fn from_error_code(response_code: RPCResponseErrorCode, err: String) -> Self {
+        match response_code {
+            RPCResponseErrorCode::InvalidRequest => RPCCodedResponse::InvalidRequest(err),
+            RPCResponseErrorCode::ServerError => RPCCodedResponse::ServerError(err),
+            RPCResponseErrorCode::Unknown => RPCCodedResponse::Unknown(err),
+        }
+    }
+
     /// Specifies which response allows for multiple chunks for the stream handler.
     pub fn multiple_responses(&self) -> bool {
         match self {

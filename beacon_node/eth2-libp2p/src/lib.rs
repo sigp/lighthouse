@@ -10,7 +10,7 @@ mod config;
 pub mod discovery;
 mod metrics;
 mod peer_manager;
-pub mod rpc;
+mod rpc;
 mod service;
 pub mod types;
 
@@ -22,5 +22,4 @@ pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use peer_manager::{client::Client, PeerDB, PeerInfo, PeerSyncStatus, SyncInfo};
-pub use rpc::RPCSend;
 pub use service::{Libp2pEvent, Service, NETWORK_KEY_FILENAME};
