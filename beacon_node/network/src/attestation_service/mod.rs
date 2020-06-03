@@ -291,7 +291,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     .duration_to_slot(exact_subnet.slot + 1)
                     .map(|duration| std::time::Instant::now() + duration);
 
-                self.queue_discover_peers_message(exact_subnet.subnet_id, min_ttl);
+                self.send_or_update_discovery_event(exact_subnet.subnet_id, min_ttl);
             } else {
                 // Queue the discovery event to be executed for
                 // TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD
@@ -326,11 +326,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(())
     }
 
-    /// Checks if we have a discover peers message queued and sends a message if necessary
+    /// Checks if we have a discover peers event already and sends a new event if necessary
     ///
     /// If a message exists for the same subnet, compare the `min_ttl` of the current and
-    /// queued messages and extend the queued message.
-    fn queue_discover_peers_message(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+    /// existing messages and extend the existing message as necessary.
+    fn send_or_update_discovery_event(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
         let message = AttServiceMessage::DiscoverPeers { subnet_id, min_ttl };
         self.events.iter_mut().for_each(|event| {
             match event {
@@ -517,7 +517,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
             if !already_subscribed {
                 // send a discovery request and a subscription
-                self.queue_discover_peers_message(subnet_id, None);
+                self.send_or_update_discovery_event(subnet_id, None);
                 self.events
                     .push_back(AttServiceMessage::Subscribe(subnet_id));
             }
@@ -539,7 +539,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .duration_to_slot(exact_subnet.slot + 1)
             .map(|duration| std::time::Instant::now() + duration);
 
-        self.queue_discover_peers_message(exact_subnet.subnet_id, min_ttl)
+        self.send_or_update_discovery_event(exact_subnet.subnet_id, min_ttl)
     }
 
     /// A queued subscription is ready.
