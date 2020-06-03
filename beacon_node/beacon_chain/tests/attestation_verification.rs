@@ -87,7 +87,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
 
 fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    aggregate: Attestation<T::EthSpec>,
+    mut aggregate: Attestation<T::EthSpec>,
 ) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
     let state = &chain.head().expect("should get head").beacon_state;
     let current_slot = chain.slot().expect("should get slot");
@@ -97,10 +97,11 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
-    let (aggregator_index, aggregator_sk) = committee
+    let (aggregator_committee_pos, aggregator_index, aggregator_sk) = committee
         .committee
         .iter()
-        .find_map(|&val_index| {
+        .enumerate()
+        .find_map(|(committee_pos, &val_index)| {
             let aggregator_sk = generate_deterministic_keypair(val_index).sk;
 
             let proof = SelectionProof::new::<T::EthSpec>(
@@ -112,12 +113,25 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
             );
 
             if proof.is_aggregator(committee_len, &chain.spec).unwrap() {
-                Some((val_index, aggregator_sk))
+                Some((committee_pos, val_index, aggregator_sk))
             } else {
                 None
             }
         })
         .expect("should find aggregator for committee");
+
+    // FIXME(v0.12): this can be removed once the verification rules are updated for v0.12
+    // I needed to add it because the test only *happened* to work because aggregator and attester
+    // indices were the same before!
+    aggregate
+        .sign(
+            &aggregator_sk,
+            aggregator_committee_pos,
+            &state.fork,
+            chain.genesis_validators_root,
+            &chain.spec,
+        )
+        .expect("should sign attestation");
 
     let signed_aggregate = SignedAggregateAndProof::from_aggregate(
         aggregator_index as u64,
@@ -950,7 +964,7 @@ fn attestation_that_skips_epochs() {
     harness.extend_chain(
         MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
         BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
+        AttestationStrategy::SomeValidators(vec![]),
     );
 
     let current_slot = chain.slot().expect("should get slot");
@@ -999,11 +1013,8 @@ fn attestation_that_skips_epochs() {
         "the attestation must skip more than two epochs"
     );
 
-    assert!(
-        harness
-            .chain
-            .verify_unaggregated_attestation_for_gossip(attestation)
-            .is_ok(),
-        "should gossip verify attestation that skips slots"
-    );
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(attestation)
+        .expect("should gossip verify attestation that skips slots");
 }

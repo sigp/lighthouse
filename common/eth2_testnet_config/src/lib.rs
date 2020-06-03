@@ -20,7 +20,10 @@ pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const YAML_CONFIG_FILE: &str = "config.yaml";
 
-pub const HARDCODED_TESTNET: &str = "witti-v0-11-3";
+/// The name of the testnet to hardcode.
+///
+/// Should be set to `None` when no existing testnet is compatible with the codebase.
+pub const HARDCODED_TESTNET: Option<&str> = None;
 
 pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../witti-v0-11-3/config.yaml");
 pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../witti-v0-11-3/deploy_block.txt");
@@ -42,29 +45,34 @@ pub struct Eth2TestnetConfig<E: EthSpec> {
 }
 
 impl<E: EthSpec> Eth2TestnetConfig<E> {
-    // Creates the `Eth2TestnetConfig` that was included in the binary at compile time. This can be
-    // considered the default Lighthouse testnet.
-    //
-    // Returns an error if those included bytes are invalid (this is unlikely).
-    pub fn hard_coded() -> Result<Self, String> {
-        Ok(Self {
-            deposit_contract_address: serde_yaml::from_reader(HARDCODED_DEPOSIT_CONTRACT)
-                .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
-            deposit_contract_deploy_block: serde_yaml::from_reader(HARDCODED_DEPLOY_BLOCK)
-                .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
-            boot_enr: Some(
-                serde_yaml::from_reader(HARDCODED_BOOT_ENR)
-                    .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
-            ),
-            genesis_state: Some(
-                BeaconState::from_ssz_bytes(HARDCODED_GENESIS_STATE)
-                    .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
-            ),
-            yaml_config: Some(
-                serde_yaml::from_reader(HARDCODED_YAML_CONFIG)
-                    .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
-            ),
-        })
+    /// Creates the `Eth2TestnetConfig` that was included in the binary at compile time. This can be
+    /// considered the default Lighthouse testnet.
+    ///
+    /// Returns an error if those included bytes are invalid (this is unlikely).
+    /// Returns `None` if the hardcoded testnet is disabled.
+    pub fn hard_coded() -> Result<Option<Self>, String> {
+        if HARDCODED_TESTNET.is_some() {
+            Ok(Some(Self {
+                deposit_contract_address: serde_yaml::from_reader(HARDCODED_DEPOSIT_CONTRACT)
+                    .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
+                deposit_contract_deploy_block: serde_yaml::from_reader(HARDCODED_DEPLOY_BLOCK)
+                    .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
+                boot_enr: Some(
+                    serde_yaml::from_reader(HARDCODED_BOOT_ENR)
+                        .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
+                ),
+                genesis_state: Some(
+                    BeaconState::from_ssz_bytes(HARDCODED_GENESIS_STATE)
+                        .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
+                ),
+                yaml_config: Some(
+                    serde_yaml::from_reader(HARDCODED_YAML_CONFIG)
+                        .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
+                ),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     // Write the files to the directory.
@@ -207,17 +215,16 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    /* TODO: disabled until testnet config is updated for v0.11
     #[test]
     fn hard_coded_works() {
-        let dir: Eth2TestnetConfig<E> =
-            Eth2TestnetConfig::hard_coded().expect("should decode hard_coded params");
-
-        assert!(dir.boot_enr.is_some());
-        assert!(dir.genesis_state.is_some());
-        assert!(dir.yaml_config.is_some());
+        if let Some(dir) =
+            Eth2TestnetConfig::<E>::hard_coded().expect("should decode hard_coded params")
+        {
+            assert!(dir.boot_enr.is_some());
+            assert!(dir.genesis_state.is_some());
+            assert!(dir.yaml_config.is_some());
+        }
     }
-    */
 
     #[test]
     fn round_trip() {

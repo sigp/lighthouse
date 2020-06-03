@@ -11,7 +11,7 @@ use types::{
     AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
     Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot,
-    SignedVoluntaryExit, SigningRoot,
+    SignedVoluntaryExit, SigningData,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -92,7 +92,7 @@ where
     );
 
     let message = if let Some(root) = block_root {
-        SigningRoot {
+        SigningData {
             object_root: root,
             domain,
         }
