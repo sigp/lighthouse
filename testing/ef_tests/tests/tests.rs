@@ -29,7 +29,7 @@ fn minimal_config_ok() {
 }
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
-// This test lives here because one is most likely to be muck these up during a spec update.
+// This test lives here because one is most likely to muck these up during a spec update.
 fn check_typenum_values<E: EthSpec>() {
     assert_eq!(
         E::MaxPendingAttestations::to_u64(),
