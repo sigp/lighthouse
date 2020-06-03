@@ -16,6 +16,7 @@ pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
     // TODO: make this an actual error enum.
     ProtoArrayError(String),
+    MissingProtoArrayBlock(Hash256),
     BeaconStateError(BeaconStateError),
     ForkChoiceStoreError(T),
 }
@@ -46,6 +47,12 @@ pub enum InvalidAttestation {
     PastEpoch {
         attestation_epoch: Epoch,
         current_epoch: Epoch,
+    },
+    /// The attestation references a target root that does not match what is stored in our
+    /// database.
+    InvalidTarget {
+        attestation: Hash256,
+        block: Hash256,
     },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
@@ -80,42 +87,6 @@ pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/beacon-chain.md#compute_start_slot_at_epoch
 fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
-}
-
-/// Returns `true` if the given `store` should be updated to set
-/// `state.current_justified_checkpoint` its `justified_checkpoint`.
-///
-/// ## Specification
-///
-/// Is equivalent to:
-///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
-fn should_update_justified_checkpoint<T, E>(
-    store: &mut T,
-    state: &BeaconState<E>,
-) -> Result<bool, T::Error>
-where
-    T: ForkChoiceStore<E>,
-    E: EthSpec,
-{
-    store.update_time()?;
-
-    let new_justified_checkpoint = &state.current_justified_checkpoint;
-
-    if compute_slots_since_epoch_start::<E>(store.get_current_slot())
-        < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
-    {
-        return Ok(true);
-    }
-
-    let justified_slot = compute_start_slot_at_epoch::<E>(store.justified_checkpoint().epoch);
-    if store.get_ancestor(state, new_justified_checkpoint.root, justified_slot)?
-        != store.justified_checkpoint().root
-    {
-        return Ok(false);
-    }
-
-    Ok(true)
 }
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
@@ -252,6 +223,44 @@ where
         }
     }
 
+    /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
+    /// to the block is *returned*, not the one that is supplied.)
+    ///
+    /// The root of `state` must match the `block.state_root` of the block identified by `block_root`.
+    ///
+    /// ## Specification
+    ///
+    /// Equivalent to:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_ancestor
+    fn get_ancestor(
+        &self,
+        state: &BeaconState<E>,
+        block_root: Hash256,
+        ancestor_slot: Slot,
+    ) -> Result<Hash256, Error<T::Error>>
+    where
+        T: ForkChoiceStore<E>,
+        E: EthSpec,
+    {
+        let block = self
+            .proto_array
+            .get_block(&block_root)
+            .ok_or_else(|| Error::MissingProtoArrayBlock(block_root))?;
+
+        if block.slot > ancestor_slot {
+            self.fc_store
+                .ancestor_at_slot(state, block_root, ancestor_slot)
+                .map_err(Error::ForkChoiceStoreError)
+        } else if block.slot == ancestor_slot {
+            Ok(block_root)
+        } else {
+            // root is older than queried slot, thus a skip slot. Return most recent root prior to
+            // slot
+            Ok(block_root)
+        }
+    }
+
     /// Run the fork choice rule to determine the head.
     ///
     /// ## Specification
@@ -291,6 +300,41 @@ where
         result
     }
 
+    /// Returns `true` if the given `store` should be updated to set
+    /// `state.current_justified_checkpoint` its `justified_checkpoint`.
+    ///
+    /// ## Specification
+    ///
+    /// Is equivalent to:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
+    fn should_update_justified_checkpoint(
+        &mut self,
+        state: &BeaconState<E>,
+    ) -> Result<bool, Error<T::Error>> {
+        self.fc_store
+            .update_time()
+            .map_err(Error::ForkChoiceStoreError)?;
+
+        let new_justified_checkpoint = &state.current_justified_checkpoint;
+
+        if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
+            < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
+        {
+            return Ok(true);
+        }
+
+        let justified_slot =
+            compute_start_slot_at_epoch::<E>(self.fc_store.justified_checkpoint().epoch);
+        if self.get_ancestor(state, new_justified_checkpoint.root, justified_slot)?
+            != self.fc_store.justified_checkpoint().root
+        {
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
     /// Add `block` to the fork choice DAG.
     ///
     /// - `block_root_root` is the root of `block.
@@ -320,32 +364,32 @@ where
         // attestation queue small without adding a heartbeat timer.
         self.process_attestation_queue()?;
 
-        let store = &mut self.fc_store;
-
         // TODO: stuff here
-        if state.current_justified_checkpoint.epoch > store.justified_checkpoint().epoch {
-            if state.current_justified_checkpoint.epoch > store.best_justified_checkpoint().epoch {
-                store.set_best_justified_checkpoint(state);
-            }
-            if should_update_justified_checkpoint(store, state)
-                .map_err(Error::ForkChoiceStoreError)?
+        if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
+            if state.current_justified_checkpoint.epoch
+                > self.fc_store.best_justified_checkpoint().epoch
             {
-                store.set_justified_checkpoint(state);
+                self.fc_store.set_best_justified_checkpoint(state);
+            }
+            if self.should_update_justified_checkpoint(state)? {
+                self.fc_store.set_justified_checkpoint(state);
             }
         }
 
-        if state.finalized_checkpoint.epoch > store.finalized_checkpoint().epoch {
-            store.set_finalized_checkpoint(state.finalized_checkpoint);
+        if state.finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
+            self.fc_store
+                .set_finalized_checkpoint(state.finalized_checkpoint);
             let finalized_slot =
-                compute_start_slot_at_epoch::<E>(store.finalized_checkpoint().epoch);
+                compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
 
-            if state.current_justified_checkpoint.epoch > store.justified_checkpoint().epoch
-                || store
-                    .get_ancestor(state, store.justified_checkpoint().root, finalized_slot)
-                    .map_err(Error::ForkChoiceStoreError)?
-                    != store.finalized_checkpoint().root
+            if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch
+                || self.get_ancestor(
+                    state,
+                    self.fc_store.justified_checkpoint().root,
+                    finalized_slot,
+                )? != self.fc_store.finalized_checkpoint().root
             {
-                store.set_justified_checkpoint(state);
+                self.fc_store.set_justified_checkpoint(state);
             }
         }
 
@@ -415,7 +459,7 @@ where
             return Err(InvalidAttestation::UnknownTargetRoot(target.root));
         }
 
-        // Load the slot for `attestation.data.beacon_block_root`.
+        // Load the block for `attestation.data.beacon_block_root`.
         //
         // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
         // choice. Any known, non-finalized block should be in fork choice, so this check
@@ -423,28 +467,25 @@ where
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let block_slot = self
+        let block = self
             .proto_array
             .get_block(&indexed_attestation.data.beacon_block_root)
-            .map(|block| block.slot)
             .ok_or_else(|| InvalidAttestation::UnknownHeadBlock {
                 beacon_block_root: indexed_attestation.data.beacon_block_root,
             })?;
 
-        // TODO: currently we do not check the FFG source/target. This is what the spec dictates
-        // but it seems wrong.
-        //
-        // I have opened an issue on the specs repo for this:
-        //
-        // https://github.com/ethereum/eth2.0-specs/issues/1636
-        //
-        // We should revisit this code once that issue has been resolved.
+        if block.target_root != target.root {
+            return Err(InvalidAttestation::InvalidTarget {
+                attestation: target.root,
+                block: block.target_root,
+            });
+        }
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
-        if block_slot > indexed_attestation.data.slot {
+        if block.slot > indexed_attestation.data.slot {
             return Err(InvalidAttestation::AttestsToFutureBlock {
-                block: block_slot,
+                block: block.slot,
                 attestation: indexed_attestation.data.slot,
             });
         }
@@ -640,6 +681,8 @@ mod tests {
         assert!(queued.is_empty());
         assert_eq!(dequeued, vec![1, 2, 3]);
     }
+
+    // TODO: test updating justified checkpoint via on_tick.
 
     #[test]
     fn update_justified_checkpoint_non_ancestor() {

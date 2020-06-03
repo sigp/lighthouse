@@ -106,21 +106,11 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     /// Sets the `best_justified_checkpoint`.
     fn set_best_justified_checkpoint(&mut self, state: &BeaconState<T>);
 
-    /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot`
-    /// refers to the block is *returned*, not the one that is supplied.)
-    ///
-    /// The root of `state` must match the `block.state_root` of the block identified by
-    /// `block_root`.
-    ///
-    /// ## Specification
-    ///
-    /// Implementation must be equivalent to:
-    ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_ancestor
-    fn get_ancestor(
+    /// Returns the block root of an ancestor of `block_root` at the given `ancestor_slot`.
+    fn ancestor_at_slot(
         &self,
         state: &BeaconState<T>,
         block_root: Hash256,
-        slot: Slot,
+        ancestor_slot: Slot,
     ) -> Result<Hash256, Self::Error>;
 }

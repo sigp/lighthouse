@@ -174,13 +174,13 @@ impl<T: EthSpec> ForkChoiceStore<T> for TestingStore<T> {
         self.best_justified_balances = Some(state.balances.clone().into());
     }
 
-    fn get_ancestor(
+    fn ancestor_at_slot(
         &self,
         state: &BeaconState<T>,
         _root: Hash256,
-        slot: Slot,
+        ancestor_slot: Slot,
     ) -> Result<Hash256, ()> {
-        let root = match state.get_block_root(slot) {
+        let root = match state.get_block_root(ancestor_slot) {
             Ok(root) => *root,
             Err(_) => todo!(),
         };
