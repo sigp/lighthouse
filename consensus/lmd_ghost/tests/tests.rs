@@ -47,6 +47,14 @@ impl ForkChoiceTest {
         self
     }
 
+    pub fn assert_best_justified_epoch(self, epoch: u64) -> Self {
+        assert_eq!(
+            self.get(|fc_store| fc_store.best_justified_checkpoint().epoch),
+            Epoch::new(epoch)
+        );
+        self
+    }
+
     pub fn apply_blocks_while<F>(self, mut predicate: F) -> Self
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
@@ -125,6 +133,7 @@ fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch <= 2)
         .move_outside_safe_to_update()
         .assert_justified_epoch(2)
+        .assert_best_justified_epoch(2)
         .apply_blocks(1)
         .assert_justified_epoch(3);
 }
@@ -138,8 +147,10 @@ fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
         .move_outside_safe_to_update()
         .assert_justified_epoch(0)
+        .assert_best_justified_epoch(0)
         .apply_blocks(1)
-        .assert_justified_epoch(0);
+        .assert_justified_epoch(0)
+        .assert_best_justified_epoch(2);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -157,7 +168,8 @@ fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_fi
                 .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
                 .unwrap();
         })
-        .assert_justified_epoch(2);
+        .assert_justified_epoch(2)
+        .assert_best_justified_epoch(2);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -175,7 +187,8 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_f
                 .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
                 .unwrap();
         })
-        .assert_justified_epoch(0);
+        .assert_justified_epoch(0)
+        .assert_best_justified_epoch(2);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -193,5 +206,6 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_fina
                 .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
                 .unwrap();
         })
-        .assert_justified_epoch(2);
+        .assert_justified_epoch(2)
+        .assert_best_justified_epoch(2);
 }
