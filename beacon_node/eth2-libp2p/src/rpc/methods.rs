@@ -11,15 +11,15 @@ use std::ops::Deref;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
-#[allow(non_camel_case_types)]
-type MAX_REQUEST_BLOCKS = U1024;
+type MaxRequestBlocks = U1024;
+pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
-#[allow(non_camel_case_types)]
-type MAX_ERROR_LEN = U256;
+type MaxErrorLen = U256;
 
+/// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
-pub struct ErrorType(VariableList<u8, MAX_ERROR_LEN>);
+pub struct ErrorType(VariableList<u8, MaxErrorLen>);
 
 impl From<String> for ErrorType {
     fn from(s: String) -> Self {
@@ -33,8 +33,8 @@ impl From<&str> for ErrorType {
     }
 }
 
-impl std::ops::Deref for ErrorType {
-    type Target = VariableList<u8, MAX_ERROR_LEN>;
+impl Deref for ErrorType {
+    type Target = VariableList<u8, MaxErrorLen>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -191,7 +191,7 @@ pub struct BlocksByRangeRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: VariableList<Hash256, MAX_REQUEST_BLOCKS>,
+    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
 }
 
 /* RPC Handling and Grouping */
