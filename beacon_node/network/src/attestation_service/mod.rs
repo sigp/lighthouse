@@ -77,8 +77,9 @@ impl PartialEq for AttServiceMessage {
                         < DURATION_DIFFERENCE
                         && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
                             < DURATION_DIFFERENCE
+                        && subnet_id == other_subnet_id
                 }
-                (None, None) => true,
+                (None, None) => subnet_id == other_subnet_id,
                 _ => false,
             },
             _ => false,
@@ -356,8 +357,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                                 *other_min_ttl = None;
                                 return;
                             }
-                            (Some(_), None) => {} // Don't replace this because the existing message is for a longer-lived peer.
-                            (None, None) => {}    // Duplicate message.
+                            (Some(_), None) => return, // Don't replace this because the existing message is for a longer-lived peer.
+                            (None, None) => return,    // Duplicate message, do nothing.
                         }
                     }
                 }
