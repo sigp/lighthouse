@@ -91,7 +91,7 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
 /// information about the attestation (i.e., it is simplified).
-#[derive(Clone, Encode, Decode)]
+#[derive(Clone, PartialEq, Encode, Decode)]
 pub struct QueuedAttestation {
     slot: Slot,
     attesting_indices: Vec<u64>,
@@ -166,6 +166,7 @@ where
         self.fc_store == other.fc_store
             && self.proto_array == other.proto_array
             && self.genesis_block_root == other.genesis_block_root
+            && self.queued_attestations == other.queued_attestations
     }
 }
 
