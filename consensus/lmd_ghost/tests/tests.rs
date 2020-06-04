@@ -6,9 +6,9 @@ use beacon_chain::{
     ForkChoiceStore as BeaconForkChoiceStore,
 };
 use lmd_ghost::{ForkChoiceStore, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
-use store::MemoryStore;
+use store::{MemoryStore, Store};
 use types::{test_utils::generate_deterministic_keypairs, Epoch, EthSpec, MainnetEthSpec, Slot};
-use types::{BeaconBlock, BeaconState, Hash256};
+use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 pub type E = MainnetEthSpec;
 
@@ -30,6 +30,16 @@ impl ForkChoiceTest {
         harness.advance_slot();
 
         Self { harness }
+    }
+
+    fn inspect<T>(&self, func: T)
+    where
+        T: Fn(&BeaconChainHarness<HarnessType<E>>, &BeaconForkChoiceStore<MemoryStore<E>, E>),
+    {
+        func(
+            &self.harness,
+            &self.harness.chain.fork_choice.backend().fc_store(),
+        )
     }
 
     fn get<T, U>(&self, func: T) -> U
@@ -208,4 +218,38 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_fina
         })
         .assert_justified_epoch(2)
         .assert_best_justified_epoch(2);
+}
+
+/// Check that the balances are obtained correctly.
+#[test]
+fn justified_balances() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .move_inside_safe_to_update()
+        .assert_justified_epoch(0)
+        .apply_blocks(1)
+        .assert_justified_epoch(2)
+        .inspect(|harness, fc_store| {
+            let state_root = harness
+                .chain
+                .store
+                .get_item::<SignedBeaconBlock<E>>(&fc_store.justified_checkpoint().root)
+                .unwrap()
+                .unwrap()
+                .message
+                .state_root;
+            let balances = harness
+                .chain
+                .store
+                .get_state(&state_root, None)
+                .unwrap()
+                .unwrap()
+                .balances;
+
+            assert_eq!(
+                &balances[..],
+                fc_store.justified_balances(),
+                "balances should match"
+            )
+        })
 }
