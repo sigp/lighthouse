@@ -56,7 +56,9 @@
 
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
-pub use prometheus::{Encoder, Gauge, Histogram, IntCounter, IntGauge, Result, TextEncoder};
+pub use prometheus::{
+    Encoder, Gauge, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result, TextEncoder,
+};
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
@@ -99,6 +101,48 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     Ok(histogram)
 }
 
+/// Attempts to crate a `HistogramVec`, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict).
+pub fn try_create_histogram_vec(
+    name: &str,
+    help: &str,
+    label_names: &[&str],
+) -> Result<HistogramVec> {
+    let opts = HistogramOpts::new(name, help);
+    let histogram_vec = HistogramVec::new(opts, label_names)?;
+    prometheus::register(Box::new(histogram_vec.clone()))?;
+    Ok(histogram_vec)
+}
+
+/// Attempts to crate a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_int_gauge_vec(
+    name: &str,
+    help: &str,
+    label_names: &[&str],
+) -> Result<IntGaugeVec> {
+    let opts = Opts::new(name, help);
+    let counter_vec = IntGaugeVec::new(opts, label_names)?;
+    prometheus::register(Box::new(counter_vec.clone()))?;
+    Ok(counter_vec)
+}
+
+pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Option<IntGauge> {
+    if let Ok(int_gauge_vec) = int_gauge_vec {
+        Some(int_gauge_vec.get_metric_with_label_values(name).ok()?)
+    } else {
+        None
+    }
+}
+
+pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Option<Histogram> {
+    if let Ok(histogram_vec) = histogram_vec {
+        Some(histogram_vec.get_metric_with_label_values(name).ok()?)
+    } else {
+        None
+    }
+}
+
 /// Starts a timer for the given `Histogram`, stopping when it gets dropped or given to `stop_timer(..)`.
 pub fn start_timer(histogram: &Result<Histogram>) -> Option<HistogramTimer> {
     if let Ok(histogram) = histogram {
@@ -130,6 +174,18 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: i64) {
 pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     if let Ok(gauge) = gauge {
         gauge.set(value);
+    }
+}
+
+pub fn inc_gauge(gauge: &Result<IntGauge>) {
+    if let Ok(gauge) = gauge {
+        gauge.inc();
+    }
+}
+
+pub fn dec_gauge(gauge: &Result<IntGauge>) {
+    if let Ok(gauge) = gauge {
+        gauge.dec();
     }
 }
 

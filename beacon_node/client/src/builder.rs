@@ -21,6 +21,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use timer::spawn_timer;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
@@ -50,7 +51,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
-    exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
     event_handler: Option<T::EventHandler>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
@@ -84,7 +84,6 @@ where
             beacon_chain_builder: None,
             beacon_chain: None,
             eth1_service: None,
-            exit_channels: vec![],
             event_handler: None,
             network_globals: None,
             network_send: None,
@@ -132,7 +131,7 @@ where
             .ok_or_else(|| "beacon_chain_start_method requires a chain spec".to_string())?;
 
         let builder = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(context.log.clone())
+            .logger(context.log().clone())
             .store(store)
             .store_migrator(store_migrator)
             .data_dir(data_dir)
@@ -150,7 +149,7 @@ where
         // Alternatively, if there's a beacon chain in the database then always resume
         // using it.
         let client_genesis = if client_genesis == ClientGenesis::FromStore && !chain_exists {
-            info!(context.log, "Defaulting to deposit contract genesis");
+            info!(context.log(), "Defaulting to deposit contract genesis");
 
             ClientGenesis::DepositContract
         } else if chain_exists {
@@ -172,7 +171,7 @@ where
                 genesis_state_bytes,
             } => {
                 info!(
-                    context.log,
+                    context.log(),
                     "Starting from known genesis state";
                 );
 
@@ -183,14 +182,14 @@ where
             }
             ClientGenesis::DepositContract => {
                 info!(
-                    context.log,
+                    context.log(),
                     "Waiting for eth2 genesis from eth1";
                     "eth1_endpoint" => &config.eth1.endpoint,
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
 
-                let genesis_service = Eth1GenesisService::new(config.eth1, context.log.clone());
+                let genesis_service = Eth1GenesisService::new(config.eth1, context.log().clone());
 
                 let genesis_state = genesis_service
                     .wait_for_genesis_state(
@@ -223,19 +222,18 @@ where
             .ok_or_else(|| "network requires a runtime_context")?
             .clone();
 
-        let (network_globals, network_send, network_exit) =
-            NetworkService::start(beacon_chain, config, &context.runtime_handle, context.log)
+        let (network_globals, network_send) =
+            NetworkService::start(beacon_chain, config, context.executor)
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
         self.network_send = Some(network_send);
-        self.exit_channels.push(network_exit);
 
         Ok(self)
     }
 
     /// Immediately starts the timer service.
-    fn timer(mut self) -> Result<Self, String> {
+    fn timer(self) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -251,12 +249,8 @@ where
             .ok_or_else(|| "node timer requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let timer_exit = context
-            .runtime_handle
-            .enter(|| timer::spawn(beacon_chain, milliseconds_per_slot))
+        spawn_timer(context.executor, beacon_chain, milliseconds_per_slot)
             .map_err(|e| format!("Unable to start node timer: {}", e))?;
-
-        self.exit_channels.push(timer_exit);
 
         Ok(self)
     }
@@ -290,32 +284,28 @@ where
             network_chan: network_send,
         };
 
-        let log = context.log.clone();
-        let (exit_channel, listening_addr) = context.runtime_handle.enter(|| {
-            rest_api::start_server(
-                &client_config.rest_api,
-                beacon_chain,
-                network_info,
-                client_config
-                    .create_db_path()
-                    .map_err(|_| "unable to read data dir")?,
-                client_config
-                    .create_freezer_db_path()
-                    .map_err(|_| "unable to read freezer DB dir")?,
-                eth2_config.clone(),
-                log,
-            )
-            .map_err(|e| format!("Failed to start HTTP API: {:?}", e))
-        })?;
+        let listening_addr = rest_api::start_server(
+            context.executor,
+            &client_config.rest_api,
+            beacon_chain,
+            network_info,
+            client_config
+                .create_db_path()
+                .map_err(|_| "unable to read data dir")?,
+            client_config
+                .create_freezer_db_path()
+                .map_err(|_| "unable to read freezer DB dir")?,
+            eth2_config.clone(),
+        )
+        .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 
-        self.exit_channels.push(exit_channel);
         self.http_listen_addr = Some(listening_addr);
 
         Ok(self)
     }
 
     /// Immediately starts the service that periodically logs information each slot.
-    pub fn notifier(mut self) -> Result<Self, String> {
+    pub fn notifier(self) -> Result<Self, String> {
         let context = self
             .runtime_context
             .as_ref()
@@ -335,19 +325,13 @@ where
             .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
             .milliseconds_per_slot;
 
-        let exit_channel = context
-            .runtime_handle
-            .enter(|| {
-                spawn_notifier(
-                    beacon_chain,
-                    network_globals,
-                    milliseconds_per_slot,
-                    context.log.clone(),
-                )
-            })
-            .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
-
-        self.exit_channels.push(exit_channel);
+        spawn_notifier(
+            context.executor,
+            beacon_chain,
+            network_globals,
+            milliseconds_per_slot,
+        )
+        .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
         Ok(self)
     }
@@ -365,7 +349,6 @@ where
             network_globals: self.network_globals,
             http_listen_addr: self.http_listen_addr,
             websocket_listen_addr: self.websocket_listen_addr,
-            _exit_channels: self.exit_channels,
         }
     }
 }
@@ -436,22 +419,14 @@ where
             .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
             .service_context("ws".into());
 
-        let (sender, exit_channel, listening_addr): (
-            WebSocketSender<TEthSpec>,
-            Option<_>,
-            Option<_>,
-        ) = if config.enabled {
-            let (sender, exit, listening_addr) = context
-                .runtime_handle
-                .enter(|| websocket_server::start_server(&config, &context.log))?;
-            (sender, Some(exit), Some(listening_addr))
+        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
+            let (sender, listening_addr) =
+                websocket_server::start_server(context.executor, &config)?;
+            (sender, Some(listening_addr))
         } else {
-            (WebSocketSender::dummy(), None, None)
+            (WebSocketSender::dummy(), None)
         };
 
-        if let Some(channel) = exit_channel {
-            self.exit_channels.push(channel);
-        }
         self.event_handler = Some(sender);
         self.websocket_listen_addr = listening_addr;
 
@@ -494,7 +469,7 @@ where
             .clone()
             .ok_or_else(|| "disk_store requires a chain spec".to_string())?;
 
-        let store = HotColdDB::open(hot_path, cold_path, config, spec, context.log)
+        let store = HotColdDB::open(hot_path, cold_path, config, spec, context.log().clone())
             .map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(Arc::new(store));
         Ok(self)
@@ -555,7 +530,7 @@ where
         let store = self.store.clone().ok_or_else(|| {
             "background_migrator requires the store to be initialized".to_string()
         })?;
-        self.store_migrator = Some(BackgroundMigrator::new(store, context.log.clone()));
+        self.store_migrator = Some(BackgroundMigrator::new(store, context.log().clone()));
         Ok(self)
     }
 }
@@ -617,25 +592,23 @@ where
                         &persisted,
                         config.clone(),
                         store.clone(),
-                        &context.log,
+                        &context.log().clone(),
                     )
                     .map(|chain| chain.into_backend())
                 })
                 .unwrap_or_else(|| {
-                    Ok(CachingEth1Backend::new(config, context.log.clone(), store))
+                    Ok(CachingEth1Backend::new(
+                        config,
+                        context.log().clone(),
+                        store,
+                    ))
                 })?
         };
 
         self.eth1_service = None;
 
-        let exit = {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            self.exit_channels.push(tx);
-            rx
-        };
-
         // Starts the service that connects to an eth1 node and periodically updates caches.
-        context.runtime_handle.enter(|| backend.start(exit));
+        backend.start(context.executor);
 
         self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
 

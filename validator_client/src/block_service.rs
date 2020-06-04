@@ -1,7 +1,6 @@
 use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{FutureExt, StreamExt, TryFutureExt};
+use futures::{StreamExt, TryFutureExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
@@ -113,8 +112,8 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Starts the service that periodically attempts to produce blocks.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
-        let log = self.context.log.clone();
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+        let log = self.context.log().clone();
 
         let duration_to_next_slot = self
             .slot_clock
@@ -136,7 +135,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         };
 
-        let runtime_handle = self.inner.context.runtime_handle.clone();
+        let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
@@ -144,20 +143,14 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             }
         };
 
-        let (exit_signal, exit_fut) = exit_future::signal();
+        executor.spawn(interval_fut, "block_service");
 
-        let future = futures::future::select(
-            Box::pin(interval_fut),
-            exit_fut.map(move |_| info!(log, "Shutdown complete")),
-        );
-        runtime_handle.spawn(future);
-
-        Ok(exit_signal)
+        Ok(())
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     async fn do_update(&self) -> Result<(), ()> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let slot = self.slot_clock.now().ok_or_else(move || {
             crit!(log, "Duties manager failed to read slot clock");
@@ -190,7 +183,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         iter.for_each(|validator_pubkey| {
             let service = self.clone();
             let log = log.clone();
-            self.inner.context.runtime_handle.spawn(
+            self.inner.context.executor.runtime_handle().spawn(
                 service
                     .publish_block(slot, validator_pubkey)
                     .map_err(move |e| {
@@ -208,7 +201,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// Produce a block at the given slot for validator_pubkey
     async fn publish_block(self, slot: Slot, validator_pubkey: PublicKey) -> Result<(), String> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let current_slot = self
             .slot_clock

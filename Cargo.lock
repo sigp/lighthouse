@@ -1161,7 +1161,10 @@ dependencies = [
  "env_logger",
  "eth2_config",
  "eth2_testnet_config",
+ "exit-future",
  "futures 0.3.5",
+ "lazy_static",
+ "lighthouse_metrics",
  "logging",
  "parking_lot 0.10.2",
  "slog",
@@ -1231,10 +1234,12 @@ dependencies = [
  "base64 0.12.1",
  "dirs",
  "discv5",
+ "environment",
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
+ "exit-future",
  "fnv",
  "futures 0.3.5",
  "hashset_delay",
@@ -1365,7 +1370,7 @@ dependencies = [
 name = "eth2_testnet_config"
 version = "0.2.0"
 dependencies = [
- "eth2-libp2p",
+ "enr",
  "eth2_ssz",
  "reqwest",
  "serde",
@@ -2932,9 +2937,11 @@ name = "network"
 version = "0.1.2"
 dependencies = [
  "beacon_chain",
+ "environment",
  "error-chain",
  "eth2-libp2p",
  "eth2_ssz",
+ "exit-future",
  "fnv",
  "futures 0.3.5",
  "genesis",
@@ -3808,6 +3815,7 @@ dependencies = [
  "assert_matches",
  "beacon_chain",
  "bls",
+ "environment",
  "eth2-libp2p",
  "eth2_config",
  "eth2_ssz",
@@ -4853,6 +4861,7 @@ name = "timer"
 version = "0.1.2"
 dependencies = [
  "beacon_chain",
+ "environment",
  "futures 0.3.5",
  "parking_lot 0.10.2",
  "slog",
@@ -5823,6 +5832,7 @@ dependencies = [
 name = "websocket_server"
 version = "0.1.2"
 dependencies = [
+ "environment",
  "futures 0.3.5",
  "serde",
  "serde_derive",

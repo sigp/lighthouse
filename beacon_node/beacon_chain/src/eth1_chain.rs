@@ -1,4 +1,5 @@
 use crate::metrics;
+use environment::TaskExecutor;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2_hashing::hash;
 use slog::{debug, error, trace, Logger};
@@ -285,10 +286,8 @@ impl<T: EthSpec, S: Store<T>> CachingEth1Backend<T, S> {
     }
 
     /// Starts the routine which connects to the external eth1 node and updates the caches.
-    pub fn start(&self, exit: tokio::sync::oneshot::Receiver<()>) {
-        // don't need to spawn as a task is being spawned in auto_update
-        // TODO: check if this is correct
-        HttpService::auto_update(self.core.clone(), exit);
+    pub fn start(&self, handle: TaskExecutor) {
+        HttpService::auto_update(self.core.clone(), handle);
     }
 
     /// Instantiates `self` from an existing service.

@@ -14,7 +14,7 @@ use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
 use store::Store;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use types::{
     Attestation, ChainSpec, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock,
     Slot,
@@ -33,8 +33,6 @@ pub struct Processor<T: BeaconChainTypes> {
     chain: Arc<BeaconChain<T>>,
     /// A channel to the syncing thread.
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    /// A oneshot channel for destroying the sync thread.
-    _sync_exit: oneshot::Sender<()>,
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
     /// The `RPCHandler` logger.
@@ -44,7 +42,7 @@ pub struct Processor<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> Processor<T> {
     /// Instantiate a `Processor` instance
     pub fn new(
-        runtime_handle: &tokio::runtime::Handle,
+        executor: environment::TaskExecutor,
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -53,8 +51,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         let sync_logger = log.new(o!("service"=> "sync"));
 
         // spawn the sync thread
-        let (sync_send, _sync_exit) = crate::sync::manager::spawn(
-            runtime_handle,
+        let sync_send = crate::sync::manager::spawn(
+            executor,
             beacon_chain.clone(),
             network_globals,
             network_send.clone(),
@@ -64,7 +62,6 @@ impl<T: BeaconChainTypes> Processor<T> {
         Processor {
             chain: beacon_chain,
             sync_send,
-            _sync_exit,
             network: HandlerNetworkContext::new(network_send, log.clone()),
             log: log.clone(),
         }

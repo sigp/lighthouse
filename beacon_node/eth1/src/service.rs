@@ -290,7 +290,7 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub fn auto_update(service: Self, exit: tokio::sync::oneshot::Receiver<()>) {
+    pub fn auto_update(service: Self, handle: environment::TaskExecutor) {
         let update_interval = Duration::from_millis(service.config().auto_update_interval_millis);
 
         let mut interval = interval_at(Instant::now(), update_interval);
@@ -303,9 +303,7 @@ impl Service {
             }
         };
 
-        let future = futures::future::select(Box::pin(update_future), exit);
-
-        tokio::task::spawn(future);
+        handle.spawn(update_future, "eth1");
     }
 
     async fn do_update(service: Self, update_interval: Duration) -> Result<(), ()> {
