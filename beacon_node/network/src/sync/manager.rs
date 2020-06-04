@@ -39,7 +39,7 @@ use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
 use super::range_sync::{BatchId, ChainId, RangeSync};
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::rpc::{methods::*, RequestId};
+use eth2_libp2p::rpc::{*};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;

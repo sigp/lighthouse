@@ -1,7 +1,6 @@
 use super::chain::EPOCHS_PER_BATCH;
-use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::RequestId;
-use eth2_libp2p::PeerId;
+use eth2_libp2p::rpc::*;
+use eth2_libp2p::*;
 use fnv::FnvHashMap;
 use ssz::Encode;
 use std::cmp::Ordering;

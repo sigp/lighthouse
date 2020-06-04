@@ -257,12 +257,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    pub fn handle_rpc_error(
-        &mut self,
-        peer_id: &PeerId,
-        protocol: Protocol,
-        err: &RPCError,
-    ) {
+    pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
         let client = self.network_globals.client(peer_id);
         debug!(self.log, "RPCError"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string());
 

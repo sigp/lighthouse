@@ -7,8 +7,11 @@ use crate::{
 use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
+use eth2_libp2p::{
+    rpc::{RPCResponseErrorCode, RequestId, SubstreamId},
+    Libp2pEvent, PubsubMessage, Request, Response,
+};
 use eth2_libp2p::{BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
-use eth2_libp2p::{Libp2pEvent, PubsubMessage, RPCSend, Request};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
@@ -153,11 +156,20 @@ fn spawn_service<T: BeaconChainTypes>(
                     return;
             }
             // handle a message sent to the network
-            Some(message) = service.network_recv.recv() => {
-                match message {
-                        NetworkMessage::RPC(peer_id, rpc_event) => {
-                            trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
-                            service.libp2p.swarm.send_rpc(peer_id, rpc_event);
+                Some(message) = service.network_recv.recv() => {
+                    match message {
+                        NetworkMessage::SendRequest{peer_id, request, request_id} => {
+                            //     trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
+                            service.libp2p.send_request(peer_id, request_id, request);
+
+
+
+
+
+                        }
+                        NetworkMessage::SendResponse{peer_id, response, stream_id} => {
+                            //     trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
+                            service.libp2p.send_response(peer_id, stream_id, response);
                         }
                         NetworkMessage::Propagate {
                             propagation_source,
@@ -178,8 +190,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                 info!(service.log, "Random filter did not propagate message");
                             } else {
                                 trace!(service.log, "Propagating gossipsub message";
-                                "propagation_peer" => format!("{:?}", propagation_source),
-                                "message_id" => message_id.to_string(),
+                                    "propagation_peer" => format!("{:?}", propagation_source),
+                                    "message_id" => message_id.to_string(),
                                 );
                                 service
                                     .libp2p
@@ -229,9 +241,9 @@ fn spawn_service<T: BeaconChainTypes>(
                             let _ = service
                                 .attestation_service
                                 .validator_subscriptions(subscriptions);
-                        }
+                            }
+                    }
                 }
-            }
             // process any attestation service events
             Some(attestation_service_message) = service.attestation_service.next() => {
                 match attestation_service_message {
@@ -293,9 +305,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     });
 
                         }
-                        // BehaviourEvent::RPC(peer_id, rpc_event) => {
-                        //     // TODO: do not propagate a Goodbye, do this on the eth2_libp2p crate
-                        // }
                         BehaviourEvent::StatusPeer(peer_id) => {
                             let _ = service
                                 .router_send
@@ -409,8 +418,24 @@ pub enum NetworkMessage<T: EthSpec> {
     Subscribe {
         subscriptions: Vec<ValidatorSubscription>,
     },
-    /// Send an RPC message to the libp2p service.
-    RPC(PeerId, RPCSend<T>),
+    /// Send an RPC request to the libp2p service.
+    SendRequest {
+        peer_id: PeerId,
+        request: Request,
+        request_id: RequestId,
+    },
+    /// Send a successful Response to the libp2p service.
+    SendResponse {
+        peer_id: PeerId,
+        response: Response<T>,
+        stream_id: SubstreamId,
+    },
+    /// Respond to a peer's request with an error.
+    SendError {
+        peer_id: PeerId,
+        error: RPCResponseErrorCode,
+        request_id: RequestId,
+    },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },
     /// Propagate a received gossipsub message.

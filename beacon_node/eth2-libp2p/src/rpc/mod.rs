@@ -5,23 +5,28 @@
 //! syncing.
 
 use handler::RPCHandler;
-pub use handler::{HandlerErr, SubstreamId};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
     PollParameters, SubstreamProtocol,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{
-    BehaviourRequestId, MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId,
-    ResponseTermination, StatusMessage,
-};
-pub use protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use slog::{debug, o};
 use std::marker::PhantomData;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use types::EthSpec;
+
+pub(crate) use handler::HandlerErr;
+pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
+pub(crate) use protocol::{RPCProtocol, RPCRequest};
+
+pub use handler::SubstreamId;
+pub use methods::{
+    BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RPCResponseErrorCode, RequestId,
+    ResponseTermination, StatusMessage,
+};
+pub use protocol::{Protocol, RPCError};
 
 pub(crate) mod codec;
 mod handler;
@@ -35,7 +40,7 @@ pub enum RPCSend<T: EthSpec> {
     ///
     /// The `RequestId` is optional since it's given by the application making the request.  These
     /// go over *outbound* connections.
-    Request(BehaviourRequestId, RPCRequest<T>),
+    Request(RequestId, RPCRequest<T>),
     /// A response sent from Lighthouse.
     ///
     /// The `RequestId` must correspond to the RPC-given ID of the original request received by the
@@ -59,9 +64,9 @@ pub enum RPCReceived<T: EthSpec> {
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
     /// TODO: fix docs.
-    Response(BehaviourRequestId, RPCResponse<T>),
+    Response(RequestId, RPCResponse<T>),
     // TODO: add docs
-    EndOfStream(BehaviourRequestId, ResponseTermination),
+    EndOfStream(RequestId, ResponseTermination),
 }
 
 impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
@@ -137,7 +142,7 @@ where
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
-        let rpc_event = RPCSend::Request(None, RPCRequest::MetaData(PhantomData));
+        let rpc_event = RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id: peer_id.clone(),
             handler: NotifyHandler::Any,

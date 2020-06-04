@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{BehaviourRequestId as RequestId, RPCCodedResponse, ResponseTermination};
+use super::methods::{RequestId, RPCCodedResponse, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
@@ -406,7 +406,11 @@ where
                 substream: out,
                 request,
             };
-            let expected_responses = if expected_responses > 1 {Some(expected_responses)} else {None};
+            let expected_responses = if expected_responses > 1 {
+                Some(expected_responses)
+            } else {
+                None
+            };
             if self
                 .outbound_substreams
                 .insert(
@@ -913,16 +917,16 @@ where
                                 Ok(RPCReceived::EndOfStream(id, t))
                             }
                             RPCCodedResponse::Success(resp) => Ok(RPCReceived::Response(id, resp)),
-                            RPCCodedResponse::InvalidRequest(r)
-                            | RPCCodedResponse::ServerError(r)
-                            | RPCCodedResponse::Unknown(r) => {
+                            RPCCodedResponse::InvalidRequest(ref r)
+                            | RPCCodedResponse::ServerError(ref r)
+                            | RPCCodedResponse::Unknown(ref r) => {
                                 let code = response.error_code().expect(
                                     "Response indicating and error should map to an error code",
                                 );
                                 Err(HandlerErr::Outbound {
                                     id,
                                     proto,
-                                    error: RPCError::ErrorResponse(code, r),
+                                    error: RPCError::ErrorResponse(code, r.clone()),
                                 })
                             }
                         };

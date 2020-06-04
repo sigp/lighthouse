@@ -1,4 +1,5 @@
-use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::behaviour::{Behaviour, BehaviourEvent, Request, Response};
+use crate::rpc::{RequestId, SubstreamId};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
 use crate::types::{error, GossipKind};
@@ -226,6 +227,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
             Duration::from_millis(BAN_PEER_WAIT_TIMEOUT),
         );
         self.peer_ban_timeout.insert(peer_id, timeout);
+    }
+
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
+        self.swarm.send_request(peer_id, request_id, request);
+    }
+
+    pub fn send_response(&mut self, peer_id: PeerId, stream_id: SubstreamId, response: Response<TSpec>) {
+        self.swarm.send_successful_response(peer_id, stream_id, response);
     }
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {

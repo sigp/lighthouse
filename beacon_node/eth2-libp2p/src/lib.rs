@@ -10,7 +10,7 @@ mod config;
 pub mod discovery;
 mod metrics;
 mod peer_manager;
-mod rpc;
+pub mod rpc;
 mod service;
 pub mod types;
 

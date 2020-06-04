@@ -1,6 +1,5 @@
 use crate::discovery::{enr::Eth2Enr, Discovery};
 use crate::peer_manager::{PeerManager, PeerManagerEvent};
-use crate::rpc::methods::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, MetaData};
 use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
@@ -395,12 +394,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Eth2 RPC behaviour functions */
 
     /// Send a request to a peer over RPC.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
-        self.send_rpc(peer_id, RPCSend::Request(Some(request_id), request.into()))
+    pub(crate) fn send_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        request: Request,
+    ) {
+        self.send_rpc(peer_id, RPCSend::Request(request_id, request.into()))
     }
 
     /// Send a successful response to a peer over RPC.
-    pub fn send_successful_response(
+    pub(crate) fn send_successful_response(
         &mut self,
         peer_id: PeerId,
         stream_id: SubstreamId,
@@ -410,7 +414,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Inform the peer that their request producen an error
-    pub fn send_error_reponse(
+    pub(crate) fn send_error_reponse(
         &mut self,
         peer_id: PeerId,
         stream_id: SubstreamId,
@@ -506,8 +510,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Local discovery must have bitfield");
     }
 
-    fn ping(&mut self, id: BehaviourRequestId, peer_id: PeerId) {
-        let ping = crate::rpc::methods::Ping {
+    fn ping(&mut self, id: RequestId, peer_id: PeerId) {
+        let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
         };
         debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
@@ -517,7 +521,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     fn pong(&mut self, id: SubstreamId, peer_id: PeerId) {
-        let ping = crate::rpc::methods::Ping {
+        let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
         };
         debug!(self.log, "Sending Pong"; "request_id" => id, "peer_id" => peer_id.to_string());
@@ -528,7 +532,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        let metadata_request = RPCSend::Request(None, RPCRequest::MetaData(PhantomData));
+        let metadata_request =
+            RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.send_rpc(peer_id, metadata_request);
     }
 
@@ -620,8 +625,30 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
+
+    /// Queues the response to sent upwards as long at it was requested outside the Behaviour.
+    fn propagate_response(&mut self, id: RequestId, peer_id: PeerId, response: Response<TSpec>) {
+        if !matches!(id, RequestId::Behaviour) {
+            self.events.push(BehaviourEvent::ResponseReceived {
+                peer_id,
+                id,
+                response,
+            });
+        }
+    }
+
+    /// Convenience fn to propagate a request
+    fn propagate_request(&mut self, id: SubstreamId, peer_id: PeerId, request: Request) {
+        self.events.push(BehaviourEvent::RequestReceived {
+            peer_id,
+            id,
+            request,
+        });
+    }
+
     fn on_rpc_event(&mut self, message: RPCMessage<TSpec>) {
         let peer_id = message.peer_id;
+
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match message.event {
             Err(handler_err) => {
@@ -639,9 +666,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     HandlerErr::Outbound { id, proto, error } => {
                         // Inform the peer manager that a request we sent to the peer failed
                         self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
-                        if let Some(id) = id {
-                            // for failed rpc requests, inform only failures for protocols that get
-                            // propagated to the network
+                        // inform failures of requests comming outside the behaviour
+                        if !matches!(id, RequestId::Behaviour) {
                             self.events
                                 .push(BehaviourEvent::RPCFailed { peer_id, id, error });
                         }
@@ -665,33 +691,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     // inform the peer manager that we have received a status from a peer
                     self.peer_manager.peer_statusd(&peer_id);
                     // propagate the STATUS message upwards
-                    self.events.push(BehaviourEvent::RequestReceived {
-                        peer_id,
-                        id,
-                        request: Request::Status(msg),
-                    });
+                    self.propagate_request(id, peer_id, Request::Status(msg))
                 }
                 RPCRequest::BlocksByRange(req) => {
-                    self.events.push(BehaviourEvent::RequestReceived {
-                        peer_id,
-                        id,
-                        request: Request::BlocksByRange(req),
-                    })
+                    self.propagate_request(id, peer_id, Request::BlocksByRange(req))
                 }
                 RPCRequest::BlocksByRoot(req) => {
-                    self.events.push(BehaviourEvent::RequestReceived {
-                        peer_id,
-                        id,
-                        request: Request::BlocksByRoot(req),
-                    })
+                    self.propagate_request(id, peer_id, Request::BlocksByRoot(req))
                 }
                 RPCRequest::Goodbye(reason) => {
                     // TODO: do not propagate
-                    self.events.push(BehaviourEvent::RequestReceived {
-                        peer_id,
-                        id,
-                        request: Request::Goodbye(reason),
-                    });
+                    self.propagate_request(id, peer_id, Request::Goodbye(reason));
                 }
             },
             Ok(RPCReceived::Response(id, resp)) => {
@@ -706,25 +716,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager.peer_statusd(&peer_id);
                         // propagate the STATUS message upwards
-                        self.events.push(BehaviourEvent::ResponseReceived {
-                            peer_id,
-                            id: id.expect("Status should have an id"),
-                            response: Response::Status(msg),
-                        });
+                        self.propagate_response(id, peer_id, Response::Status(msg));
                     }
                     RPCResponse::BlocksByRange(resp) => {
-                        self.events.push(BehaviourEvent::ResponseReceived {
-                            peer_id,
-                            id: id.expect("BlocksByRange should have an id"),
-                            response: Response::BlocksByRange(Some(resp)),
-                        })
+                        self.propagate_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
                     RPCResponse::BlocksByRoot(resp) => {
-                        self.events.push(BehaviourEvent::ResponseReceived {
-                            peer_id,
-                            id: id.expect("BlocksByRoot should have an id"),
-                            response: Response::BlocksByRoot(Some(resp)),
-                        })
+                        self.propagate_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
                 }
             }
@@ -733,11 +731,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
                 };
-                self.events.push(BehaviourEvent::ResponseReceived {
-                    peer_id,
-                    id: id.expect("StreamTermination should have an id"),
-                    response,
-                });
+                self.propagate_response(id, peer_id, response);
             }
         }
     }
@@ -760,7 +754,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                     PeerManagerEvent::Ping(peer_id) => {
                         // send a ping request to this peer
-                        self.ping(None, peer_id);
+                        self.ping(RequestId::Behaviour, peer_id);
                     }
                     PeerManagerEvent::MetaData(peer_id) => {
                         self.send_meta_data_request(peer_id);
