@@ -84,9 +84,10 @@ pub trait Migrate<E: EthSpec>: Send + Sync + 'static {
                 .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?
                 .state_root();
 
-            let iterator = std::iter::once((head_hash, head_state_hash, head_slot))
+            let iter = std::iter::once(Ok((head_hash, head_state_hash, head_slot)))
                 .chain(RootsIterator::from_block(Arc::clone(&store), head_hash)?);
-            for (block_hash, state_hash, slot) in iterator {
+            for maybe_tuple in iter {
+                let (block_hash, state_hash, slot) = maybe_tuple?;
                 if slot < old_finalized_slot {
                     // We must assume here any candidate chains include old_finalized_block_hash,
                     // i.e. there aren't any forks starting at a block that is a strict ancestor of

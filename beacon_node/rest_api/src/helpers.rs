@@ -120,9 +120,16 @@ pub fn block_root_at_slot<T: BeaconChainTypes>(
 ) -> Result<Option<Hash256>, ApiError> {
     Ok(beacon_chain
         .rev_iter_block_roots()?
-        .take_while(|(_root, slot)| *slot >= target)
-        .find(|(_root, slot)| *slot == target)
-        .map(|(root, _slot)| root))
+        .take_while(|result| match result {
+            Ok((_, slot)) => *slot >= target,
+            Err(_) => true,
+        })
+        .find(|result| match result {
+            Ok((_, slot)) => *slot == target,
+            Err(_) => true,
+        })
+        .transpose()?
+        .map(|(root, _)| root))
 }
 
 /// Returns a `BeaconState` and it's root in the canonical chain of `beacon_chain` at the given
@@ -193,8 +200,12 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         Ok(head_state
             .try_iter_ancestor_roots(beacon_chain.store.clone())
             .ok_or_else(|| ApiError::ServerError("Failed to create roots iterator".to_string()))?
-            .find(|(_root, s)| *s == slot)
-            .map(|(root, _slot)| root)
+            .find(|result| match result {
+                Ok((_, s)) => *s == slot,
+                Err(_) => true,
+            })
+            .transpose()?
+            .map(|(root, _)| root)
             .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at slot {}", slot)))?)
     } else {
         // 4. The request slot is later than the head slot.

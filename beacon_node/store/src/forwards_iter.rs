@@ -1,8 +1,8 @@
 use crate::chunked_iter::ChunkedVectorIter;
 use crate::chunked_vector::BlockRoots;
+use crate::errors::Result;
 use crate::iter::BlockRootsIterator;
 use crate::{HotColdDB, Store};
-use slog::error;
 use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
@@ -63,22 +63,26 @@ impl SimpleForwardsBlockRootsIterator {
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
-    ) -> Self {
+    ) -> Result<Self> {
         // Iterate backwards from the end state, stopping at the start slot.
-        let iter = std::iter::once((end_block_root, end_state.slot))
-            .chain(BlockRootsIterator::owned(store, end_state));
-        Self {
-            values: iter.take_while(|(_, slot)| *slot >= start_slot).collect(),
-        }
+        let values = std::iter::once(Ok((end_block_root, end_state.slot)))
+            .chain(BlockRootsIterator::owned(store, end_state))
+            .take_while(|result| match result {
+                Ok((_, slot)) => *slot >= start_slot,
+                Err(_) => true,
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let result = Self { values: values };
+        Ok(result)
     }
 }
 
 impl Iterator for SimpleForwardsBlockRootsIterator {
-    type Item = (Hash256, Slot);
+    type Item = Result<(Hash256, Slot)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Pop from the end of the vector to get the block roots in slot-ascending order.
-        self.values.pop()
+        Ok(self.values.pop()).transpose()
     }
 }
 
@@ -89,12 +93,12 @@ impl<E: EthSpec> HybridForwardsBlockRootsIterator<E> {
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Self {
+    ) -> Result<Self> {
         use HybridForwardsBlockRootsIterator::*;
 
         let latest_restore_point_slot = store.get_latest_restore_point_slot();
 
-        if start_slot < latest_restore_point_slot {
+        let result = if start_slot < latest_restore_point_slot {
             PreFinalization {
                 iter: Box::new(FrozenForwardsBlockRootsIterator::new(
                     store,
@@ -111,16 +115,14 @@ impl<E: EthSpec> HybridForwardsBlockRootsIterator<E> {
                     start_slot,
                     end_state,
                     end_block_root,
-                ),
+                )?,
             }
-        }
+        };
+
+        Ok(result)
     }
-}
 
-impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
-    type Item = (Hash256, Slot);
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn do_next(&mut self) -> Result<Option<(Hash256, Slot)>> {
         use HybridForwardsBlockRootsIterator::*;
 
         match self {
@@ -129,19 +131,14 @@ impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
                 continuation_data,
             } => {
                 match iter.next() {
-                    Some(x) => Some(x),
+                    Some(x) => Ok(Some(x)),
                     // Once the pre-finalization iterator is consumed, transition
                     // to a post-finalization iterator beginning from the last slot
                     // of the pre iterator.
                     None => {
-                        let (end_state, end_block_root) =
-                            continuation_data.take().or_else(|| {
-                                error!(
-                                    iter.inner.store.log,
-                                    "HybridForwardsBlockRootsIterator: logic error"
-                                );
-                                None
-                            })?;
+                        let (end_state, end_block_root) = continuation_data
+                            .take()
+                            .expect("HybridForwardsBlockRootsIterator: logic error");
 
                         *self = PostFinalization {
                             iter: SimpleForwardsBlockRootsIterator::new(
@@ -149,13 +146,21 @@ impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
                                 Slot::from(iter.inner.end_vindex),
                                 end_state,
                                 end_block_root,
-                            ),
+                            )?,
                         };
-                        self.next()
+                        self.do_next()
                     }
                 }
             }
-            PostFinalization { iter } => iter.next(),
+            PostFinalization { iter } => iter.next().transpose(),
         }
+    }
+}
+
+impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
+    type Item = Result<(Hash256, Slot)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.do_next().transpose()
     }
 }
