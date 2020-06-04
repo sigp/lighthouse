@@ -696,7 +696,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         match self.discover_peers.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_discover_peers(exact_subnet),
             Poll::Ready(Some(Err(e))) => {
-                error!( self.log, "Failed to check for peer discovery requests"; "error"=> format ! ("{}", e));
+                error!(self.log, "Failed to check for peer discovery requests"; "error"=> format ! ("{}", e));
             }
             Poll::Ready(None) | Poll::Pending => {}
         }

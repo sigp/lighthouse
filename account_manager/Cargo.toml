@@ -24,7 +24,7 @@ hex = "0.4.2"
 validator_client = { path = "../validator_client" }
 rayon = "1.3.0"
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
-web3 = "0.10.0"
+web3 = "0.11.0"
 futures = { version = "0.3.5", features = ["compat"] }
 clap_utils = { path = "../common/clap_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
