@@ -37,9 +37,10 @@ use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessI
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
 use super::range_sync::{BatchId, ChainId, RangeSync};
+use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::rpc::{*};
+use eth2_libp2p::rpc::{BlocksByRootRequest, RequestId as RPCRequestId};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
@@ -528,7 +529,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // otherwise, this is a range sync issue, notify the range sync
         self.range_sync
-            .inject_error(&mut self.network, peer_id.clone(), request_id);
+            .inject_error(&mut self.network, peer_id.clone(), R(request_id));
     }
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {

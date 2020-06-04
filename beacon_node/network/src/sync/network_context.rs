@@ -75,7 +75,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRangeRequest,
-    ) -> Result<RequestId, &'static str> {
+    ) -> Result<usize, &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRange Request";
@@ -90,7 +90,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-    ) -> Result<RequestId, &'static str> {
+    ) -> Result<usize, &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRoot Request";
@@ -139,7 +139,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: Request,
-    ) -> Result<RequestId, &'static str> {
+    ) -> Result<usize, &'static str> {
         let request_id = self.request_id;
         self.request_id += 1;
         self.send_network_msg(NetworkMessage::SendRequest {

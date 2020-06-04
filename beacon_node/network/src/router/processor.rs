@@ -425,11 +425,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         }
 
         // send the stream terminator
-        self.network.send_response(
-            peer_id,
-            request_id,
-            Response::BlocksByRange(None),
-        );
+        self.network
+            .send_response(peer_id, request_id, Response::BlocksByRange(None));
     }
 
     /// Handle a `BlocksByRange` response from the peer.

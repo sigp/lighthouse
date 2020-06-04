@@ -59,9 +59,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         runtime_handle: &Handle,
         network_log: slog::Logger,
     ) -> error::Result<(
-        Arc<NetworkGlobals<T::EthSpec>>,
-        mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        oneshot::Sender<()>,
+    Arc<NetworkGlobals<T::EthSpec>>,
+    mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    oneshot::Sender<()>,
     )> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
@@ -127,6 +127,9 @@ fn spawn_service<T: BeaconChainTypes>(
 
     // spawn on the current executor
     tokio::spawn(async move {
+        // TODO: there is something with this code that prevents cargo fmt from doing anything at
+        // all. Ok, it is worse, the compiler doesn't show errors over this code beyond ast
+        // checking
         loop {
             // build the futures to check simultaneously
             tokio::select! {
@@ -154,18 +157,13 @@ fn spawn_service<T: BeaconChainTypes>(
 
                     info!(service.log, "Network service shutdown");
                     return;
-            }
-            // handle a message sent to the network
+                }
+                // handle a message sent to the network
                 Some(message) = service.network_recv.recv() => {
                     match message {
                         NetworkMessage::SendRequest{peer_id, request, request_id} => {
                             //     trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
                             service.libp2p.send_request(peer_id, request_id, request);
-
-
-
-
-
                         }
                         NetworkMessage::SendResponse{peer_id, response, stream_id} => {
                             //     trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
@@ -244,50 +242,49 @@ fn spawn_service<T: BeaconChainTypes>(
                             }
                     }
                 }
-            // process any attestation service events
-            Some(attestation_service_message) = service.attestation_service.next() => {
-                match attestation_service_message {
-                    // TODO: Implement
-                    AttServiceMessage::Subscribe(subnet_id) => {
-                        service.libp2p.swarm.subscribe_to_subnet(subnet_id);
-                    }
-                    AttServiceMessage::Unsubscribe(subnet_id) => {
-                        service.libp2p.swarm.subscribe_to_subnet(subnet_id);
-                    }
-                    AttServiceMessage::EnrAdd(subnet_id) => {
-                        service.libp2p.swarm.update_enr_subnet(subnet_id, true);
-                    }
-                    AttServiceMessage::EnrRemove(subnet_id) => {
-                        service.libp2p.swarm.update_enr_subnet(subnet_id, false);
-                    }
-                    AttServiceMessage::DiscoverPeers(subnet_id) => {
-                        service.libp2p.swarm.peers_request(subnet_id);
+                // process any attestation service events
+                Some(attestation_service_message) = service.attestation_service.next() => {
+                    match attestation_service_message {
+                        // TODO: Implement
+                        AttServiceMessage::Subscribe(subnet_id) => {
+                            service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                        }
+                        AttServiceMessage::Unsubscribe(subnet_id) => {
+                            service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                        }
+                        AttServiceMessage::EnrAdd(subnet_id) => {
+                            service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                        }
+                        AttServiceMessage::EnrRemove(subnet_id) => {
+                            service.libp2p.swarm.update_enr_subnet(subnet_id, false);
+                        }
+                        AttServiceMessage::DiscoverPeers(subnet_id) => {
+                            service.libp2p.swarm.peers_request(subnet_id);
+                        }
                     }
                 }
-            }
-            libp2p_event = service.libp2p.next_event() => {
-                // poll the swarm
-                match libp2p_event {
-                    Libp2pEvent::Behaviour(event) => match event {
-                        BehaviourEvent::RequestReceived{peer_id, id, request} => {
-                            if let Request::Goodbye(_) = request {
-                                // if we received a Goodbye message, drop and ban the peer
-                                //peers_to_ban.push(peer_id.clone());
-                                // TODO: remove this: https://github.com/sigp/lighthouse/issues/1240
-                                service.libp2p.disconnect_and_ban_peer(
-                                    peer_id.clone(),
-                                    std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
-                                );
-                            };
+                libp2p_event = service.libp2p.next_event() => {
+                    // poll the swarm
+                    match libp2p_event {
+                        Libp2pEvent::Behaviour(event) => match event {
+                            BehaviourEvent::RequestReceived{peer_id, id, request} => {
+                                if let Request::Goodbye(_) = request {
+                                    // if we received a Goodbye message, drop and ban the peer
+                                    //peers_to_ban.push(peer_id.clone());
+                                    // TODO: remove this: https://github.com/sigp/lighthouse/issues/1240
+                                    service.libp2p.disconnect_and_ban_peer(
+                                        peer_id.clone(),
+                                        std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
+                                    );
+                                };
                                 let _ = service
                                     .router_send
                                     .send(RouterMessage::RPCRequestReceived{peer_id, stream_id:id, request})
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
-
-                        }
-                        BehaviourEvent::ResponseReceived{peer_id, id, response} => {
+                            }
+                            BehaviourEvent::ResponseReceived{peer_id, id, response} => {
                                 let _ = service
                                     .router_send
                                     .send(RouterMessage::RPCResponseReceived{peer_id, request_id:id, response})
@@ -295,8 +292,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
 
-                        }
-                        BehaviourEvent::RPCFailed{id, peer_id, error: _} => {
+                            }
+                            BehaviourEvent::RPCFailed{id, peer_id, error: _} => {
                                 let _ = service
                                     .router_send
                                     .send(RouterMessage::RPCFailed{peer_id, request_id:id})
@@ -304,83 +301,83 @@ fn spawn_service<T: BeaconChainTypes>(
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
 
-                        }
-                        BehaviourEvent::StatusPeer(peer_id) => {
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::StatusPeer(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send re-status  peer to router");
-                                });
-                        }
-                        BehaviourEvent::PubsubMessage {
-                            id,
-                            source,
-                            message,
-                            ..
-                        } => {
-                            // Update prometheus metrics.
-                            expose_receive_metrics(&message);
-                            match message {
-                                // attestation information gets processed in the attestation service
-                                PubsubMessage::Attestation(ref subnet_and_attestation) => {
-                                    let subnet = &subnet_and_attestation.0;
-                                    let attestation = &subnet_and_attestation.1;
-                                    // checks if we have an aggregator for the slot. If so, we process
-                                    // the attestation
-                                    if service.attestation_service.should_process_attestation(
-                                        &id,
-                                        &source,
-                                        subnet,
-                                        attestation,
-                                    ) {
+                            }
+                            BehaviourEvent::StatusPeer(peer_id) => {
+                                let _ = service
+                                    .router_send
+                                    .send(RouterMessage::StatusPeer(peer_id))
+                                    .map_err(|_| {
+                                        debug!(service.log, "Failed to send re-status  peer to router");
+                                    });
+                            }
+                            BehaviourEvent::PubsubMessage {
+                                id,
+                                source,
+                                message,
+                                ..
+                            } => {
+                                // Update prometheus metrics.
+                                expose_receive_metrics(&message);
+                                match message {
+                                    // attestation information gets processed in the attestation service
+                                    PubsubMessage::Attestation(ref subnet_and_attestation) => {
+                                        let subnet = &subnet_and_attestation.0;
+                                        let attestation = &subnet_and_attestation.1;
+                                        // checks if we have an aggregator for the slot. If so, we process
+                                        // the attestation
+                                        if service.attestation_service.should_process_attestation(
+                                            &id,
+                                            &source,
+                                            subnet,
+                                            attestation,
+                                        ) {
+                                            let _ = service
+                                                .router_send
+                                                .send(RouterMessage::PubsubMessage(id, source, message))
+                                                .map_err(|_| {
+                                                    debug!(service.log, "Failed to send pubsub message to router");
+                                                });
+                                        } else {
+                                            metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_IGNORED)
+                                        }
+                                    }
+                                    _ => {
+                                        // all else is sent to the router
                                         let _ = service
                                             .router_send
                                             .send(RouterMessage::PubsubMessage(id, source, message))
                                             .map_err(|_| {
                                                 debug!(service.log, "Failed to send pubsub message to router");
                                             });
-                                    } else {
-                                        metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_IGNORED)
                                     }
                                 }
-                                _ => {
-                                    // all else is sent to the router
-                                    let _ = service
-                                        .router_send
-                                        .send(RouterMessage::PubsubMessage(id, source, message))
-                                        .map_err(|_| {
-                                            debug!(service.log, "Failed to send pubsub message to router");
-                                        });
-                                }
+                            }
+                            // Then why do we send it?
+                            BehaviourEvent::PeerSubscribed(_, _) => {},
+                        }
+                        Libp2pEvent::NewListenAddr(multiaddr) => {
+                            service.network_globals.listen_multiaddrs.write().push(multiaddr);
+                        }
+                        Libp2pEvent::PeerConnected{ peer_id, endpoint,} => {
+                            debug!(service.log, "Peer Connected"; "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
+                            if let eth2_libp2p::ConnectedPoint::Dialer { .. } = endpoint {
+                                let _ = service
+                                    .router_send
+                                    .send(RouterMessage::PeerDialed(peer_id))
+                                    .map_err(|_| {
+                                        debug!(service.log, "Failed to send peer dialed to router"); });
                             }
                         }
-                        // Then why do we send it?
-                        BehaviourEvent::PeerSubscribed(_, _) => {},
+                        Libp2pEvent::PeerDisconnected{ peer_id, endpoint,} => {
+                            debug!(service.log, "Peer Disconnected";  "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
+                            let _ = service
+                                .router_send
+                                .send(RouterMessage::PeerDisconnected(peer_id))
+                                .map_err(|_| {
+                                    debug!(service.log, "Failed to send peer disconnect to router");
+                                });
+                        }
                     }
-                Libp2pEvent::NewListenAddr(multiaddr) => {
-                    service.network_globals.listen_multiaddrs.write().push(multiaddr);
-                }
-                Libp2pEvent::PeerConnected{ peer_id, endpoint,} => {
-                    debug!(service.log, "Peer Connected"; "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                    if let eth2_libp2p::ConnectedPoint::Dialer { .. } = endpoint {
-                    let _ = service
-                        .router_send
-                        .send(RouterMessage::PeerDialed(peer_id))
-                        .map_err(|_| {
-                            debug!(service.log, "Failed to send peer dialed to router"); });
-                    }
-                }
-                Libp2pEvent::PeerDisconnected{ peer_id, endpoint,} => {
-                    debug!(service.log, "Peer Disconnected";  "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                    let _ = service
-                        .router_send
-                        .send(RouterMessage::PeerDisconnected(peer_id))
-                        .map_err(|_| {
-                            debug!(service.log, "Failed to send peer disconnect to router");
-                        });
-                    }
-                 }
                 }
             }
 
@@ -432,6 +429,7 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Respond to a peer's request with an error.
     SendError {
+        // TODO: note that this is never used
         peer_id: PeerId,
         error: RPCResponseErrorCode,
         request_id: RequestId,
