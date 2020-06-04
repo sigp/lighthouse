@@ -35,6 +35,7 @@ tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
 # Patched for quick updates
 discv5 = { git = "https://github.com/sigp/discv5", rev = "7b3bd40591b62b8c002ffdb85de008aa9f82e2e5" }
 tiny-keccak = "2.0.2"
+environment = { path = "../../lighthouse/environment" }
 libp2p-tcp = { version = "0.19.1", default-features = false, features = ["tokio"] }
 
 [dependencies.libp2p]
@@ -49,3 +50,4 @@ slog-stdlog = "4.0.0"
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 tempdir = "0.3.7"
+exit-future = "0.2.0"

@@ -2,7 +2,7 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots, RandaoMixes,
     StateRoots,
 };
-use crate::{Error, Store};
+use crate::{Error, KeyValueStore};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::*;
@@ -113,7 +113,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         }
     }
 
-    pub fn load_block_roots<S: Store<T>>(
+    pub fn load_block_roots<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -126,7 +126,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_state_roots<S: Store<T>>(
+    pub fn load_state_roots<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -139,7 +139,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_historical_roots<S: Store<T>>(
+    pub fn load_historical_roots<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -152,7 +152,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_randao_mixes<S: Store<T>>(
+    pub fn load_randao_mixes<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,

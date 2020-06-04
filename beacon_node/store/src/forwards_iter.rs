@@ -1,7 +1,7 @@
 use crate::chunked_iter::ChunkedVectorIter;
 use crate::chunked_vector::BlockRoots;
-use crate::iter::{BlockRootsIterator, ReverseBlockRootIterator};
-use crate::{DiskStore, Store};
+use crate::iter::BlockRootsIterator;
+use crate::{HotColdDB, Store};
 use slog::error;
 use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
@@ -31,7 +31,7 @@ pub enum HybridForwardsBlockRootsIterator<E: EthSpec> {
 
 impl<E: EthSpec> FrozenForwardsBlockRootsIterator<E> {
     pub fn new(
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E>>,
         start_slot: Slot,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,
@@ -65,13 +65,10 @@ impl SimpleForwardsBlockRootsIterator {
         end_block_root: Hash256,
     ) -> Self {
         // Iterate backwards from the end state, stopping at the start slot.
+        let iter = std::iter::once((end_block_root, end_state.slot))
+            .chain(BlockRootsIterator::owned(store, end_state));
         Self {
-            values: ReverseBlockRootIterator::new(
-                (end_block_root, end_state.slot),
-                BlockRootsIterator::owned(store, end_state),
-            )
-            .take_while(|(_, slot)| *slot >= start_slot)
-            .collect(),
+            values: iter.take_while(|(_, slot)| *slot >= start_slot).collect(),
         }
     }
 }
@@ -87,7 +84,7 @@ impl Iterator for SimpleForwardsBlockRootsIterator {
 
 impl<E: EthSpec> HybridForwardsBlockRootsIterator<E> {
     pub fn new(
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E>>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,

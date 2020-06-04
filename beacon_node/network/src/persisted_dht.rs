@@ -1,7 +1,7 @@
 use eth2_libp2p::Enr;
 use rlp;
 use std::sync::Arc;
-use store::{DBColumn, Error as StoreError, SimpleStoreItem, Store};
+use store::{DBColumn, Error as StoreError, Store, StoreItem};
 use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`.
@@ -10,7 +10,7 @@ pub const DHT_DB_KEY: &str = "PERSISTEDDHTPERSISTEDDHTPERSISTE";
 pub fn load_dht<T: Store<E>, E: EthSpec>(store: Arc<T>) -> Vec<Enr> {
     // Load DHT from store
     let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
-    match store.get(&key) {
+    match store.get_item(&key) {
         Ok(Some(p)) => {
             let p: PersistedDht = p;
             p.enrs
@@ -25,7 +25,7 @@ pub fn persist_dht<T: Store<E>, E: EthSpec>(
     enrs: Vec<Enr>,
 ) -> Result<(), store::Error> {
     let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
-    store.put(&key, &PersistedDht { enrs })?;
+    store.put_item(&key, &PersistedDht { enrs })?;
     Ok(())
 }
 
@@ -34,7 +34,7 @@ pub struct PersistedDht {
     pub enrs: Vec<Enr>,
 }
 
-impl SimpleStoreItem for PersistedDht {
+impl StoreItem for PersistedDht {
     fn db_column() -> DBColumn {
         DBColumn::DhtEnrs
     }
@@ -67,9 +67,9 @@ mod tests {
         let enrs = vec![Enr::from_str("enr:-IS4QHCYrYZbAKWCBRlAy5zzaDZXJBGkcnh4MHcBFZntXNFrdvJjX04jRzjzCBOonrkTfj499SZuOh8R33Ls8RRcy5wBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQPKY0yuDUmstAHYpMa2_oxVtw0RW_QAdpzBQA8yWM0xOIN1ZHCCdl8").unwrap()];
         let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
         store
-            .put(&key, &PersistedDht { enrs: enrs.clone() })
+            .put_item(&key, &PersistedDht { enrs: enrs.clone() })
             .unwrap();
-        let dht: PersistedDht = store.get(&key).unwrap().unwrap();
+        let dht: PersistedDht = store.get_item(&key).unwrap().unwrap();
         assert_eq!(dht.enrs, enrs);
     }
 }

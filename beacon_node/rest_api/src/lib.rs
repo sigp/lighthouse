@@ -35,7 +35,7 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
@@ -51,14 +51,15 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
 // Allowing more than 7 arguments.
 #[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
+    executor: environment::TaskExecutor,
     config: &Config,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: slog::Logger,
-) -> Result<(oneshot::Sender<()>, SocketAddr), hyper::Error> {
+) -> Result<SocketAddr, hyper::Error> {
+    let log = executor.log();
     let inner_log = log.clone();
     let eth2_config = Arc::new(eth2_config);
 
@@ -98,7 +99,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let (exit_signal, exit) = oneshot::channel::<()>();
+    let exit = executor.exit();
     let inner_log = log.clone();
     let server_exit = async move {
         let _ = exit.await;
@@ -116,7 +117,8 @@ pub fn start_server<T: BeaconChainTypes>(
             inner_log,
             "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
             )
-        });
+        })
+        .unwrap_or_else(|_| ());
 
     info!(
         log,
@@ -125,9 +127,9 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    tokio::spawn(server_future);
+    executor.spawn_without_exit(server_future, "http");
 
-    Ok((exit_signal, actual_listen_addr))
+    Ok(actual_listen_addr)
 }
 
 #[derive(Clone)]

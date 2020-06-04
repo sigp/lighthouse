@@ -105,6 +105,8 @@ pub fn get_prometheus<T: BeaconChainTypes>(
     store::scrape_for_metrics(&db_path, &freezer_db_path);
     beacon_chain::scrape_for_metrics(&beacon_chain);
 
+    // This will silently fail if we are unable to observe the health. This is desired behaviour
+    // since we don't support `Health` for all platforms.
     if let Ok(health) = Health::observe() {
         set_gauge(&PROCESS_NUM_THREADS, health.pid_num_threads as i64);
         set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);

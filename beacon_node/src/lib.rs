@@ -10,7 +10,7 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
 pub use eth2_config::Eth2Config;
 
-use beacon_chain::migrate::{BackgroundMigrator, DiskStore};
+use beacon_chain::migrate::{BackgroundMigrator, HotColdDB};
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, events::WebSocketSender,
     slot_clock::SystemTimeSlotClock,
@@ -25,10 +25,10 @@ use types::EthSpec;
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
     Witness<
-        DiskStore<E>,
+        HotColdDB<E>,
         BackgroundMigrator<E>,
         SystemTimeSlotClock,
-        CachingEth1Backend<E, DiskStore<E>>,
+        CachingEth1Backend<E, HotColdDB<E>>,
         E,
         WebSocketSender<E>,
     >,
@@ -58,7 +58,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             &matches,
             &context.eth2_config.spec_constants,
             &context.eth2_config().spec,
-            context.log.clone(),
+            context.log().clone(),
         )?;
         Self::new(context, client_config).await
     }
@@ -75,7 +75,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_config_1 = client_config.clone();
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
-        let log = context.log.clone();
+        let log = context.log().clone();
 
         let db_path = client_config.create_db_path()?;
         let freezer_db_path_res = client_config.create_freezer_db_path();

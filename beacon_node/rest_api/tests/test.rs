@@ -1253,6 +1253,7 @@ mod validator_attestation {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn get_health() {
     let mut env = build_env();
