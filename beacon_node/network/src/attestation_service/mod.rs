@@ -349,17 +349,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                                     > DURATION_DIFFERENCE
                                 {
                                     *other_min_ttl = min_ttl;
-                                    return;
                                 }
                             }
                             (None, Some(_)) => {
                                 // Update the min_ttl to None, because the new message is longer-lived.
                                 *other_min_ttl = None;
-                                return;
                             }
-                            (Some(_), None) => return, // Don't replace this because the existing message is for a longer-lived peer.
-                            (None, None) => return,    // Duplicate message, do nothing.
+                            (Some(_), None) => {}, // Don't replace this because the existing message is for a longer-lived peer.
+                            (None, None) => {},    // Duplicate message, do nothing.
                         }
+                        return
                     }
                 }
                 _ => {}
