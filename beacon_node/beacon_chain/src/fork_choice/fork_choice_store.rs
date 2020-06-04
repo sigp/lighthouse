@@ -6,18 +6,23 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::iter::{BlockRootsIterator, ReverseBlockRootIterator};
-use store::Store;
+use store::{Error as StoreError, Store};
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint, EthSpec, Hash256, Slot,
+    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint, EthSpec, Hash256,
+    SignedBeaconBlock, Slot,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     UnableToReadSlot,
     UnableToReadTime,
     InvalidGenesisSnapshot(Slot),
     AncestorUnknown(Hash256),
     UninitializedBestJustifiedBalances,
+    FailedToReadBlock(StoreError),
+    MissingBlock(Hash256),
+    FailedToReadState(StoreError),
+    MissingState(Hash256),
     InvalidPersistedBytes(ssz::DecodeError),
     BeaconStateError(BeaconStateError),
 }
@@ -281,9 +286,29 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
         self.finalized_checkpoint = c
     }
 
-    fn set_justified_checkpoint(&mut self, state: &BeaconState<E>) {
+    fn set_justified_checkpoint(&mut self, state: &BeaconState<E>) -> Result<(), Error> {
         self.justified_checkpoint = state.current_justified_checkpoint;
-        self.justified_balances = state.balances.clone().into();
+
+        if let Some(balances) = self.balances_cache.get(self.justified_checkpoint.root) {
+            self.justified_balances = balances;
+        } else {
+            let justified_block = self
+                .store
+                .get_item::<SignedBeaconBlock<E>>(&self.justified_checkpoint.root)
+                .map_err(Error::FailedToReadBlock)?
+                .ok_or_else(|| Error::MissingBlock(self.justified_checkpoint.root))?
+                .message;
+
+            self.justified_balances = self
+                .store
+                .get_state(&justified_block.state_root, Some(justified_block.slot))
+                .map_err(Error::FailedToReadState)?
+                .ok_or_else(|| Error::MissingState(justified_block.state_root))?
+                .balances
+                .into();
+        }
+
+        Ok(())
     }
 
     fn set_best_justified_checkpoint(&mut self, state: &BeaconState<E>) {

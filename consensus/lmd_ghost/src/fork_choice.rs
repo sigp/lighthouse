@@ -20,6 +20,8 @@ pub enum Error<T> {
     InconsistentOnTick { previous_slot: Slot, time: Slot },
     BeaconStateError(BeaconStateError),
     ForkChoiceStoreError(T),
+    UnableToSetJustifiedCheckpoint(T),
+    AfterBlockFailed(T),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -408,7 +410,9 @@ where
                 self.fc_store.set_best_justified_checkpoint(state);
             }
             if self.should_update_justified_checkpoint(current_slot, state)? {
-                self.fc_store.set_justified_checkpoint(state);
+                self.fc_store
+                    .set_justified_checkpoint(state)
+                    .map_err(Error::UnableToSetJustifiedCheckpoint)?;
             }
         }
 
@@ -425,7 +429,9 @@ where
                     finalized_slot,
                 )? != self.fc_store.finalized_checkpoint().root
             {
-                self.fc_store.set_justified_checkpoint(state);
+                self.fc_store
+                    .set_justified_checkpoint(state)
+                    .map_err(Error::UnableToSetJustifiedCheckpoint)?;
             }
         }
 
@@ -452,6 +458,10 @@ where
             justified_epoch: state.current_justified_checkpoint.epoch,
             finalized_epoch: state.finalized_checkpoint.epoch,
         })?;
+
+        self.fc_store
+            .after_block(block, block_root, state)
+            .map_err(Error::AfterBlockFailed)?;
 
         Ok(())
     }

@@ -65,7 +65,7 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     fn set_finalized_checkpoint(&mut self, c: Checkpoint);
 
     /// Sets the `justified_checkpoint`.
-    fn set_justified_checkpoint(&mut self, state: &BeaconState<T>);
+    fn set_justified_checkpoint(&mut self, state: &BeaconState<T>) -> Result<(), Self::Error>;
 
     /// Sets the `best_justified_checkpoint`.
     fn set_best_justified_checkpoint(&mut self, state: &BeaconState<T>);
