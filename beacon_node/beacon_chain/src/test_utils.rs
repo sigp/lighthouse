@@ -316,10 +316,10 @@ where
         head_block_root.expect("did not produce any blocks")
     }
 
-    /// A simple method to advance the chain and produce a block without applying it to the chain.
+    /// A simple method to produce a block at the current slot without applying it to the chain.
     ///
     /// Always uses `BlockStrategy::OnCanonicalHead`.
-    pub fn get_next_block(&self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    pub fn get_block(&self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         let state = self
             .chain
             .state_at_slot(
@@ -329,10 +329,6 @@ where
             .unwrap();
 
         let slot = self.chain.slot().unwrap();
-
-        while self.chain.slot().unwrap() < slot {
-            self.advance_slot();
-        }
 
         self.build_block(state, slot, BlockStrategy::OnCanonicalHead)
     }

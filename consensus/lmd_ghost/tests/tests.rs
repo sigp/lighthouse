@@ -9,7 +9,7 @@ use lmd_ghost::{ForkChoiceStore, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
 use slot_clock::TestingSlotClock;
 use store::MemoryStore;
 use types::{test_utils::generate_deterministic_keypairs, Epoch, EthSpec, MainnetEthSpec, Slot};
-use types::{BeaconBlock, BeaconState};
+use types::{BeaconBlock, BeaconState, Hash256};
 
 pub type E = MainnetEthSpec;
 
@@ -84,28 +84,60 @@ impl ForkChoiceTest {
         }
         self
     }
+
+    pub fn apply_block_directly_to_fork_choice<F>(self, mut func: F) -> Self
+    where
+        F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
+    {
+        let (mut block, mut state) = self.harness.get_block();
+        func(&mut block.message, &mut state);
+        self.harness
+            .chain
+            .fork_choice
+            .process_block(&state, &block.message, block.canonical_root())
+            .unwrap();
+        self
+    }
 }
 
 fn is_safe_to_update(slot: Slot) -> bool {
     slot % E::slots_per_epoch() < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
 }
 
+/// - The new justified checkpoint descends from the current.
+/// - Current slot is within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
 #[test]
 fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
-        .assert_justified_epoch(0)
         .move_inside_safe_to_update()
+        .assert_justified_epoch(0)
+        .apply_blocks(1)
+        .assert_justified_epoch(2);
+}
+
+/// - The new justified checkpoint descends from the current.
+/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
+#[test]
+fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .move_outside_safe_to_update()
+        .assert_justified_epoch(0)
         .apply_blocks(1)
         .assert_justified_epoch(2);
 }
 
 #[test]
-fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
+fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
-        .assert_justified_epoch(0)
         .move_outside_safe_to_update()
-        .apply_blocks(1)
-        .assert_justified_epoch(2);
+        .assert_justified_epoch(0)
+        .apply_block_directly_to_fork_choice(|_, state| {
+            state
+                .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
+                .unwrap();
+        })
+        .assert_justified_epoch(0);
 }
