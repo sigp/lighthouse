@@ -399,7 +399,8 @@ where
         // attestation queue small without adding a heartbeat timer.
         self.process_attestation_queue()?;
 
-        // TODO: stuff here
+        // TODO: block verification stuff here
+
         if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
             if state.current_justified_checkpoint.epoch
                 > self.fc_store.best_justified_checkpoint().epoch
@@ -599,6 +600,12 @@ where
             on_tick(&mut self.fc_store, previous_slot + 1)?
         }
 
+        assert_eq!(
+            self.fc_store.get_current_slot(),
+            current_slot,
+            "store did not update time"
+        );
+
         Ok(())
     }
 
@@ -720,7 +727,6 @@ mod tests {
         assert_eq!(dequeued, vec![1, 2]);
 
         let (queued, dequeued) = test_queued_attestations(Slot::new(4));
-        dbg!(&queued);
         assert!(queued.is_empty());
         assert_eq!(dequeued, vec![1, 2, 3]);
     }

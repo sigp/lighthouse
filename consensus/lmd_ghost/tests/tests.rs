@@ -41,7 +41,7 @@ impl ForkChoiceTest {
 
     pub fn assert_justified_epoch(self, epoch: u64) -> Self {
         assert_eq!(
-            self.get(|fc_store| fc_store.best_justified_checkpoint().epoch),
+            self.get(|fc_store| fc_store.justified_checkpoint().epoch),
             Epoch::new(epoch)
         );
         self
@@ -118,26 +118,80 @@ fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
 
 /// - The new justified checkpoint descends from the current.
 /// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
+/// - This is **not** the first justification since genesis
 #[test]
 fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch <= 2)
+        .move_outside_safe_to_update()
+        .assert_justified_epoch(2)
+        .apply_blocks(1)
+        .assert_justified_epoch(3);
+}
+
+/// - The new justified checkpoint descends from the current.
+/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
+/// - This is the first justification since genesis
+#[test]
+fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
         .move_outside_safe_to_update()
         .assert_justified_epoch(0)
         .apply_blocks(1)
+        .assert_justified_epoch(0);
+}
+
+/// - The new justified checkpoint **does not** descend from the current.
+/// - Current slot is within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
+/// - Finalized epoch has **not** increased.
+#[test]
+fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_finality() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .move_inside_safe_to_update()
+        .assert_justified_epoch(0)
+        .apply_block_directly_to_fork_choice(|_, state| {
+            state.finalized_checkpoint.epoch = Epoch::new(0);
+            state
+                .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
+                .unwrap();
+        })
         .assert_justified_epoch(2);
 }
 
+/// - The new justified checkpoint **does not** descend from the current.
+/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`.
+/// - Finalized epoch has **not** increased.
 #[test]
-fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots() {
+fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
         .move_outside_safe_to_update()
         .assert_justified_epoch(0)
         .apply_block_directly_to_fork_choice(|_, state| {
+            state.finalized_checkpoint.epoch = Epoch::new(0);
             state
                 .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
                 .unwrap();
         })
         .assert_justified_epoch(0);
+}
+
+/// - The new justified checkpoint **does not** descend from the current.
+/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
+/// - Finalized epoch has increased.
+#[test]
+fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_finality() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .move_outside_safe_to_update()
+        .assert_justified_epoch(0)
+        .apply_block_directly_to_fork_choice(|_, state| {
+            state.finalized_checkpoint.epoch = Epoch::new(1);
+            state
+                .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
+                .unwrap();
+        })
+        .assert_justified_epoch(2);
 }
