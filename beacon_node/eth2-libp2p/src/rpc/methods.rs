@@ -7,6 +7,7 @@ use ssz_types::{
     typenum::{U1024, U256},
     VariableList,
 };
+use std::ops::Deref;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
@@ -36,6 +37,15 @@ impl std::ops::Deref for ErrorType {
     type Target = VariableList<u8, MAX_ERROR_LEN>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl ToString for ErrorType {
+    fn to_string(&self) -> String {
+        match std::str::from_utf8(self.0.deref()) {
+            Ok(s) => s.to_string(),
+            Err(_) => format!("{:?}", self.0.deref()), // Display raw bytes if not a UTF-8 string
+        }
     }
 }
 

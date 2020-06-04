@@ -46,6 +46,7 @@ use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
+use ssz_types::VariableList;
 use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -489,7 +490,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         let request = BlocksByRootRequest {
-            block_roots: vec![block_hash],
+            block_roots: VariableList::from(vec![block_hash]),
         };
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
@@ -707,7 +708,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         };
 
         let request = BlocksByRootRequest {
-            block_roots: vec![parent_hash],
+            block_roots: VariableList::from(vec![parent_hash]),
         };
 
         // We continue to search for the chain of blocks from the same peer. Other peers are not
