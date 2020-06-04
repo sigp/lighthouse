@@ -59,9 +59,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         runtime_handle: &Handle,
         network_log: slog::Logger,
     ) -> error::Result<(
-    Arc<NetworkGlobals<T::EthSpec>>,
-    mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    oneshot::Sender<()>,
+        Arc<NetworkGlobals<T::EthSpec>>,
+        mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        oneshot::Sender<()>,
     )> {
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
@@ -168,6 +168,12 @@ fn spawn_service<T: BeaconChainTypes>(
                         NetworkMessage::SendResponse{peer_id, response, stream_id} => {
                             //     trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
                             service.libp2p.send_response(peer_id, stream_id, response);
+                        }
+                        NetworkMessage::SendError{        peer_id,
+                        error,
+                        substream_id,
+                        } => {
+                            service.libp2p.respond_with_error(peer_id, substream_id, error,"men I forgot to seand the reason".to_string());
                         }
                         NetworkMessage::Propagate {
                             propagation_source,
@@ -429,10 +435,11 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Respond to a peer's request with an error.
     SendError {
-        // TODO: note that this is never used
+        // TODO: note that this is never used, we just say goodbye without nicely clossing the
+        // stream assigned to the request
         peer_id: PeerId,
         error: RPCResponseErrorCode,
-        request_id: RequestId,
+        substream_id: SubstreamId,
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },

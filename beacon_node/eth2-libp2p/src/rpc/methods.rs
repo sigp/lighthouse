@@ -20,21 +20,6 @@ pub enum RequestId {
     Behaviour,
 }
 
-impl slog::Value for RequestId {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        match self {
-            RequestId::Behaviour => slog::Value::serialize("Behaviour", record, key, serializer),
-            RequestId::Router => slog::Value::serialize("Router", record, key, serializer),
-            RequestId::Sync(ref id) => slog::Value::serialize(id, record, key, serializer),
-        }
-    }
-}
-
 /// The STATUS request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct StatusMessage {
@@ -364,5 +349,20 @@ impl std::fmt::Display for BlocksByRangeRequest {
             "Start Slot: {}, Count: {}, Step: {}",
             self.start_slot, self.count, self.step
         )
+    }
+}
+
+impl slog::Value for RequestId {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        match self {
+            RequestId::Behaviour => slog::Value::serialize("Behaviour", record, key, serializer),
+            RequestId::Router => slog::Value::serialize("Router", record, key, serializer),
+            RequestId::Sync(ref id) => slog::Value::serialize(id, record, key, serializer),
+        }
     }
 }

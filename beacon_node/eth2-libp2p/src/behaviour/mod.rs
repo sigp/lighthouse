@@ -413,8 +413,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.send_rpc(peer_id, RPCSend::Response(stream_id, response.into()))
     }
 
-    /// Inform the peer that their request producen an error
-    pub(crate) fn send_error_reponse(
+    /// Inform the peer that their request produced an error
+    pub(crate) fn _send_error_reponse(
         &mut self,
         peer_id: PeerId,
         stream_id: SubstreamId,

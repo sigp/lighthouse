@@ -1,7 +1,7 @@
 use crate::behaviour::{Behaviour, BehaviourEvent, Request, Response};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{RequestId, SubstreamId};
+use crate::rpc::{RPCResponseErrorCode, RequestId, SubstreamId};
 use crate::types::{error, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals};
@@ -231,6 +231,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
     pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
         self.swarm.send_request(peer_id, request_id, request);
+    }
+
+    pub fn respond_with_error(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        error: RPCResponseErrorCode,
+        reason: String,
+    ) {
+        self.swarm
+            ._send_error_reponse(peer_id, stream_id, error, reason);
     }
 
     pub fn send_response(

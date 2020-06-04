@@ -121,7 +121,6 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::PeerDisconnected(peer_id) => {
                 self.processor.on_disconnect(peer_id);
             }
-
             RouterMessage::RPCRequestReceived {
                 peer_id,
                 stream_id,
@@ -245,7 +244,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     Err(e) => {
                         // performing a parent lookup
                         warn!(self.log, "Could not verify block for gossip";
-                            "error" => format!("{:?}", e));
+                                "error" => format!("{:?}", e));
                     }
                 }
             }

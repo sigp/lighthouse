@@ -88,7 +88,10 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
     pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
-        self.send_to_sync(SyncMessage::RPCError(peer_id, request_id));
+        // Check if the failed RPC belongs to sync
+        if let RequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::RPCError(peer_id, id));
+        }
     }
 
     /// Sends a `Status` message to the peer.
@@ -108,7 +111,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 "head_slot" => format!("{}", status_message.head_slot),
             );
             self.network
-                .send_rpc_request(peer_id, Request::Status(status_message));
+                .send_processor_request(peer_id, Request::Status(status_message));
         }
     }
 
@@ -137,8 +140,8 @@ impl<T: BeaconChainTypes> Processor<T> {
             // Say status back.
             self.network.send_response(
                 peer_id.clone(),
-                request_id,
                 Response::Status(status_message),
+                request_id,
             );
         }
 
@@ -291,8 +294,8 @@ impl<T: BeaconChainTypes> Processor<T> {
             if let Ok(Some(block)) = self.chain.store.get_block(root) {
                 self.network.send_response(
                     peer_id.clone(),
-                    request_id,
                     Response::BlocksByRoot(Some(Box::new(block))),
+                    request_id,
                 );
                 send_block_count += 1;
             } else {
@@ -314,7 +317,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // send stream termination
         self.network
-            .send_response(peer_id, request_id, Response::BlocksByRoot(None));
+            .send_response(peer_id, Response::BlocksByRoot(None), request_id);
     }
 
     /// Handle a `BlocksByRange` request from the peer.
@@ -390,8 +393,8 @@ impl<T: BeaconChainTypes> Processor<T> {
                     blocks_sent += 1;
                     self.network.send_response(
                         peer_id.clone(),
-                        request_id,
                         Response::BlocksByRange(Some(Box::new(block))),
+                        request_id,
                     );
                 }
             } else {
@@ -426,7 +429,7 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // send the stream terminator
         self.network
-            .send_response(peer_id, request_id, Response::BlocksByRange(None));
+            .send_response(peer_id, Response::BlocksByRange(None), request_id);
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -443,11 +446,18 @@ impl<T: BeaconChainTypes> Processor<T> {
             "peer" => format!("{:?}", peer_id),
         );
 
-        self.send_to_sync(SyncMessage::BlocksByRangeResponse {
-            peer_id,
-            request_id,
-            beacon_block,
-        });
+        if let RequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::BlocksByRangeResponse {
+                peer_id,
+                request_id: id,
+                beacon_block,
+            });
+        } else {
+            debug!(
+                self.log,
+                "All blocks by range responses should belong to sync"
+            );
+        }
     }
 
     /// Handle a `BlocksByRoot` response from the peer.
@@ -463,11 +473,15 @@ impl<T: BeaconChainTypes> Processor<T> {
             "peer" => format!("{:?}", peer_id),
         );
 
-        self.send_to_sync(SyncMessage::BlocksByRootResponse {
-            peer_id,
-            request_id,
-            beacon_block,
-        });
+        if let RequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::BlocksByRootResponse {
+                peer_id,
+                request_id: id,
+                beacon_block,
+            });
+        } else {
+            debug!(self.log, "All ")
+        }
     }
 
     /// Template function to be called on a block to determine if the block should be propagated
@@ -901,6 +915,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 /// processor.
 /// The Processor doesn't manage it's own request Id's and can therefore only send
 /// responses or requests with None request Ids.
+/// TODO: update
 pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
@@ -916,7 +931,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     fn inform_network(&mut self, msg: NetworkMessage<T>) {
         self.network_send
             .send(msg)
-            .unwrap_or_else(|| warn!(self.log, "Could not send message to the network service"))
+            .unwrap_or_else(|_| warn!(self.log, "Could not send message to the network service"))
     }
 
     // pub fn subscribe (
@@ -930,10 +945,10 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     //     message_id: MessageId,
     // ){}
 
-    pub fn send_request(&mut self, peer_id: PeerId, request: Request, request_id: RequestId) {
+    pub fn send_processor_request(&mut self, peer_id: PeerId, request: Request) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
-            request_id,
+            request_id: RequestId::Router,
             request,
         })
     }
@@ -950,16 +965,16 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             response,
         })
     }
-    pub fn send_error_response(
+    pub fn _send_error_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        substream_id: SubstreamId,
         error: RPCResponseErrorCode,
     ) {
         self.inform_network(NetworkMessage::SendError {
             peer_id,
             error,
-            request_id,
+            substream_id,
         })
     }
 
@@ -970,8 +985,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             "reason" => format!("{:?}", reason),
             "peer_id" => format!("{:?}", peer_id),
         );
-        // TODO: check why
-        self.send_rpc_request(peer_id.clone(), Request::Goodbye(reason));
+        self.send_processor_request(peer_id.clone(), Request::Goodbye(reason));
         self.inform_network(NetworkMessage::Disconnect { peer_id });
     }
 }
