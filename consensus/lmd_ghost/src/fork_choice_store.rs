@@ -1,4 +1,3 @@
-use crate::fork_choice::compute_slots_since_epoch_start;
 use types::{BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 
 /// Approximates the `Store` in "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
@@ -13,47 +12,6 @@ use types::{BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 /// - `time` is represented using `Slot` instead of UNIX epoch `u64`.
 pub trait ForkChoiceStore<T: EthSpec>: Sized {
     type Error;
-
-    /// Instructs the implementer to ensure that it updates the current time.
-    ///
-    /// The implementer should call `Self::on_tick` for each slot (if any) between the last known
-    /// slot and the current slot.
-    fn update_time(&mut self) -> Result<(), Self::Error>;
-
-    /// Called whenever the current time increases.
-    ///
-    /// ## Notes
-    ///
-    /// This function should only ever be passed a `time` that is equal to or greater than the
-    /// previously passed value. I.e., it must be called each time the slot changes.
-    ///
-    /// ## Specification
-    ///
-    /// Implementation must be equivalent to:
-    ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_tick
-    fn on_tick(&mut self, time: Slot) -> Result<(), Self::Error> {
-        let store = self;
-
-        let previous_slot = store.get_current_slot();
-
-        // Update store time.
-        store.set_current_slot(time);
-
-        let current_slot = store.get_current_slot();
-        if !(current_slot > previous_slot
-            && compute_slots_since_epoch_start::<T>(current_slot) == 0)
-        {
-            return Ok(());
-        }
-
-        if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
-            store.set_justified_checkpoint_to_best_justified_checkpoint()?;
-        }
-
-        Ok(())
-    }
-
     /// Returns the last value passed to `Self::update_time`.
     fn get_current_slot(&self) -> Slot;
 
@@ -61,10 +19,7 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     ///
     /// ## Notes
     ///
-    /// This should only ever be called from within the `Self::on_tick` implementation.
-    ///
-    /// *This method only exists as a public trait function to allow for a default `Self::on_tick`
-    /// implementation.*
+    /// This should only ever be called from within `ForkChoice::on_tick`.
     fn set_current_slot(&mut self, slot: Slot);
 
     /// Updates the `justified_checkpoint` to the `best_justified_checkpoint`.

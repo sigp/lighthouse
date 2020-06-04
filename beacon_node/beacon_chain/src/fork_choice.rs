@@ -20,6 +20,7 @@ pub enum Error {
     ForkChoiceStoreError(ForkChoiceStoreError),
     InvalidProtoArrayBytes(String),
     InvalidForkChoiceStoreBytes(ForkChoiceStoreError),
+    UnableToReadSlot,
 }
 
 /// Wraps the `LmdGhost` fork choice and provides:
@@ -34,11 +35,7 @@ pub struct ForkChoice<T: BeaconChainTypes> {
     backend: RwLock<
         // TODO: clean up this insane type def.
         lmd_ghost::ForkChoice<
-            ForkChoiceStore<
-                <T as BeaconChainTypes>::Store,
-                <T as BeaconChainTypes>::SlotClock,
-                <T as BeaconChainTypes>::EthSpec,
-            >,
+            ForkChoiceStore<<T as BeaconChainTypes>::Store, <T as BeaconChainTypes>::EthSpec>,
             <T as BeaconChainTypes>::EthSpec,
         >,
     >,
@@ -54,7 +51,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Instantiate a new fork chooser from the genesis `BeaconSnapshot`.
     pub fn from_genesis(
         store: Arc<T::Store>,
-        slot_clock: T::SlotClock,
+        slot_clock: &T::SlotClock,
         genesis: &BeaconSnapshot<T::EthSpec>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
@@ -74,9 +71,12 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     }
 
     /// Run the fork choice rule to determine the head.
-    pub fn find_head(&self) -> Result<Hash256, Error> {
+    pub fn find_head(&self, current_slot: Slot) -> Result<Hash256, Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_FIND_HEAD_TIMES);
-        self.backend.write().get_head().map_err(Into::into)
+        self.backend
+            .write()
+            .get_head(current_slot)
+            .map_err(Into::into)
     }
 
     /// Process an attestation which references `block` in `attestation.data.beacon_block_root`.
@@ -84,11 +84,14 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Assumes the attestation is valid.
     pub fn process_indexed_attestation(
         &self,
+        current_slot: Slot,
         attestation: &IndexedAttestation<T::EthSpec>,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
-        self.backend.write().on_attestation(attestation)?;
+        self.backend
+            .write()
+            .on_attestation(current_slot, attestation)?;
 
         Ok(())
     }
@@ -99,13 +102,16 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// provide an invalid block.
     pub fn process_block(
         &self,
+        current_slot: Slot,
         state: &BeaconState<T::EthSpec>,
         block: &BeaconBlock<T::EthSpec>,
         block_root: Hash256,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
 
-        self.backend.write().on_block(block, block_root, state)?;
+        self.backend
+            .write()
+            .on_block(current_slot, block, block_root, state)?;
 
         Ok(())
     }
@@ -146,11 +152,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         &self,
     ) -> RwLockReadGuard<
         lmd_ghost::ForkChoice<
-            ForkChoiceStore<
-                <T as BeaconChainTypes>::Store,
-                <T as BeaconChainTypes>::SlotClock,
-                <T as BeaconChainTypes>::EthSpec,
-            >,
+            ForkChoiceStore<<T as BeaconChainTypes>::Store, <T as BeaconChainTypes>::EthSpec>,
             <T as BeaconChainTypes>::EthSpec,
         >,
     > {
@@ -162,9 +164,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     pub fn from_persisted(
         persisted: PersistedForkChoice,
         store: Arc<T::Store>,
-        slot_clock: T::SlotClock,
     ) -> Result<Self, Error> {
-        let fc_store = ForkChoiceStore::from_bytes(&persisted.fc_store_bytes, store, slot_clock)
+        let fc_store = ForkChoiceStore::from_bytes(&persisted.fc_store_bytes, store)
             .map_err(Error::InvalidForkChoiceStoreBytes)?;
         let proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
             .map_err(Error::InvalidProtoArrayBytes)?;

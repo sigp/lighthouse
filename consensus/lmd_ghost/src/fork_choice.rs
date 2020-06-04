@@ -17,6 +17,7 @@ pub enum Error<T> {
     // TODO: make this an actual error enum.
     ProtoArrayError(String),
     MissingProtoArrayBlock(Hash256),
+    InconsistentOnTick { previous_slot: Slot, time: Slot },
     BeaconStateError(BeaconStateError),
     ForkChoiceStoreError(T),
 }
@@ -89,6 +90,49 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
 
+/// Called whenever the current time increases.
+///
+/// ## Notes
+///
+/// This function should only ever be passed a `time` that is less than, equal to or one greater
+/// than the previously passed value. I.e., it must be called each time the slot changes.
+///
+/// ## Specification
+///
+/// Equivalent to:
+///
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_tick
+fn on_tick<T, E>(store: &mut T, time: Slot) -> Result<(), Error<T::Error>>
+where
+    T: ForkChoiceStore<E>,
+    E: EthSpec,
+{
+    let previous_slot = store.get_current_slot();
+
+    if time > previous_slot + 1 {
+        return Err(Error::InconsistentOnTick {
+            previous_slot,
+            time,
+        });
+    }
+
+    // Update store time.
+    store.set_current_slot(time);
+
+    let current_slot = store.get_current_slot();
+    if !(current_slot > previous_slot && compute_slots_since_epoch_start::<E>(current_slot) == 0) {
+        return Ok(());
+    }
+
+    if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
+        store
+            .set_justified_checkpoint_to_best_justified_checkpoint()
+            .map_err(Error::ForkChoiceStoreError)?;
+    }
+
+    Ok(())
+}
+
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
 /// information about the attestation (i.e., it is simplified).
 #[derive(Clone, PartialEq, Encode, Decode)]
@@ -112,20 +156,14 @@ impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
 
 /// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
 /// current slot. Also removes those values from `self.queued_attestations`.
-fn dequeue_attestations<T, E>(
-    fc_store: &T,
+fn dequeue_attestations(
+    current_slot: Slot,
     queued_attestations: &mut Vec<QueuedAttestation>,
-) -> Vec<QueuedAttestation>
-where
-    T: ForkChoiceStore<E>,
-    E: EthSpec,
-{
-    let slot = fc_store.get_current_slot();
-
+) -> Vec<QueuedAttestation> {
     let remaining = queued_attestations.split_off(
         queued_attestations
             .iter()
-            .position(|a| a.slot >= slot)
+            .position(|a| a.slot >= current_slot)
             .unwrap_or(queued_attestations.len()),
     );
 
@@ -269,10 +307,8 @@ where
     /// Is equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_head
-    pub fn get_head(&mut self) -> Result<Hash256, Error<T::Error>> {
-        self.fc_store
-            .update_time()
-            .map_err(Error::ForkChoiceStoreError)?;
+    pub fn get_head(&mut self, current_slot: Slot) -> Result<Hash256, Error<T::Error>> {
+        self.update_time(current_slot)?;
 
         // Process any attestations that were delayed for consideration.
         self.process_attestation_queue()?;
@@ -311,11 +347,10 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
     fn should_update_justified_checkpoint(
         &mut self,
+        current_slot: Slot,
         state: &BeaconState<E>,
     ) -> Result<bool, Error<T::Error>> {
-        self.fc_store
-            .update_time()
-            .map_err(Error::ForkChoiceStoreError)?;
+        self.update_time(current_slot)?;
 
         let new_justified_checkpoint = &state.current_justified_checkpoint;
 
@@ -351,13 +386,12 @@ where
     /// `block`. It is assumed that this verification has already been completed by the caller.
     pub fn on_block(
         &mut self,
+        current_slot: Slot,
         block: &BeaconBlock<E>,
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error<T::Error>> {
-        self.fc_store
-            .update_time()
-            .map_err(Error::ForkChoiceStoreError)?;
+        self.update_time(current_slot)?;
 
         // Process any attestations that were delayed for consideration.
         //
@@ -372,7 +406,7 @@ where
             {
                 self.fc_store.set_best_justified_checkpoint(state);
             }
-            if self.should_update_justified_checkpoint(state)? {
+            if self.should_update_justified_checkpoint(current_slot, state)? {
                 self.fc_store.set_justified_checkpoint(state);
             }
         }
@@ -508,12 +542,11 @@ where
     /// caller.
     pub fn on_attestation(
         &mut self,
+        current_slot: Slot,
         attestation: &IndexedAttestation<E>,
     ) -> Result<(), Error<T::Error>> {
         // Ensure the store is up-to-date.
-        self.fc_store
-            .update_time()
-            .map_err(Error::ForkChoiceStoreError)?;
+        self.update_time(current_slot)?;
 
         // Ignore any attestations to the zero hash.
         //
@@ -558,10 +591,24 @@ where
         Ok(())
     }
 
+    fn update_time(&mut self, current_slot: Slot) -> Result<(), Error<T::Error>> {
+        while self.fc_store.get_current_slot() < current_slot {
+            let previous_slot = self.fc_store.get_current_slot();
+            // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
+            // get stuck in a loop.
+            on_tick(&mut self.fc_store, previous_slot + 1)?
+        }
+
+        Ok(())
+    }
+
     /// Processes and removes from the queue any queued attestations which are now able to be
     /// processed due to the slot clock incrementing.
     fn process_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
-        for attestation in dequeue_attestations(&self.fc_store, &mut self.queued_attestations) {
+        for attestation in dequeue_attestations(
+            self.fc_store.get_current_slot(),
+            &mut self.queued_attestations,
+        ) {
             for validator_index in attestation.attesting_indices.iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
@@ -607,7 +654,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing_utils::{StateBuilder, TestingStore};
     use types::{EthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
@@ -649,12 +695,8 @@ mod tests {
     }
 
     fn test_queued_attestations(current_time: Slot) -> (Vec<u64>, Vec<u64>) {
-        let mut store = TestingStore::from_state(StateBuilder::genesis().build());
-        store.current_time = current_time;
-        store.update_time().unwrap();
-
         let mut queued = get_queued_attestations();
-        let dequeued = dequeue_attestations::<_, E>(&store, &mut queued);
+        let dequeued = dequeue_attestations(current_time, &mut queued);
 
         (get_slots(&queued), get_slots(&dequeued))
     }

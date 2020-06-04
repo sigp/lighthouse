@@ -6,7 +6,6 @@ use beacon_chain::{
     ForkChoiceStore as BeaconForkChoiceStore,
 };
 use lmd_ghost::{ForkChoiceStore, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
-use slot_clock::TestingSlotClock;
 use store::MemoryStore;
 use types::{test_utils::generate_deterministic_keypairs, Epoch, EthSpec, MainnetEthSpec, Slot};
 use types::{BeaconBlock, BeaconState, Hash256};
@@ -35,7 +34,7 @@ impl ForkChoiceTest {
 
     fn get<T, U>(&self, func: T) -> U
     where
-        T: Fn(&BeaconForkChoiceStore<MemoryStore<E>, TestingSlotClock, E>) -> U,
+        T: Fn(&BeaconForkChoiceStore<MemoryStore<E>, E>) -> U,
     {
         func(&self.harness.chain.fork_choice.backend().fc_store())
     }
@@ -91,10 +90,11 @@ impl ForkChoiceTest {
     {
         let (mut block, mut state) = self.harness.get_block();
         func(&mut block.message, &mut state);
+        let current_slot = self.harness.chain.slot().unwrap();
         self.harness
             .chain
             .fork_choice
-            .process_block(&state, &block.message, block.canonical_root())
+            .process_block(current_slot, &state, &block.message, block.canonical_root())
             .unwrap();
         self
     }

@@ -903,8 +903,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_FORK_CHOICE);
 
         let indexed_attestation = verified.indexed_attestation();
-        self.fork_choice
-            .process_indexed_attestation(indexed_attestation)
+        self.fork_choice.process_indexed_attestation(
+            self.slot().map_err(|_| ForkChoiceError::UnableToReadSlot)?,
+            indexed_attestation,
+        )
     }
 
     /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
@@ -1486,7 +1488,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Register the new block with the fork choice service.
-        if let Err(e) = self.fork_choice.process_block(&state, block, block_root) {
+        if let Err(e) = self
+            .fork_choice
+            .process_block(self.slot()?, &state, block, block_root)
+        {
             error!(
                 self.log,
                 "Add block to fork choice failed";
@@ -1700,7 +1705,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn fork_choice_internal(&self) -> Result<(), Error> {
         // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self.fork_choice.find_head()?;
+        let beacon_block_root = self.fork_choice.find_head(self.slot()?)?;
 
         let current_head = self.head_info()?;
         let old_finalized_root = current_head.finalized_checkpoint.root;

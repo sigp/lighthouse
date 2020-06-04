@@ -5,7 +5,6 @@ use types::Slot;
 pub use std::time::SystemTimeError;
 
 /// Determines the present slot based upon the present system time.
-#[derive(Clone)]
 pub struct SystemTimeSlotClock {
     clock: ManualSlotClock,
 }

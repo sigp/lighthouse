@@ -426,18 +426,13 @@ where
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {
-            ForkChoice::from_persisted(persisted, store.clone(), slot_clock.clone())
+            ForkChoice::from_persisted(persisted, store.clone())
                 .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?
         } else {
             let genesis_snapshot = &canonical_head;
 
-            ForkChoice::from_genesis(
-                store.clone(),
-                slot_clock.clone(),
-                genesis_snapshot,
-                &self.spec,
-            )
-            .map_err(|e| format!("Unable to build initialize fork choice: {:?}", e))?
+            ForkChoice::from_genesis(store.clone(), &slot_clock, genesis_snapshot, &self.spec)
+                .map_err(|e| format!("Unable to build initialize fork choice: {:?}", e))?
         };
 
         let beacon_chain = BeaconChain {

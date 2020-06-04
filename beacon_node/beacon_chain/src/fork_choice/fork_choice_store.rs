@@ -20,9 +20,8 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct ForkChoiceStore<S, C, E> {
+pub struct ForkChoiceStore<S, E> {
     store: Arc<S>,
-    slot_clock: C,
     time: Slot,
     finalized_checkpoint: Checkpoint,
     justified_checkpoint: Checkpoint,
@@ -32,7 +31,7 @@ pub struct ForkChoiceStore<S, C, E> {
     _phantom: PhantomData<E>,
 }
 
-impl<S, C, E> PartialEq for ForkChoiceStore<S, C, E> {
+impl<S, E> PartialEq for ForkChoiceStore<S, E> {
     /// This implementation ignores the `store` and `slot_clock`.
     fn eq(&self, other: &Self) -> bool {
         self.time == other.time
@@ -44,10 +43,10 @@ impl<S, C, E> PartialEq for ForkChoiceStore<S, C, E> {
     }
 }
 
-impl<S: Store<E>, C: SlotClock, E: EthSpec> ForkChoiceStore<S, C, E> {
-    pub fn from_genesis(
+impl<S: Store<E>, E: EthSpec> ForkChoiceStore<S, E> {
+    pub fn from_genesis<C: SlotClock>(
         store: Arc<S>,
-        slot_clock: C,
+        slot_clock: &C,
         genesis: &BeaconSnapshot<E>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
@@ -66,7 +65,6 @@ impl<S: Store<E>, C: SlotClock, E: EthSpec> ForkChoiceStore<S, C, E> {
 
         Ok(Self {
             store,
-            slot_clock,
             time,
             finalized_checkpoint: genesis.beacon_state.finalized_checkpoint,
             justified_checkpoint: genesis.beacon_state.current_justified_checkpoint,
@@ -81,13 +79,12 @@ impl<S: Store<E>, C: SlotClock, E: EthSpec> ForkChoiceStore<S, C, E> {
         PersistedForkChoiceStore::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8], store: Arc<S>, slot_clock: C) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: &[u8], store: Arc<S>) -> Result<Self, Error> {
         let persisted = PersistedForkChoiceStore::from_ssz_bytes(bytes)
             .map_err(Error::InvalidPersistedBytes)?;
 
         Ok(Self {
             store,
-            slot_clock,
             time: persisted.time,
             finalized_checkpoint: persisted.finalized_checkpoint,
             justified_checkpoint: persisted.justified_checkpoint,
@@ -99,23 +96,8 @@ impl<S: Store<E>, C: SlotClock, E: EthSpec> ForkChoiceStore<S, C, E> {
     }
 }
 
-impl<S: Store<E>, C: SlotClock, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, C, E> {
+impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> {
     type Error = Error;
-
-    fn update_time(&mut self) -> Result<(), Error> {
-        while self.time
-            < self
-                .slot_clock
-                .now()
-                .ok_or_else(|| Error::UnableToReadSlot)?
-        {
-            // Note: we are relying upon `Self::on_tick` to update `self.time` to ensure we don't
-            // get stuck in a loop.
-            self.on_tick(self.time + 1)?
-        }
-
-        Ok(())
-    }
 
     fn get_current_slot(&self) -> Slot {
         self.time
@@ -203,10 +185,8 @@ pub struct PersistedForkChoiceStore {
     best_justified_balances: Option<Vec<u64>>,
 }
 
-impl<S: Store<E>, C: SlotClock, E: EthSpec> From<&ForkChoiceStore<S, C, E>>
-    for PersistedForkChoiceStore
-{
-    fn from(store: &ForkChoiceStore<S, C, E>) -> Self {
+impl<S: Store<E>, E: EthSpec> From<&ForkChoiceStore<S, E>> for PersistedForkChoiceStore {
+    fn from(store: &ForkChoiceStore<S, E>) -> Self {
         Self {
             time: store.time,
             finalized_checkpoint: store.finalized_checkpoint,
