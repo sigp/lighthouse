@@ -3,7 +3,41 @@
 use crate::types::EnrBitfield;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
+use ssz_types::{
+    typenum::{U1024, U256},
+    VariableList,
+};
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+
+/// Maximum number of blocks in a single request.
+#[allow(non_camel_case_types)]
+type MAX_REQUEST_BLOCKS = U1024;
+
+/// Maximum length of error message.
+#[allow(non_camel_case_types)]
+type MAX_ERROR_LEN = U256;
+
+#[derive(Debug, Clone)]
+pub struct ErrorType(VariableList<u8, MAX_ERROR_LEN>);
+
+impl From<String> for ErrorType {
+    fn from(s: String) -> Self {
+        Self(VariableList::from(s.as_bytes().to_vec()))
+    }
+}
+
+impl From<&str> for ErrorType {
+    fn from(s: &str) -> Self {
+        Self(VariableList::from(s.as_bytes().to_vec()))
+    }
+}
+
+impl std::ops::Deref for ErrorType {
+    type Target = VariableList<u8, MAX_ERROR_LEN>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /* Request/Response data structures for RPC methods */
 
@@ -147,7 +181,7 @@ pub struct BlocksByRangeRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: Vec<Hash256>,
+    pub block_roots: VariableList<Hash256, MAX_REQUEST_BLOCKS>,
 }
 
 /* RPC Handling and Grouping */
@@ -190,13 +224,15 @@ pub enum RPCCodedResponse<T: EthSpec> {
     Success(RPCResponse<T>),
 
     /// The response was invalid.
-    InvalidRequest(String),
+    InvalidRequest(ErrorType),
 
     /// The response indicates a server error.
-    ServerError(String),
+    ServerError(ErrorType),
 
     /// There was an unknown response.
-    Unknown(String),
+    // TODO: spec doesn't specify that this needs to be an ssz list
+    // keeping this for consistency.
+    Unknown(ErrorType),
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
@@ -233,9 +269,9 @@ impl<T: EthSpec> RPCCodedResponse<T> {
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
     pub fn from_error(response_code: u8, err: String) -> Self {
         match response_code {
-            1 => RPCCodedResponse::InvalidRequest(err),
-            2 => RPCCodedResponse::ServerError(err),
-            _ => RPCCodedResponse::Unknown(err),
+            1 => RPCCodedResponse::InvalidRequest(err.into()),
+            2 => RPCCodedResponse::ServerError(err.into()),
+            _ => RPCCodedResponse::Unknown(err.into()),
         }
     }
 
