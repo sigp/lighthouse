@@ -33,7 +33,7 @@ eth2_ssz_derive = "0.1.0"
 state_processing = { path = "../../consensus/state_processing" }
 tree_hash = "0.1.0"
 types = { path = "../../consensus/types" }
-tokio = "0.2.20"
+tokio = "0.2.21"
 eth1 = { path = "../eth1" }
 websocket_server = { path = "../websocket_server" }
 futures = "0.3.5"
@@ -46,7 +46,8 @@ tempfile = "3.1.0"
 bitvec = "0.17.4"
 bls = { path = "../../crypto/bls" }
 safe_arith = { path = "../../consensus/safe_arith" }
+environment = { path = "../../lighthouse/environment" }
 
 [dev-dependencies]
 lazy_static = "1.4.0"
-environment = { path = "../../lighthouse/environment" }
+

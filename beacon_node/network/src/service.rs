@@ -14,8 +14,7 @@ use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Handle;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::time::Delay;
 use types::EthSpec;
 
@@ -53,13 +52,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        runtime_handle: &Handle,
-        network_log: slog::Logger,
+        executor: environment::TaskExecutor,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        oneshot::Sender<()>,
     )> {
+        let network_log = executor.log().clone();
         // build the network channel
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
         // get a reference to the beacon chain store
@@ -75,7 +73,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
-            runtime_handle.enter(|| LibP2PService::new(config, enr_fork_id, &network_log))?;
+            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log)?;
 
         for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
             libp2p.swarm.add_enr(enr);
@@ -88,7 +86,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_send.clone(),
-            runtime_handle,
+            executor.clone(),
             network_log.clone(),
         )?;
 
@@ -111,19 +109,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             propagation_percentage,
         };
 
-        let network_exit = runtime_handle.enter(|| spawn_service(network_service))?;
+        spawn_service(executor, network_service)?;
 
-        Ok((network_globals, network_send, network_exit))
+        Ok((network_globals, network_send))
     }
 }
 
 fn spawn_service<T: BeaconChainTypes>(
+    executor: environment::TaskExecutor,
     mut service: NetworkService<T>,
-) -> error::Result<tokio::sync::oneshot::Sender<()>> {
-    let (network_exit, mut exit_rx) = tokio::sync::oneshot::channel();
+) -> error::Result<()> {
+    let mut exit_rx = executor.exit();
 
     // spawn on the current executor
-    tokio::spawn(async move {
+    executor.spawn_without_exit(async move {
         loop {
             // build the futures to check simultaneously
             tokio::select! {
@@ -361,9 +360,9 @@ fn spawn_service<T: BeaconChainTypes>(
                 }
             }
         }
-    });
+    }, "network");
 
-    Ok(network_exit)
+    Ok(())
 }
 
 /// Returns a `Delay` that triggers shortly after the next change in the beacon chain fork version.

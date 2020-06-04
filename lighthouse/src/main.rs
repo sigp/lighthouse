@@ -141,7 +141,7 @@ fn run<E: EthSpec>(
         .eth2_testnet_config(eth2_testnet_config)?
         .build()?;
 
-    let log = environment.core_context().log;
+    let log = environment.core_context().log().clone();
 
     if let Some(log_path) = matches.value_of("logfile") {
         let path = log_path
@@ -216,11 +216,15 @@ fn run<E: EthSpec>(
             ))
             .map_err(|e| format!("Failed to init validator client: {}", e))?;
 
-        environment.core_context().runtime_handle.enter(|| {
-            validator
-                .start_service()
-                .map_err(|e| format!("Failed to start validator client service: {}", e))
-        })?;
+        environment
+            .core_context()
+            .executor
+            .runtime_handle()
+            .enter(|| {
+                validator
+                    .start_service()
+                    .map_err(|e| format!("Failed to start validator client service: {}", e))
+            })?;
 
         Some(validator)
     } else {
@@ -234,9 +238,9 @@ fn run<E: EthSpec>(
 
     // Block this thread until Crtl+C is pressed.
     environment.block_until_ctrl_c()?;
-
     info!(log, "Shutting down..");
 
+    environment.fire_signal();
     drop(beacon_node);
     drop(validator_client);
 

@@ -33,6 +33,7 @@ void = "1.0.2"
 tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
 tiny-keccak = "2.0.2"
+environment = { path = "../../lighthouse/environment" }
 libp2p-tcp = { version = "0.19.1", default-features = false, features = ["tokio"] }
 discv5 = "0.1.0-alpha.3"
 
@@ -48,3 +49,4 @@ slog-stdlog = "4.0.0"
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 tempdir = "0.3.7"
+exit-future = "0.2.0"

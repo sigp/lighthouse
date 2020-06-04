@@ -28,7 +28,7 @@ error-chain = "0.12.2"
 serde_yaml = "0.8.11"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 slog-async = "2.5.0"
-tokio = "0.2.20"
+tokio = "0.2.21"
 dirs = "2.0.2"
 futures = "0.3.5"
 reqwest = "0.10.4"

@@ -7,7 +7,7 @@
 //!
 //! https://github.com/sigp/lighthouse/pull/605
 
-use eth2_libp2p::Enr;
+use enr::{CombinedKey, Enr};
 use ssz::{Decode, Encode};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
@@ -36,7 +36,7 @@ pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../witti-v0-11-3/boot_enr.
 pub struct Eth2TestnetConfig<E: EthSpec> {
     pub deposit_contract_address: String,
     pub deposit_contract_deploy_block: u64,
-    pub boot_enr: Option<Vec<Enr>>,
+    pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     pub genesis_state: Option<BeaconState<E>>,
     pub yaml_config: Option<YamlConfig>,
 }
@@ -239,7 +239,7 @@ mod tests {
     }
 
     fn do_test<E: EthSpec>(
-        boot_enr: Option<Vec<Enr>>,
+        boot_enr: Option<Vec<Enr<CombinedKey>>>,
         genesis_state: Option<BeaconState<E>>,
         yaml_config: Option<YamlConfig>,
     ) {

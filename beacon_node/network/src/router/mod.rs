@@ -58,7 +58,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        runtime_handle: &tokio::runtime::Handle,
+        executor: environment::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -68,7 +68,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
         // Initialise a message instance, which itself spawns the syncing thread.
         let processor = Processor::new(
-            runtime_handle,
+            executor.clone(),
             beacon_chain,
             network_globals.clone(),
             network_send.clone(),
@@ -84,12 +84,15 @@ impl<T: BeaconChainTypes> Router<T> {
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
-        runtime_handle.spawn(async move {
-            handler_recv
-                .for_each(move |msg| future::ready(handler.handle_message(msg)))
-                .await;
-            debug!(log, "Network message handler terminated.");
-        });
+        executor.spawn(
+            async move {
+                debug!(log, "Network message router started");
+                handler_recv
+                    .for_each(move |msg| future::ready(handler.handle_message(msg)))
+                    .await;
+            },
+            "router",
+        );
 
         Ok(handler_send)
     }
