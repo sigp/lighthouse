@@ -237,6 +237,35 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) -> Hash256 {
+        let mut i = 0;
+        self.extend_chain_while(
+            |_, _| {
+                i += 1;
+                i <= num_blocks
+            },
+            block_strategy,
+            attestation_strategy,
+        )
+    }
+
+    /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
+    /// last-produced block (the head of the chain).
+    ///
+    /// Chain will be extended by `num_blocks` blocks.
+    ///
+    /// The `block_strategy` dictates where the new blocks will be placed.
+    ///
+    /// The `attestation_strategy` dictates which validators will attest to the newly created
+    /// blocks.
+    pub fn extend_chain_while<F>(
+        &self,
+        mut predicate: F,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+    ) -> Hash256
+    where
+        F: FnMut(&SignedBeaconBlock<E>, &BeaconState<E>) -> bool,
+    {
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
@@ -259,12 +288,16 @@ where
 
         let mut head_block_root = None;
 
-        for _ in 0..num_blocks {
+        loop {
             while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
             let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+
+            if !predicate(&block, &new_state) {
+                break;
+            }
 
             let block_root = self
                 .chain
@@ -281,6 +314,43 @@ where
         }
 
         head_block_root.expect("did not produce any blocks")
+    }
+
+    /// A simple method to advance the chain and produce a block without applying it to the chain.
+    ///
+    /// Always uses `BlockStrategy::OnCanonicalHead`.
+    pub fn get_next_block(&self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        let state = self
+            .chain
+            .state_at_slot(
+                self.chain.slot().unwrap() - 1,
+                StateSkipConfig::WithStateRoots,
+            )
+            .unwrap();
+
+        let slot = self.chain.slot().unwrap();
+
+        while self.chain.slot().unwrap() < slot {
+            self.advance_slot();
+        }
+
+        self.build_block(state, slot, BlockStrategy::OnCanonicalHead)
+    }
+
+    /// A simple method to produce and process all attestation at the current slot. Always uses
+    /// `AttestationStrategy::AllValidators`.
+    pub fn generate_all_attestations(&self) {
+        let slot = self.chain.slot().unwrap();
+        let (state, block_root) = {
+            let head = self.chain.head().unwrap();
+            (head.beacon_state.clone(), head.beacon_block_root)
+        };
+        self.add_attestations_for_slot(
+            &AttestationStrategy::AllValidators,
+            &state,
+            block_root,
+            slot,
+        );
     }
 
     /// Returns current canonical head slot

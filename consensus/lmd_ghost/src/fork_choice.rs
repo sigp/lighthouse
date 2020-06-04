@@ -9,7 +9,7 @@ use types::{
 /// Defined here:
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#configuration
-const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
+pub const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 
 #[derive(Debug)]
 pub enum Error<T> {
