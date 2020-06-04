@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{RequestId, RPCCodedResponse, ResponseTermination};
+use super::methods::{RPCCodedResponse, RequestId, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};

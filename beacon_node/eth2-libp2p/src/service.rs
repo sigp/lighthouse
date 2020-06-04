@@ -1,7 +1,7 @@
 use crate::behaviour::{Behaviour, BehaviourEvent, Request, Response};
-use crate::rpc::{RequestId, SubstreamId};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
+use crate::rpc::{RequestId, SubstreamId};
 use crate::types::{error, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals};
@@ -233,8 +233,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
         self.swarm.send_request(peer_id, request_id, request);
     }
 
-    pub fn send_response(&mut self, peer_id: PeerId, stream_id: SubstreamId, response: Response<TSpec>) {
-        self.swarm.send_successful_response(peer_id, stream_id, response);
+    pub fn send_response(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        response: Response<TSpec>,
+    ) {
+        self.swarm
+            .send_successful_response(peer_id, stream_id, response);
     }
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {

@@ -625,7 +625,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
-
     /// Queues the response to sent upwards as long at it was requested outside the Behaviour.
     fn propagate_response(&mut self, id: RequestId, peer_id: PeerId, response: Response<TSpec>) {
         if !matches!(id, RequestId::Behaviour) {
