@@ -1,7 +1,6 @@
 mod fork_choice_store;
 
 use crate::{metrics, BeaconChainTypes, BeaconSnapshot};
-use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
 use lmd_ghost::{Error as LmdGhostError, QueuedAttestation};
 use parking_lot::{RwLock, RwLockReadGuard};
 use proto_array_fork_choice::ProtoArrayForkChoice;
@@ -11,9 +10,8 @@ use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::{BeaconBlock, BeaconState, ChainSpec, Epoch, Hash256, IndexedAttestation, Slot};
 
+pub use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
 pub use lmd_ghost::InvalidAttestation;
-
-type LmdGhost<T> = lmd_ghost::ForkChoice<ForkChoiceStore<T>, <T as BeaconChainTypes>::EthSpec>;
 
 #[derive(Debug)]
 pub enum Error {
@@ -33,7 +31,17 @@ pub enum Error {
 /// This struct does not perform any fork choice "business logic", that is all delegated to
 /// `LmdGhost`.
 pub struct ForkChoice<T: BeaconChainTypes> {
-    backend: RwLock<LmdGhost<T>>,
+    backend: RwLock<
+        // TODO: clean up this insane type def.
+        lmd_ghost::ForkChoice<
+            ForkChoiceStore<
+                <T as BeaconChainTypes>::Store,
+                <T as BeaconChainTypes>::SlotClock,
+                <T as BeaconChainTypes>::EthSpec,
+            >,
+            <T as BeaconChainTypes>::EthSpec,
+        >,
+    >,
 }
 
 impl<T: BeaconChainTypes> PartialEq for ForkChoice<T> {
@@ -53,7 +61,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         let fc_store = ForkChoiceStore::from_genesis(store, slot_clock, genesis, spec)
             .map_err(Error::ForkChoiceStoreError)?;
 
-        let backend = LmdGhost::from_genesis(
+        let backend = lmd_ghost::ForkChoice::from_genesis(
             fc_store,
             genesis.beacon_block_root,
             &genesis.beacon_block.message,
@@ -112,7 +120,8 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
         self.backend
             .read()
             .proto_array()
-            .block_slot_and_state_root(block_root)
+            .get_block(block_root)
+            .map(|block| (block.slot, block.state_root))
     }
 
     /// Returns the latest message for a given validator, if any.
@@ -133,7 +142,18 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
     /// Returns a read-lock to the backend fork choice algorithm.
     ///
     /// Should only be used when encoding/decoding during troubleshooting.
-    pub fn backend(&self) -> RwLockReadGuard<LmdGhost<T>> {
+    pub fn backend(
+        &self,
+    ) -> RwLockReadGuard<
+        lmd_ghost::ForkChoice<
+            ForkChoiceStore<
+                <T as BeaconChainTypes>::Store,
+                <T as BeaconChainTypes>::SlotClock,
+                <T as BeaconChainTypes>::EthSpec,
+            >,
+            <T as BeaconChainTypes>::EthSpec,
+        >,
+    > {
         self.backend.read()
     }
 
@@ -150,7 +170,7 @@ impl<T: BeaconChainTypes> ForkChoice<T> {
             .map_err(Error::InvalidProtoArrayBytes)?;
 
         Ok(Self {
-            backend: RwLock::new(LmdGhost::from_components(
+            backend: RwLock::new(lmd_ghost::ForkChoice::from_components(
                 fc_store,
                 proto_array,
                 persisted.genesis_block_root,

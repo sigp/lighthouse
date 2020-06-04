@@ -2645,9 +2645,14 @@ checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 name = "lmd_ghost"
 version = "0.1.0"
 dependencies = [
+ "beacon_chain",
  "eth2_ssz",
  "eth2_ssz_derive",
  "proto_array_fork_choice",
+ "slot_clock",
+ "state_processing",
+ "store",
+ "tree_hash",
  "types",
 ]
 

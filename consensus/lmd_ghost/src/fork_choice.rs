@@ -684,6 +684,7 @@ mod tests {
 
     // TODO: test updating justified checkpoint via on_tick.
 
+    /*
     #[test]
     fn update_justified_checkpoint_non_ancestor() {
         let mut store = TestingStore::from_state(
@@ -764,4 +765,5 @@ mod tests {
             "outside safe-to-update slots"
         );
     }
+    */
 }

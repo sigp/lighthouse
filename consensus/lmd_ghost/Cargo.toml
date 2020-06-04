@@ -11,3 +11,10 @@ types = { path = "../types" }
 proto_array_fork_choice = { path = "../proto_array_fork_choice" }
 eth2_ssz = { path = "../ssz" }
 eth2_ssz_derive = { path = "../ssz_derive" }
+
+[dev-dependencies]
+state_processing = { path = "../../consensus/state_processing" }
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
+store = { path = "../../beacon_node/store" }
+tree_hash = { path = "../../consensus/tree_hash" }
+slot_clock = { path = "../../common/slot_clock" }

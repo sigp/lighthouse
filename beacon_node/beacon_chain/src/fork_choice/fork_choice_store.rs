@@ -1,11 +1,13 @@
-use crate::{BeaconChainTypes, BeaconSnapshot};
+use crate::BeaconSnapshot;
 use lmd_ghost::ForkChoiceStore as ForkChoiceStoreTrait;
 use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use store::iter::{BlockRootsIterator, ReverseBlockRootIterator};
-use types::{BeaconState, ChainSpec, Checkpoint, Hash256, Slot};
+use store::Store;
+use types::{BeaconState, ChainSpec, Checkpoint, EthSpec, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -18,18 +20,19 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct ForkChoiceStore<T: BeaconChainTypes> {
-    store: Arc<T::Store>,
-    slot_clock: T::SlotClock,
+pub struct ForkChoiceStore<S, C, E> {
+    store: Arc<S>,
+    slot_clock: C,
     time: Slot,
     finalized_checkpoint: Checkpoint,
     justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
     best_justified_balances: Option<Vec<u64>>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: BeaconChainTypes> PartialEq for ForkChoiceStore<T> {
+impl<S, C, E> PartialEq for ForkChoiceStore<S, C, E> {
     /// This implementation ignores the `store` and `slot_clock`.
     fn eq(&self, other: &Self) -> bool {
         self.time == other.time
@@ -41,11 +44,11 @@ impl<T: BeaconChainTypes> PartialEq for ForkChoiceStore<T> {
     }
 }
 
-impl<T: BeaconChainTypes> ForkChoiceStore<T> {
+impl<S: Store<E>, C: SlotClock, E: EthSpec> ForkChoiceStore<S, C, E> {
     pub fn from_genesis(
-        store: Arc<T::Store>,
-        slot_clock: T::SlotClock,
-        genesis: &BeaconSnapshot<T::EthSpec>,
+        store: Arc<S>,
+        slot_clock: C,
+        genesis: &BeaconSnapshot<E>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let time = if slot_clock
@@ -70,6 +73,7 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
             justified_balances: genesis.beacon_state.balances.clone().into(),
             best_justified_checkpoint: genesis.beacon_state.current_justified_checkpoint,
             best_justified_balances: None,
+            _phantom: PhantomData,
         })
     }
 
@@ -77,11 +81,7 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
         PersistedForkChoiceStore::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(
-        bytes: &[u8],
-        store: Arc<T::Store>,
-        slot_clock: T::SlotClock,
-    ) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: &[u8], store: Arc<S>, slot_clock: C) -> Result<Self, Error> {
         let persisted = PersistedForkChoiceStore::from_ssz_bytes(bytes)
             .map_err(Error::InvalidPersistedBytes)?;
 
@@ -94,11 +94,12 @@ impl<T: BeaconChainTypes> ForkChoiceStore<T> {
             justified_balances: persisted.justified_balances,
             best_justified_checkpoint: persisted.best_justified_checkpoint,
             best_justified_balances: persisted.best_justified_balances,
+            _phantom: PhantomData,
         })
     }
 }
 
-impl<T: BeaconChainTypes> ForkChoiceStoreTrait<T::EthSpec> for ForkChoiceStore<T> {
+impl<S: Store<E>, C: SlotClock, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, C, E> {
     type Error = Error;
 
     fn update_time(&mut self) -> Result<(), Error> {
@@ -158,23 +159,23 @@ impl<T: BeaconChainTypes> ForkChoiceStoreTrait<T::EthSpec> for ForkChoiceStore<T
         self.finalized_checkpoint = c
     }
 
-    fn set_justified_checkpoint(&mut self, state: &BeaconState<T::EthSpec>) {
+    fn set_justified_checkpoint(&mut self, state: &BeaconState<E>) {
         self.justified_checkpoint = state.current_justified_checkpoint;
         self.justified_balances = state.balances.clone().into();
     }
 
-    fn set_best_justified_checkpoint(&mut self, state: &BeaconState<T::EthSpec>) {
+    fn set_best_justified_checkpoint(&mut self, state: &BeaconState<E>) {
         self.best_justified_checkpoint = state.current_justified_checkpoint;
         self.best_justified_balances = Some(state.balances.clone().into());
     }
 
-    fn get_ancestor(
+    fn ancestor_at_slot(
         &self,
-        state: &BeaconState<T::EthSpec>,
+        state: &BeaconState<E>,
         root: Hash256,
-        slot: Slot,
+        ancestor_slot: Slot,
     ) -> Result<Hash256, Error> {
-        let root = match state.get_block_root(slot) {
+        let root = match state.get_block_root(ancestor_slot) {
             Ok(root) => *root,
             Err(_) => {
                 let start_slot = state.slot;
@@ -182,7 +183,7 @@ impl<T: BeaconChainTypes> ForkChoiceStoreTrait<T::EthSpec> for ForkChoiceStore<T
                 let iter = BlockRootsIterator::owned(self.store.clone(), state.clone());
 
                 ReverseBlockRootIterator::new((root, start_slot), iter)
-                    .find(|(_, ancestor_slot)| *ancestor_slot == slot)
+                    .find(|(_, slot)| ancestor_slot == *slot)
                     .map(|(ancestor_block_root, _)| ancestor_block_root)
                     .ok_or_else(|| Error::AncestorUnknown(root))?
             }
@@ -202,8 +203,10 @@ pub struct PersistedForkChoiceStore {
     best_justified_balances: Option<Vec<u64>>,
 }
 
-impl<T: BeaconChainTypes> From<&ForkChoiceStore<T>> for PersistedForkChoiceStore {
-    fn from(store: &ForkChoiceStore<T>) -> Self {
+impl<S: Store<E>, C: SlotClock, E: EthSpec> From<&ForkChoiceStore<S, C, E>>
+    for PersistedForkChoiceStore
+{
+    fn from(store: &ForkChoiceStore<S, C, E>) -> Self {
         Self {
             time: store.time,
             finalized_checkpoint: store.finalized_checkpoint,
