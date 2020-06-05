@@ -289,6 +289,7 @@ dependencies = [
  "futures 0.3.5",
  "genesis",
  "integer-sqrt",
+ "itertools 0.9.0",
  "lazy_static",
  "lighthouse_metrics",
  "log 0.4.8",

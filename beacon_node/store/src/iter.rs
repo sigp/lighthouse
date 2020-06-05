@@ -182,19 +182,15 @@ impl<'a, T: EthSpec, U: Store<T>> RootsIterator<'a, T, U> {
             (Ok(block_root), Ok(state_root)) => Ok(Some((*block_root, *state_root, self.slot))),
             (Err(BeaconStateError::SlotOutOfBounds), Err(BeaconStateError::SlotOutOfBounds)) => {
                 // Read a `BeaconState` from the store that has access to prior historical roots.
-                let maybe_beacon_state =
+                let beacon_state =
                     next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
 
-                if let Some(beacon_state) = maybe_beacon_state {
-                    self.beacon_state = Cow::Owned(beacon_state);
+                self.beacon_state = Cow::Owned(beacon_state);
 
-                    let block_root = *self.beacon_state.get_block_root(self.slot)?;
-                    let state_root = *self.beacon_state.get_state_root(self.slot)?;
+                let block_root = *self.beacon_state.get_block_root(self.slot)?;
+                let state_root = *self.beacon_state.get_state_root(self.slot)?;
 
-                    Ok(Some((block_root, state_root, self.slot)))
-                } else {
-                    Ok(None)
-                }
+                Ok(Some((block_root, state_root, self.slot)))
             }
             (Err(e), _) => Err(e.into()),
             (Ok(_), Err(e)) => Err(e.into()),
@@ -295,14 +291,16 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockIterator<'a, T, U> {
 fn next_historical_root_backtrack_state<E: EthSpec, S: Store<E>>(
     store: &S,
     current_state: &BeaconState<E>,
-) -> Result<Option<BeaconState<E>>, Error> {
+) -> Result<BeaconState<E>, Error> {
     // For compatibility with the freezer database's restore points, we load a state at
     // a restore point slot (thus avoiding replaying blocks). In the case where we're
     // not frozen, this just means we might not jump back by the maximum amount on
     // our first jump (i.e. at most 1 extra state load).
     let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
     let new_state_root = current_state.get_state_root(new_state_slot)?;
-    store.get_state(new_state_root, Some(new_state_slot))
+    Ok(store
+        .get_state(new_state_root, Some(new_state_slot))?
+        .ok_or_else(|| BeaconStateError::MissingBeaconState((*new_state_root).into()))?)
 }
 
 /// Compute the slot of the last guaranteed restore point in the freezer database.

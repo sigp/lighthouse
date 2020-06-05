@@ -15,6 +15,7 @@ pub enum Error {
     DBError { message: String },
     RlpError(String),
     BlockNotFound(Hash256),
+    NoContinuationData,
 }
 
 impl From<DecodeError> for Error {

@@ -23,6 +23,7 @@ use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconSnapshot;
+use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -322,7 +323,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn rev_iter_block_roots(
         &self,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        let head = self.head().map_err(|e| Error::from(e))?;
+        let head = self.head()?;
         let iter = BlockRootsIterator::owned(self.store.clone(), head.beacon_state);
         Ok(
             std::iter::once(Ok((head.beacon_block_root, head.beacon_block.slot())))
@@ -398,12 +399,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots(
         &self,
-    ) -> Result<Box<dyn Iterator<Item = Result<(Hash256, Slot), Error>>>, Error> {
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         let head = self.head()?;
         let slot = head.beacon_state.slot;
         let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
         let iter = std::iter::once(Ok((head.beacon_state_root, slot))).chain(iter);
-        Ok(Box::new(iter.map(|result| result.map_err(|e| e.into()))))
+        Ok(Box::new(iter.map(|result| result.map_err(Into::into))))
     }
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
@@ -568,19 +569,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(state)
             }
             Ordering::Less => {
-                let state_root = self
-                    .rev_iter_state_roots()?
-                    .take_while(|result| match result {
-                        Ok((_, current_slot)) => *current_slot >= slot,
-                        Err(_) => true,
-                    })
-                    .find(|result| match result {
-                        Ok((_, current_slot)) => *current_slot == slot,
-                        Err(_) => true,
-                    })
-                    .transpose()?
-                    .map(|(root, _slot)| root)
-                    .ok_or_else(|| Error::NoStateForSlot(slot))?;
+                let state_root = process_results(self.rev_iter_state_roots()?, |iter| {
+                    iter.take_while(|(_, current_slot)| *current_slot >= slot)
+                        .find(|(_, current_slot)| *current_slot == slot)
+                        .map(|(root, _slot)| root)
+                })?
+                .ok_or_else(|| Error::NoStateForSlot(slot))?;
 
                 Ok(self
                     .get_state(&state_root, Some(slot))?
@@ -655,14 +649,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns None if a block doesn't exist at the slot.
     pub fn root_at_slot(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        Ok(self
-            .rev_iter_block_roots()?
-            .find(|result| match result {
-                Ok((_, slot)) => *slot == target_slot,
-                Err(_) => true,
-            })
-            .transpose()?
-            .map(|(root, _)| root))
+        process_results(self.rev_iter_state_roots()?, |mut iter| {
+            iter.find(|(_, slot)| *slot == target_slot)
+                .map(|(root, _)| root)
+        })
     }
 
     /// Returns the block proposer for a given slot.

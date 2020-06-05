@@ -1,6 +1,6 @@
 use crate::chunked_iter::ChunkedVectorIter;
 use crate::chunked_vector::BlockRoots;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::iter::BlockRootsIterator;
 use crate::{HotColdDB, Store};
 use std::sync::Arc;
@@ -72,8 +72,7 @@ impl SimpleForwardsBlockRootsIterator {
                 Err(_) => true,
             })
             .collect::<Result<Vec<_>>>()?;
-        let result = Self { values: values };
-        Ok(result)
+        Ok(Self { values: values })
     }
 }
 
@@ -136,9 +135,8 @@ impl<E: EthSpec> HybridForwardsBlockRootsIterator<E> {
                     // to a post-finalization iterator beginning from the last slot
                     // of the pre iterator.
                     None => {
-                        let (end_state, end_block_root) = continuation_data
-                            .take()
-                            .expect("HybridForwardsBlockRootsIterator: logic error");
+                        let (end_state, end_block_root) =
+                            continuation_data.take().ok_or(Error::NoContinuationData)?;
 
                         *self = PostFinalization {
                             iter: SimpleForwardsBlockRootsIterator::new(
