@@ -9,7 +9,16 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /* Requests */
 
-pub type RequestId = usize;
+/// Identifier of a request.
+///
+// NOTE: The handler stores the `RequestId` to inform back of responses and errors, but it's execution
+// is independent of the contents on this type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestId {
+    Router,
+    Sync(usize),
+    Behaviour,
+}
 
 /// The STATUS request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
@@ -194,7 +203,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum RPCResponseErrorCode {
     InvalidRequest,
     ServerError,
@@ -227,6 +236,15 @@ impl<T: EthSpec> RPCCodedResponse<T> {
             1 => RPCCodedResponse::InvalidRequest(err),
             2 => RPCCodedResponse::ServerError(err),
             _ => RPCCodedResponse::Unknown(err),
+        }
+    }
+
+    /// Builds an RPCCodedResponse from a response code and an ErrorMessage
+    pub fn from_error_code(response_code: RPCResponseErrorCode, err: String) -> Self {
+        match response_code {
+            RPCResponseErrorCode::InvalidRequest => RPCCodedResponse::InvalidRequest(err),
+            RPCResponseErrorCode::ServerError => RPCCodedResponse::ServerError(err),
+            RPCResponseErrorCode::Unknown => RPCCodedResponse::Unknown(err),
         }
     }
 
@@ -331,5 +349,20 @@ impl std::fmt::Display for BlocksByRangeRequest {
             "Start Slot: {}, Count: {}, Step: {}",
             self.start_slot, self.count, self.step
         )
+    }
+}
+
+impl slog::Value for RequestId {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        match self {
+            RequestId::Behaviour => slog::Value::serialize("Behaviour", record, key, serializer),
+            RequestId::Router => slog::Value::serialize("Router", record, key, serializer),
+            RequestId::Sync(ref id) => slog::Value::serialize(id, record, key, serializer),
+        }
     }
 }

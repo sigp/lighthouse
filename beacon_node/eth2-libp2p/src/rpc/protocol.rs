@@ -290,32 +290,19 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
     /* These functions are used in the handler for stream management */
 
-    /// This specifies whether a stream should remain open and await a response, given a request.
-    /// A GOODBYE request has no response.
-    pub fn expect_response(&self) -> bool {
+    /// Number of responses expected for this request.
+    pub fn expected_responses(&self) -> usize {
         match self {
-            RPCRequest::Status(_) => true,
-            RPCRequest::Goodbye(_) => false,
-            RPCRequest::BlocksByRange(_) => true,
-            RPCRequest::BlocksByRoot(_) => true,
-            RPCRequest::Ping(_) => true,
-            RPCRequest::MetaData(_) => true,
+            RPCRequest::Status(_) => 1,
+            RPCRequest::Goodbye(_) => 0,
+            RPCRequest::BlocksByRange(req) => req.count as usize,
+            RPCRequest::BlocksByRoot(req) => req.block_roots.len(),
+            RPCRequest::Ping(_) => 1,
+            RPCRequest::MetaData(_) => 1,
         }
     }
 
-    /// Returns which methods expect multiple responses from the stream. If this is false and
-    /// the stream terminates, an error is given.
-    pub fn multiple_responses(&self) -> bool {
-        match self {
-            RPCRequest::Status(_) => false,
-            RPCRequest::Goodbye(_) => false,
-            RPCRequest::BlocksByRange(_) => true,
-            RPCRequest::BlocksByRoot(_) => true,
-            RPCRequest::Ping(_) => false,
-            RPCRequest::MetaData(_) => false,
-        }
-    }
-
+    /// Gives the corresponding `Protocol` to this request.
     pub fn protocol(&self) -> Protocol {
         match self {
             RPCRequest::Status(_) => Protocol::Status,
@@ -390,7 +377,7 @@ pub enum RPCError {
     /// IO Error.
     IoError(String),
     /// The peer returned a valid response but the response indicated an error.
-    ErrorResponse(RPCResponseErrorCode),
+    ErrorResponse(RPCResponseErrorCode, String),
     /// Timed out waiting for a response.
     StreamTimeout,
     /// Peer does not support the protocol.
@@ -430,7 +417,11 @@ impl std::fmt::Display for RPCError {
             RPCError::SSZDecodeError(ref err) => write!(f, "Error while decoding ssz: {:?}", err),
             RPCError::InvalidData => write!(f, "Peer sent unexpected data"),
             RPCError::IoError(ref err) => write!(f, "IO Error: {}", err),
-            RPCError::ErrorResponse(ref code) => write!(f, "RPC response was an error: {}", code),
+            RPCError::ErrorResponse(ref code, ref reason) => write!(
+                f,
+                "RPC response was an error: {} with reason: {}",
+                code, reason
+            ),
             RPCError::StreamTimeout => write!(f, "Stream Timeout"),
             RPCError::UnsupportedProtocol => write!(f, "Peer does not support the protocol"),
             RPCError::IncompleteStream => write!(f, "Stream ended unexpectedly"),
@@ -451,7 +442,7 @@ impl std::error::Error for RPCError {
             RPCError::IncompleteStream => None,
             RPCError::InvalidData => None,
             RPCError::InternalError(_) => None,
-            RPCError::ErrorResponse(_) => None,
+            RPCError::ErrorResponse(_, _) => None,
             RPCError::NegotiationTimeout => None,
         }
     }

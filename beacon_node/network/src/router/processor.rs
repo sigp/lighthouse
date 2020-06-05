@@ -7,9 +7,8 @@ use beacon_chain::{
     },
     BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
 };
-use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCCodedResponse, RPCEvent, RPCRequest, RPCResponse, RequestId};
-use eth2_libp2p::{NetworkGlobals, PeerId};
+use eth2_libp2p::rpc::*;
+use eth2_libp2p::{NetworkGlobals, PeerId, Request, Response};
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
@@ -86,7 +85,10 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
     pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
-        self.send_to_sync(SyncMessage::RPCError(peer_id, request_id));
+        // Check if the failed RPC belongs to sync
+        if let RequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::RPCError(peer_id, id));
+        }
     }
 
     /// Sends a `Status` message to the peer.
@@ -106,7 +108,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 "head_slot" => format!("{}", status_message.head_slot),
             );
             self.network
-                .send_rpc_request(peer_id, RPCRequest::Status(status_message));
+                .send_processor_request(peer_id, Request::Status(status_message));
         }
     }
 
@@ -116,7 +118,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         status: StatusMessage,
     ) {
         debug!(
@@ -133,10 +135,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         // ignore status responses if we are shutting down
         if let Some(status_message) = status_message(&self.chain) {
             // Say status back.
-            self.network.send_rpc_response(
+            self.network.send_response(
                 peer_id.clone(),
+                Response::Status(status_message),
                 request_id,
-                RPCResponse::Status(status_message),
             );
         }
 
@@ -281,16 +283,16 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_root_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         request: BlocksByRootRequest,
     ) {
         let mut send_block_count = 0;
         for root in request.block_roots.iter() {
             if let Ok(Some(block)) = self.chain.store.get_block(root) {
-                self.network.send_rpc_response(
+                self.network.send_response(
                     peer_id.clone(),
+                    Response::BlocksByRoot(Some(Box::new(block))),
                     request_id,
-                    RPCResponse::BlocksByRoot(Box::new(block)),
                 );
                 send_block_count += 1;
             } else {
@@ -311,18 +313,15 @@ impl<T: BeaconChainTypes> Processor<T> {
         );
 
         // send stream termination
-        self.network.send_rpc_error_response(
-            peer_id,
-            request_id,
-            RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRoot),
-        );
+        self.network
+            .send_response(peer_id, Response::BlocksByRoot(None), request_id);
     }
 
     /// Handle a `BlocksByRange` request from the peer.
     pub fn on_blocks_by_range_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         req: BlocksByRangeRequest,
     ) {
         debug!(
@@ -388,10 +387,10 @@ impl<T: BeaconChainTypes> Processor<T> {
                     && block.slot() < req.start_slot + req.count * req.step
                 {
                     blocks_sent += 1;
-                    self.network.send_rpc_response(
+                    self.network.send_response(
                         peer_id.clone(),
+                        Response::BlocksByRange(Some(Box::new(block))),
                         request_id,
-                        RPCResponse::BlocksByRange(Box::new(block)),
                     );
                 }
             } else {
@@ -425,11 +424,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         }
 
         // send the stream terminator
-        self.network.send_rpc_error_response(
-            peer_id,
-            request_id,
-            RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
-        );
+        self.network
+            .send_response(peer_id, Response::BlocksByRange(None), request_id);
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -446,11 +442,18 @@ impl<T: BeaconChainTypes> Processor<T> {
             "peer" => format!("{:?}", peer_id),
         );
 
-        self.send_to_sync(SyncMessage::BlocksByRangeResponse {
-            peer_id,
-            request_id,
-            beacon_block,
-        });
+        if let RequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::BlocksByRangeResponse {
+                peer_id,
+                request_id: id,
+                beacon_block,
+            });
+        } else {
+            debug!(
+                self.log,
+                "All blocks by range responses should belong to sync"
+            );
+        }
     }
 
     /// Handle a `BlocksByRoot` response from the peer.
@@ -466,11 +469,18 @@ impl<T: BeaconChainTypes> Processor<T> {
             "peer" => format!("{:?}", peer_id),
         );
 
-        self.send_to_sync(SyncMessage::BlocksByRootResponse {
-            peer_id,
-            request_id,
-            beacon_block,
-        });
+        if let RequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::BlocksByRootResponse {
+                peer_id,
+                request_id: id,
+                beacon_block,
+            });
+        } else {
+            debug!(
+                self.log,
+                "All Blocks by Root responses should belong to sync"
+            )
+        }
     }
 
     /// Template function to be called on a block to determine if the block should be propagated
@@ -902,8 +912,6 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 
 /// Wraps a Network Channel to employ various RPC related network functionality for the
 /// processor.
-/// The Processor doesn't manage it's own request Id's and can therefore only send
-/// responses or requests with 0 request Ids.
 pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
@@ -916,6 +924,12 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         Self { network_send, log }
     }
 
+    fn inform_network(&mut self, msg: NetworkMessage<T>) {
+        self.network_send
+            .send(msg)
+            .unwrap_or_else(|_| warn!(self.log, "Could not send message to the network service"))
+    }
+
     pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         warn!(
             &self.log,
@@ -923,55 +937,42 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             "reason" => format!("{:?}", reason),
             "peer_id" => format!("{:?}", peer_id),
         );
-        self.send_rpc_request(peer_id.clone(), RPCRequest::Goodbye(reason));
-        self.network_send
-            .send(NetworkMessage::Disconnect { peer_id })
-            .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send a Disconnect to the network service"
-                )
-            });
+        self.send_processor_request(peer_id.clone(), Request::Goodbye(reason));
+        self.inform_network(NetworkMessage::Disconnect { peer_id });
     }
 
-    pub fn send_rpc_request(&mut self, peer_id: PeerId, rpc_request: RPCRequest<T>) {
-        // the message handler cannot send requests with ids. Id's are managed by the sync
-        // manager.
-        let request_id = 0;
-        self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request));
-    }
-
-    /// Convenience function to wrap successful RPC Responses.
-    pub fn send_rpc_response(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        rpc_response: RPCResponse<T>,
-    ) {
-        self.send_rpc_event(
+    pub fn send_processor_request(&mut self, peer_id: PeerId, request: Request) {
+        self.inform_network(NetworkMessage::SendRequest {
             peer_id,
-            RPCEvent::Response(request_id, RPCCodedResponse::Success(rpc_response)),
-        );
+            request_id: RequestId::Router,
+            request,
+        })
     }
 
-    /// Send an RPCCodedResponse. This handles errors and stream terminations.
-    pub fn send_rpc_error_response(
+    pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
-        rpc_error_response: RPCCodedResponse<T>,
+        response: Response<T>,
+        stream_id: SubstreamId,
     ) {
-        self.send_rpc_event(peer_id, RPCEvent::Response(request_id, rpc_error_response));
+        self.inform_network(NetworkMessage::SendResponse {
+            peer_id,
+            stream_id,
+            response,
+        })
     }
-
-    fn send_rpc_event(&mut self, peer_id: PeerId, rpc_event: RPCEvent<T>) {
-        self.network_send
-            .send(NetworkMessage::RPC(peer_id, rpc_event))
-            .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send RPC message to the network service"
-                )
-            });
+    pub fn _send_error_response(
+        &mut self,
+        peer_id: PeerId,
+        substream_id: SubstreamId,
+        error: RPCResponseErrorCode,
+        reason: String,
+    ) {
+        self.inform_network(NetworkMessage::SendError {
+            peer_id,
+            error,
+            substream_id,
+            reason,
+        })
     }
 }
