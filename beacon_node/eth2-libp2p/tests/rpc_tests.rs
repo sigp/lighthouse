@@ -55,12 +55,11 @@ async fn test_status_rpc() {
                 }
                 Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
                     peer_id: _,
-                    id,
+                    id: RequestId::Sync(10),
                     response,
                 }) => {
                     // Should receive the RPC response
                     debug!(log, "Sender Received");
-                    assert_eq!(RequestId::Sync(10), id);
                     assert_eq!(response, rpc_response.clone());
                     debug!(log, "Sender Completed");
                     return;
@@ -80,12 +79,12 @@ async fn test_status_rpc() {
                     request,
                 }) => {
                     if request == rpc_request {
+                        // send the response
                         debug!(log, "Receiver Received");
                         receiver
                             .swarm
                             .send_successful_response(peer_id, id, rpc_response.clone());
                     }
-                    // send the response
                 }
                 _ => {} // Ignore other events
             }
