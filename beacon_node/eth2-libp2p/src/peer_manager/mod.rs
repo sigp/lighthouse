@@ -306,7 +306,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 Protocol::Ping => PeerAction::LowToleranceError,
                 Protocol::BlocksByRange => PeerAction::MidToleranceError,
                 Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                _ => return,
+                Protocol::Goodbye => return,
+                Protocol::MetaData => return,
+                Protocol::Status => return,
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
         };

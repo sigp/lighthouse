@@ -379,7 +379,6 @@ impl<T: BeaconChainTypes> Processor<T> {
             .collect::<Vec<_>>();
 
         let mut blocks_sent = 0;
-
         for root in block_roots {
             if let Ok(Some(block)) = self.chain.store.get_block(&root) {
                 // Due to skip slots, blocks could be out of the range, we ensure they are in the
@@ -477,7 +476,10 @@ impl<T: BeaconChainTypes> Processor<T> {
                 beacon_block,
             });
         } else {
-            debug!(self.log, "All ")
+            debug!(
+                self.log,
+                "All Blocks by Root responses should belong to sync"
+            )
         }
     }
 
@@ -910,9 +912,6 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
 
 /// Wraps a Network Channel to employ various RPC related network functionality for the
 /// processor.
-/// The Processor doesn't manage it's own request Id's and can therefore only send
-/// responses or requests with None request Ids.
-/// TODO: update
 pub struct HandlerNetworkContext<T: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
@@ -931,16 +930,16 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             .unwrap_or_else(|_| warn!(self.log, "Could not send message to the network service"))
     }
 
-    // pub fn subscribe (
-    //     subscriptions: Vec<ValidatorSubscription>,
-    // ){}
-
-    // pub fn publish ( messages: Vec<PubsubMessage<T>> ){}
-
-    // pub fn propagate (
-    //     propagation_source: PeerId,
-    //     message_id: MessageId,
-    // ){}
+    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        warn!(
+            &self.log,
+            "Disconnecting peer (RPC)";
+            "reason" => format!("{:?}", reason),
+            "peer_id" => format!("{:?}", peer_id),
+        );
+        self.send_processor_request(peer_id.clone(), Request::Goodbye(reason));
+        self.inform_network(NetworkMessage::Disconnect { peer_id });
+    }
 
     pub fn send_processor_request(&mut self, peer_id: PeerId, request: Request) {
         self.inform_network(NetworkMessage::SendRequest {
@@ -967,22 +966,13 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         peer_id: PeerId,
         substream_id: SubstreamId,
         error: RPCResponseErrorCode,
+        reason: String,
     ) {
         self.inform_network(NetworkMessage::SendError {
             peer_id,
             error,
             substream_id,
+            reason,
         })
-    }
-
-    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        warn!(
-            &self.log,
-            "Disconnecting peer (RPC)";
-            "reason" => format!("{:?}", reason),
-            "peer_id" => format!("{:?}", peer_id),
-        );
-        self.send_processor_request(peer_id.clone(), Request::Goodbye(reason));
-        self.inform_network(NetworkMessage::Disconnect { peer_id });
     }
 }

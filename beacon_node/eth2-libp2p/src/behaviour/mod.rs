@@ -394,7 +394,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Eth2 RPC behaviour functions */
 
     /// Send a request to a peer over RPC.
-    pub(crate) fn send_request(
+    pub fn send_request(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -404,7 +404,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Send a successful response to a peer over RPC.
-    pub(crate) fn send_successful_response(
+    pub fn send_successful_response(
         &mut self,
         peer_id: PeerId,
         stream_id: SubstreamId,
@@ -414,7 +414,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Inform the peer that their request produced an error
-    pub(crate) fn _send_error_reponse(
+    pub fn _send_error_reponse(
         &mut self,
         peer_id: PeerId,
         stream_id: SubstreamId,
@@ -428,7 +428,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
     /// Sends an RPC Request/Response via the RPC protocol.
     fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCSend<TSpec>) {
-        // Check if we are sending an error to the peer, and inform the peer manager
+        // TODO: Check if we are sending an error to the peer, and inform the peer manager
         self.eth2_rpc.send_rpc(peer_id, rpc_event);
     }
 
@@ -510,6 +510,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Local discovery must have bitfield");
     }
 
+    /// Sends a Ping request to the peer
     fn ping(&mut self, id: RequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
@@ -520,6 +521,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.send_rpc(peer_id, event);
     }
 
+    /// Sends a Pong response to the peer
     fn pong(&mut self, id: SubstreamId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
@@ -625,7 +627,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
-    /// Queues the response to sent upwards as long at it was requested outside the Behaviour.
+    /// Queues the response to be sent upwards as long at it was requested outside the Behaviour.
     fn propagate_response(&mut self, id: RequestId, peer_id: PeerId, response: Response<TSpec>) {
         if !matches!(id, RequestId::Behaviour) {
             self.events.push(BehaviourEvent::ResponseReceived {
@@ -647,7 +649,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     fn on_rpc_event(&mut self, message: RPCMessage<TSpec>) {
         let peer_id = message.peer_id;
-
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match message.event {
             Err(handler_err) => {
@@ -684,6 +685,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 RPCRequest::MetaData(_) => {
                     // send the requested meta-data
                     self.send_meta_data_response(id, peer_id);
+                    // TODO: do no inform the peer manager?
                 }
                 /* Protocols propagated to the Network */
                 RPCRequest::Status(msg) => {
@@ -881,19 +883,25 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     RPCFailed {
         /// The id of the failed request.
         id: RequestId,
-        /// The peer_id to which this request was sent.
+        /// The peer to which this request was sent.
         peer_id: PeerId,
         /// The error that occurred.
         error: RPCError,
     },
     RequestReceived {
+        /// The peer that sent the request.
         peer_id: PeerId,
+        /// Identifier of the request. All responses to this request must use this id.
         id: SubstreamId,
+        /// Request the peer sent.
         request: Request,
     },
     ResponseReceived {
+        /// Peer that sent the response.
         peer_id: PeerId,
+        /// Id of the request to which the peer is responding.
         id: RequestId,
+        /// Response the peer sent.
         response: Response<TSpec>,
     },
     PubsubMessage {

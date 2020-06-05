@@ -160,19 +160,14 @@ fn spawn_service<T: BeaconChainTypes>(
                 // handle a message sent to the network
                 Some(message) = service.network_recv.recv() => {
                     match message {
-                        NetworkMessage::SendRequest{peer_id, request, request_id} => {
-                            //     trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
+                        NetworkMessage::SendRequest{ peer_id, request, request_id } => {
                             service.libp2p.send_request(peer_id, request_id, request);
                         }
-                        NetworkMessage::SendResponse{peer_id, response, stream_id} => {
-                            //     trace!(service.log, "Sending RPC"; "rpc" => format!("{}", rpc_event));
+                        NetworkMessage::SendResponse{ peer_id, response, stream_id } => {
                             service.libp2p.send_response(peer_id, stream_id, response);
                         }
-                        NetworkMessage::SendError{        peer_id,
-                        error,
-                        substream_id,
-                        } => {
-                            service.libp2p.respond_with_error(peer_id, substream_id, error,"men I forgot to seand the reason".to_string());
+                        NetworkMessage::SendError{ peer_id, error, substream_id, reason } => {
+                            service.libp2p.respond_with_error(peer_id, substream_id, error, reason);
                         }
                         NetworkMessage::Propagate {
                             propagation_source,
@@ -244,7 +239,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             let _ = service
                                 .attestation_service
                                 .validator_subscriptions(subscriptions);
-                            }
+                        }
                     }
                 }
                 // process any attestation service events
@@ -292,16 +287,16 @@ fn spawn_service<T: BeaconChainTypes>(
                             BehaviourEvent::ResponseReceived{peer_id, id, response} => {
                                 let _ = service
                                     .router_send
-                                    .send(RouterMessage::RPCResponseReceived{peer_id, request_id:id, response})
+                                    .send(RouterMessage::RPCResponseReceived{ peer_id, request_id:id, response })
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
 
                             }
-                            BehaviourEvent::RPCFailed{id, peer_id, error: _} => {
+                            BehaviourEvent::RPCFailed{id, peer_id, error} => {
                                 let _ = service
                                     .router_send
-                                    .send(RouterMessage::RPCFailed{peer_id, request_id:id})
+                                    .send(RouterMessage::RPCFailed{ peer_id, request_id:id, error })
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
@@ -357,7 +352,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     }
                                 }
                             }
-                            // Then why do we send it?
                             BehaviourEvent::PeerSubscribed(_, _) => {},
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
@@ -438,6 +432,7 @@ pub enum NetworkMessage<T: EthSpec> {
         // stream assigned to the request
         peer_id: PeerId,
         error: RPCResponseErrorCode,
+        reason: String,
         substream_id: SubstreamId,
     },
     /// Publish a list of messages to the gossipsub protocol.

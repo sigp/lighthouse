@@ -10,7 +10,7 @@ use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
-    rpc::{RequestId, SubstreamId},
+    rpc::{RPCError, RequestId, SubstreamId},
     MessageId, NetworkGlobals, PeerId, PubsubMessage, Request, Response,
 };
 use futures::prelude::*;
@@ -59,6 +59,7 @@ pub enum RouterMessage<T: EthSpec> {
     RPCFailed {
         peer_id: PeerId,
         request_id: RequestId,
+        error: RPCError,
     },
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message and the message itself.
@@ -141,11 +142,15 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::RPCFailed {
                 peer_id,
                 request_id,
+                error,
             } => {
+                warn!(self.log, "RPC Error";
+                    "peer_id" => peer_id.to_string(),
+                    "request_id" => request_id,
+                    "error" => error.to_string(),
+                    "client" => self.network_globals.client(&peer_id).to_string()); 
                 self.processor.on_rpc_error(peer_id, request_id);
             }
-            // RouterMessage::RPC(peer_id, rpc_event) => {
-            // self.handle_rpc_message(peer_id, rpc_event);
             RouterMessage::PubsubMessage(id, peer_id, gossip) => {
                 self.handle_gossip(id, peer_id, gossip);
             }
@@ -247,7 +252,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     Err(e) => {
                         // performing a parent lookup
                         warn!(self.log, "Could not verify block for gossip";
-                                "error" => format!("{:?}", e));
+                            "error" => format!("{:?}", e));
                     }
                 }
             }

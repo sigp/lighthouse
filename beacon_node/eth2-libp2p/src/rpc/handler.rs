@@ -37,33 +37,27 @@ const IO_ERROR_RETRIES: u8 = 3;
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
-impl slog::Value for SubstreamId {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        slog::Value::serialize(&self.0, record, key, serializer)
-    }
-}
-
 /// An error encoutered by the handler.
 pub enum HandlerErr {
-    /// We sent a response indicating an error.
-    // Even if these errors come from inside Lighthouse, they need to be reported back from the
-    // handler to gather all relevant information.
+    /// An error ocurred for this peer's request. This can occurr during protocol negotiation,
+    /// message passing, or if the handler identifies that we are sending an error reponse to the peer.
     Inbound {
+        /// Id of the peer's request for which an error occurred.
         id: SubstreamId,
+        /// Information of the negotiated protocol.
         proto: Protocol,
+        /// The error that ocurred.
         error: RPCError,
     },
     /// An error ocurred for this request. Such error can occurr during protocol negotiation,
-    /// message passing, of if we successfully received a response from the peer, but this response
+    /// message passing, or if we successfully received a response from the peer, but this response
     /// indicates an error.
     Outbound {
+        /// Application-given Id of the request for which an error occurred.
         id: RequestId,
+        /// Information of the protocol.
         proto: Protocol,
+        /// The error that ocurred.
         error: RPCError,
     },
 }
@@ -76,7 +70,7 @@ where
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>,
 
-    /// Errors ocurring on outbound connections.
+    /// Errors ocurring on outbound and inbound connections queued for reporting back.
     pending_errors: Vec<HandlerErr>,
 
     /// Queue of events to produce in `poll()`.
@@ -144,6 +138,7 @@ struct OutboundInfo<TSpec: EthSpec> {
     /// Number of chunks to be seen from the peer's response.
     // TODO: removing the option could allow clossing the streams after the number of
     // expected responses is met for all protocols.
+    // TODO: the type of this is  wrong
     remaining_chunks: Option<usize>,
     /// RequestId as given by the application that sent the request.
     req_id: RequestId,
@@ -197,12 +192,6 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
     /// Temporary state during processing
     Poisoned,
 }
-
-// / An error
-// pub struct RPCConnectionError {
-//     Inbound{id: SubstreamId, proto: Protocol, err: RPCError},
-//     Outbound{id: RequestId, proto: Protocol, err: RPCError}
-// }
 
 impl<TSpec> InboundSubstreamState<TSpec>
 where
@@ -345,7 +334,6 @@ where
     TSpec: EthSpec,
 {
     type InEvent = RPCSend<TSpec>;
-    /// Either a request/response is received, or an error ocurrs dialing a peer.
     type OutEvent = Result<RPCReceived<TSpec>, HandlerErr>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
@@ -407,6 +395,7 @@ where
                 request,
             };
             let expected_responses = if expected_responses > 1 {
+                // Currently enforced only for multiple responses
                 Some(expected_responses)
             } else {
                 None
@@ -420,7 +409,6 @@ where
                         delay_key,
                         proto,
                         remaining_chunks: expected_responses,
-                        // TODO: this doesn't need to be an option
                         req_id: id,
                     },
                 )
@@ -804,6 +792,7 @@ where
                                         }
                                         self.queued_outbound_items.remove(&request_id);
                                         entry.remove();
+
                                         self.update_keep_alive();
                                     }
                                     Poll::Pending => {
@@ -830,6 +819,7 @@ where
                                         }
                                         self.queued_outbound_items.remove(&request_id);
                                         entry.remove();
+
                                         self.update_keep_alive();
                                     } // drop the stream
                                     Poll::Ready(Err(e)) => {
@@ -912,6 +902,7 @@ where
                         // Check what type of response we got and report it accordingly
                         let id = entry.get().req_id;
                         let proto = entry.get().proto;
+
                         let received = match response {
                             RPCCodedResponse::StreamTermination(t) => {
                                 Ok(RPCReceived::EndOfStream(id, t))
@@ -1060,5 +1051,16 @@ fn apply_queued_responses<TSpec: EthSpec>(
             // no items queued set to idle
             InboundSubstreamState::ResponseIdle(substream)
         }
+    }
+}
+
+impl slog::Value for SubstreamId {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        slog::Value::serialize(&self.0, record, key, serializer)
     }
 }

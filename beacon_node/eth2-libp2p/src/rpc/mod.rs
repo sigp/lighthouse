@@ -38,12 +38,12 @@ mod protocol;
 pub enum RPCSend<T: EthSpec> {
     /// A request sent from Lighthouse.
     ///
-    /// The `RequestId` is optional since it's given by the application making the request.  These
+    /// The `RequestId` is given by the application making the request. These
     /// go over *outbound* connections.
     Request(RequestId, RPCRequest<T>),
     /// A response sent from Lighthouse.
     ///
-    /// The `RequestId` must correspond to the RPC-given ID of the original request received by the
+    /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
     /// peer. The second parameter is a single chunk of a response. These go over *inbound*
     /// connections.
     Response(SubstreamId, RPCCodedResponse<T>),
@@ -54,18 +54,16 @@ pub enum RPCSend<T: EthSpec> {
 pub enum RPCReceived<T: EthSpec> {
     /// A request received from the outside.
     ///
-    /// The `RequestId` is given by the `RPCHandler` as it identifies this request with the
+    /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    /// TODO: fix docs
     Request(SubstreamId, RPCRequest<T>),
     /// A response received from the outside.
     ///
     /// The `RequestId` corresponds to the application given ID of the original request sent to the
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
-    /// TODO: fix docs.
     Response(RequestId, RPCResponse<T>),
-    // TODO: add docs
+    /// Marks a request as completed
     EndOfStream(RequestId, ResponseTermination),
 }
 

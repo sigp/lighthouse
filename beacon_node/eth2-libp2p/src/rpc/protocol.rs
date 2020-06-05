@@ -302,7 +302,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
         }
     }
 
-    /// Gives the corresponding `Protocol` of this request.
+    /// Gives the corresponding `Protocol` to this request.
     pub fn protocol(&self) -> Protocol {
         match self {
             RPCRequest::Status(_) => Protocol::Status,
