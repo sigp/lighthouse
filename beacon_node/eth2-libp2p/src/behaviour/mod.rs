@@ -428,7 +428,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
     /// Sends an RPC Request/Response via the RPC protocol.
     fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCSend<TSpec>) {
-        // TODO: Check if we are sending an error to the peer, and inform the peer manager
         self.eth2_rpc.send_rpc(peer_id, rpc_event);
     }
 
@@ -685,7 +684,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 RPCRequest::MetaData(_) => {
                     // send the requested meta-data
                     self.send_meta_data_response(id, peer_id);
-                    // TODO: do no inform the peer manager?
+                    // TODO: inform the peer manager?
                 }
                 /* Protocols propagated to the Network */
                 RPCRequest::Status(msg) => {
