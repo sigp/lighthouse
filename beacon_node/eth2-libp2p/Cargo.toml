@@ -24,7 +24,7 @@ unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "l
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 smallvec = "1.4.0"
-lru = "0.4.5"
+lru = "0.5.1"
 parking_lot = "0.10.2"
 sha2 = "0.8.2"
 base64 = "0.12.1"
