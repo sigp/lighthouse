@@ -148,7 +148,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     "peer_id" => peer_id.to_string(),
                     "request_id" => request_id,
                     "error" => error.to_string(),
-                    "client" => self.network_globals.client(&peer_id).to_string()); 
+                    "client" => self.network_globals.client(&peer_id).to_string());
                 self.processor.on_rpc_error(peer_id, request_id);
             }
             RouterMessage::PubsubMessage(id, peer_id, gossip) => {

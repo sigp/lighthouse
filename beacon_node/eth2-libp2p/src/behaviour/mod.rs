@@ -394,12 +394,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Eth2 RPC behaviour functions */
 
     /// Send a request to a peer over RPC.
-    pub fn send_request(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        request: Request,
-    ) {
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
         self.send_rpc(peer_id, RPCSend::Request(request_id, request.into()))
     }
 
@@ -413,7 +408,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.send_rpc(peer_id, RPCSend::Response(stream_id, response.into()))
     }
 
-    /// Inform the peer that their request produced an error
+    /// Inform the peer that their request produced an error.
     pub fn _send_error_reponse(
         &mut self,
         peer_id: PeerId,
@@ -509,7 +504,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Local discovery must have bitfield");
     }
 
-    /// Sends a Ping request to the peer
+    /// Sends a Ping request to the peer.
     fn ping(&mut self, id: RequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
@@ -520,7 +515,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.send_rpc(peer_id, event);
     }
 
-    /// Sends a Pong response to the peer
+    /// Sends a Pong response to the peer.
     fn pong(&mut self, id: SubstreamId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
@@ -637,7 +632,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
-    /// Convenience fn to propagate a request
+    /// Convenience function to propagate a request.
     fn propagate_request(&mut self, id: SubstreamId, peer_id: PeerId, request: Request) {
         self.events.push(BehaviourEvent::RequestReceived {
             peer_id,
