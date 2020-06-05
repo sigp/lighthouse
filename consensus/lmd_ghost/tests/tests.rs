@@ -116,6 +116,43 @@ impl ForkChoiceTest {
             .unwrap();
         self
     }
+
+    fn check_justified_balances(&self) {
+        let harness = &self.harness;
+        let fc = self.harness.chain.fork_choice.backend();
+
+        let state_root = harness
+            .chain
+            .store
+            .get_item::<SignedBeaconBlock<E>>(&fc.fc_store().justified_checkpoint().root)
+            .unwrap()
+            .unwrap()
+            .message
+            .state_root;
+        let state = harness
+            .chain
+            .store
+            .get_state(&state_root, None)
+            .unwrap()
+            .unwrap();
+        let balances = state
+            .validators
+            .into_iter()
+            .map(|v| {
+                if v.is_active_at(state.current_epoch()) {
+                    v.effective_balance
+                } else {
+                    0
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            &balances[..],
+            fc.fc_store().justified_balances(),
+            "balances should match"
+        )
+    }
 }
 
 fn is_safe_to_update(slot: Slot) -> bool {
@@ -225,31 +262,7 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_fina
 fn justified_balances() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
-        .move_inside_safe_to_update()
-        .assert_justified_epoch(0)
         .apply_blocks(1)
         .assert_justified_epoch(2)
-        .inspect(|harness, fc_store| {
-            let state_root = harness
-                .chain
-                .store
-                .get_item::<SignedBeaconBlock<E>>(&fc_store.justified_checkpoint().root)
-                .unwrap()
-                .unwrap()
-                .message
-                .state_root;
-            let balances = harness
-                .chain
-                .store
-                .get_state(&state_root, None)
-                .unwrap()
-                .unwrap()
-                .balances;
-
-            assert_eq!(
-                &balances[..],
-                fc_store.justified_balances(),
-                "balances should match"
-            )
-        })
+        .check_justified_balances()
 }
