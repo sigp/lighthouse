@@ -2,7 +2,7 @@ use super::peer_info::{PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
-use slog::{crit, warn};
+use slog::{crit, debug, trace, warn};
 use std::collections::{hash_map::Entry, HashMap};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
