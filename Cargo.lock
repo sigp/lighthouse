@@ -203,6 +203,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic-option"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0db678acb667b525ac40a324fc5f7d3390e29239b31c7327bb8157f5b4fff593"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -272,6 +278,7 @@ version = "0.1.2"
 dependencies = [
  "bitvec",
  "bls",
+ "bus",
  "environment",
  "eth1",
  "eth2_config",
@@ -479,6 +486,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5356f1d23ee24a1f785a56d1d1a5f0fd5b0f6a0c0fb2412ce11da71649ab78f6"
 
 [[package]]
+name = "bus"
+version = "2.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1e66e1779f5b1440f1a58220ba3b3ded4427175f0a9fb8d7066521f8b4e8f2b"
+dependencies = [
+ "atomic-option",
+ "crossbeam-channel",
+ "num_cpus",
+ "parking_lot_core 0.7.2",
+]
+
+[[package]]
 name = "byte-slice-cast"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -616,6 +635,7 @@ name = "client"
 version = "0.1.2"
 dependencies = [
  "beacon_chain",
+ "bus",
  "dirs",
  "environment",
  "error-chain",
@@ -3822,6 +3842,7 @@ dependencies = [
  "assert_matches",
  "beacon_chain",
  "bls",
+ "bus",
  "environment",
  "eth2-libp2p",
  "eth2_config",
@@ -3852,6 +3873,7 @@ dependencies = [
  "tokio 0.2.21",
  "tree_hash",
  "types",
+ "uhttp_sse",
  "url 2.1.1",
  "version",
 ]
@@ -5371,6 +5393,12 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
 ]
+
+[[package]]
+name = "uhttp_sse"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6ff93345ba2206230b1bb1aa3ece1a63dd9443b7531024575d16a0680a59444"
 
 [[package]]
 name = "uint"

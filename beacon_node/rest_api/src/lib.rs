@@ -60,7 +60,6 @@ pub fn start_server<T: BeaconChainTypes>(
     db_path: PathBuf,
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: slog::Logger,
     events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
 ) -> Result<SocketAddr, hyper::Error> {
     let log = executor.log();

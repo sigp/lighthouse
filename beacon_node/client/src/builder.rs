@@ -1,7 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
-use beacon_chain::events::{ServerSentEvents, TeeEventHandler};
+use beacon_chain::events::TeeEventHandler;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -291,7 +291,6 @@ where
             network_chan: network_send,
         };
 
-        let log = context.log.clone();
         let listening_addr = rest_api::start_server(
             context.executor,
             &client_config.rest_api,
@@ -304,7 +303,6 @@ where
                 .create_freezer_db_path()
                 .map_err(|_| "unable to read freezer DB dir")?,
             eth2_config.clone(),
-            log,
             events,
         )
         .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
@@ -452,40 +450,6 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
             TSlotClock,
             TEth1Backend,
             TEthSpec,
-            ServerSentEvents<TEthSpec>,
-        >,
-    >
-where
-    TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec>,
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
-    TEthSpec: EthSpec + 'static,
-{
-    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
-    pub fn server_sent_events_event_handler(
-        mut self,
-    ) -> Result<(Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>), String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "server_sent_events_event_handler requires a runtime_context")?
-            .service_context("sse".into());
-
-        let (sse, bus) = ServerSentEvents::new(context.log.clone());
-        self.event_handler = Some(sse);
-        Ok((self, bus))
-    }
-}
-
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
-    ClientBuilder<
-        Witness<
-            TStore,
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
             TeeEventHandler<TEthSpec>,
         >,
     >
@@ -504,27 +468,20 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "server_sent_events_event_handler requires a runtime_context")?
-            .service_context("tee".into());
+            .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
+            .service_context("ws".into());
 
-        let (sender, exit_channel, listening_addr): (
-            WebSocketSender<TEthSpec>,
-            Option<_>,
-            Option<_>,
-        ) = if config.enabled {
-            let (sender, exit, listening_addr) = context
-                .runtime_handle
-                .enter(|| websocket_server::start_server(&config, &context.log))?;
-            (sender, Some(exit), Some(listening_addr))
+        let log = context.log().clone();
+        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
+            let (sender, listening_addr) =
+                websocket_server::start_server(context.executor, &config)?;
+            (sender, Some(listening_addr))
         } else {
-            (WebSocketSender::dummy(), None, None)
+            (WebSocketSender::dummy(), None)
         };
 
-        if let Some(channel) = exit_channel {
-            self.exit_channels.push(channel);
-        }
         self.websocket_listen_addr = listening_addr;
-        let (tee_event_handler, bus) = TeeEventHandler::new(context.log.clone(), sender)?;
+        let (tee_event_handler, bus) = TeeEventHandler::new(log, sender)?;
         self.event_handler = Some(tee_event_handler);
         Ok((self, bus))
     }
