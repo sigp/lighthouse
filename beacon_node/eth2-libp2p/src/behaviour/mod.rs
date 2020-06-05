@@ -26,7 +26,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{EnrForkId, EthSpec, SubnetId};
+use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
 
 mod handler;
 
@@ -393,8 +393,36 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /* Eth2 RPC behaviour functions */
 
+    /// Send a request to a peer over RPC.
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
+        self.send_rpc(peer_id, RPCSend::Request(request_id, request.into()))
+    }
+
+    /// Send a successful response to a peer over RPC.
+    pub fn send_successful_response(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        response: Response<TSpec>,
+    ) {
+        self.send_rpc(peer_id, RPCSend::Response(stream_id, response.into()))
+    }
+
+    /// Inform the peer that their request produced an error.
+    pub fn _send_error_reponse(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        error: RPCResponseErrorCode,
+        reason: String,
+    ) {
+        self.send_rpc(
+            peer_id,
+            RPCSend::Response(stream_id, RPCCodedResponse::from_error_code(error, reason)),
+        )
+    }
     /// Sends an RPC Request/Response via the RPC protocol.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
+    fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCSend<TSpec>) {
         self.eth2_rpc.send_rpc(peer_id, rpc_event);
     }
 
@@ -476,32 +504,38 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Local discovery must have bitfield");
     }
 
-    /// Sends a PING/PONG request/response to a peer.
-    fn send_ping(&mut self, id: RequestId, peer_id: PeerId, is_request: bool) {
-        let ping = crate::rpc::methods::Ping {
+    /// Sends a Ping request to the peer.
+    fn ping(&mut self, id: RequestId, peer_id: PeerId) {
+        let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
         };
+        debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
+        let event = RPCSend::Request(id, RPCRequest::Ping(ping));
 
-        let event = if is_request {
-            debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
-            RPCEvent::Request(id, RPCRequest::Ping(ping))
-        } else {
-            debug!(self.log, "Sending Pong"; "request_id" => id, "peer_id" => peer_id.to_string());
-            RPCEvent::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)))
+        self.send_rpc(peer_id, event);
+    }
+
+    /// Sends a Pong response to the peer.
+    fn pong(&mut self, id: SubstreamId, peer_id: PeerId) {
+        let ping = crate::rpc::Ping {
+            data: self.meta_data.seq_number,
         };
+        debug!(self.log, "Sending Pong"; "request_id" => id, "peer_id" => peer_id.to_string());
+        let event = RPCSend::Response(id, RPCCodedResponse::Success(RPCResponse::Pong(ping)));
+
         self.send_rpc(peer_id, event);
     }
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
         let metadata_request =
-            RPCEvent::Request(RequestId::from(0usize), RPCRequest::MetaData(PhantomData));
+            RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.send_rpc(peer_id, metadata_request);
     }
 
     /// Sends a METADATA response to a peer.
-    fn send_meta_data_response(&mut self, id: RequestId, peer_id: PeerId) {
-        let metadata_response = RPCEvent::Response(
+    fn send_meta_data_response(&mut self, id: SubstreamId, peer_id: PeerId) {
+        let metadata_response = RPCSend::Response(
             id,
             RPCCodedResponse::Success(RPCResponse::MetaData(self.meta_data.clone())),
         );
@@ -587,45 +621,112 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
+    /// Queues the response to be sent upwards as long at it was requested outside the Behaviour.
+    fn propagate_response(&mut self, id: RequestId, peer_id: PeerId, response: Response<TSpec>) {
+        if !matches!(id, RequestId::Behaviour) {
+            self.events.push(BehaviourEvent::ResponseReceived {
+                peer_id,
+                id,
+                response,
+            });
+        }
+    }
+
+    /// Convenience function to propagate a request.
+    fn propagate_request(&mut self, id: SubstreamId, peer_id: PeerId, request: Request) {
+        self.events.push(BehaviourEvent::RequestReceived {
+            peer_id,
+            id,
+            request,
+        });
+    }
+
     fn on_rpc_event(&mut self, message: RPCMessage<TSpec>) {
         let peer_id = message.peer_id;
-        // The METADATA and PING RPC responses are handled within the behaviour and not
-        // propagated
-        // TODO: Improve the RPC types to better handle this logic discrepancy
+        // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match message.event {
-            RPCEvent::Request(id, RPCRequest::Ping(ping)) => {
-                // inform the peer manager and send the response
-                self.peer_manager.ping_request(&peer_id, ping.data);
-                // send a ping response
-                self.send_ping(id, peer_id, false);
+            Err(handler_err) => {
+                match handler_err {
+                    HandlerErr::Inbound {
+                        id: _,
+                        proto,
+                        error,
+                    } => {
+                        // Inform the peer manager of the error.
+                        // An inbound error here means we sent an error to the peer, or the stream
+                        // timed out.
+                        self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
+                    }
+                    HandlerErr::Outbound { id, proto, error } => {
+                        // Inform the peer manager that a request we sent to the peer failed
+                        self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
+                        // inform failures of requests comming outside the behaviour
+                        if !matches!(id, RequestId::Behaviour) {
+                            self.events
+                                .push(BehaviourEvent::RPCFailed { peer_id, id, error });
+                        }
+                    }
+                }
             }
-            RPCEvent::Request(id, RPCRequest::MetaData(_)) => {
-                // send the requested meta-data
-                self.send_meta_data_response(id, peer_id);
+            Ok(RPCReceived::Request(id, request)) => match request {
+                /* Behaviour managed protocols: Ping and Metadata */
+                RPCRequest::Ping(ping) => {
+                    // inform the peer manager and send the response
+                    self.peer_manager.ping_request(&peer_id, ping.data);
+                    // send a ping response
+                    self.pong(id, peer_id);
+                }
+                RPCRequest::MetaData(_) => {
+                    // send the requested meta-data
+                    self.send_meta_data_response(id, peer_id);
+                    // TODO: inform the peer manager?
+                }
+                /* Protocols propagated to the Network */
+                RPCRequest::Status(msg) => {
+                    // inform the peer manager that we have received a status from a peer
+                    self.peer_manager.peer_statusd(&peer_id);
+                    // propagate the STATUS message upwards
+                    self.propagate_request(id, peer_id, Request::Status(msg))
+                }
+                RPCRequest::BlocksByRange(req) => {
+                    self.propagate_request(id, peer_id, Request::BlocksByRange(req))
+                }
+                RPCRequest::BlocksByRoot(req) => {
+                    self.propagate_request(id, peer_id, Request::BlocksByRoot(req))
+                }
+                RPCRequest::Goodbye(reason) => {
+                    // TODO: do not propagate
+                    self.propagate_request(id, peer_id, Request::Goodbye(reason));
+                }
+            },
+            Ok(RPCReceived::Response(id, resp)) => {
+                match resp {
+                    /* Behaviour managed protocols */
+                    RPCResponse::Pong(ping) => self.peer_manager.pong_response(&peer_id, ping.data),
+                    RPCResponse::MetaData(meta_data) => {
+                        self.peer_manager.meta_data_response(&peer_id, meta_data)
+                    }
+                    /* Network propagated protocols */
+                    RPCResponse::Status(msg) => {
+                        // inform the peer manager that we have received a status from a peer
+                        self.peer_manager.peer_statusd(&peer_id);
+                        // propagate the STATUS message upwards
+                        self.propagate_response(id, peer_id, Response::Status(msg));
+                    }
+                    RPCResponse::BlocksByRange(resp) => {
+                        self.propagate_response(id, peer_id, Response::BlocksByRange(Some(resp)))
+                    }
+                    RPCResponse::BlocksByRoot(resp) => {
+                        self.propagate_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
+                    }
+                }
             }
-            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Pong(ping))) => {
-                self.peer_manager.pong_response(&peer_id, ping.data);
-            }
-            RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::MetaData(meta_data))) => {
-                self.peer_manager.meta_data_response(&peer_id, meta_data);
-            }
-            RPCEvent::Request(_, RPCRequest::Status(_))
-            | RPCEvent::Response(_, RPCCodedResponse::Success(RPCResponse::Status(_))) => {
-                // inform the peer manager that we have received a status from a peer
-                self.peer_manager.peer_statusd(&peer_id);
-                // propagate the STATUS message upwards
-                self.events
-                    .push(BehaviourEvent::RPC(peer_id, message.event));
-            }
-            RPCEvent::Error(_, protocol, ref err) => {
-                self.peer_manager.handle_rpc_error(&peer_id, protocol, err);
-                self.events
-                    .push(BehaviourEvent::RPC(peer_id, message.event));
-            }
-            _ => {
-                // propagate all other RPC messages upwards
-                self.events
-                    .push(BehaviourEvent::RPC(peer_id, message.event))
+            Ok(RPCReceived::EndOfStream(id, termination)) => {
+                let response = match termination {
+                    ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
+                    ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                };
+                self.propagate_response(id, peer_id, response);
             }
         }
     }
@@ -648,7 +749,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                     PeerManagerEvent::Ping(peer_id) => {
                         // send a ping request to this peer
-                        self.send_ping(RequestId::from(0usize), peer_id, true);
+                        self.ping(RequestId::Behaviour, peer_id);
                     }
                     PeerManagerEvent::MetaData(peer_id) => {
                         self.send_meta_data_request(peer_id);
@@ -707,11 +808,96 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 }
 
+/* Public API types */
+
+/// The type of RPC requests the Behaviour informs it has received and allows for sending.
+///
+// NOTE: This is an application-level wrapper over the lower network leve requests that can be
+//       sent. The main difference is the absense of the Ping and Metadata protocols, which don't
+//       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Request {
+    /// A Status message.
+    Status(StatusMessage),
+    /// A Goobye message.
+    Goodbye(GoodbyeReason),
+    /// A blocks by range request.
+    BlocksByRange(BlocksByRangeRequest),
+    /// A request blocks root request.
+    BlocksByRoot(BlocksByRootRequest),
+}
+
+impl<TSpec: EthSpec> std::convert::From<Request> for RPCRequest<TSpec> {
+    fn from(req: Request) -> RPCRequest<TSpec> {
+        match req {
+            Request::BlocksByRoot(r) => RPCRequest::BlocksByRoot(r),
+            Request::BlocksByRange(r) => RPCRequest::BlocksByRange(r),
+            Request::Goodbye(r) => RPCRequest::Goodbye(r),
+            Request::Status(s) => RPCRequest::Status(s),
+        }
+    }
+}
+
+/// The type of RPC responses the Behaviour informs it has received, and allows for sending.
+///
+// NOTE: This is an application-level wrapper over the lower network level responses that can be
+//       sent. The main difference is the absense of Pong and Metadata, which don't leave the
+//       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
+//       `RPCCodedResponse`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Response<TSpec: EthSpec> {
+    /// A Status message.
+    Status(StatusMessage),
+    /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
+    BlocksByRange(Option<Box<SignedBeaconBlock<TSpec>>>),
+    /// A response to a get BLOCKS_BY_ROOT request.
+    BlocksByRoot(Option<Box<SignedBeaconBlock<TSpec>>>),
+}
+
+impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
+    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
+        match resp {
+            Response::BlocksByRoot(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRoot),
+            },
+            Response::BlocksByRange(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
+            },
+            Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
+        }
+    }
+}
+
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
 pub enum BehaviourEvent<TSpec: EthSpec> {
-    /// A received RPC event and the peer that it was received from.
-    RPC(PeerId, RPCEvent<TSpec>),
+    /// An RPC Request that was sent failed.
+    RPCFailed {
+        /// The id of the failed request.
+        id: RequestId,
+        /// The peer to which this request was sent.
+        peer_id: PeerId,
+        /// The error that occurred.
+        error: RPCError,
+    },
+    RequestReceived {
+        /// The peer that sent the request.
+        peer_id: PeerId,
+        /// Identifier of the request. All responses to this request must use this id.
+        id: SubstreamId,
+        /// Request the peer sent.
+        request: Request,
+    },
+    ResponseReceived {
+        /// Peer that sent the response.
+        peer_id: PeerId,
+        /// Id of the request to which the peer is responding.
+        id: RequestId,
+        /// Response the peer sent.
+        response: Response<TSpec>,
+    },
     PubsubMessage {
         /// The gossipsub message id. Used when propagating blocks after validation.
         id: MessageId,

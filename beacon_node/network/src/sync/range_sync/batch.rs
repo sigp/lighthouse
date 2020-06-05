@@ -1,6 +1,5 @@
 use super::chain::EPOCHS_PER_BATCH;
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use ssz::Encode;
@@ -112,9 +111,9 @@ impl<T: EthSpec> PartialOrd for Batch<T> {
 /// This is used to optimise searches for idle peers (peers that have no outbound batch requests).
 pub struct PendingBatches<T: EthSpec> {
     /// The current pending batches.
-    batches: FnvHashMap<RequestId, Batch<T>>,
+    batches: FnvHashMap<usize, Batch<T>>,
     /// A mapping of peers to the number of pending requests.
-    peer_requests: HashMap<PeerId, HashSet<RequestId>>,
+    peer_requests: HashMap<PeerId, HashSet<usize>>,
 }
 
 impl<T: EthSpec> PendingBatches<T> {
@@ -125,7 +124,7 @@ impl<T: EthSpec> PendingBatches<T> {
         }
     }
 
-    pub fn insert(&mut self, request_id: RequestId, batch: Batch<T>) -> Option<Batch<T>> {
+    pub fn insert(&mut self, request_id: usize, batch: Batch<T>) -> Option<Batch<T>> {
         let peer_request = batch.current_peer.clone();
         self.peer_requests
             .entry(peer_request)
@@ -134,7 +133,7 @@ impl<T: EthSpec> PendingBatches<T> {
         self.batches.insert(request_id, batch)
     }
 
-    pub fn remove(&mut self, request_id: RequestId) -> Option<Batch<T>> {
+    pub fn remove(&mut self, request_id: usize) -> Option<Batch<T>> {
         if let Some(batch) = self.batches.remove(&request_id) {
             if let Entry::Occupied(mut entry) = self.peer_requests.entry(batch.current_peer.clone())
             {
@@ -157,7 +156,7 @@ impl<T: EthSpec> PendingBatches<T> {
 
     /// Adds a block to the batches if the request id exists. Returns None if there is no batch
     /// matching the request id.
-    pub fn add_block(&mut self, request_id: RequestId, block: SignedBeaconBlock<T>) -> Option<()> {
+    pub fn add_block(&mut self, request_id: usize, block: SignedBeaconBlock<T>) -> Option<()> {
         let batch = self.batches.get_mut(&request_id)?;
         batch.downloaded_blocks.push(block);
         Some(())

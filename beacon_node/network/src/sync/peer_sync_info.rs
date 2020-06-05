@@ -1,7 +1,7 @@
 use super::manager::SLOT_IMPORT_TOLERANCE;
 use crate::router::processor::status_message;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::rpc::methods::*;
+use eth2_libp2p::rpc::*;
 use eth2_libp2p::SyncInfo;
 use std::ops::Sub;
 use std::sync::Arc;

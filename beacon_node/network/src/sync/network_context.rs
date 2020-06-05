@@ -4,9 +4,8 @@
 use crate::router::processor::status_message;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::{RPCEvent, RPCRequest, RequestId};
-use eth2_libp2p::{Client, NetworkGlobals, PeerId};
+use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
+use eth2_libp2p::{Client, NetworkGlobals, PeerId, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -22,7 +21,7 @@ pub struct SyncNetworkContext<T: EthSpec> {
     network_globals: Arc<NetworkGlobals<T>>,
 
     /// A sequential ID for all RPC requests.
-    request_id: RequestId,
+    request_id: usize,
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
@@ -68,7 +67,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
                 "head_slot" => format!("{}", status_message.head_slot),
             );
 
-            let _ = self.send_rpc_request(peer_id, RPCRequest::Status(status_message));
+            let _ = self.send_rpc_request(peer_id, Request::Status(status_message));
         }
     }
 
@@ -76,7 +75,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRangeRequest,
-    ) -> Result<RequestId, &'static str> {
+    ) -> Result<usize, &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRange Request";
@@ -84,14 +83,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "count" => request.count,
             "peer" => format!("{:?}", peer_id)
         );
-        self.send_rpc_request(peer_id, RPCRequest::BlocksByRange(request))
+        self.send_rpc_request(peer_id, Request::BlocksByRange(request))
     }
 
     pub fn blocks_by_root_request(
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-    ) -> Result<RequestId, &'static str> {
+    ) -> Result<usize, &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRoot Request";
@@ -99,7 +98,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "count" => request.block_roots.len(),
             "peer" => format!("{:?}", peer_id)
         );
-        self.send_rpc_request(peer_id, RPCRequest::BlocksByRoot(request))
+        self.send_rpc_request(peer_id, Request::BlocksByRoot(request))
     }
 
     pub fn downvote_peer(&mut self, peer_id: PeerId) {
@@ -109,6 +108,10 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "peer" => format!("{:?}", peer_id)
         );
         // TODO: Implement reputation
+        // TODO: what if we first close the channel sending a response
+        // RPCResponseErrorCode::InvalidRequest (or something)
+        // and then disconnect the peer? either request dc or let the behaviour have that logic
+        // itself
         self.disconnect(peer_id, GoodbyeReason::Fault);
     }
 
@@ -121,7 +124,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         );
 
         // ignore the error if the channel send fails
-        let _ = self.send_rpc_request(peer_id.clone(), RPCRequest::Goodbye(reason));
+        let _ = self.send_rpc_request(peer_id.clone(), Request::Goodbye(reason));
         self.network_send
             .send(NetworkMessage::Disconnect { peer_id })
             .unwrap_or_else(|_| {
@@ -135,27 +138,22 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     pub fn send_rpc_request(
         &mut self,
         peer_id: PeerId,
-        rpc_request: RPCRequest<T>,
-    ) -> Result<RequestId, &'static str> {
+        request: Request,
+    ) -> Result<usize, &'static str> {
         let request_id = self.request_id;
         self.request_id += 1;
-        self.send_rpc_event(peer_id, RPCEvent::Request(request_id, rpc_request))?;
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request_id: RequestId::Sync(request_id),
+            request,
+        })?;
         Ok(request_id)
     }
 
-    fn send_rpc_event(
-        &mut self,
-        peer_id: PeerId,
-        rpc_event: RPCEvent<T>,
-    ) -> Result<(), &'static str> {
-        self.network_send
-            .send(NetworkMessage::RPC(peer_id, rpc_event))
-            .map_err(|_| {
-                debug!(
-                    self.log,
-                    "Could not send RPC message to the network service"
-                );
-                "Network channel send Failed"
-            })
+    fn send_network_msg(&mut self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
+        self.network_send.send(msg).map_err(|_| {
+            debug!(self.log, "Could not send message to the network service");
+            "Network channel send Failed"
+        })
     }
 }

@@ -10,8 +10,8 @@ use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
-    rpc::{RPCCodedResponse, RPCRequest, RPCResponse, RequestId, ResponseTermination},
-    MessageId, NetworkGlobals, PeerId, PubsubMessage, RPCEvent,
+    rpc::{RPCError, RequestId, SubstreamId},
+    MessageId, NetworkGlobals, PeerId, PubsubMessage, Request, Response,
 };
 use futures::prelude::*;
 use processor::Processor;
@@ -43,8 +43,24 @@ pub enum RouterMessage<T: EthSpec> {
     PeerDialed(PeerId),
     /// Peer has disconnected,
     PeerDisconnected(PeerId),
-    /// An RPC response/request has been received.
-    RPC(PeerId, RPCEvent<T>),
+    /// An RPC request has been received.
+    RPCRequestReceived {
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        request: Request,
+    },
+    /// An RPC response has been received.
+    RPCResponseReceived {
+        peer_id: PeerId,
+        request_id: RequestId,
+        response: Response<T>,
+    },
+    /// An RPC request failed
+    RPCFailed {
+        peer_id: PeerId,
+        request_id: RequestId,
+        error: RPCError,
+    },
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message and the message itself.
     PubsubMessage(MessageId, PeerId, PubsubMessage<T>),
@@ -109,11 +125,32 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::PeerDisconnected(peer_id) => {
                 self.processor.on_disconnect(peer_id);
             }
-            // An RPC message request/response has been received
-            RouterMessage::RPC(peer_id, rpc_event) => {
-                self.handle_rpc_message(peer_id, rpc_event);
+            RouterMessage::RPCRequestReceived {
+                peer_id,
+                stream_id,
+                request,
+            } => {
+                self.handle_rpc_request(peer_id, stream_id, request);
             }
-            // An RPC message request/response has been received
+            RouterMessage::RPCResponseReceived {
+                peer_id,
+                request_id,
+                response,
+            } => {
+                self.handle_rpc_response(peer_id, request_id, response);
+            }
+            RouterMessage::RPCFailed {
+                peer_id,
+                request_id,
+                error,
+            } => {
+                warn!(self.log, "RPC Error";
+                    "peer_id" => peer_id.to_string(),
+                    "request_id" => request_id,
+                    "error" => error.to_string(),
+                    "client" => self.network_globals.client(&peer_id).to_string());
+                self.processor.on_rpc_error(peer_id, request_id);
+            }
             RouterMessage::PubsubMessage(id, peer_id, gossip) => {
                 self.handle_gossip(id, peer_id, gossip);
             }
@@ -122,32 +159,14 @@ impl<T: BeaconChainTypes> Router<T> {
 
     /* RPC - Related functionality */
 
-    /// Handle RPC messages
-    fn handle_rpc_message(&mut self, peer_id: PeerId, rpc_message: RPCEvent<T::EthSpec>) {
-        match rpc_message {
-            RPCEvent::Request(id, req) => self.handle_rpc_request(peer_id, id, req),
-            RPCEvent::Response(id, resp) => self.handle_rpc_response(peer_id, id, resp),
-            RPCEvent::Error(id, _protocol, error) => {
-                warn!(self.log, "RPC Error"; "peer_id" => peer_id.to_string(), "request_id" => id, "error" => error.to_string(),
-                    "client" => self.network_globals.client(&peer_id).to_string());
-                self.processor.on_rpc_error(peer_id, id);
-            }
-        }
-    }
-
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        request: RPCRequest<T::EthSpec>,
-    ) {
+    fn handle_rpc_request(&mut self, peer_id: PeerId, stream_id: SubstreamId, request: Request) {
         match request {
-            RPCRequest::Status(status_message) => {
+            Request::Status(status_message) => {
                 self.processor
-                    .on_status_request(peer_id, request_id, status_message)
+                    .on_status_request(peer_id, stream_id, status_message)
             }
-            RPCRequest::Goodbye(goodbye_reason) => {
+            Request::Goodbye(goodbye_reason) => {
                 debug!(
                     self.log, "Peer sent Goodbye";
                     "peer_id" => peer_id.to_string(),
@@ -156,14 +175,12 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
                 self.processor.on_disconnect(peer_id);
             }
-            RPCRequest::BlocksByRange(request) => self
+            Request::BlocksByRange(request) => self
                 .processor
-                .on_blocks_by_range_request(peer_id, request_id, request),
-            RPCRequest::BlocksByRoot(request) => self
+                .on_blocks_by_range_request(peer_id, stream_id, request),
+            Request::BlocksByRoot(request) => self
                 .processor
-                .on_blocks_by_root_request(peer_id, request_id, request),
-            RPCRequest::Ping(_) => unreachable!("Ping MUST be handled in the behaviour"),
-            RPCRequest::MetaData(_) => unreachable!("MetaData MUST be handled in the behaviour"),
+                .on_blocks_by_root_request(peer_id, stream_id, request),
         }
     }
 
@@ -173,71 +190,20 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        error_response: RPCCodedResponse<T::EthSpec>,
+        response: Response<T::EthSpec>,
     ) {
         // an error could have occurred.
-        match error_response {
-            RPCCodedResponse::InvalidRequest(error) => {
-                warn!(self.log, "RPC Invalid Request";
-                    "peer_id" => peer_id.to_string(),
-                    "request_id" => request_id, 
-                    "error" => error.to_string(),
-                    "client" => self.network_globals.client(&peer_id).to_string());
-                self.processor.on_rpc_error(peer_id, request_id);
+        match response {
+            Response::Status(status_message) => {
+                self.processor.on_status_response(peer_id, status_message);
             }
-            RPCCodedResponse::ServerError(error) => {
-                warn!(self.log, "RPC Server Error" ;
-                    "peer_id" => peer_id.to_string(),
-                    "request_id" => request_id, 
-                    "error" => error.to_string(),
-                    "client" => self.network_globals.client(&peer_id).to_string());
-                self.processor.on_rpc_error(peer_id, request_id);
+            Response::BlocksByRange(beacon_block) => {
+                self.processor
+                    .on_blocks_by_range_response(peer_id, request_id, beacon_block);
             }
-            RPCCodedResponse::Unknown(error) => {
-                warn!(self.log, "RPC Unknown Error";
-                    "peer_id" => peer_id.to_string(),
-                    "request_id" => request_id, 
-                    "error" => error.to_string(),
-                    "client" => self.network_globals.client(&peer_id).to_string());
-                self.processor.on_rpc_error(peer_id, request_id);
-            }
-            RPCCodedResponse::Success(response) => match response {
-                RPCResponse::Status(status_message) => {
-                    self.processor.on_status_response(peer_id, status_message);
-                }
-                RPCResponse::BlocksByRange(beacon_block) => {
-                    self.processor.on_blocks_by_range_response(
-                        peer_id,
-                        request_id,
-                        Some(beacon_block),
-                    );
-                }
-                RPCResponse::BlocksByRoot(beacon_block) => {
-                    self.processor.on_blocks_by_root_response(
-                        peer_id,
-                        request_id,
-                        Some(beacon_block),
-                    );
-                }
-                RPCResponse::Pong(_) => {
-                    unreachable!("Ping must be handled in the behaviour");
-                }
-                RPCResponse::MetaData(_) => {
-                    unreachable!("Meta data must be handled in the behaviour");
-                }
-            },
-            RPCCodedResponse::StreamTermination(response_type) => {
-                // have received a stream termination, notify the processing functions
-                match response_type {
-                    ResponseTermination::BlocksByRange => {
-                        self.processor
-                            .on_blocks_by_range_response(peer_id, request_id, None);
-                    }
-                    ResponseTermination::BlocksByRoot => {
-                        self.processor
-                            .on_blocks_by_root_response(peer_id, request_id, None);
-                    }
-                }
+            Response::BlocksByRoot(beacon_block) => {
+                self.processor
+                    .on_blocks_by_root_response(peer_id, request_id, beacon_block);
             }
         }
     }
