@@ -235,12 +235,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         // We do not queue future attestations for later processing.
         verify_propagation_slot_range(chain, attestation)?;
 
-        // Ensure the aggregated attestation has not already been seen locally.
-        //
-        // TODO: this part of the code is not technically to spec, however I have raised a PR to
-        // change it:
-        //
-        // https://github.com/ethereum/eth2.0-specs/pull/1749
+        // Ensure the valid aggregated attestation has not already been seen locally.
         let attestation_root = attestation.tree_hash_root();
         if chain
             .observed_attestations
@@ -278,6 +273,11 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         // attestation and do not delay consideration for later.
         verify_head_block_is_known(chain, &attestation)?;
 
+        // Ensure that the attestation has participants.
+        if attestation.aggregation_bits.is_zero() {
+            return Err(Error::EmptyAggregationBitfield);
+        }
+
         let indexed_attestation = map_attestation_committee(chain, attestation, |committee| {
             // Note: this clones the signature which is known to be a relatively slow operation.
             //
@@ -292,42 +292,16 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                 return Err(Error::InvalidSelectionProof { aggregator_index });
             }
 
-            /*
-             * I have raised a PR that will likely get merged in v0.12.0:
-             *
-             * https://github.com/ethereum/eth2.0-specs/pull/1732
-             *
-             * If this PR gets merged, uncomment this code and remove the code below.
-             *
-            if !committee
-                .committee
-                .iter()
-                .any(|validator_index| *validator_index as u64 == aggregator_index)
-            {
+            // Ensure the aggregator is a member of the committee for which it is aggregating.
+            if !committee.committee.contains(&(aggregator_index as usize)) {
                 return Err(Error::AggregatorNotInCommittee { aggregator_index });
             }
-            */
 
             get_indexed_attestation(committee.committee, &attestation)
                 .map_err(|e| BeaconChainError::from(e).into())
         })?;
 
-        // Ensure the aggregator is in the attestation.
-        //
-        // I've raised an issue with this here:
-        //
-        // https://github.com/ethereum/eth2.0-specs/pull/1732
-        //
-        // I suspect PR my will get merged in v0.12 and we'll need to delete this code and
-        // uncomment the code above.
-        if !indexed_attestation
-            .attesting_indices
-            .iter()
-            .any(|validator_index| *validator_index as u64 == aggregator_index)
-        {
-            return Err(Error::AggregatorNotInCommittee { aggregator_index });
-        }
-
+        // Ensure that all signatures are valid.
         if !verify_signed_aggregate_signatures(chain, &signed_aggregate, &indexed_attestation)? {
             return Err(Error::InvalidSignature);
         }
@@ -691,8 +665,8 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
 /// includes three signatures:
 ///
 /// - `signed_aggregate.signature`
-/// - `signed_aggregate.signature.message.selection proof`
-/// - `signed_aggregate.signature.message.aggregate.signature`
+/// - `signed_aggregate.message.selection_proof`
+/// - `signed_aggregate.message.aggregate.signature`
 ///
 /// # Returns
 ///
