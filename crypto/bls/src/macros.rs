@@ -253,7 +253,7 @@ macro_rules! bytes_struct {
             }
         }
 
-        #[cfg(feature = "arbitrary")]
+        #[cfg(feature = "with-arbitrary")]
         impl $crate::arbitrary::Arbitrary for $name {
 			fn arbitrary(u: &mut $crate::arbitrary::Unstructured<'_>) -> $crate::arbitrary::Result<Self> {
 				let mut bytes = [0u8; $byte_size];

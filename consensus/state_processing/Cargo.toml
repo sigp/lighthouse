@@ -40,9 +40,9 @@ fake_crypto = ["bls/fake_crypto"]
 arbitrary-fuzz = [
   "arbitrary",
   "types/arbitrary-fuzz",
-  "bls/arbitrary",
+  "bls/with-arbitrary",
   "merkle_proof/arbitrary",
   "eth2_ssz/arbitrary",
-  "eth2_ssz_types/arbitrary",
+  "eth2_ssz_types/with-arbitrary",
   "tree_hash/arbitrary",
 ]

@@ -52,9 +52,9 @@ sqlite = ["rusqlite"]
 arbitrary-fuzz = [
   "arbitrary",
   "ethereum-types/arbitrary",
-  "bls/arbitrary",
+  "bls/with-arbitrary",
   "eth2_ssz/arbitrary",
-  "eth2_ssz_types/arbitrary",
+  "eth2_ssz_types/with-arbitrary",
   "merkle_proof/arbitrary",
   "swap_or_not_shuffle/arbitrary",
   "tree_hash/arbitrary",

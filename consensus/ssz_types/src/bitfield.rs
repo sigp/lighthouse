@@ -617,7 +617,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(feature = "with-arbitrary")]
 impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Fixed<N>> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let size = N::to_usize();
@@ -627,7 +627,7 @@ impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Fixed<N>> {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(feature = "with-arbitrary")]
 impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Variable<N>> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let max_size = N::to_usize();

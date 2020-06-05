@@ -267,7 +267,7 @@ where
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(feature = "with-arbitrary")]
 impl<T: arbitrary::Arbitrary, N: 'static + Unsigned> arbitrary::Arbitrary for FixedVector<T, N> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let size = N::to_usize();

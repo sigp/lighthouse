@@ -120,7 +120,7 @@ impl<'de> Deserialize<'de> for FakeAggregatePublicKey {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(feature = "with-arbitrary")]
 impl arbitrary::Arbitrary for FakeAggregatePublicKey {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BLS_PUBLIC_KEY_BYTE_SIZE];
