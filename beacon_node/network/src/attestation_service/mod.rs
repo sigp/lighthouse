@@ -332,7 +332,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// If a message exists for the same subnet, compare the `min_ttl` of the current and
     /// existing messages and extend the existing message as necessary.
     fn send_or_update_discovery_event(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
-        let message = AttServiceMessage::DiscoverPeers { subnet_id, min_ttl };
+        // track whether this message already exists in the event queue
+        let mut is_duplicate = false;
+
         self.events.iter_mut().for_each(|event| {
             match event {
                 AttServiceMessage::DiscoverPeers {
@@ -355,16 +357,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                                 // Update the min_ttl to None, because the new message is longer-lived.
                                 *other_min_ttl = None;
                             }
-                            (Some(_), None) => {}, // Don't replace this because the existing message is for a longer-lived peer.
-                            (None, None) => {},    // Duplicate message, do nothing.
+                            (Some(_), None) => {} // Don't replace this because the existing message is for a longer-lived peer.
+                            (None, None) => {}    // Duplicate message, do nothing.
                         }
-                        return
+                        is_duplicate = true;
+                        return;
                     }
                 }
                 _ => {}
             };
         });
-        self.events.push_back(message);
+        if !is_duplicate {
+            self.events
+                .push_back(AttServiceMessage::DiscoverPeers { subnet_id, min_ttl });
+        }
     }
 
     /// Checks the current random subnets and subscriptions to determine if a new subscription for this
