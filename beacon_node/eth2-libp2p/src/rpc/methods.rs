@@ -11,7 +11,7 @@ use std::ops::Deref;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
-type MaxRequestBlocks = U1024;
+pub type MaxRequestBlocks = U1024;
 pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
