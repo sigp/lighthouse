@@ -45,5 +45,4 @@ node_test_rig = { path = "../../testing/node_test_rig" }
 tree_hash = "0.1.0"
 
 [features]
-default = []
 fake_crypto = []
