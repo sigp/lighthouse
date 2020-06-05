@@ -2,7 +2,7 @@ use super::peer_info::{PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
-use slog::{crit, debug, warn};
+use slog::{crit, warn};
 use std::collections::{hash_map::Entry, HashMap};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
@@ -233,7 +233,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.connection_status = PeerConnectionStatus::Dialing {
             since: Instant::now(),
         };
-        debug!(self.log, "Peer dialing in db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
     }
 
     /// Sets a peer as connected with an ingoing connection.
@@ -244,7 +243,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.n_dc = self.n_dc.saturating_sub(1);
         }
         info.connection_status.connect_ingoing();
-        debug!(self.log, "Peer connected to db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
     }
 
     /// Sets a peer as connected with an outgoing connection.
@@ -255,7 +253,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.n_dc = self.n_dc.saturating_sub(1);
         }
         info.connection_status.connect_outgoing();
-        debug!(self.log, "Peer connected to db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
     }
 
     /// Sets the peer as disconnected. A banned peer remains banned
@@ -270,7 +267,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             info.connection_status.disconnect();
             self.n_dc += 1;
         }
-        debug!(self.log, "Peer disconnected from db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         self.shrink_to_fit();
     }
 
@@ -302,7 +298,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if info.connection_status.is_disconnected() {
             self.n_dc = self.n_dc.saturating_sub(1);
         }
-        debug!(self.log, "Peer banned"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         info.connection_status.ban();
     }
 
@@ -375,7 +370,7 @@ mod tests {
     }
 
     fn get_db() -> PeerDB<M> {
-        let log = build_log(slog::Level::Debug, true);
+        let log = build_log(slog::Level::Debug, false);
         PeerDB::new(&log)
     }
 
