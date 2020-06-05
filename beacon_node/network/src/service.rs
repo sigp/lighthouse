@@ -258,8 +258,8 @@ fn spawn_service<T: BeaconChainTypes>(
                         AttServiceMessage::EnrRemove(subnet_id) => {
                             service.libp2p.swarm.update_enr_subnet(subnet_id, false);
                         }
-                        AttServiceMessage::DiscoverPeers(subnet_id) => {
-                            service.libp2p.swarm.peers_request(subnet_id);
+                        AttServiceMessage::DiscoverPeers{subnet_id, min_ttl} => {
+                            service.libp2p.swarm.discover_subnet_peers(subnet_id, min_ttl);
                         }
                     }
                 }
