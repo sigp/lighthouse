@@ -47,6 +47,7 @@ bitvec = "0.17.4"
 bls = { path = "../../crypto/bls" }
 safe_arith = { path = "../../consensus/safe_arith" }
 environment = { path = "../../lighthouse/environment" }
+bus = "2.2.3"
 
 [dev-dependencies]
 lazy_static = "1.4.0"

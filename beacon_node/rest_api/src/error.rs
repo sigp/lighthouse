@@ -71,6 +71,12 @@ impl From<hyper::error::Error> for ApiError {
     }
 }
 
+impl From<std::io::Error> for ApiError {
+    fn from(e: std::io::Error) -> ApiError {
+        ApiError::ServerError(format!("IO error: {:?}", e))
+    }
+}
+
 impl StdError for ApiError {
     fn cause(&self) -> Option<&dyn StdError> {
         None

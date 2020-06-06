@@ -1,6 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::events::TeeEventHandler;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -9,12 +10,14 @@ use beacon_chain::{
     store::{HotColdDB, MemoryStore, Store, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
+use bus::Bus;
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
+use parking_lot::Mutex;
 use slog::info;
 use ssz::Decode;
 use std::net::SocketAddr;
@@ -23,7 +26,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::mpsc::UnboundedSender;
-use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
+use types::{
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
+    SignedBeaconBlockHash,
+};
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
 /// Interval between polling the eth1 node for genesis information.
@@ -260,6 +266,7 @@ where
         mut self,
         client_config: &ClientConfig,
         eth2_config: &Eth2Config,
+        events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
     ) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
@@ -296,6 +303,7 @@ where
                 .create_freezer_db_path()
                 .map_err(|_| "unable to read freezer DB dir")?,
             eth2_config.clone(),
+            events,
         )
         .map_err(|e| format!("Failed to start HTTP API: {:?}", e))?;
 
@@ -431,6 +439,51 @@ where
         self.websocket_listen_addr = listening_addr;
 
         Ok(self)
+    }
+}
+
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
+    ClientBuilder<
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TSlotClock,
+            TEth1Backend,
+            TEthSpec,
+            TeeEventHandler<TEthSpec>,
+        >,
+    >
+where
+    TStore: Store<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec>,
+    TSlotClock: SlotClock + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEthSpec: EthSpec + 'static,
+{
+    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
+    pub fn tee_event_handler(
+        mut self,
+        config: WebSocketConfig,
+    ) -> Result<(Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>), String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
+            .service_context("ws".into());
+
+        let log = context.log().clone();
+        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
+            let (sender, listening_addr) =
+                websocket_server::start_server(context.executor, &config)?;
+            (sender, Some(listening_addr))
+        } else {
+            (WebSocketSender::dummy(), None)
+        };
+
+        self.websocket_listen_addr = listening_addr;
+        let (tee_event_handler, bus) = TeeEventHandler::new(log, sender)?;
+        self.event_handler = Some(tee_event_handler);
+        Ok((self, bus))
     }
 }
 
