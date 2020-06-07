@@ -124,6 +124,12 @@ where
                 .await
                 .map_err(|e| format!("Failed to send transaction: {:?}", e))?;
 
+            info!(
+                log,
+                "Submitted deposit";
+                "tx_hash" => format!("{:?}", tx_hash),
+            );
+
             validator_dir
                 .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
                 .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
