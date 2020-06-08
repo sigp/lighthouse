@@ -1,3 +1,7 @@
+/* These are temporarily disabled due to their non-deterministic behaviour and impending update to
+ * gossipsub 1.1. We leave these here as a template for future test upgrades
+
+
 #![cfg(test)]
 use crate::types::GossipEncoding;
 use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
@@ -164,3 +168,4 @@ async fn test_gossipsub_full_mesh_publish() {
             }
     }
 }
+*/
