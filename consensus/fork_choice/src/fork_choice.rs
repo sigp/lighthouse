@@ -313,9 +313,6 @@ where
     pub fn get_head(&mut self, current_slot: Slot) -> Result<Hash256, Error<T::Error>> {
         self.update_time(current_slot)?;
 
-        // Process any attestations that were delayed for consideration.
-        self.process_attestation_queue()?;
-
         let store = &mut self.fc_store;
         let genesis_block_root = self.genesis_block_root;
 
@@ -395,12 +392,6 @@ where
         state: &BeaconState<E>,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot)?;
-
-        // Process any attestations that were delayed for consideration.
-        //
-        // It's not strictly necessary to run this here, however it is a nice way to keep the
-        // attestation queue small without adding a heartbeat timer.
-        self.process_attestation_queue()?;
 
         // TODO: block verification stuff here
 
@@ -605,7 +596,7 @@ where
 
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
-    fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
+    pub fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
         while self.fc_store.get_current_slot() < current_slot {
             let previous_slot = self.fc_store.get_current_slot();
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
@@ -613,11 +604,14 @@ where
             on_tick(&mut self.fc_store, previous_slot + 1)?
         }
 
+        // Process any attestations that might now be eligible.
+        self.process_attestation_queue()?;
+
         Ok(self.fc_store.get_current_slot())
     }
 
-    /// Processes and removes from the queue any queued attestations which are now able to be
-    /// processed due to the slot clock incrementing.
+    /// Processes and removes from the queue any queued attestations which may now be eligible for
+    /// processing due to the slot clock incrementing.
     fn process_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
         for attestation in dequeue_attestations(
             self.fc_store.get_current_slot(),
@@ -648,6 +642,11 @@ where
     /// Returns the latest message for a given validator, if any.
     ///
     /// Returns `(block_root, block_slot)`.
+    ///
+    /// ## Notes
+    ///
+    /// It may be prudent to call `Self::update_time` before calling this function,
+    /// since some attestations might be queued and awaiting processing.
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
         self.proto_array.latest_message(validator_index)
     }

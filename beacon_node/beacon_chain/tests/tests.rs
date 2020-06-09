@@ -375,7 +375,13 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
         .into_iter()
@@ -391,13 +397,13 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
         .collect();
 
     for (validator, slot) in validator_slots.clone() {
-        let latest_message = fork_choice.read().latest_message(validator);
+        let latest_message = fork_choice.latest_message(validator);
 
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
                 latest_message.unwrap().1,
                 slot.epoch(MinimalEthSpec::slots_per_epoch()),
-                "Latest message slot for {} should be equal to slot {}.",
+                "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
                 slot
             )
@@ -485,7 +491,13 @@ fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
     let slots: Vec<Slot> = validators
@@ -501,7 +513,7 @@ fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots {
-        let latest_message = fork_choice.read().latest_message(*validator);
+        let latest_message = fork_choice.latest_message(*validator);
 
         assert_eq!(
             latest_message.unwrap().1,
