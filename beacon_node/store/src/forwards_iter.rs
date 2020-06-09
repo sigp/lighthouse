@@ -1,6 +1,6 @@
 use crate::chunked_iter::ChunkedVectorIter;
 use crate::chunked_vector::BlockRoots;
-use crate::iter::{BlockRootsIterator, ReverseBlockRootIterator};
+use crate::iter::BlockRootsIterator;
 use crate::{HotColdDB, Store};
 use slog::error;
 use std::sync::Arc;
@@ -65,13 +65,10 @@ impl SimpleForwardsBlockRootsIterator {
         end_block_root: Hash256,
     ) -> Self {
         // Iterate backwards from the end state, stopping at the start slot.
+        let iter = std::iter::once((end_block_root, end_state.slot))
+            .chain(BlockRootsIterator::owned(store, end_state));
         Self {
-            values: ReverseBlockRootIterator::new(
-                (end_block_root, end_state.slot),
-                BlockRootsIterator::owned(store, end_state),
-            )
-            .take_while(|(_, slot)| *slot >= start_slot)
-            .collect(),
+            values: iter.take_while(|(_, slot)| *slot >= start_slot).collect(),
         }
     }
 }
