@@ -42,6 +42,10 @@ pub enum InvalidBlock {
         finalized_slot: Slot,
         block_slot: Slot,
     },
+    NotFinalizedDescendant {
+        finalized_root: Hash256,
+        block_ancestor: Hash256,
+    },
 }
 
 #[derive(Debug)]
@@ -142,7 +146,7 @@ where
 
     if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
         store
-            .set_justified_checkpoint_to_best_justified_checkpoint()
+            .set_justified_checkpoint(*store.best_justified_checkpoint())
             .map_err(Error::ForkChoiceStoreError)?;
     }
 
@@ -303,11 +307,26 @@ where
             .get_block(&block_root)
             .ok_or_else(|| Error::MissingProtoArrayBlock(block_root))?;
 
-        if block.slot > ancestor_slot {
+        self.get_ancestor_with_known_slot(state, block_root, block.slot, ancestor_slot)
+    }
+
+    /// See `Self::get_ancestor` for docs.
+    fn get_ancestor_with_known_slot(
+        &self,
+        state: &BeaconState<E>,
+        block_root: Hash256,
+        block_slot: Slot,
+        ancestor_slot: Slot,
+    ) -> Result<Hash256, Error<T::Error>>
+    where
+        T: ForkChoiceStore<E>,
+        E: EthSpec,
+    {
+        if block_slot > ancestor_slot {
             self.fc_store
                 .ancestor_at_slot(state, block_root, ancestor_slot)
                 .map_err(Error::ForkChoiceStoreError)
-        } else if block.slot == ancestor_slot {
+        } else if block_slot == ancestor_slot {
             Ok(block_root)
         } else {
             // root is older than queried slot, thus a skip slot. Return most recent root prior to
@@ -432,17 +451,29 @@ where
             }));
         }
 
+        // Check block is a descendant of the finalized block at the checkpoint finalized slot.
+        let block_ancestor =
+            self.get_ancestor_with_known_slot(state, block_root, block.slot, finalized_slot)?;
+        let finalized_root = self.fc_store.finalized_checkpoint().root;
+        if block_ancestor != finalized_root {
+            return Err(Error::InvalidBlock(InvalidBlock::NotFinalizedDescendant {
+                finalized_root,
+                block_ancestor,
+            }));
+        }
+
         // TODO: block verification stuff here
 
         if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
             if state.current_justified_checkpoint.epoch
                 > self.fc_store.best_justified_checkpoint().epoch
             {
-                self.fc_store.set_best_justified_checkpoint(state);
+                self.fc_store
+                    .set_best_justified_checkpoint(state.current_justified_checkpoint);
             }
             if self.should_update_justified_checkpoint(current_slot, state)? {
                 self.fc_store
-                    .set_justified_checkpoint(state)
+                    .set_justified_checkpoint(state.current_justified_checkpoint)
                     .map_err(Error::UnableToSetJustifiedCheckpoint)?;
             }
         }
@@ -454,6 +485,7 @@ where
                 compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
 
             if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch
+                // TODO: is this the correct state to be passing to this function? IMPORTANT!!
                 || self.get_ancestor(
                     state,
                     self.fc_store.justified_checkpoint().root,
@@ -461,7 +493,7 @@ where
                 )? != self.fc_store.finalized_checkpoint().root
             {
                 self.fc_store
-                    .set_justified_checkpoint(state)
+                    .set_justified_checkpoint(state.current_justified_checkpoint)
                     .map_err(Error::UnableToSetJustifiedCheckpoint)?;
             }
         }

@@ -1,6 +1,5 @@
 use crate::BeaconSnapshot;
 use fork_choice::ForkChoiceStore as ForkChoiceStoreTrait;
-use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::iter;
@@ -9,8 +8,8 @@ use std::sync::Arc;
 use store::iter::BlockRootsIterator;
 use store::{DBColumn, Error as StoreError, Store, StoreItem};
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, SignedBeaconBlock,
+    Slot,
 };
 
 #[derive(Debug)]
@@ -161,7 +160,6 @@ pub struct ForkChoiceStore<S, E> {
     justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
-    best_justified_balances: Option<Vec<u64>>,
     _phantom: PhantomData<E>,
 }
 
@@ -174,41 +172,45 @@ impl<S, E> PartialEq for ForkChoiceStore<S, E> {
             && self.justified_checkpoint == other.justified_checkpoint
             && self.justified_balances == other.justified_balances
             && self.best_justified_checkpoint == other.best_justified_checkpoint
-            && self.best_justified_balances == other.best_justified_balances
     }
 }
 
 impl<S: Store<E>, E: EthSpec> ForkChoiceStore<S, E> {
-    pub fn from_genesis<C: SlotClock>(
-        store: Arc<S>,
-        slot_clock: &C,
-        genesis: &BeaconSnapshot<E>,
-        spec: &ChainSpec,
-    ) -> Result<Self, Error> {
-        let time = if slot_clock
-            .is_prior_to_genesis()
-            .ok_or_else(|| Error::UnableToReadTime)?
-        {
-            spec.genesis_slot
-        } else {
-            slot_clock.now().ok_or_else(|| Error::UnableToReadSlot)?
-        };
-
-        if genesis.beacon_state.slot != spec.genesis_slot {
-            return Err(Error::InvalidGenesisSnapshot(genesis.beacon_state.slot));
+    /// Initialize `Self` from some `anchor` checkpoint which may or may not be the genesis state.
+    ///
+    /// ## Specification
+    ///
+    /// Equivalent to:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_forkchoice_store
+    ///
+    /// ## Notes:
+    ///
+    /// It is assumed that `anchor` is already persisted in `store`.
+    pub fn get_forkchoice_store(store: Arc<S>, anchor: &BeaconSnapshot<E>) -> Self {
+        let anchor_state = &anchor.beacon_state;
+        let mut anchor_block_header = anchor_state.latest_block_header.clone();
+        if anchor_block_header.state_root == Hash256::zero() {
+            anchor_block_header.state_root = anchor.beacon_state_root;
         }
+        let anchor_root = anchor_block_header.canonical_root();
+        let anchor_epoch = anchor_state.current_epoch();
+        let justified_checkpoint = Checkpoint {
+            epoch: anchor_epoch,
+            root: anchor_root,
+        };
+        let finalized_checkpoint = justified_checkpoint;
 
-        Ok(Self {
+        Self {
             store,
             balances_cache: <_>::default(),
-            time,
-            finalized_checkpoint: genesis.beacon_state.finalized_checkpoint,
-            justified_checkpoint: genesis.beacon_state.current_justified_checkpoint,
-            justified_balances: genesis.beacon_state.balances.clone().into(),
-            best_justified_checkpoint: genesis.beacon_state.current_justified_checkpoint,
-            best_justified_balances: None,
+            time: anchor_state.slot,
+            justified_checkpoint,
+            justified_balances: anchor_state.balances.clone().into(),
+            finalized_checkpoint,
+            best_justified_checkpoint: justified_checkpoint,
             _phantom: PhantomData,
-        })
+        }
     }
 
     pub fn to_persisted(&self) -> PersistedForkChoiceStore {
@@ -219,7 +221,6 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStore<S, E> {
             justified_checkpoint: self.justified_checkpoint,
             justified_balances: self.justified_balances.clone(),
             best_justified_checkpoint: self.best_justified_checkpoint,
-            best_justified_balances: self.best_justified_balances.clone(),
         }
     }
 
@@ -235,7 +236,6 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStore<S, E> {
             justified_checkpoint: persisted.justified_checkpoint,
             justified_balances: persisted.justified_balances,
             best_justified_checkpoint: persisted.best_justified_checkpoint,
-            best_justified_balances: persisted.best_justified_balances,
             _phantom: PhantomData,
         })
     }
@@ -261,20 +261,6 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
         self.balances_cache.process_state(block_root, state)
     }
 
-    fn set_justified_checkpoint_to_best_justified_checkpoint(&mut self) -> Result<(), Error> {
-        if self.best_justified_balances.is_some() {
-            self.justified_checkpoint = self.best_justified_checkpoint;
-            self.justified_balances = self
-                .best_justified_balances
-                .take()
-                .expect("protected by prior if statement");
-
-            Ok(())
-        } else {
-            Err(Error::UninitializedBestJustifiedBalances)
-        }
-    }
-
     fn justified_checkpoint(&self) -> &Checkpoint {
         &self.justified_checkpoint
     }
@@ -291,12 +277,12 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
         &self.finalized_checkpoint
     }
 
-    fn set_finalized_checkpoint(&mut self, c: Checkpoint) {
-        self.finalized_checkpoint = c
+    fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.finalized_checkpoint = checkpoint
     }
 
-    fn set_justified_checkpoint(&mut self, state: &BeaconState<E>) -> Result<(), Error> {
-        self.justified_checkpoint = state.current_justified_checkpoint;
+    fn set_justified_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Error> {
+        self.justified_checkpoint = checkpoint;
 
         if let Some(balances) = self.balances_cache.get(self.justified_checkpoint.root) {
             self.justified_balances = balances;
@@ -320,9 +306,8 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
         Ok(())
     }
 
-    fn set_best_justified_checkpoint(&mut self, state: &BeaconState<E>) {
-        self.best_justified_checkpoint = state.current_justified_checkpoint;
-        self.best_justified_balances = Some(state.balances.clone().into());
+    fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.best_justified_checkpoint = checkpoint
     }
 
     fn ancestor_at_slot(
@@ -358,7 +343,6 @@ pub struct PersistedForkChoiceStore {
     justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
-    best_justified_balances: Option<Vec<u64>>,
 }
 
 impl<S: Store<E>, E: EthSpec> From<&ForkChoiceStore<S, E>> for PersistedForkChoiceStore {
@@ -370,7 +354,6 @@ impl<S: Store<E>, E: EthSpec> From<&ForkChoiceStore<S, E>> for PersistedForkChoi
             justified_checkpoint: store.justified_checkpoint,
             justified_balances: store.justified_balances.clone(),
             best_justified_checkpoint: store.best_justified_checkpoint,
-            best_justified_balances: store.best_justified_balances.clone(),
         }
     }
 }

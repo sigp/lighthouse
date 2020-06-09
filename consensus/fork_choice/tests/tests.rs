@@ -334,3 +334,27 @@ fn invalid_block_finalized_slot() {
             },
         );
 }
+
+#[test]
+fn invalid_block_finalized_descendant() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .apply_blocks(1)
+        .apply_invalid_block_directly_to_fork_choice(
+            |_, state| {
+                state
+                    .set_block_root(
+                        Epoch::new(2).start_slot(E::slots_per_epoch()),
+                        Hash256::from_low_u64_be(42),
+                    )
+                    .unwrap();
+            },
+            |err| {
+                assert_invalid_block!(
+                    err,
+                    InvalidBlock::NotFinalizedDescendant {  block_ancestor, .. }
+                    if block_ancestor == Hash256::from_low_u64_be(42)
+                )
+            },
+        );
+}

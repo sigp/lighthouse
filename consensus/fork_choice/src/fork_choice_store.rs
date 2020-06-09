@@ -31,24 +31,6 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
         state: &BeaconState<T>,
     ) -> Result<(), Self::Error>;
 
-    /// Updates the `justified_checkpoint` to the `best_justified_checkpoint`.
-    ///
-    /// ## Notes
-    ///
-    /// This should only ever be called from within the `Self::on_tick` implementation.
-    ///
-    /// *This method only exists as a public trait function to allow for a default `Self::on_tick`
-    /// implementation.*
-    ///
-    /// ## Specification
-    ///
-    /// Implementation must be equivalent to:
-    ///
-    /// ```ignore
-    /// store.justified_checkpoint = store.best_justified_checkpoint
-    /// ```
-    fn set_justified_checkpoint_to_best_justified_checkpoint(&mut self) -> Result<(), Self::Error>;
-
     /// Returns the `justified_checkpoint`.
     fn justified_checkpoint(&self) -> &Checkpoint;
 
@@ -62,13 +44,13 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     fn finalized_checkpoint(&self) -> &Checkpoint;
 
     /// Sets `finalized_checkpoint`.
-    fn set_finalized_checkpoint(&mut self, c: Checkpoint);
+    fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint);
 
     /// Sets the `justified_checkpoint`.
-    fn set_justified_checkpoint(&mut self, state: &BeaconState<T>) -> Result<(), Self::Error>;
+    fn set_justified_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Self::Error>;
 
     /// Sets the `best_justified_checkpoint`.
-    fn set_best_justified_checkpoint(&mut self, state: &BeaconState<T>);
+    fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint);
 
     /// Returns the block root of an ancestor of `block_root` at the given `ancestor_slot`.
     fn ancestor_at_slot(

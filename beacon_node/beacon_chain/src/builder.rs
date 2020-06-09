@@ -436,9 +436,7 @@ where
         } else {
             let genesis = &canonical_head;
 
-            let fc_store =
-                ForkChoiceStore::from_genesis(store.clone(), &slot_clock, genesis, &self.spec)
-                    .map_err(|e| format!("Unable to initialize ForkChoiceStore: {:?}", e))?;
+            let fc_store = ForkChoiceStore::get_forkchoice_store(store.clone(), genesis);
 
             ForkChoice::from_genesis(
                 fc_store,
