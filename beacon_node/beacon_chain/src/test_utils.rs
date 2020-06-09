@@ -289,14 +289,14 @@ where
         let mut head_block_root = None;
 
         loop {
-            while self.chain.slot().expect("should have a slot") < slot {
-                self.advance_slot();
-            }
-
             let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
             if !predicate(&block, &new_state) {
                 break;
+            }
+
+            while self.chain.slot().expect("should have a slot") < slot {
+                self.advance_slot();
             }
 
             let block_root = self
