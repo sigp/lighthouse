@@ -3,9 +3,10 @@ use fork_choice::ForkChoiceStore as ForkChoiceStoreTrait;
 use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::iter::{BlockRootsIterator, ReverseBlockRootIterator};
+use store::iter::BlockRootsIterator;
 use store::{DBColumn, Error as StoreError, Store, StoreItem};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint, EthSpec, Hash256,
@@ -337,7 +338,8 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
 
                 let iter = BlockRootsIterator::owned(self.store.clone(), state.clone());
 
-                ReverseBlockRootIterator::new((root, start_slot), iter)
+                iter::once((root, start_slot))
+                    .chain(iter)
                     .find(|(_, slot)| ancestor_slot == *slot)
                     .map(|(ancestor_block_root, _)| ancestor_block_root)
                     .ok_or_else(|| Error::AncestorUnknown(root))?
