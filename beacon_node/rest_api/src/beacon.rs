@@ -2,7 +2,9 @@ use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
 use crate::validator::get_state_for_epoch;
 use crate::{ApiError, ApiResult, UrlQuery};
-use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
+use beacon_chain::{
+    observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
+};
 use bus::BusReader;
 use futures::executor::block_on;
 use hyper::body::Bytes;
@@ -512,22 +514,23 @@ pub async fn proposer_slashing<T: BeaconChainTypes>(
             ))
         })
         .and_then(move |proposer_slashing| {
-            let spec = &beacon_chain.spec;
-            let state = &beacon_chain.head().unwrap().beacon_state;
             if beacon_chain.eth1_chain.is_some() {
-                beacon_chain
-                    .op_pool
-                    .insert_proposer_slashing(proposer_slashing, state, spec)
+                let obs_outcome = beacon_chain
+                    .verify_proposer_slashing_for_gossip(proposer_slashing)
                     .map_err(|e| {
                         ApiError::BadRequest(format!(
-                            "Error while inserting proposer slashing: {:?}",
+                            "Error while verifying proposer slashing: {:?}",
                             e
                         ))
-                    })
+                    })?;
+                if let ObservationOutcome::New(verified_proposer_slashing) = obs_outcome {
+                    beacon_chain.import_proposer_slashing(verified_proposer_slashing);
+                }
+                Ok(())
             } else {
-                return Err(ApiError::BadRequest(
+                Err(ApiError::BadRequest(
                     "Cannot insert proposer slashing on node without Eth1 connection.".to_string(),
-                ));
+                ))
             }
         })
         .and_then(|_| response_builder?.body(&true))
@@ -552,15 +555,19 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
             ))
         })
         .and_then(move |attester_slashing| {
-            let spec = &beacon_chain.spec;
-            let state = &beacon_chain.head().unwrap().beacon_state;
             if beacon_chain.eth1_chain.is_some() {
                 beacon_chain
-                    .op_pool
-                    .insert_attester_slashing(attester_slashing, state, spec)
+                    .verify_attester_slashing_for_gossip(attester_slashing)
+                    .and_then(|outcome| {
+                        if let ObservationOutcome::New(verified_attester_slashing) = outcome {
+                            beacon_chain.import_attester_slashing(verified_attester_slashing)
+                        } else {
+                            Ok(())
+                        }
+                    })
                     .map_err(|e| {
                         ApiError::BadRequest(format!(
-                            "Error while inserting attester slashing: {:?}",
+                            "Error while verifying attester slashing: {:?}",
                             e
                         ))
                     })

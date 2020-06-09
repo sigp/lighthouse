@@ -15,6 +15,7 @@ merkle_proof = { path = "../../consensus/merkle_proof" }
 store = { path = "../store" }
 parking_lot = "0.10.2"
 lazy_static = "1.4.0"
+smallvec = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 log = "0.4.8"
 operation_pool = { path = "../operation_pool" }
@@ -48,6 +49,7 @@ bls = { path = "../../crypto/bls" }
 safe_arith = { path = "../../consensus/safe_arith" }
 environment = { path = "../../lighthouse/environment" }
 bus = "2.2.3"
+derivative = "2.1.1"
 
 [dev-dependencies]
 lazy_static = "1.4.0"
