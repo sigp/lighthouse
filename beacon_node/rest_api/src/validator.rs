@@ -16,7 +16,7 @@ use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{
     Attestation, AttestationData, BeaconState, Epoch, RelativeEpoch, SelectionProof,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
 };
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -488,12 +488,27 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
             )
         })?;
 
+    let state = beacon_chain
+        .head()
+        .map(|head| head.beacon_state)
+        .map_err(|e| {
+            handle_attestation_error(
+                AttnError::BeaconChainError(e),
+                "Failed to get beacon state",
+                data,
+                log,
+            )
+        })?;
+
     // Publish the attestation to the network
     if let Err(e) = network_chan.send(NetworkMessage::Publish {
         messages: vec![PubsubMessage::Attestation(Box::new((
-            attestation
-                .subnet_id(&beacon_chain.spec)
-                .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?,
+            SubnetId::compute_subnet_for_attestation(
+                &state,
+                attestation.data.slot,
+                attestation.data.index,
+            )
+            .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?,
             attestation,
         )))],
     }) {

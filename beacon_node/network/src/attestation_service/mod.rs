@@ -194,10 +194,21 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // This will subscribe to long-lived random subnets if required.
             self.add_known_validator(subscription.validator_index);
 
-            let subnet_id = SubnetId::new(
-                subscription.attestation_committee_index
-                    % self.beacon_chain.spec.attestation_subnet_count,
-            );
+            let state = self.beacon_chain.head()
+            .map(|head| head.beacon_state)
+            .map_err(|e| warn!(self.log, "Could not obtain beacon state to check attestation subnet id"; "error" => format!("{:?}", e)))?;
+
+            let subnet_id = SubnetId::compute_subnet_for_attestation(
+                &state,
+                subscription.slot,
+                subscription.attestation_committee_index,
+            )
+            .map_err(|e| {
+                warn!(self.log,
+                    "Failed to compute subnet id for validator subscription";
+                    "error" => e
+                )
+            })?;
 
             let exact_subnet = ExactSubnet {
                 subnet_id,
@@ -237,8 +248,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: &SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
+        let state = match self.beacon_chain.head() {
+            Ok(head) => head.beacon_state,
+            Err(e) => {
+                warn!(self.log, "Could not obtain beacon state to check attestation subnet id"; "error" => format!("{:?}", e));
+                return false;
+            }
+        };
+
         // verify the attestation is on the correct subnet
-        let expected_subnet = match attestation.subnet_id(&self.beacon_chain.spec) {
+        let expected_subnet = match SubnetId::compute_subnet_for_attestation(
+            &state,
+            attestation.data.slot,
+            attestation.data.index,
+        ) {
             Ok(v) => v,
             Err(e) => {
                 warn!(self.log, "Could not obtain attestation subnet_id"; "error" => format!("{:?}", e));
