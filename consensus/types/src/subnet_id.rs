@@ -1,5 +1,5 @@
 //! Identifies each shard by an integer identifier.
-use crate::{BeaconState, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use crate::{BeaconState, CommitteeIndex, EthSpec, Slot};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
@@ -22,7 +22,7 @@ impl SubnetId {
         let slots_since_epoch_start: u64 = slot.as_u64() % T::slots_per_epoch();
         let committees_since_epoch_start = state
             .get_committee_count_at_slot(slot)
-            .map_err(|e| format!("Failed to get committee count"))?
+            .map_err(|e| format!("Failed to get committee count: {:?}", e))?
             * slots_since_epoch_start;
         Ok(SubnetId::new(
             (committees_since_epoch_start + committee_index)

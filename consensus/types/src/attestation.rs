@@ -1,9 +1,8 @@
 use super::{
-    AggregateSignature, AttestationData, BeaconState, BitList, ChainSpec, Domain, EthSpec, Fork,
-    SecretKey, Signature, SignedRoot, Slot, SubnetId,
+    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
+    Signature, SignedRoot,
 };
 use crate::{test_utils::TestRandom, Hash256};
-use safe_arith::{ArithError, SafeArith};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -14,8 +13,6 @@ use tree_hash_derive::TreeHash;
 pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
-    SubnetCountIsZero(ArithError),
-    BeaconStateError(super::beacon_state::Error),
 }
 
 /// Details an attestation that can be slashable.
