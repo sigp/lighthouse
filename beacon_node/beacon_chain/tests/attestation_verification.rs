@@ -723,7 +723,7 @@ fn fork_choice_verification() {
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+        MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
         BlockStrategy::OnCanonicalHead,
         AttestationStrategy::AllValidators,
     );
@@ -746,7 +746,6 @@ fn fork_choice_verification() {
         AttestationStrategy::SomeValidators(vec![]),
     );
 
-    let current_slot = chain.slot().expect("should get slot");
     let expected_current_epoch = chain.epoch().expect("should get epoch");
 
     let attestation = harness
@@ -756,11 +755,12 @@ fn fork_choice_verification() {
 
     macro_rules! assert_invalid {
         ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+            let result = harness
+                .chain
+                .apply_attestation_to_fork_choice(&$attn_getter);
             assert!(
                 matches!(
-                    harness
-                        .chain
-                        .apply_attestation_to_fork_choice(&$attn_getter)
+                    result
                         .err()
                         .expect(&format!(
                             "{} should error during apply_attestation_to_fork_choice",
@@ -907,7 +907,7 @@ fn fork_choice_verification() {
 
     let future_block = harness
         .chain
-        .block_at_slot(current_slot)
+        .block_at_slot(attestation.attestation().data.slot + 1)
         .expect("should not error getting block")
         .expect("should find block at current slot");
     assert_invalid!(
@@ -930,6 +930,18 @@ fn fork_choice_verification() {
             attestation: slot,
         }
         if slot == current_slot - 1
+    );
+
+    assert_invalid!(
+        "attestation with invalid target",
+        {
+            let mut a = attestation.clone();
+
+            let indexed = a.__indexed_attestation_mut();
+            indexed.data.target.root = indexed.data.beacon_block_root;
+            a
+        },
+        InvalidAttestation::InvalidTarget { .. }
     );
 
     // Note: we're not checking the "attestations can only affect the fork choice of subsequent

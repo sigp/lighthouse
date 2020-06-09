@@ -575,7 +575,7 @@ where
         // to genesis just by being present in the chain.
         //
         // Additionally, don't add any block hash to fork choice unless we have imported the block.
-        if attestation.data.beacon_block_root != Hash256::zero() {
+        if attestation.data.beacon_block_root == Hash256::zero() {
             return Ok(());
         }
 
