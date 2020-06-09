@@ -5,6 +5,7 @@ use eth2_libp2p::PubsubMessage;
 use hex;
 use http::header;
 use hyper::{Body, Request};
+use itertools::process_results;
 use network::NetworkMessage;
 use ssz::Decode;
 use store::{iter::AncestorIter, Store};
@@ -118,11 +119,14 @@ pub fn block_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     target: Slot,
 ) -> Result<Option<Hash256>, ApiError> {
-    Ok(beacon_chain
-        .rev_iter_block_roots()?
-        .take_while(|(_root, slot)| *slot >= target)
-        .find(|(_root, slot)| *slot == target)
-        .map(|(root, _slot)| root))
+    Ok(process_results(
+        beacon_chain.rev_iter_block_roots()?,
+        |iter| {
+            iter.take_while(|(_, slot)| *slot >= target)
+                .find(|(_, slot)| *slot == target)
+                .map(|(root, _)| root)
+        },
+    )?)
 }
 
 /// Returns a `BeaconState` and it's root in the canonical chain of `beacon_chain` at the given
@@ -190,12 +194,15 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // Iterate through the state roots on the head state to find the root for that
         // slot. Once the root is found, load it from the database.
-        Ok(head_state
-            .try_iter_ancestor_roots(beacon_chain.store.clone())
-            .ok_or_else(|| ApiError::ServerError("Failed to create roots iterator".to_string()))?
-            .find(|(_root, s)| *s == slot)
-            .map(|(root, _slot)| root)
-            .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at slot {}", slot)))?)
+        process_results(
+            head_state
+                .try_iter_ancestor_roots(beacon_chain.store.clone())
+                .ok_or_else(|| {
+                    ApiError::ServerError("Failed to create roots iterator".to_string())
+                })?,
+            |mut iter| iter.find(|(_, s)| *s == slot).map(|(root, _)| root),
+        )?
+        .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at slot {}", slot)))
     } else {
         // 4. The request slot is later than the head slot.
         //

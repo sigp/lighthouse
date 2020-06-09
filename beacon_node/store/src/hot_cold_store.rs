@@ -190,7 +190,7 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Self::ForwardsBlockRootsIterator {
+    ) -> Result<Self::ForwardsBlockRootsIterator, Error> {
         HybridForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root, spec)
     }
 
@@ -708,7 +708,11 @@ pub fn process_finalization<E: EthSpec>(
     let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
 
     let mut to_delete = vec![];
-    for (state_root, slot) in state_root_iter.take_while(|&(_, slot)| slot >= current_split_slot) {
+    for maybe_pair in state_root_iter.take_while(|result| match result {
+        Ok((_, slot)) => slot >= &current_split_slot,
+        Err(_) => true,
+    }) {
+        let (state_root, slot) = maybe_pair?;
         if slot % store.config.slots_per_restore_point == 0 {
             let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
                 .ok_or_else(|| HotColdDBError::MissingStateToFreeze(state_root))?;

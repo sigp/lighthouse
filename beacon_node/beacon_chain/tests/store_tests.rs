@@ -392,6 +392,7 @@ fn delete_blocks_and_states() {
         .expect("faulty head state exists");
 
     let states_to_delete = StateRootsIterator::new(store.clone(), &faulty_head_state)
+        .map(Result::unwrap)
         .take_while(|(_, slot)| *slot > unforked_blocks)
         .collect::<Vec<_>>();
 
@@ -409,6 +410,7 @@ fn delete_blocks_and_states() {
 
     // Deleting the blocks from the fork should remove them completely
     let blocks_to_delete = BlockRootsIterator::new(store.clone(), &faulty_head_state)
+        .map(Result::unwrap)
         // Extra +1 here accounts for the skipped slot that started this fork
         .take_while(|(_, slot)| *slot > unforked_blocks + 1)
         .collect::<Vec<_>>();
@@ -424,6 +426,7 @@ fn delete_blocks_and_states() {
         .chain
         .rev_iter_state_roots()
         .expect("rev iter ok")
+        .map(Result::unwrap)
         .filter(|(_, slot)| *slot < split_slot);
 
     for (state_root, slot) in finalized_states {
@@ -659,11 +662,12 @@ fn check_shuffling_compatible(
     let previous_pivot_slot =
         (head_state.previous_epoch() - shuffling_lookahead).end_slot(E::slots_per_epoch());
 
-    for (block_root, slot) in harness
+    for maybe_tuple in harness
         .chain
         .rev_iter_block_roots_from(head_block_root)
         .unwrap()
     {
+        let (block_root, slot) = maybe_tuple.unwrap();
         // Shuffling is compatible targeting the current epoch,
         // iff slot is greater than or equal to the current epoch pivot block
         assert_eq!(
@@ -1364,6 +1368,8 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
         head.beacon_block_root,
         &harness.spec,
     )
+    .unwrap()
+    .map(Result::unwrap)
     .collect::<Vec<_>>();
 
     // Drop the block roots for skipped slots.
@@ -1387,6 +1393,7 @@ fn check_iterators(harness: &TestHarness) {
             .rev_iter_state_roots()
             .expect("should get iter")
             .last()
+            .map(Result::unwrap)
             .map(|(_, slot)| slot),
         Some(Slot::new(0))
     );
@@ -1396,6 +1403,7 @@ fn check_iterators(harness: &TestHarness) {
             .rev_iter_block_roots()
             .expect("should get iter")
             .last()
+            .map(Result::unwrap)
             .map(|(_, slot)| slot),
         Some(Slot::new(0))
     );

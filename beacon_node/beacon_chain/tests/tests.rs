@@ -73,11 +73,13 @@ fn iterators() {
         .chain
         .rev_iter_block_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .collect();
     let state_roots: Vec<(Hash256, Slot)> = harness
         .chain
         .rev_iter_state_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .collect();
 
     assert_eq!(

@@ -149,7 +149,7 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         _: &ChainSpec,
-    ) -> Self::ForwardsBlockRootsIterator {
+    ) -> Result<Self::ForwardsBlockRootsIterator, Error> {
         SimpleForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root)
     }
 

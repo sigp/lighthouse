@@ -13,7 +13,7 @@ extern crate lazy_static;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
-mod errors;
+pub mod errors;
 mod forwards_iter;
 pub mod hot_cold_store;
 mod impls;
@@ -99,7 +99,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 /// columns. A simple column implementation might involve prefixing a key with some bytes unique to
 /// each column.
 pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
-    type ForwardsBlockRootsIterator: Iterator<Item = (Hash256, Slot)>;
+    type ForwardsBlockRootsIterator: Iterator<Item = Result<(Hash256, Slot), Error>>;
 
     /// Store a block in the store.
     fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error>;
@@ -146,7 +146,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Self::ForwardsBlockRootsIterator;
+    ) -> Result<Self::ForwardsBlockRootsIterator, Error>;
 
     fn load_epoch_boundary_state(
         &self,

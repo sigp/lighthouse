@@ -69,12 +69,12 @@ impl<'a, T: EthSpec, U: Store<T>> StateRootsIterator<'a, T, U> {
 }
 
 impl<'a, T: EthSpec, U: Store<T>> Iterator for StateRootsIterator<'a, T, U> {
-    type Item = (Hash256, Slot);
+    type Item = Result<(Hash256, Slot), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner
             .next()
-            .map(|(_, state_root, slot)| (state_root, slot))
+            .map(|result| result.map(|(_, state_root, slot)| (state_root, slot)))
     }
 }
 
@@ -115,12 +115,12 @@ impl<'a, T: EthSpec, U: Store<T>> BlockRootsIterator<'a, T, U> {
 }
 
 impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockRootsIterator<'a, T, U> {
-    type Item = (Hash256, Slot);
+    type Item = Result<(Hash256, Slot), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner
             .next()
-            .map(|(block_root, _, slot)| (block_root, slot))
+            .map(|result| result.map(|(block_root, _, slot)| (block_root, slot)))
     }
 }
 
@@ -167,15 +167,10 @@ impl<'a, T: EthSpec, U: Store<T>> RootsIterator<'a, T, U> {
             .ok_or_else(|| BeaconStateError::MissingBeaconState(block.state_root().into()))?;
         Ok(Self::owned(store, state))
     }
-}
 
-impl<'a, T: EthSpec, U: Store<T>> Iterator for RootsIterator<'a, T, U> {
-    /// (block_root, state_root, slot)
-    type Item = (Hash256, Hash256, Slot);
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn do_next(&mut self) -> Result<Option<(Hash256, Hash256, Slot)>, Error> {
         if self.slot == 0 || self.slot > self.beacon_state.slot {
-            return None;
+            return Ok(None);
         }
 
         self.slot -= 1;
@@ -184,7 +179,7 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for RootsIterator<'a, T, U> {
             self.beacon_state.get_block_root(self.slot),
             self.beacon_state.get_state_root(self.slot),
         ) {
-            (Ok(block_root), Ok(state_root)) => Some((*block_root, *state_root, self.slot)),
+            (Ok(block_root), Ok(state_root)) => Ok(Some((*block_root, *state_root, self.slot))),
             (Err(BeaconStateError::SlotOutOfBounds), Err(BeaconStateError::SlotOutOfBounds)) => {
                 // Read a `BeaconState` from the store that has access to prior historical roots.
                 let beacon_state =
@@ -192,13 +187,23 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for RootsIterator<'a, T, U> {
 
                 self.beacon_state = Cow::Owned(beacon_state);
 
-                let block_root = *self.beacon_state.get_block_root(self.slot).ok()?;
-                let state_root = *self.beacon_state.get_state_root(self.slot).ok()?;
+                let block_root = *self.beacon_state.get_block_root(self.slot)?;
+                let state_root = *self.beacon_state.get_state_root(self.slot)?;
 
-                Some((block_root, state_root, self.slot))
+                Ok(Some((block_root, state_root, self.slot)))
             }
-            _ => None,
+            (Err(e), _) => Err(e.into()),
+            (Ok(_), Err(e)) => Err(e.into()),
         }
+    }
+}
+
+impl<'a, T: EthSpec, U: Store<T>> Iterator for RootsIterator<'a, T, U> {
+    /// (block_root, state_root, slot)
+    type Item = Result<(Hash256, Hash256, Slot), Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.do_next().transpose()
     }
 }
 
@@ -263,14 +268,22 @@ impl<'a, T: EthSpec, U: Store<T>> BlockIterator<'a, T, U> {
             roots: BlockRootsIterator::owned(store, beacon_state),
         }
     }
+
+    fn do_next(&mut self) -> Result<Option<SignedBeaconBlock<T>>, Error> {
+        if let Some(result) = self.roots.next() {
+            let (root, _slot) = result?;
+            self.roots.inner.store.get_block(&root)
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockIterator<'a, T, U> {
-    type Item = SignedBeaconBlock<T>;
+    type Item = Result<SignedBeaconBlock<T>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (root, _slot) = self.roots.next()?;
-        self.roots.inner.store.get_block(&root).ok()?
+        self.do_next().transpose()
     }
 }
 
@@ -278,14 +291,16 @@ impl<'a, T: EthSpec, U: Store<T>> Iterator for BlockIterator<'a, T, U> {
 fn next_historical_root_backtrack_state<E: EthSpec, S: Store<E>>(
     store: &S,
     current_state: &BeaconState<E>,
-) -> Option<BeaconState<E>> {
+) -> Result<BeaconState<E>, Error> {
     // For compatibility with the freezer database's restore points, we load a state at
     // a restore point slot (thus avoiding replaying blocks). In the case where we're
     // not frozen, this just means we might not jump back by the maximum amount on
     // our first jump (i.e. at most 1 extra state load).
     let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot);
-    let new_state_root = current_state.get_state_root(new_state_slot).ok()?;
-    store.get_state(new_state_root, Some(new_state_slot)).ok()?
+    let new_state_root = current_state.get_state_root(new_state_slot)?;
+    Ok(store
+        .get_state(new_state_root, Some(new_state_slot))?
+        .ok_or_else(|| BeaconStateError::MissingBeaconState((*new_state_root).into()))?)
 }
 
 /// Compute the slot of the last guaranteed restore point in the freezer database.
@@ -337,11 +352,12 @@ mod test {
         let iter = BlockRootsIterator::new(store, &state_b);
 
         assert!(
-            iter.clone().any(|(_root, slot)| slot == 0),
+            iter.clone()
+                .any(|result| result.map(|(_root, slot)| slot == 0).unwrap()),
             "iter should contain zero slot"
         );
 
-        let mut collected: Vec<(Hash256, Slot)> = iter.collect();
+        let mut collected: Vec<(Hash256, Slot)> = iter.collect::<Result<Vec<_>, _>>().unwrap();
         collected.reverse();
 
         let expected_len = 2 * MainnetEthSpec::slots_per_historical_root();
@@ -386,11 +402,12 @@ mod test {
         let iter = StateRootsIterator::new(store, &state_b);
 
         assert!(
-            iter.clone().any(|(_root, slot)| slot == 0),
+            iter.clone()
+                .any(|result| result.map(|(_root, slot)| slot == 0).unwrap()),
             "iter should contain zero slot"
         );
 
-        let mut collected: Vec<(Hash256, Slot)> = iter.collect();
+        let mut collected: Vec<(Hash256, Slot)> = iter.collect::<Result<Vec<_>, _>>().unwrap();
         collected.reverse();
 
         let expected_len = MainnetEthSpec::slots_per_historical_root() * 2;
