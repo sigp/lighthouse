@@ -300,7 +300,7 @@ macro_rules! assert_invalid_block {
 }
 
 #[test]
-fn invalid_block() {
+fn invalid_block_future_slot() {
     ForkChoiceTest::new()
         .apply_blocks(2)
         .apply_invalid_block_directly_to_fork_choice(
@@ -311,6 +311,25 @@ fn invalid_block() {
                 assert_invalid_block!(
                     err,
                     InvalidBlock::FutureSlot { .. }
+                )
+            },
+        );
+}
+
+#[test]
+fn invalid_block_finalized_slot() {
+    ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint.epoch == 0)
+        .apply_blocks(1)
+        .apply_invalid_block_directly_to_fork_choice(
+            |block, _| {
+                block.slot = Epoch::new(2).start_slot(E::slots_per_epoch()) - 1;
+            },
+            |err| {
+                assert_invalid_block!(
+                    err,
+                    InvalidBlock::FinalizedSlot { finalized_slot, .. }
+                    if finalized_slot == Epoch::new(2).start_slot(E::slots_per_epoch())
                 )
             },
         );

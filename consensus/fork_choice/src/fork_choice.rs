@@ -34,9 +34,12 @@ impl<T> From<InvalidAttestation> for Error<T> {
 
 #[derive(Debug)]
 pub enum InvalidBlock {
-    /// The block slot is greater than the present slot.
     FutureSlot {
-        present_slot: Slot,
+        current_slot: Slot,
+        block_slot: Slot,
+    },
+    FinalizedSlot {
+        finalized_slot: Slot,
         block_slot: Slot,
     },
 }
@@ -409,7 +412,22 @@ where
         // Note: presently, we do not delay consideration. We just drop the block.
         if block.slot > current_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FutureSlot {
-                present_slot: current_slot,
+                current_slot,
+                block_slot: block.slot,
+            }));
+        }
+
+        let finalized_slot = self
+            .fc_store
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch());
+
+        // Check that block is later than the finalized epoch slot (optimization to reduce calls to
+        // get_ancestor).
+        if block.slot <= finalized_slot {
+            return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
+                finalized_slot,
                 block_slot: block.slot,
             }));
         }
