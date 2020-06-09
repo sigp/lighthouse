@@ -179,13 +179,25 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
+        let state = attestation_service
+            .beacon_chain
+            .head()
+            .map(|head| head.beacon_state)
+            .unwrap();
         // submit the subscriptions
         attestation_service
             .validator_subscriptions(subscriptions)
             .unwrap();
 
         // not enough time for peer discovery, just subscribe
-        let expected = vec![AttServiceMessage::Subscribe(SubnetId::new(validator_index))];
+        let expected = vec![AttServiceMessage::Subscribe(
+            SubnetId::compute_subnet_for_attestation(
+                &state,
+                current_slot + Slot::new(subscription_slot),
+                committee_index,
+            )
+            .unwrap(),
+        )];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
@@ -227,15 +239,27 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
+        let state = attestation_service
+            .beacon_chain
+            .head()
+            .map(|head| head.beacon_state)
+            .unwrap();
+
         // submit the subscriptions
         attestation_service
             .validator_subscriptions(subscriptions)
             .unwrap();
 
         // not enough time for peer discovery, just subscribe, unsubscribe
+        let subnet_id = SubnetId::compute_subnet_for_attestation(
+            &state,
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+        )
+        .unwrap();
         let expected = vec![
-            AttServiceMessage::Subscribe(SubnetId::new(validator_index)),
-            AttServiceMessage::Unsubscribe(SubnetId::new(validator_index)),
+            AttServiceMessage::Subscribe(subnet_id),
+            AttServiceMessage::Unsubscribe(subnet_id),
         ];
 
         let events = get_events(attestation_service, no_events_expected, 2).await;
@@ -278,6 +302,12 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
+        let state = attestation_service
+            .beacon_chain
+            .head()
+            .map(|head| head.beacon_state)
+            .unwrap();
+
         // submit the subscriptions
         attestation_service
             .validator_subscriptions(subscriptions)
@@ -292,10 +322,13 @@ mod tests {
         );
 
         // just discover peers, don't subscribe yet
-        let expected = vec![AttServiceMessage::DiscoverPeers {
-            subnet_id: SubnetId::new(validator_index),
-            min_ttl,
-        }];
+        let subnet_id = SubnetId::compute_subnet_for_attestation(
+            &state,
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+        )
+        .unwrap();
+        let expected = vec![AttServiceMessage::DiscoverPeers{subnet_id, min_ttl}];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
@@ -337,6 +370,12 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
+        let state = attestation_service
+            .beacon_chain
+            .head()
+            .map(|head| head.beacon_state)
+            .unwrap();
+
         // submit the subscriptions
         attestation_service
             .validator_subscriptions(subscriptions)
@@ -351,12 +390,18 @@ mod tests {
         );
 
         // we should discover peers, wait, then subscribe
+        let subnet_id = SubnetId::compute_subnet_for_attestation(
+            &state,
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+        )
+        .unwrap();
         let expected = vec![
             AttServiceMessage::DiscoverPeers {
-                subnet_id: SubnetId::new(validator_index),
+                subnet_id,
                 min_ttl,
             },
-            AttServiceMessage::Subscribe(SubnetId::new(validator_index)),
+            AttServiceMessage::Subscribe(subnet_id),
         ];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
@@ -448,6 +493,12 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
+        let state = attestation_service
+            .beacon_chain
+            .head()
+            .map(|head| head.beacon_state)
+            .unwrap();
+
         // submit the subscriptions
         attestation_service
             .validator_subscriptions(subscriptions)
@@ -461,9 +512,16 @@ mod tests {
                 .unwrap(),
         );
 
+        let subnet_id = SubnetId::compute_subnet_for_attestation(
+            &state,
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+        )
+        .unwrap();
+
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
         let expected: Vec<AttServiceMessage> = vec![AttServiceMessage::DiscoverPeers {
-            subnet_id: SubnetId::new(validator_index),
+            subnet_id,
             min_ttl,
         }];
 
