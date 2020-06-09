@@ -391,7 +391,7 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
         .collect();
 
     for (validator, slot) in validator_slots.clone() {
-        let latest_message = fork_choice.latest_message(validator);
+        let latest_message = fork_choice.read().latest_message(validator);
 
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
@@ -501,7 +501,7 @@ fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots {
-        let latest_message = fork_choice.latest_message(*validator);
+        let latest_message = fork_choice.read().latest_message(*validator);
 
         assert_eq!(
             latest_message.unwrap().1,

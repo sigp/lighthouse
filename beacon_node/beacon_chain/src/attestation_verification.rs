@@ -439,6 +439,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     if chain
         .fork_choice
+        .read()
         .contains_block(&attestation.data.beacon_block_root)
     {
         Ok(())
@@ -631,9 +632,10 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    let (target_block_slot, target_block_state_root) = chain
+    let target_block = chain
         .fork_choice
-        .block_slot_and_state_root(&target.root)
+        .read()
+        .get_block(&target.root)
         .ok_or_else(|| Error::UnknownTargetRoot(target.root))?;
 
     // Obtain the shuffling cache, timing how long we wait.
@@ -666,15 +668,15 @@ where
             chain.log,
             "Attestation processing cache miss";
             "attn_epoch" => attestation_epoch.as_u64(),
-            "target_block_epoch" => target_block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
+            "target_block_epoch" => target_block.slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
         );
 
         let state_read_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
         let mut state = chain
-            .get_state(&target_block_state_root, Some(target_block_slot))?
-            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block_state_root))?;
+            .get_state(&target_block.state_root, Some(target_block.slot))?
+            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block.state_root))?;
 
         metrics::stop_timer(state_read_timer);
         let state_skip_timer =

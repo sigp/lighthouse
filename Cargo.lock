@@ -4633,6 +4633,7 @@ dependencies = [
  "lazy_static",
  "leveldb",
  "lighthouse_metrics",
+ "lmd_ghost",
  "lru",
  "parking_lot 0.10.2",
  "rayon",

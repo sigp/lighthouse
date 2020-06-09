@@ -3,20 +3,22 @@ use crate::beacon_chain::{
 };
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::events::NullEventHandler;
-use crate::fork_choice::PersistedForkChoice;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::Migrate;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconSnapshot, Eth1Chain, Eth1ChainBackend, EventHandler,
-    ForkChoice,
+    ForkChoiceStore,
 };
 use eth1::Config as Eth1Config;
+use lmd_ghost::ForkChoice;
 use operation_pool::{OperationPool, PersistedOperationPool};
+use parking_lot::RwLock;
 use slog::{info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
@@ -426,13 +428,25 @@ where
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {
-            ForkChoice::from_persisted(persisted, store.clone())
+            let fc_store = ForkChoiceStore::from_persisted(persisted.store, store.clone())
+                .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
+
+            ForkChoice::from_persisted(persisted.fork_choice, fc_store)
                 .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?
         } else {
-            let genesis_snapshot = &canonical_head;
+            let genesis = &canonical_head;
 
-            ForkChoice::from_genesis(store.clone(), &slot_clock, genesis_snapshot, &self.spec)
-                .map_err(|e| format!("Unable to build initialize fork choice: {:?}", e))?
+            let fc_store =
+                ForkChoiceStore::from_genesis(store.clone(), &slot_clock, genesis, &self.spec)
+                    .map_err(|e| format!("Unable to initialize ForkChoiceStore: {:?}", e))?;
+
+            ForkChoice::from_genesis(
+                fc_store,
+                genesis.beacon_block_root,
+                &genesis.beacon_block.message,
+                &genesis.beacon_state,
+            )
+            .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?
         };
 
         let beacon_chain = BeaconChain {
@@ -461,7 +475,7 @@ where
             genesis_block_root: self
                 .genesis_block_root
                 .ok_or_else(|| "Cannot build without a genesis block root".to_string())?,
-            fork_choice,
+            fork_choice: RwLock::new(fork_choice),
             event_handler: self
                 .event_handler
                 .ok_or_else(|| "Cannot build without an event handler".to_string())?,

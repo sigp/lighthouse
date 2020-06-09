@@ -6,8 +6,9 @@ extern crate lazy_static;
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    BeaconChain, BeaconChainTypes, ForkChoiceError, InvalidAttestation,
+    BeaconChain, BeaconChainError, BeaconChainTypes, ForkChoiceError,
 };
+use lmd_ghost::InvalidAttestation;
 use state_processing::per_slot_processing;
 use store::Store;
 use tree_hash::TreeHash;
@@ -765,7 +766,7 @@ fn fork_choice_verification() {
                             "{} should error during apply_attestation_to_fork_choice",
                             $desc
                         )),
-                    $( ForkChoiceError::InvalidAttestation($error) ) |+ $( if $guard )?
+                    $( BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation($error)) ) |+ $( if $guard )?
                 ),
                 "case: {}",
                 $desc,

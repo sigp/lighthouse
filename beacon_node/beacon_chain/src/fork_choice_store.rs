@@ -6,7 +6,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::iter::{BlockRootsIterator, ReverseBlockRootIterator};
-use store::{Error as StoreError, Store};
+use store::{DBColumn, Error as StoreError, Store, StoreItem};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
@@ -210,14 +210,22 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStore<S, E> {
         })
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        PersistedForkChoiceStore::from(self).as_ssz_bytes()
+    pub fn to_persisted(&self) -> PersistedForkChoiceStore {
+        PersistedForkChoiceStore {
+            balances_cache: self.balances_cache.clone(),
+            time: self.time,
+            finalized_checkpoint: self.finalized_checkpoint,
+            justified_checkpoint: self.justified_checkpoint,
+            justified_balances: self.justified_balances.clone(),
+            best_justified_checkpoint: self.best_justified_checkpoint,
+            best_justified_balances: self.best_justified_balances.clone(),
+        }
     }
 
-    pub fn from_bytes(bytes: &[u8], store: Arc<S>) -> Result<Self, Error> {
-        let persisted = PersistedForkChoiceStore::from_ssz_bytes(bytes)
-            .map_err(Error::InvalidPersistedBytes)?;
-
+    pub fn from_persisted(
+        persisted: PersistedForkChoiceStore,
+        store: Arc<S>,
+    ) -> Result<Self, Error> {
         Ok(Self {
             store,
             balances_cache: persisted.balances_cache,
@@ -362,5 +370,19 @@ impl<S: Store<E>, E: EthSpec> From<&ForkChoiceStore<S, E>> for PersistedForkChoi
             best_justified_checkpoint: store.best_justified_checkpoint,
             best_justified_balances: store.best_justified_balances.clone(),
         }
+    }
+}
+
+impl StoreItem for PersistedForkChoiceStore {
+    fn db_column() -> DBColumn {
+        DBColumn::ForkChoiceStore
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, StoreError> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }
