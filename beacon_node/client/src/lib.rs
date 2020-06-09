@@ -25,8 +25,6 @@ pub struct Client<T: BeaconChainTypes> {
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     http_listen_addr: Option<SocketAddr>,
     websocket_listen_addr: Option<SocketAddr>,
-    /// Exit channels will complete/error when dropped, causing each service to exit gracefully.
-    _exit_channels: Vec<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl<T: BeaconChainTypes> Client<T> {

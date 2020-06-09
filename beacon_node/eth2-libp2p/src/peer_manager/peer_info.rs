@@ -31,6 +31,10 @@ pub struct PeerInfo<T: EthSpec> {
     /// The ENR subnet bitfield of the peer. This may be determined after it's initial
     /// connection.
     pub meta_data: Option<MetaData<T>>,
+    /// The time we would like to retain this peer. After this time, the peer is no longer
+    /// necessary.
+    #[serde(skip)]
+    pub min_ttl: Option<Instant>,
 }
 
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
@@ -43,6 +47,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             listening_addresses: vec![],
             sync_status: PeerSyncStatus::Unknown,
             meta_data: None,
+            min_ttl: None,
         }
     }
 }

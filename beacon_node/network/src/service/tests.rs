@@ -32,7 +32,9 @@ mod tests {
         let enrs = vec![enr1, enr2];
 
         let runtime = Runtime::new().unwrap();
-        let handle = runtime.handle().clone();
+
+        let (signal, exit) = exit_future::signal();
+        let executor = environment::TaskExecutor::new(runtime.handle().clone(), exit, log.clone());
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;
@@ -42,8 +44,8 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _ =
-                NetworkService::start(beacon_chain.clone(), &config, &handle, log.clone()).unwrap();
+            let _ = NetworkService::start(beacon_chain.clone(), &config, executor).unwrap();
+            drop(signal);
         });
         runtime.shutdown_timeout(tokio::time::Duration::from_millis(300));
 

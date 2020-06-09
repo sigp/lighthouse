@@ -1,4 +1,5 @@
 FROM rust:1.43.1 AS builder
+RUN apt-get update && apt-get install -y cmake
 COPY . lighthouse
 RUN cd lighthouse && make
 RUN cd lighthouse && cargo install --path lcli --locked

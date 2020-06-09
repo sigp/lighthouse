@@ -10,6 +10,8 @@
 use eth2_config::Eth2Config;
 use eth2_testnet_config::Eth2TestnetConfig;
 use futures::channel::oneshot;
+
+pub use executor::TaskExecutor;
 use slog::{info, o, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::cell::RefCell;
@@ -17,8 +19,10 @@ use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::runtime::{Builder as RuntimeBuilder, Handle, Runtime};
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, InteropEthSpec, MainnetEthSpec, MinimalEthSpec};
+mod executor;
+mod metrics;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
@@ -184,10 +188,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
     /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
+        let (signal, exit) = exit_future::signal();
         Ok(Environment {
             runtime: self
                 .runtime
                 .ok_or_else(|| "Cannot build environment without runtime".to_string())?,
+            signal: Some(signal),
+            exit,
             log: self
                 .log
                 .ok_or_else(|| "Cannot build environment without log".to_string())?,
@@ -204,8 +211,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 /// `Runtime`, instead it only has access to a `Runtime`.
 #[derive(Clone)]
 pub struct RuntimeContext<E: EthSpec> {
-    pub runtime_handle: Handle,
-    pub log: Logger,
+    pub executor: TaskExecutor,
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
 }
@@ -216,8 +222,11 @@ impl<E: EthSpec> RuntimeContext<E> {
     /// The generated service will have the `service_name` in all it's logs.
     pub fn service_context(&self, service_name: String) -> Self {
         Self {
-            runtime_handle: self.runtime_handle.clone(),
-            log: self.log.new(o!("service" => service_name)),
+            executor: TaskExecutor {
+                handle: self.executor.handle.clone(),
+                exit: self.executor.exit.clone(),
+                log: self.executor.log.new(o!("service" => service_name)),
+            },
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
@@ -227,12 +236,19 @@ impl<E: EthSpec> RuntimeContext<E> {
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
     }
+
+    /// Returns a reference to the logger for this service.
+    pub fn log(&self) -> &slog::Logger {
+        self.executor.log()
+    }
 }
 
 /// An environment where Lighthouse services can run. Used to start a production beacon node or
 /// validator client, or to run tests that involve logging and async task execution.
 pub struct Environment<E: EthSpec> {
     runtime: Runtime,
+    signal: Option<exit_future::Signal>,
+    exit: exit_future::Exit,
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
@@ -251,8 +267,11 @@ impl<E: EthSpec> Environment<E> {
     /// Returns a `Context` where no "service" has been added to the logger output.
     pub fn core_context(&mut self) -> RuntimeContext<E> {
         RuntimeContext {
-            runtime_handle: self.runtime.handle().clone(),
-            log: self.log.clone(),
+            executor: TaskExecutor {
+                exit: self.exit.clone(),
+                handle: self.runtime().handle().clone(),
+                log: self.log.clone(),
+            },
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
@@ -261,8 +280,11 @@ impl<E: EthSpec> Environment<E> {
     /// Returns a `Context` where the `service_name` is added to the logger output.
     pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
-            runtime_handle: self.runtime.handle().clone(),
-            log: self.log.new(o!("service" => service_name)),
+            executor: TaskExecutor {
+                exit: self.exit.clone(),
+                handle: self.runtime().handle().clone(),
+                log: self.log.new(o!("service" => service_name.clone())),
+            },
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
         }
@@ -289,6 +311,13 @@ impl<E: EthSpec> Environment<E> {
     pub fn shutdown_on_idle(self) {
         self.runtime
             .shutdown_timeout(std::time::Duration::from_secs(2))
+    }
+
+    /// Fire exit signal which shuts down all spawned services
+    pub fn fire_signal(&mut self) {
+        if let Some(signal) = self.signal.take() {
+            let _ = signal.fire();
+        }
     }
 
     /// Sets the logger (and all child loggers) to log to a file.

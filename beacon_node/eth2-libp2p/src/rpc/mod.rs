@@ -11,34 +11,69 @@ use libp2p::swarm::{
     PollParameters, SubstreamProtocol,
 };
 use libp2p::{Multiaddr, PeerId};
-pub use methods::{
-    MetaData, RPCCodedResponse, RPCResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
-    StatusMessage,
-};
-pub use protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
 use slog::{debug, o};
 use std::marker::PhantomData;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use types::EthSpec;
 
+pub(crate) use handler::HandlerErr;
+pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
+pub(crate) use protocol::{RPCProtocol, RPCRequest};
+
+pub use handler::SubstreamId;
+pub use methods::{
+    BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RPCResponseErrorCode, RequestId,
+    ResponseTermination, StatusMessage,
+};
+pub use protocol::{Protocol, RPCError};
+
 pub(crate) mod codec;
 mod handler;
 pub mod methods;
 mod protocol;
 
-/// The return type used in the behaviour and the resultant event from the protocols handler.
+/// RPC events sent from Lighthouse.
 #[derive(Debug, Clone)]
-pub enum RPCEvent<T: EthSpec> {
-    /// An inbound/outbound request for RPC protocol. The first parameter is a sequential
-    /// id which tracks an awaiting substream for the response.
+pub enum RPCSend<T: EthSpec> {
+    /// A request sent from Lighthouse.
+    ///
+    /// The `RequestId` is given by the application making the request. These
+    /// go over *outbound* connections.
     Request(RequestId, RPCRequest<T>),
-    /// A response that is being sent or has been received from the RPC protocol. The first parameter returns
-    /// that which was sent with the corresponding request, the second is a single chunk of a
-    /// response.
-    Response(RequestId, RPCCodedResponse<T>),
-    /// An Error occurred.
-    Error(RequestId, Protocol, RPCError),
+    /// A response sent from Lighthouse.
+    ///
+    /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
+    /// peer. The second parameter is a single chunk of a response. These go over *inbound*
+    /// connections.
+    Response(SubstreamId, RPCCodedResponse<T>),
+}
+
+/// RPC events received from outside Lighthouse.
+#[derive(Debug, Clone)]
+pub enum RPCReceived<T: EthSpec> {
+    /// A request received from the outside.
+    ///
+    /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
+    /// *inbound* substream over which it is managed.
+    Request(SubstreamId, RPCRequest<T>),
+    /// A response received from the outside.
+    ///
+    /// The `RequestId` corresponds to the application given ID of the original request sent to the
+    /// peer. The second parameter is a single chunk of a response. These go over *outbound*
+    /// connections.
+    Response(RequestId, RPCResponse<T>),
+    /// Marks a request as completed
+    EndOfStream(RequestId, ResponseTermination),
+}
+
+impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
+            RPCSend::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
+        }
+    }
 }
 
 /// Messages sent to the user from the RPC protocol.
@@ -46,38 +81,14 @@ pub struct RPCMessage<TSpec: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
     /// The message that was sent.
-    pub event: RPCEvent<TSpec>,
-}
-
-impl<T: EthSpec> RPCEvent<T> {
-    pub fn id(&self) -> usize {
-        match *self {
-            RPCEvent::Request(id, _) => id,
-            RPCEvent::Response(id, _) => id,
-            RPCEvent::Error(id, _, _) => id,
-        }
-    }
-}
-
-impl<T: EthSpec> std::fmt::Display for RPCEvent<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RPCEvent::Request(id, req) => write!(f, "RPC Request(id: {}, {})", id, req),
-            RPCEvent::Response(id, res) => write!(f, "RPC Response(id: {}, {})", id, res),
-            RPCEvent::Error(id, prot, err) => write!(
-                f,
-                "RPC Error(id: {}, protocol: {:?} error: {:?})",
-                id, prot, err
-            ),
-        }
-    }
+    pub event: <RPCHandler<TSpec> as ProtocolsHandler>::OutEvent,
 }
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<TSpec: EthSpec> {
-    /// Queue of events to processed.
-    events: Vec<NetworkBehaviourAction<RPCEvent<TSpec>, RPCMessage<TSpec>>>,
+    /// Queue of events to be processed.
+    events: Vec<NetworkBehaviourAction<RPCSend<TSpec>, RPCMessage<TSpec>>>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
@@ -94,11 +105,11 @@ impl<TSpec: EthSpec> RPC<TSpec> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_rpc(&mut self, peer_id: PeerId, rpc_event: RPCEvent<TSpec>) {
+    pub fn send_rpc(&mut self, peer_id: PeerId, event: RPCSend<TSpec>) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
-            event: rpc_event,
+            event,
         });
     }
 }
@@ -129,8 +140,7 @@ where
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => format!("{}",peer_id));
-        let rpc_event =
-            RPCEvent::Request(RequestId::from(0usize), RPCRequest::MetaData(PhantomData));
+        let rpc_event = RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id: peer_id.clone(),
             handler: NotifyHandler::Any,
@@ -158,14 +168,14 @@ where
 
     fn inject_event(
         &mut self,
-        source: PeerId,
+        peer_id: PeerId,
         _: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         // send the event to the user
         self.events
             .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
-                peer_id: source,
+                peer_id,
                 event,
             }));
     }
