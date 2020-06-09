@@ -20,6 +20,7 @@ use state_processing::per_block_processing::{
 };
 use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
+use std::ptr;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
     EthSpec, Fork, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator,
@@ -408,6 +409,9 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
 /// Compare two operation pools.
 impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
     fn eq(&self, other: &Self) -> bool {
+        if ptr::eq(self, other) {
+            return true;
+        }
         *self.attestations.read() == *other.attestations.read()
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()

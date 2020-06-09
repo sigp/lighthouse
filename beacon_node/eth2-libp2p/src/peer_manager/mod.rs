@@ -279,7 +279,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // this could their fault or ours, so we tolerate this
                 PeerAction::HighToleranceError
             }
-            RPCError::ErrorResponse(code) => match code {
+            RPCError::ErrorResponse(code, _) => match code {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,

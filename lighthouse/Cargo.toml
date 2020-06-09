@@ -9,7 +9,7 @@ write_ssz_files = ["beacon_node/write_ssz_files"]  # Writes debugging .ssz files
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
-tokio = "0.2.20"
+tokio = "0.2.21"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.0"
 types = { "path" = "../consensus/types" }

@@ -6,7 +6,6 @@ edition = "2018"
 
 [dev-dependencies]
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
-environment = { path = "../../lighthouse/environment" }
 toml = "0.5.6"
 web3 = "0.11.0"
 sloggers = "1.0.0"
@@ -25,8 +24,9 @@ tree_hash = "0.1.0"
 eth2_hashing = "0.1.0"
 parking_lot = "0.10.2"
 slog = "2.5.2"
-tokio = { version = "0.2.20", features = ["full"] }
+tokio = { version = "0.2.21", features = ["full"] }
 state_processing = { path = "../../consensus/state_processing" }
 libflate = "1.0.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics"}
 lazy_static = "1.4.0"
+environment = { path = "../../lighthouse/environment" }

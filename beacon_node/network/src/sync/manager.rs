@@ -37,9 +37,10 @@ use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessI
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
 use super::range_sync::{BatchId, ChainId, RangeSync};
+use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::rpc::{methods::*, RequestId};
+use eth2_libp2p::rpc::BlocksByRootRequest;
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
@@ -48,7 +49,7 @@ use smallvec::SmallVec;
 use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -181,17 +182,12 @@ impl SingleBlockRequest {
 /// chain. This allows the chain to be
 /// dropped during the syncing process which will gracefully end the `SyncManager`.
 pub fn spawn<T: BeaconChainTypes>(
-    runtime_handle: &tokio::runtime::Handle,
+    executor: environment::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: slog::Logger,
-) -> (
-    mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    oneshot::Sender<()>,
-) {
-    // generate the exit channel
-    let (sync_exit, exit_rx) = tokio::sync::oneshot::channel();
+) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
@@ -215,11 +211,8 @@ pub fn spawn<T: BeaconChainTypes>(
 
     // spawn the sync manager thread
     debug!(log, "Sync Manager started");
-    runtime_handle.spawn(async move {
-        futures::future::select(Box::pin(sync_manager.main()), exit_rx).await;
-        info!(log.clone(), "Sync Manager shutdown");
-    });
-    (sync_send, sync_exit)
+    executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
+    sync_send
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {

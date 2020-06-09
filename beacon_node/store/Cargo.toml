@@ -16,7 +16,7 @@ rayon = "1.3.0"
 
 [dependencies]
 db-key = "0.0.5"
-leveldb = "0.8.4"
+leveldb = "0.8.5"
 parking_lot = "0.10.2"
 itertools = "0.9.0"
 eth2_ssz = "0.1.2"
@@ -29,4 +29,4 @@ serde = "1.0.110"
 serde_derive = "1.0.110"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-lru = "0.4.3"
+lru = "0.5.1"
