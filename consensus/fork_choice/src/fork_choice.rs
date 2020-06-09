@@ -394,7 +394,7 @@ where
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error<T::Error>> {
-        self.update_time(current_slot)?;
+        let current_slot = self.update_time(current_slot)?;
 
         // Process any attestations that were delayed for consideration.
         //
@@ -603,7 +603,9 @@ where
         Ok(())
     }
 
-    fn update_time(&mut self, current_slot: Slot) -> Result<(), Error<T::Error>> {
+    /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
+    /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
+    fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
         while self.fc_store.get_current_slot() < current_slot {
             let previous_slot = self.fc_store.get_current_slot();
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
@@ -611,13 +613,7 @@ where
             on_tick(&mut self.fc_store, previous_slot + 1)?
         }
 
-        assert_eq!(
-            self.fc_store.get_current_slot(),
-            current_slot,
-            "store did not update time"
-        );
-
-        Ok(())
+        Ok(self.fc_store.get_current_slot())
     }
 
     /// Processes and removes from the queue any queued attestations which are now able to be
