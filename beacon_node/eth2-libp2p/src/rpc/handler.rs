@@ -349,24 +349,20 @@ where
         substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
     ) {
         let (req, substream) = substream;
-        // drop the stream
-        if let RPCRequest::Goodbye(_) = req {
-            self.events_out
-                .push(RPCReceived::Request(self.current_inbound_substream_id, req));
-            self.current_inbound_substream_id.0 += 1;
-            return;
-        }
 
-        // New inbound request. Store the stream and tag the output.
-        let delay_key = self.inbound_substreams_delay.insert(
-            self.current_inbound_substream_id,
-            Duration::from_secs(RESPONSE_TIMEOUT),
-        );
-        let awaiting_stream = InboundSubstreamState::ResponseIdle(substream);
-        self.inbound_substreams.insert(
-            self.current_inbound_substream_id,
-            (awaiting_stream, Some(delay_key), req.protocol()),
-        );
+        // store requests that expect responses
+        if req.expected_responses() > 0 {
+            // Store the stream and tag the output.
+            let delay_key = self.inbound_substreams_delay.insert(
+                self.current_inbound_substream_id,
+                Duration::from_secs(RESPONSE_TIMEOUT),
+            );
+            let awaiting_stream = InboundSubstreamState::ResponseIdle(substream);
+            self.inbound_substreams.insert(
+                self.current_inbound_substream_id,
+                (awaiting_stream, Some(delay_key), req.protocol()),
+            );
+        }
 
         self.events_out
             .push(RPCReceived::Request(self.current_inbound_substream_id, req));

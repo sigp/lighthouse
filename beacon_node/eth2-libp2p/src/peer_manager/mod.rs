@@ -442,7 +442,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         for id in ban_queue {
             pdb.ban(&id);
 
-            self.events.push(PeerManagerEvent::DisconnectPeer(id.clone()));
+            self.events
+                .push(PeerManagerEvent::DisconnectPeer(id.clone()));
         }
 
         for id in unban_queue {
