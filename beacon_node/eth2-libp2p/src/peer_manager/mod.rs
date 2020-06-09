@@ -96,9 +96,7 @@ pub enum PeerManagerEvent {
     /// Request METADATA from a peer.
     MetaData(PeerId),
     /// The peer should be disconnected.
-    _DisconnectPeer(PeerId),
-    /// The peer should be disconnected and banned.
-    _BanPeer(PeerId),
+    DisconnectPeer(PeerId),
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
@@ -444,7 +442,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         for id in ban_queue {
             pdb.ban(&id);
 
-            self.events.push(PeerManagerEvent::_BanPeer(id.clone()));
+            self.events.push(PeerManagerEvent::DisconnectPeer(id.clone()));
         }
 
         for id in unban_queue {

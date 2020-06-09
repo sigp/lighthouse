@@ -756,10 +756,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     PeerManagerEvent::MetaData(peer_id) => {
                         self.send_meta_data_request(peer_id);
                     }
-                    PeerManagerEvent::_DisconnectPeer(_peer_id) => {
-                        //TODO: Implement
-                    }
-                    PeerManagerEvent::_BanPeer(_peer_id) => {
+                    PeerManagerEvent::DisconnectPeer(_peer_id) => {
                         //TODO: Implement
                     }
                 },
