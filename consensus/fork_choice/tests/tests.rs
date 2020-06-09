@@ -31,13 +31,14 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
+    // TODO: unused.
     fn inspect<T>(&self, func: T)
     where
         T: Fn(&BeaconChainHarness<HarnessType<E>>, &BeaconForkChoiceStore<MemoryStore<E>, E>),
     {
         func(
             &self.harness,
-            &self.harness.chain.fork_choice.backend().fc_store(),
+            &self.harness.chain.fork_choice.read().fc_store(),
         )
     }
 
@@ -45,7 +46,7 @@ impl ForkChoiceTest {
     where
         T: Fn(&BeaconForkChoiceStore<MemoryStore<E>, E>) -> U,
     {
-        func(&self.harness.chain.fork_choice.backend().fc_store())
+        func(&self.harness.chain.fork_choice.read().fc_store())
     }
 
     pub fn assert_justified_epoch(self, epoch: u64) -> Self {
@@ -111,14 +112,15 @@ impl ForkChoiceTest {
         self.harness
             .chain
             .fork_choice
-            .process_block(current_slot, &state, &block.message, block.canonical_root())
+            .write()
+            .on_block(current_slot, &block.message, block.canonical_root(), &state)
             .unwrap();
         self
     }
 
     fn check_justified_balances(&self) {
         let harness = &self.harness;
-        let fc = self.harness.chain.fork_choice.backend();
+        let fc = self.harness.chain.fork_choice.read();
 
         let state_root = harness
             .chain

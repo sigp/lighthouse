@@ -2,8 +2,8 @@ use crate::helpers::{check_content_type_for_json, publish_beacon_block_to_networ
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, NetworkChannel, UrlQuery};
 use beacon_chain::{
-    attestation_verification::Error as AttnError, BeaconChain, BeaconChainTypes, BlockError,
-    ForkChoiceError, StateSkipConfig,
+    attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BlockError, ForkChoiceError, StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
@@ -720,13 +720,13 @@ fn handle_attestation_error(
 
 /// Common handler for `ForkChoiceError` during attestation verification.
 fn handle_fork_choice_error(
-    e: ForkChoiceError,
+    e: BeaconChainError,
     detail: &str,
     data: &AttestationData,
     log: &Logger,
 ) -> ApiError {
     match e {
-        ForkChoiceError::InvalidAttestation(e) => {
+        BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
             error!(
                 log,
                 "Local attestation invalid for fork choice";

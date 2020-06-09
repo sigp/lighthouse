@@ -935,7 +935,7 @@ fn get_fork_choice() {
             .beacon_chain()
             .expect("node should have beacon chain")
             .fork_choice
-            .backend()
+            .read()
             .proto_array()
             .core_proto_array(),
         "result should be as expected"

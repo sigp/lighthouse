@@ -15,7 +15,7 @@ pub fn get_fork_choice<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body_no_ssz(
         &*beacon_chain
             .fork_choice
-            .backend()
+            .read()
             .proto_array()
             .core_proto_array(),
     )
