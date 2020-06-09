@@ -24,7 +24,7 @@ use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconSnapshot;
 use crate::ForkChoiceStore;
-use lmd_ghost::ForkChoice;
+use fork_choice::ForkChoice;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -48,7 +48,7 @@ use store::iter::{
 use store::{Error as DBError, Store};
 use types::*;
 
-pub type ForkChoiceError = lmd_ghost::Error<crate::fork_choice_store::Error>;
+pub type ForkChoiceError = fork_choice::Error<crate::fork_choice_store::Error>;
 
 // Text included in blocks.
 // Must be 32-bytes or panic.

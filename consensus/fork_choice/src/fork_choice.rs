@@ -1,5 +1,5 @@
 use crate::ForkChoiceStore;
-use proto_array_fork_choice::{Block as ProtoBlock, ProtoArrayForkChoice};
+use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{

@@ -8,7 +8,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
     BeaconChain, BeaconChainError, BeaconChainTypes, ForkChoiceError,
 };
-use lmd_ghost::InvalidAttestation;
+use fork_choice::InvalidAttestation;
 use state_processing::per_slot_processing;
 use store::Store;
 use tree_hash::TreeHash;

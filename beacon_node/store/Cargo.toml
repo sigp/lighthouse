@@ -30,4 +30,4 @@ serde_derive = "1.0.110"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lru = "0.4.3"
-lmd_ghost = { path =  "../../consensus/lmd_ghost" }
+fork_choice = { path =  "../../consensus/fork_choice" }

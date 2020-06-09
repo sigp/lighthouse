@@ -1,5 +1,5 @@
 use crate::BeaconSnapshot;
-use lmd_ghost::ForkChoiceStore as ForkChoiceStoreTrait;
+use fork_choice::ForkChoiceStore as ForkChoiceStoreTrait;
 use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};

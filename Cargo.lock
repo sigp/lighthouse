@@ -273,18 +273,18 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
+ "fork_choice",
  "futures 0.3.5",
  "genesis",
  "integer-sqrt",
  "lazy_static",
  "lighthouse_metrics",
- "lmd_ghost",
  "log 0.4.8",
  "lru",
  "merkle_proof",
  "operation_pool",
  "parking_lot 0.10.2",
- "proto_array_fork_choice",
+ "proto_array",
  "rand 0.7.3",
  "rayon",
  "safe_arith",
@@ -1546,6 +1546,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
+name = "fork_choice"
+version = "0.1.0"
+dependencies = [
+ "beacon_chain",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "proto_array",
+ "slot_clock",
+ "state_processing",
+ "store",
+ "tree_hash",
+ "types",
+]
+
+[[package]]
 name = "fuchsia-cprng"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2642,21 +2657,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 
 [[package]]
-name = "lmd_ghost"
-version = "0.1.0"
-dependencies = [
- "beacon_chain",
- "eth2_ssz",
- "eth2_ssz_derive",
- "proto_array_fork_choice",
- "slot_clock",
- "state_processing",
- "store",
- "tree_hash",
- "types",
-]
-
-[[package]]
 name = "lock_api"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3464,7 +3464,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "proto_array_fork_choice"
+name = "proto_array"
 version = "0.2.0"
 dependencies = [
  "eth2_ssz",
@@ -3764,7 +3764,7 @@ dependencies = [
  "futures 0.3.5",
  "hex 0.4.2",
  "operation_pool",
- "proto_array_fork_choice",
+ "proto_array",
  "reqwest",
  "rest_types",
  "serde",
@@ -4629,11 +4629,11 @@ dependencies = [
  "db-key",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "fork_choice",
  "itertools 0.9.0",
  "lazy_static",
  "leveldb",
  "lighthouse_metrics",
- "lmd_ghost",
  "lru",
  "parking_lot 0.10.2",
  "rayon",

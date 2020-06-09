@@ -1,11 +1,10 @@
-// TODO: remove comments
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
     ForkChoiceStore as BeaconForkChoiceStore,
 };
-use lmd_ghost::{ForkChoiceStore, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
+use fork_choice::{ForkChoiceStore, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
 use store::{MemoryStore, Store};
 use types::{test_utils::generate_deterministic_keypairs, Epoch, EthSpec, MainnetEthSpec, Slot};
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};

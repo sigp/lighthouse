@@ -1,5 +1,5 @@
 use crate::fork_choice_store::PersistedForkChoiceStore as Store;
-use lmd_ghost::PersistedForkChoice as ForkChoice;
+use fork_choice::PersistedForkChoice as ForkChoice;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error, StoreItem};

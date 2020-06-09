@@ -16,7 +16,7 @@ use crate::{
     ForkChoiceStore,
 };
 use eth1::Config as Eth1Config;
-use lmd_ghost::ForkChoice;
+use fork_choice::ForkChoice;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{info, Logger};
