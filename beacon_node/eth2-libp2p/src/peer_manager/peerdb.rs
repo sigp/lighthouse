@@ -233,7 +233,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.connection_status = PeerConnectionStatus::Dialing {
             since: Instant::now(),
         };
-        debug!(self.log, "Peer dialing in db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
     }
 
     /// Update min ttl of a peer.
@@ -280,7 +279,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.n_dc = self.n_dc.saturating_sub(1);
         }
         info.connection_status.connect_ingoing();
-        debug!(self.log, "Peer connected to db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
     }
 
     /// Sets a peer as connected with an outgoing connection.
@@ -291,7 +289,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.n_dc = self.n_dc.saturating_sub(1);
         }
         info.connection_status.connect_outgoing();
-        debug!(self.log, "Peer connected to db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
     }
 
     /// Sets the peer as disconnected. A banned peer remains banned
@@ -306,7 +303,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             info.connection_status.disconnect();
             self.n_dc += 1;
         }
-        debug!(self.log, "Peer disconnected from db"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         self.shrink_to_fit();
     }
 
@@ -338,7 +334,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if info.connection_status.is_disconnected() {
             self.n_dc = self.n_dc.saturating_sub(1);
         }
-        debug!(self.log, "Peer banned"; "peer_id" => peer_id.to_string(), "n_dc" => self.n_dc);
         info.connection_status.ban();
     }
 
@@ -411,7 +406,7 @@ mod tests {
     }
 
     fn get_db() -> PeerDB<M> {
-        let log = build_log(slog::Level::Debug, true);
+        let log = build_log(slog::Level::Debug, false);
         PeerDB::new(&log)
     }
 

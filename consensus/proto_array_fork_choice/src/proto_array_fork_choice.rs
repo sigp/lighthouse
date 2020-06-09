@@ -5,6 +5,7 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
+use std::ptr;
 use types::{Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -51,6 +52,9 @@ pub struct ProtoArrayForkChoice {
 
 impl PartialEq for ProtoArrayForkChoice {
     fn eq(&self, other: &Self) -> bool {
+        if ptr::eq(self, other) {
+            return true;
+        }
         *self.proto_array.read() == *other.proto_array.read()
             && *self.votes.read() == *other.votes.read()
             && *self.balances.read() == *other.balances.read()
