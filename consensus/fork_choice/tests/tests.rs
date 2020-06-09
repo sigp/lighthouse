@@ -1,10 +1,10 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    ForkChoiceStore as BeaconForkChoiceStore,
+    ForkChoiceError, ForkChoiceStore as BeaconForkChoiceStore,
 };
-use fork_choice::{ForkChoiceStore, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
+use fork_choice::{ForkChoiceStore, InvalidBlock, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
 use store::{MemoryStore, Store};
 use types::{test_utils::generate_deterministic_keypairs, Epoch, EthSpec, MainnetEthSpec, Slot};
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
@@ -27,17 +27,6 @@ impl ForkChoiceTest {
         );
 
         Self { harness }
-    }
-
-    // TODO: unused.
-    fn inspect<T>(&self, func: T)
-    where
-        T: Fn(&BeaconChainHarness<HarnessType<E>>, &BeaconForkChoiceStore<MemoryStore<E>, E>),
-    {
-        func(
-            &self.harness,
-            &self.harness.chain.fork_choice.read().fc_store(),
-        )
     }
 
     fn get<T, U>(&self, func: T) -> U
@@ -122,6 +111,30 @@ impl ForkChoiceTest {
             .write()
             .on_block(current_slot, &block.message, block.canonical_root(), &state)
             .unwrap();
+        self
+    }
+
+    pub fn apply_invalid_block_directly_to_fork_choice<F, G>(
+        self,
+        mut mutation_func: F,
+        mut comparison_func: G,
+    ) -> Self
+    where
+        F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
+        G: FnMut(ForkChoiceError),
+    {
+        let (mut block, mut state) = self.harness.get_block();
+        mutation_func(&mut block.message, &mut state);
+        let current_slot = self.harness.chain.slot().unwrap();
+        let err = self
+            .harness
+            .chain
+            .fork_choice
+            .write()
+            .on_block(current_slot, &block.message, block.canonical_root(), &state)
+            .err()
+            .expect("on_block did not return an error");
+        comparison_func(err);
         self
     }
 
@@ -273,4 +286,32 @@ fn justified_balances() {
         .apply_blocks(1)
         .assert_justified_epoch(2)
         .check_justified_balances()
+}
+
+macro_rules! assert_invalid_block {
+    ($err: tt, $($error: pat) |+ $( if $guard: expr )?) => {
+        assert!(
+            matches!(
+                $err,
+                $( ForkChoiceError::InvalidBlock($error) ) |+ $( if $guard )?
+            ),
+        );
+    };
+}
+
+#[test]
+fn invalid_block() {
+    ForkChoiceTest::new()
+        .apply_blocks(2)
+        .apply_invalid_block_directly_to_fork_choice(
+            |block, _| {
+                block.slot = block.slot + 1;
+            },
+            |err| {
+                assert_invalid_block!(
+                    err,
+                    InvalidBlock::FutureSlot { .. }
+                )
+            },
+        );
 }

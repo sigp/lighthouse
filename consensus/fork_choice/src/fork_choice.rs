@@ -14,6 +14,7 @@ pub const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 #[derive(Debug)]
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
+    InvalidBlock(InvalidBlock),
     // TODO: make this an actual error enum.
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
@@ -29,6 +30,15 @@ impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
     }
+}
+
+#[derive(Debug)]
+pub enum InvalidBlock {
+    /// The block slot is greater than the present slot.
+    FutureSlot {
+        present_slot: Slot,
+        block_slot: Slot,
+    },
 }
 
 #[derive(Debug)]
@@ -392,6 +402,17 @@ where
         state: &BeaconState<E>,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot)?;
+
+        // Blocks cannot be in the future. If they are, their consideration must be delayed until
+        // the are in the past.
+        //
+        // Note: presently, we do not delay consideration. We just drop the block.
+        if block.slot > current_slot {
+            return Err(Error::InvalidBlock(InvalidBlock::FutureSlot {
+                present_slot: current_slot,
+                block_slot: block.slot,
+            }));
+        }
 
         // TODO: block verification stuff here
 
