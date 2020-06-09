@@ -26,8 +26,6 @@ impl ForkChoiceTest {
             u64::max_value(),
         );
 
-        harness.advance_slot();
-
         Self { harness }
     }
 
@@ -52,7 +50,8 @@ impl ForkChoiceTest {
     pub fn assert_justified_epoch(self, epoch: u64) -> Self {
         assert_eq!(
             self.get(|fc_store| fc_store.justified_checkpoint().epoch),
-            Epoch::new(epoch)
+            Epoch::new(epoch),
+            "justified_epoch"
         );
         self
     }
@@ -60,7 +59,8 @@ impl ForkChoiceTest {
     pub fn assert_best_justified_epoch(self, epoch: u64) -> Self {
         assert_eq!(
             self.get(|fc_store| fc_store.best_justified_checkpoint().epoch),
-            Epoch::new(epoch)
+            Epoch::new(epoch),
+            "best_justified_epoch"
         );
         self
     }
@@ -69,6 +69,7 @@ impl ForkChoiceTest {
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
     {
+        self.harness.advance_slot();
         self.harness.extend_chain_while(
             |block, state| predicate(&block.message, state),
             BlockStrategy::OnCanonicalHead,
@@ -79,6 +80,7 @@ impl ForkChoiceTest {
     }
 
     pub fn apply_blocks(self, count: usize) -> Self {
+        self.harness.advance_slot();
         self.harness.extend_chain(
             count,
             BlockStrategy::OnCanonicalHead,
@@ -86,6 +88,11 @@ impl ForkChoiceTest {
         );
 
         self
+    }
+
+    pub fn move_to_next_unsafe_period(self) -> Self {
+        self.move_inside_safe_to_update()
+            .move_outside_safe_to_update()
     }
 
     pub fn move_outside_safe_to_update(self) -> Self {
@@ -193,7 +200,7 @@ fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
 fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
-        .move_outside_safe_to_update()
+        .move_to_next_unsafe_period()
         .assert_justified_epoch(0)
         .assert_best_justified_epoch(0)
         .apply_blocks(1)
@@ -227,7 +234,7 @@ fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_fi
 fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
-        .move_outside_safe_to_update()
+        .move_to_next_unsafe_period()
         .assert_justified_epoch(0)
         .apply_block_directly_to_fork_choice(|_, state| {
             state.finalized_checkpoint.epoch = Epoch::new(0);
@@ -246,7 +253,7 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_f
 fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
-        .move_outside_safe_to_update()
+        .move_to_next_unsafe_period()
         .assert_justified_epoch(0)
         .apply_block_directly_to_fork_choice(|_, state| {
             state.finalized_checkpoint.epoch = Epoch::new(1);
