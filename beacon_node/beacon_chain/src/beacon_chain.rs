@@ -29,9 +29,12 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
-use state_processing::per_block_processing::errors::{
-    AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-    ProposerSlashingValidationError,
+use state_processing::{
+    common::get_indexed_attestation,
+    per_block_processing::errors::{
+        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
+    },
 };
 use state_processing::{per_block_processing, per_slot_processing, BlockSignatureStrategy};
 use std::borrow::Cow;
@@ -1425,6 +1428,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state = fully_verified_block.state;
         let parent_block = fully_verified_block.parent_block;
         let intermediate_states = fully_verified_block.intermediate_states;
+        let current_slot = self.slot()?;
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
@@ -1443,9 +1447,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         metrics::stop_timer(attestation_observation_timer);
-
-        let fork_choice_register_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
 
         // If there are new validators in this block, update our pubkey cache.
         //
@@ -1482,11 +1483,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
         }
 
+        let fork_choice_register_timer =
+            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
+
+        let mut fork_choice = self.fork_choice.write();
+
         // Register the new block with the fork choice service.
-        self.fork_choice
-            .write()
-            .on_block(self.slot()?, block, block_root, &state)
+        fork_choice
+            .on_block(current_slot, block, block_root, &state)
             .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
+        // Register each attestation in the block with the fork choice service.
+        for attestation in &block.body.attestations[..] {
+            let committee =
+                state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+            let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
+                .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
+            match fork_choice.on_attestation(current_slot, &indexed_attestation) {
+                Ok(()) => Ok(()),
+                // Ignore invalid attestations whilst importing attestations from a block. The
+                // block might be very old and therefore the attestations useless to fork choice.
+                Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
+                Err(e) => Err(BlockError::BeaconChainError(e.into())),
+            }?;
+        }
+
+        drop(fork_choice);
 
         metrics::stop_timer(fork_choice_register_timer);
 
