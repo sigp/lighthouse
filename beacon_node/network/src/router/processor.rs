@@ -9,10 +9,10 @@ use beacon_chain::{
 };
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{NetworkGlobals, PeerId, Request, Response};
+use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
-use store::errors::Error as StoreError;
 use store::Store;
 use tokio::sync::mpsc;
 use types::{
@@ -358,14 +358,10 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // pick out the required blocks, ignoring skip-slots and stepping by the step parameter;
         let mut last_block_root = None;
-        let maybe_block_roots: Result<Vec<Option<Hash256>>, StoreError> = forwards_block_root_iter
-            .take_while(|result| match result {
-                Ok((_, slot)) => slot.as_u64() < req.start_slot + req.count * req.step,
-                Err(_) => true,
-            })
-            // map skip slots to None
-            .map(|result| {
-                result.map(|(root, _)| {
+        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
+            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
+                // map skip slots to None
+                .map(|(root, _)| {
                     let result = if Some(root) == last_block_root {
                         None
                     } else {
@@ -374,9 +370,9 @@ impl<T: BeaconChainTypes> Processor<T> {
                     last_block_root = Some(root);
                     result
                 })
-            })
-            .step_by(req.step as usize)
-            .collect::<Result<_, _>>();
+                .step_by(req.step as usize)
+                .collect::<Vec<Option<Hash256>>>()
+        });
 
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,

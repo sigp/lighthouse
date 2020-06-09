@@ -3,6 +3,7 @@ use crate::chunked_vector::BlockRoots;
 use crate::errors::{Error, Result};
 use crate::iter::BlockRootsIterator;
 use crate::{HotColdDB, Store};
+use itertools::process_results;
 use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
@@ -65,13 +66,14 @@ impl SimpleForwardsBlockRootsIterator {
         end_block_root: Hash256,
     ) -> Result<Self> {
         // Iterate backwards from the end state, stopping at the start slot.
-        let values = std::iter::once(Ok((end_block_root, end_state.slot)))
-            .chain(BlockRootsIterator::owned(store, end_state))
-            .take_while(|result| match result {
-                Ok((_, slot)) => *slot >= start_slot,
-                Err(_) => true,
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let values = process_results(
+            std::iter::once(Ok((end_block_root, end_state.slot)))
+                .chain(BlockRootsIterator::owned(store, end_state)),
+            |iter| {
+                iter.take_while(|(_, slot)| *slot >= start_slot)
+                    .collect::<Vec<_>>()
+            },
+        )?;
         Ok(Self { values: values })
     }
 }

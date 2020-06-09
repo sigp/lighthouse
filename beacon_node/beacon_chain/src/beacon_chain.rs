@@ -378,14 +378,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         slot: Slot,
     ) -> Result<Option<Hash256>, Error> {
-        Ok(self
-            .rev_iter_block_roots_from(block_root)?
-            .find(|result| match result {
-                Ok((_, ancestor_slot)) => *ancestor_slot == slot,
-                Err(_) => true,
-            })
-            .transpose()?
-            .map(|(ancestor_block_root, _)| ancestor_block_root))
+        process_results(self.rev_iter_block_roots_from(block_root)?, |mut iter| {
+            iter.find(|(_, ancestor_slot)| *ancestor_slot == slot)
+                .map(|(ancestor_block_root, _)| ancestor_block_root)
+        })
     }
 
     /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
@@ -403,8 +399,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head = self.head()?;
         let slot = head.beacon_state.slot;
         let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
-        let iter = std::iter::once(Ok((head.beacon_state_root, slot))).chain(iter);
-        Ok(Box::new(iter.map(|result| result.map_err(Into::into))))
+        let iter = std::iter::once(Ok((head.beacon_state_root, slot)))
+            .chain(iter)
+            .map(|result| result.map_err(Into::into));
+        Ok(iter)
     }
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
@@ -416,14 +414,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         slot: Slot,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        let root = self
-            .rev_iter_block_roots()?
-            .find(|result| match result {
-                Ok((_, this_slot)) => *this_slot == slot,
-                Err(_) => true,
-            })
-            .transpose()?
-            .map(|(root, _)| root);
+        let root = process_results(self.rev_iter_block_roots()?, |mut iter| {
+            iter.find(|(_, this_slot)| *this_slot == slot)
+                .map(|(root, _)| root)
+        })?;
 
         if let Some(block_root) = root {
             Ok(self.store.get_item(&block_root)?)
@@ -649,7 +643,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns None if a block doesn't exist at the slot.
     pub fn root_at_slot(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_state_roots()?, |mut iter| {
+        process_results(self.rev_iter_block_roots()?, |mut iter| {
             iter.find(|(_, slot)| *slot == target_slot)
                 .map(|(root, _)| root)
         })
