@@ -534,7 +534,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.random_subnets.insert(subnet_id);
 
             // if we are not already subscribed, then subscribe
-            let topic_kind = &GossipKind::CommitteeIndex(subnet_id);
+            let topic_kind = &GossipKind::Attestation(subnet_id);
 
             let already_subscribed = self
                 .network_globals
@@ -597,7 +597,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // we are also not un-subscribing from a subnet if the next slot requires us to be
             // subscribed. Therefore there could be the case that we are already still subscribed
             // to the required subnet. In which case we do not issue another subscription request.
-            let topic_kind = &GossipKind::CommitteeIndex(exact_subnet.subnet_id);
+            let topic_kind = &GossipKind::Attestation(exact_subnet.subnet_id);
             if self
                 .network_globals
                 .gossipsub_subscriptions
