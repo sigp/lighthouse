@@ -228,16 +228,29 @@ fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
 fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .apply_blocks(1)
         .move_inside_safe_to_update()
-        .assert_justified_epoch(0)
-        .apply_block_directly_to_fork_choice(|_, state| {
+        .assert_justified_epoch(2)
+        .apply_block_directly_to_fork_choice(|block, state| {
+            // The finalized checkpoint should not change.
             state.finalized_checkpoint.epoch = Epoch::new(0);
+
+            // The justified checkpoint has changed.
+            state.current_justified_checkpoint.epoch = Epoch::new(3);
+            // The justified root must also change to prevent `get_ancestor` for short-circuiting
+            // on `block_slot == ancestor_slot`.
+            state.current_justified_checkpoint.root = block.parent_root;
+
+            // The new block should **not** include the current justified block as an ancestor.
             state
-                .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
+                .set_block_root(
+                    Epoch::new(2).start_slot(E::slots_per_epoch()),
+                    Hash256::from_low_u64_be(42),
+                )
                 .unwrap();
         })
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2);
+        .assert_justified_epoch(3)
+        .assert_best_justified_epoch(3);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -247,16 +260,29 @@ fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_fi
 fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .apply_blocks(1)
         .move_to_next_unsafe_period()
-        .assert_justified_epoch(0)
-        .apply_block_directly_to_fork_choice(|_, state| {
+        .assert_justified_epoch(2)
+        .apply_block_directly_to_fork_choice(|block, state| {
+            // The finalized checkpoint should not change.
             state.finalized_checkpoint.epoch = Epoch::new(0);
+
+            // The justified checkpoint has changed.
+            state.current_justified_checkpoint.epoch = Epoch::new(3);
+            // The justified root must also change to prevent `get_ancestor` for short-circuiting
+            // on `block_slot == ancestor_slot`.
+            state.current_justified_checkpoint.root = block.parent_root;
+
+            // The new block should **not** include the current justified block as an ancestor.
             state
-                .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
+                .set_block_root(
+                    Epoch::new(2).start_slot(E::slots_per_epoch()),
+                    Hash256::from_low_u64_be(42),
+                )
                 .unwrap();
         })
-        .assert_justified_epoch(0)
-        .assert_best_justified_epoch(2);
+        .assert_justified_epoch(2)
+        .assert_best_justified_epoch(3);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -266,16 +292,29 @@ fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_f
 fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_finality() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint.epoch == 0)
+        .apply_blocks(1)
         .move_to_next_unsafe_period()
-        .assert_justified_epoch(0)
-        .apply_block_directly_to_fork_choice(|_, state| {
+        .assert_justified_epoch(2)
+        .apply_block_directly_to_fork_choice(|block, state| {
+            // The finalized checkpoint should change.
             state.finalized_checkpoint.epoch = Epoch::new(1);
+
+            // The justified checkpoint has changed.
+            state.current_justified_checkpoint.epoch = Epoch::new(3);
+            // The justified root must also change to prevent `get_ancestor` for short-circuiting
+            // on `block_slot == ancestor_slot`.
+            state.current_justified_checkpoint.root = block.parent_root;
+
+            // The new block should **not** include the current justified block as an ancestor.
             state
-                .set_block_root(Slot::new(0), Hash256::from_low_u64_be(42))
+                .set_block_root(
+                    Epoch::new(2).start_slot(E::slots_per_epoch()),
+                    Hash256::from_low_u64_be(42),
+                )
                 .unwrap();
         })
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2);
+        .assert_justified_epoch(3)
+        .assert_best_justified_epoch(3);
 }
 
 /// Check that the balances are obtained correctly.

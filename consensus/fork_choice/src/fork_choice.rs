@@ -426,9 +426,9 @@ where
         //
         // A prior `if` statement protects against a justified_slot that is greater than
         // `state.slot`
-        if self.get_ancestor(Some(state), new_justified_checkpoint.root, justified_slot)?
-            != self.fc_store.justified_checkpoint().root
-        {
+        let justified_ancestor =
+            self.get_ancestor(Some(state), new_justified_checkpoint.root, justified_slot)?;
+        if justified_ancestor != self.fc_store.justified_checkpoint().root {
             return Ok(false);
         }
 
