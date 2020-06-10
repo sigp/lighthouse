@@ -206,7 +206,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .map_err(|e| {
                 warn!(self.log,
                     "Failed to compute subnet id for validator subscription";
-                    "error" => e
+                    "error" => format!("{:?}", e)
                 )
             })?;
 

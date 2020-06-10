@@ -285,7 +285,7 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            genesis_delay: 172800, // 2 days
+            genesis_delay: 172_800, // 2 days
             milliseconds_per_slot: 12_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
