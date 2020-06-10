@@ -52,7 +52,11 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 
     /// Execute either all of the operations in `batch` or none at all, returning an error.
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
+    fn do_atomically(&self, batch: &[KeyValueStoreOp]) -> Result<(), Error>;
+}
+
+pub enum KeyValueStoreOp {
+    DeleteKey(Vec<u8>),
 }
 
 pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {

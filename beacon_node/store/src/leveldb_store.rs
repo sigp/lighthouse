@@ -98,30 +98,12 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
             .map_err(Into::into)
     }
 
-    fn do_atomically(&self, ops_batch: &[StoreOp]) -> Result<(), Error> {
+    fn do_atomically(&self, ops_batch: &[KeyValueStoreOp]) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
-        for op in ops_batch {
+        for op in ops_batch.into_iter() {
             match op {
-                StoreOp::DeleteBlock(block_hash) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    let key =
-                        get_key_for_col(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes());
-                    leveldb_batch.delete(key);
-                }
-
-                StoreOp::DeleteState(state_hash, slot) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    let state_summary_key = get_key_for_col(
-                        DBColumn::BeaconStateSummary.into(),
-                        untyped_hash.as_bytes(),
-                    );
-                    leveldb_batch.delete(state_summary_key);
-
-                    if *slot % E::slots_per_epoch() == 0 {
-                        let state_key =
-                            get_key_for_col(DBColumn::BeaconState.into(), untyped_hash.as_bytes());
-                        leveldb_batch.delete(state_key);
-                    }
+                KeyValueStoreOp::DeleteKey(key) => {
+                    leveldb_batch.delete(BytesKey::from_vec(key.to_vec()));
                 }
             }
         }
@@ -144,6 +126,12 @@ impl Key for BytesKey {
 
     fn as_slice<T, F: Fn(&[u8]) -> T>(&self, f: F) -> T {
         f(self.key.as_slice())
+    }
+}
+
+impl BytesKey {
+    fn from_vec(key: Vec<u8>) -> Self {
+        Self { key }
     }
 }
 

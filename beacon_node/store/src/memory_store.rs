@@ -1,4 +1,4 @@
-use super::{DBColumn, Error, ItemStore, KeyValueStore, Store, StoreOp};
+use super::{DBColumn, Error, ItemStore, KeyValueStore, KeyValueStoreOp, Store, StoreOp};
 use crate::forwards_iter::SimpleForwardsBlockRootsIterator;
 use crate::hot_cold_store::HotStateSummary;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
@@ -46,53 +46,34 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = Self::get_key_for_col(col, key);
-
         Ok(self.db.read().get(&column_key).cloned())
     }
 
     /// Puts a key in the database.
     fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
-
         self.db.write().insert(column_key, val.to_vec());
-
         Ok(())
     }
 
     /// Return true if some key exists in some column.
     fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
         let column_key = Self::get_key_for_col(col, key);
-
         Ok(self.db.read().contains_key(&column_key))
     }
 
     /// Delete some key from the database.
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let column_key = Self::get_key_for_col(col, key);
-
         self.db.write().remove(&column_key);
-
         Ok(())
     }
 
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+    fn do_atomically(&self, batch: &[KeyValueStoreOp]) -> Result<(), Error> {
         for op in batch {
             match op {
-                StoreOp::DeleteBlock(block_hash) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    self.key_delete(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes())?;
-                }
-
-                StoreOp::DeleteState(state_hash, slot) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    if *slot % E::slots_per_epoch() == 0 {
-                        self.key_delete(DBColumn::BeaconState.into(), untyped_hash.as_bytes())?;
-                    } else {
-                        self.key_delete(
-                            DBColumn::BeaconStateSummary.into(),
-                            untyped_hash.as_bytes(),
-                        )?;
-                    }
+                KeyValueStoreOp::DeleteKey(hash) => {
+                    self.db.write().remove(hash);
                 }
             }
         }
@@ -189,6 +170,32 @@ impl<E: EthSpec> Store<E> for MemoryStore<E> {
     }
 
     fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
-        KeyValueStore::do_atomically(self, batch)
+        let mut key_value_batch: Vec<KeyValueStoreOp> = Vec::with_capacity(batch.len());
+        for op in batch {
+            match op {
+                StoreOp::DeleteBlock(block_hash) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    let key = Self::get_key_for_col(
+                        DBColumn::BeaconBlock.into(),
+                        untyped_hash.as_bytes(),
+                    );
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
+                }
+
+                StoreOp::DeleteState(state_hash, slot) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    let key = if *slot % E::slots_per_epoch() == 0 {
+                        Self::get_key_for_col(DBColumn::BeaconState.into(), untyped_hash.as_bytes())
+                    } else {
+                        Self::get_key_for_col(
+                            DBColumn::BeaconStateSummary.into(),
+                            untyped_hash.as_bytes(),
+                        )
+                    };
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
+                }
+            }
+        }
+        KeyValueStore::do_atomically(self, &key_value_batch)
     }
 }

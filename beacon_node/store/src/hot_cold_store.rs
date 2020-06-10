@@ -5,9 +5,10 @@ use crate::config::StoreConfig;
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
+use crate::leveldb_store::LevelDB;
 use crate::metrics;
 use crate::{
-    leveldb_store::LevelDB, DBColumn, Error, ItemStore, KeyValueStore, PartialBeaconState, Store,
+    DBColumn, Error, ItemStore, KeyValueStore, KeyValueStoreOp, PartialBeaconState, Store,
     StoreItem, StoreOp,
 };
 use lru::LruCache;
@@ -240,7 +241,35 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
 
     fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
         let mut guard = self.block_cache.lock();
-        self.hot_db.do_atomically(batch)?;
+
+        let mut key_value_batch: Vec<KeyValueStoreOp> = Vec::with_capacity(batch.len());
+        for op in batch {
+            match op {
+                StoreOp::DeleteBlock(block_hash) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    let key =
+                        get_key_for_col(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes());
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
+                }
+
+                StoreOp::DeleteState(state_hash, slot) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    let state_summary_key = get_key_for_col(
+                        DBColumn::BeaconStateSummary.into(),
+                        untyped_hash.as_bytes(),
+                    );
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(state_summary_key));
+
+                    if *slot % E::slots_per_epoch() == 0 {
+                        let state_key =
+                            get_key_for_col(DBColumn::BeaconState.into(), untyped_hash.as_bytes());
+                        key_value_batch.push(KeyValueStoreOp::DeleteKey(state_key));
+                    }
+                }
+            }
+        }
+        self.hot_db.do_atomically(&key_value_batch)?;
+
         for op in batch {
             match op {
                 StoreOp::DeleteBlock(block_hash) => {
@@ -252,6 +281,12 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         }
         Ok(())
     }
+}
+
+fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
+    let mut result = column.as_bytes().to_vec();
+    result.extend_from_slice(key);
+    result
 }
 
 impl<E: EthSpec> HotColdDB<E> {
