@@ -55,6 +55,12 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn do_atomically(&self, batch: &[KeyValueStoreOp]) -> Result<(), Error>;
 }
 
+pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
+    let mut result = column.as_bytes().to_vec();
+    result.extend_from_slice(key);
+    result
+}
+
 pub enum KeyValueStoreOp {
     DeleteKey(Vec<u8>),
 }

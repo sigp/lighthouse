@@ -8,8 +8,8 @@ use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::leveldb_store::LevelDB;
 use crate::metrics;
 use crate::{
-    DBColumn, Error, ItemStore, KeyValueStore, KeyValueStoreOp, PartialBeaconState, Store,
-    StoreItem, StoreOp,
+    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStore, KeyValueStoreOp,
+    PartialBeaconState, Store, StoreItem, StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -281,12 +281,6 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
         }
         Ok(())
     }
-}
-
-fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
-    let mut result = column.as_bytes().to_vec();
-    result.extend_from_slice(key);
-    result
 }
 
 impl<E: EthSpec> HotColdDB<E> {
