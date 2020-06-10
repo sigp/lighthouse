@@ -24,7 +24,7 @@ pub(crate) use protocol::{RPCProtocol, RPCRequest};
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RPCResponseErrorCode, RequestId,
-    ResponseTermination, StatusMessage,
+    ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
 pub use protocol::{Protocol, RPCError};
 

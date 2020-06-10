@@ -467,7 +467,7 @@ async fn test_blocks_by_root_chunked_rpc() {
     let (mut sender, mut receiver) = common::build_node_pair(&log).await;
 
     // BlocksByRoot Request
-    let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
+    let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
         block_roots: VariableList::from(vec![
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),
@@ -579,7 +579,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     let (mut sender, mut receiver) = common::build_node_pair(&log).await;
 
     // BlocksByRoot Request
-    let rpc_request = RPCRequest::BlocksByRoot(BlocksByRootRequest {
+    let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
         block_roots: VariableList::from(vec![
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),

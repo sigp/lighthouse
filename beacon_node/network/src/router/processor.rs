@@ -321,7 +321,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_range_request(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SubstreamId,
         mut req: BlocksByRangeRequest,
     ) {
         debug!(
