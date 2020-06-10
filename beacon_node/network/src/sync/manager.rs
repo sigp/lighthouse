@@ -260,11 +260,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 "local_finalized_epoch" => local_peer_info.finalized_epoch,
                 );
 
-                // if we don't know about the peer's chain add it to the range sync, otherwise
-                // consider it synced (it can be the case that the peer seems ahead of us, but we
-                // reject its chain).
+                // There are few cases to handle here:
+                //
+                // - A peer could appear advanced if our fork choice has rejected their version of
+                // the chain. If we know of their head slot, we consider this peer fully synced.
+                // - A peer could have just advanced to the next epoch and have a new finalized
+                // epoch that is currently ahead of ours. If their finalized epoch is ahead of ours
+                // by one and their head_slot is within the slot tolerance, consider this peer
+                // fully synced.
 
-                if self.chain.fork_choice.contains_block(&remote.head_root) {
+                if (self.chain.fork_choice.contains_block(&remote.head_root)) || // the first case 
+                    (remote.finalized_epoch.sub(local_peer_info.finalized_epoch) == 1 && remote.head_slot.sub(local_peer_info.head_slot) < SLOT_IMPORT_TOLERANCE as u64)
+                // the second case
+                {
                     self.synced_peer(&peer_id, remote);
                     // notify the range sync that a peer has been added
                     self.range_sync.fully_synced_peer_found();
@@ -544,7 +552,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.update_sync_state();
     }
 
-    /// Updates the syncing state of a peer to be behind.
+    /// Updates the syncing state of a peer to be advanced.
     fn advanced_peer(&mut self, peer_id: &PeerId, sync_info: PeerSyncInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let head_slot = sync_info.head_slot;
