@@ -250,7 +250,7 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
         self.time = slot
     }
 
-    fn after_block(
+    fn on_verified_block(
         &mut self,
         _block: &BeaconBlock<E>,
         block_root: Hash256,

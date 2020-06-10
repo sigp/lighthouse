@@ -546,6 +546,10 @@ where
                 .map_err(Error::BeaconStateError)?
         };
 
+        self.fc_store
+            .on_verified_block(block, block_root, state)
+            .map_err(Error::AfterBlockFailed)?;
+
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
         self.proto_array.process_block(ProtoBlock {
@@ -557,10 +561,6 @@ where
             justified_epoch: state.current_justified_checkpoint.epoch,
             finalized_epoch: state.finalized_checkpoint.epoch,
         })?;
-
-        self.fc_store
-            .after_block(block, block_root, state)
-            .map_err(Error::AfterBlockFailed)?;
 
         Ok(())
     }

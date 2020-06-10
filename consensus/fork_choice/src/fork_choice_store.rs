@@ -22,9 +22,9 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     /// This should only ever be called from within `ForkChoice::on_tick`.
     fn set_current_slot(&mut self, slot: Slot);
 
-    /// Called whenever `ForkChoice::on_block` has processed a block. Allows the implementer to
-    /// performing caching or other housekeeping duties.
-    fn after_block(
+    /// Called whenever `ForkChoice::on_block` has verified a block, but not yet added it to fork
+    /// choice. Allows the implementer to performing caching or other housekeeping duties.
+    fn on_verified_block(
         &mut self,
         block: &BeaconBlock<T>,
         block_root: Hash256,
