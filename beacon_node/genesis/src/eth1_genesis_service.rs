@@ -213,7 +213,7 @@ impl Eth1GenesisService {
                 info!(
                     log,
                     "Waiting for adequate eth1 timestamp";
-                    "ming_genesis_delay" => spec.min_genesis_delay,
+                    "genesis_delay" => spec.genesis_delay,
                     "genesis_time" => spec.min_genesis_time,
                     "latest_eth1_timestamp" => latest_timestamp,
                 );
@@ -279,7 +279,7 @@ impl Eth1GenesisService {
                 trace!(
                     log,
                     "Insufficient block timestamp";
-                    "min_genesis_delay" => spec.min_genesis_delay,
+                    "genesis_delay" => spec.genesis_delay,
                     "min_genesis_time" => spec.min_genesis_time,
                     "eth1_block_timestamp" => block.timestamp,
                     "eth1_block_number" => block.number,

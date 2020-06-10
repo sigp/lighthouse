@@ -157,6 +157,15 @@ pub fn process_block_header<T: EthSpec>(
     // Verify that the slots match
     verify!(block.slot == state.slot, HeaderInvalid::StateSlotMismatch);
 
+    // Verify that the block is newer than the latest block header
+    verify!(
+        block.slot > state.latest_block_header.slot,
+        HeaderInvalid::OlderThanLatestBlockHeader {
+            block_slot: block.slot,
+            latest_block_header_slot: state.latest_block_header.slot,
+        }
+    );
+
     // Verify that proposer index is the correct index
     let proposer_index = block.proposer_index as usize;
     let state_proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;

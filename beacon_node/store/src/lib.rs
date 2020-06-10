@@ -2,7 +2,7 @@
 //!
 //! Provides the following stores:
 //!
-//! - `DiskStore`: an on-disk store backed by leveldb. Used in production.
+//! - `HotColdDB`: an on-disk store backed by leveldb. Used in production.
 //! - `MemoryStore`: an in-memory store backed by a hash-map. Used for testing.
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
@@ -28,8 +28,8 @@ pub mod iter;
 use std::sync::Arc;
 
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::{HotColdDB as DiskStore, HotStateSummary};
-pub use self::leveldb_store::LevelDB as SimpleDiskStore;
+pub use self::hot_cold_store::{HotColdDB, HotStateSummary};
+pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
@@ -38,14 +38,7 @@ pub use metrics::scrape_for_metrics;
 pub use state_batch::StateBatch;
 pub use types::*;
 
-/// An object capable of storing and retrieving objects implementing `StoreItem`.
-///
-/// A `Store` is fundamentally backed by a key-value database, however it provides support for
-/// columns. A simple column implementation might involve prefixing a key with some bytes unique to
-/// each column.
-pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
-    type ForwardsBlockRootsIterator: Iterator<Item = (Hash256, Slot)>;
-
+pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
@@ -58,8 +51,13 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Removes `key` from `column`.
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 
+    /// Execute either all of the operations in `batch` or none at all, returning an error.
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
+}
+
+pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
-    fn put<I: SimpleStoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+    fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
@@ -68,7 +66,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Retrieve an item from `Self`.
-    fn get<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+    fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
@@ -79,7 +77,7 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Returns `true` if the given key represents an item in `Self`.
-    fn exists<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
+    fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
@@ -87,44 +85,40 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Remove an item from `Self`.
-    fn delete<I: SimpleStoreItem>(&self, key: &Hash256) -> Result<(), Error> {
+    fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
         let column = I::db_column().into();
         let key = key.as_bytes();
 
         self.key_delete(column, key)
     }
+}
+
+/// An object capable of storing and retrieving objects implementing `StoreItem`.
+///
+/// A `Store` is fundamentally backed by a key-value database, however it provides support for
+/// columns. A simple column implementation might involve prefixing a key with some bytes unique to
+/// each column.
+pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
+    type ForwardsBlockRootsIterator: Iterator<Item = (Hash256, Slot)>;
 
     /// Store a block in the store.
-    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
-        self.put(block_root, &block)
-    }
+    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error>;
 
     /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
-        self.get(block_root)
-    }
+    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error>;
 
     /// Delete a block from the store.
-    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
-        self.key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())
-    }
+    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error>;
 
     /// Store a state in the store.
     fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
 
-    /// Execute either all of the operations in `batch` or none at all, returning an error.
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
-
     /// Store a state summary in the store.
-    // NOTE: this is a hack for the HotColdDb, we could consider splitting this
-    // trait and removing the generic `S: Store` types everywhere?
     fn put_state_summary(
         &self,
         state_root: &Hash256,
         summary: HotStateSummary,
-    ) -> Result<(), Error> {
-        self.put(state_root, &summary).map_err(Into::into)
-    }
+    ) -> Result<(), Error>;
 
     /// Fetch a state from the store.
     fn get_state(
@@ -133,33 +127,12 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         slot: Option<Slot>,
     ) -> Result<Option<BeaconState<E>>, Error>;
 
-    /// Fetch a state from the store, controlling which cache fields are cloned.
-    fn get_state_with(
-        &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        // Default impl ignores config. Overriden in `HotColdDb`.
-        self.get_state(state_root, slot)
-    }
-
     /// Delete a state from the store.
-    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error> {
-        self.key_delete(DBColumn::BeaconState.into(), state_root.as_bytes())
-    }
-
-    /// (Optionally) Move all data before the frozen slot to the freezer database.
-    fn process_finalization(
-        _store: Arc<Self>,
-        _frozen_head_root: Hash256,
-        _frozen_head: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
+    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error>;
 
     /// Get a forwards (slot-ascending) iterator over the beacon block roots since `start_slot`.
     ///
-    /// Will be efficient for frozen portions of the database if using `DiskStore`.
+    /// Will be efficient for frozen portions of the database if using `HotColdDB`.
     ///
     /// The `end_state` and `end_block_root` are required for backtracking in the post-finalization
     /// part of the chain, and should be usually be set to the current head. Importantly, the
@@ -175,28 +148,18 @@ pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
         spec: &ChainSpec,
     ) -> Self::ForwardsBlockRootsIterator;
 
-    /// Load the most recent ancestor state of `state_root` which lies on an epoch boundary.
-    ///
-    /// If `state_root` corresponds to an epoch boundary state, then that state itself should be
-    /// returned.
     fn load_epoch_boundary_state(
         &self,
         state_root: &Hash256,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        // The default implementation is not very efficient, but isn't used in prod.
-        // See `HotColdDB` for the optimized implementation.
-        if let Some(state) = self.get_state(state_root, None)? {
-            let epoch_boundary_slot = state.slot / E::slots_per_epoch() * E::slots_per_epoch();
-            if state.slot == epoch_boundary_slot {
-                Ok(Some(state))
-            } else {
-                let epoch_boundary_state_root = state.get_state_root(epoch_boundary_slot)?;
-                self.get_state(epoch_boundary_state_root, Some(epoch_boundary_slot))
-            }
-        } else {
-            Ok(None)
-        }
-    }
+    ) -> Result<Option<BeaconState<E>>, Error>;
+
+    fn put_item<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error>;
+
+    fn get_item<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error>;
+
+    fn item_exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error>;
+
+    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
 }
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
@@ -252,7 +215,7 @@ impl Into<&'static str> for DBColumn {
 }
 
 /// An item that may stored in a `Store` by serializing and deserializing from bytes.
-pub trait SimpleStoreItem: Sized {
+pub trait StoreItem: Sized {
     /// Identifies which column this item should be placed in.
     fn db_column() -> DBColumn;
 
@@ -278,7 +241,7 @@ mod tests {
         b: u64,
     }
 
-    impl SimpleStoreItem for StorableThing {
+    impl StoreItem for StorableThing {
         fn db_column() -> DBColumn {
             DBColumn::BeaconBlock
         }
@@ -292,7 +255,7 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl Store<MinimalEthSpec>) {
+    fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
@@ -313,30 +276,10 @@ mod tests {
     }
 
     #[test]
-    fn diskdb() {
-        use sloggers::{null::NullLoggerBuilder, Build};
-
-        let hot_dir = tempdir().unwrap();
-        let cold_dir = tempdir().unwrap();
-        let spec = MinimalEthSpec::default_spec();
-        let log = NullLoggerBuilder.build().unwrap();
-        let store = DiskStore::open(
-            &hot_dir.path(),
-            &cold_dir.path(),
-            StoreConfig::default(),
-            spec,
-            log,
-        )
-        .unwrap();
-
-        test_impl(store);
-    }
-
-    #[test]
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = SimpleDiskStore::open(&path).unwrap();
+        let store = LevelDB::open(&path).unwrap();
 
         test_impl(store);
     }

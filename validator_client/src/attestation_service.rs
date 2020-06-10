@@ -3,8 +3,7 @@ use crate::{
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use slog::{crit, debug, info, trace};
 use slot_clock::SlotClock;
@@ -118,8 +117,8 @@ impl<T, E: EthSpec> Deref for AttestationService<T, E> {
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Starts the service which periodically produces attestations.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
-        let log = self.context.log.clone();
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+        let log = self.context.log().clone();
 
         let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
         let duration_to_next_slot = self
@@ -141,13 +140,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             )
         };
 
-        let (exit_signal, exit_fut) = exit_future::signal();
-
-        let runtime_handle = self.context.runtime_handle.clone();
+        let executor = self.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
-                let log = &self.context.log;
+                let log = self.context.log();
 
                 if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
                     crit!(
@@ -164,13 +161,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
         };
 
-        let future = futures::future::select(
-            Box::pin(interval_fut),
-            exit_fut.map(move |_| info!(log, "Shutdown complete")),
-        );
-        runtime_handle.spawn(future);
-
-        Ok(exit_signal)
+        executor.spawn(interval_fut, "attestation_service");
+        Ok(())
     }
 
     /// For each each required attestation, spawn a new task that downloads, signs and uploads the
@@ -214,7 +206,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.runtime_handle.spawn(
+                self.inner.context.executor.runtime_handle().spawn(
                     self.clone().publish_attestations_and_aggregates(
                         slot,
                         committee_index,
@@ -243,7 +235,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
     ) -> Result<(), ()> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
         // any validators for the given `slot` and `committee_index`.
@@ -314,7 +306,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<Option<Attestation<E>>, String> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         if validator_duties.is_empty() {
             return Ok(None);
@@ -448,7 +440,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         attestation: Attestation<E>,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let aggregated_attestation = self
             .beacon_node
@@ -548,6 +540,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::future::FutureExt;
     use parking_lot::RwLock;
 
     /// This test is to ensure that a `tokio_timer::Delay` with an instant in the past will still

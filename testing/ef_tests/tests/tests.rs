@@ -28,6 +28,25 @@ fn minimal_config_ok() {
     config_test::<MinimalEthSpec>();
 }
 
+// Check that the hand-computed multiplications on EthSpec are correctly computed.
+// This test lives here because one is most likely to muck these up during a spec update.
+fn check_typenum_values<E: EthSpec>() {
+    assert_eq!(
+        E::MaxPendingAttestations::to_u64(),
+        E::MaxAttestations::to_u64() * E::SlotsPerEpoch::to_u64()
+    );
+    assert_eq!(
+        E::SlotsPerEth1VotingPeriod::to_u64(),
+        E::EpochsPerEth1VotingPeriod::to_u64() * E::SlotsPerEpoch::to_u64()
+    );
+}
+
+#[test]
+fn derived_typenum_values() {
+    check_typenum_values::<MinimalEthSpec>();
+    check_typenum_values::<MainnetEthSpec>();
+}
+
 #[test]
 fn shuffling() {
     ShufflingHandler::<MinimalEthSpec>::run();

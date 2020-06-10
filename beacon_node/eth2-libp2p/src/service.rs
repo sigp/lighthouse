@@ -1,6 +1,7 @@
-use crate::behaviour::{Behaviour, BehaviourEvent};
+use crate::behaviour::{Behaviour, BehaviourEvent, Request, Response};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
+use crate::rpc::{RPCResponseErrorCode, RequestId, SubstreamId};
 use crate::types::{error, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals};
@@ -84,6 +85,7 @@ pub struct Service<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> Service<TSpec> {
     pub fn new(
+        executor: environment::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
@@ -122,15 +124,15 @@ impl<TSpec: EthSpec> Service<TSpec> {
             let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
 
             // use the executor for libp2p
-            struct Executor(tokio::runtime::Handle);
+            struct Executor(environment::TaskExecutor);
             impl libp2p::core::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
-                    self.0.spawn(f);
+                    self.0.spawn(f, "libp2p");
                 }
             }
             SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
                 .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
-                .executor(Box::new(Executor(tokio::runtime::Handle::current())))
+                .executor(Box::new(Executor(executor)))
                 .build()
         };
 
@@ -228,126 +230,154 @@ impl<TSpec: EthSpec> Service<TSpec> {
         self.peer_ban_timeout.insert(peer_id, timeout);
     }
 
+    /// Sends a request to a peer, with a given Id.
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
+        self.swarm.send_request(peer_id, request_id, request);
+    }
+
+    /// Informs the peer that their request failed.
+    pub fn respond_with_error(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        error: RPCResponseErrorCode,
+        reason: String,
+    ) {
+        self.swarm
+            ._send_error_reponse(peer_id, stream_id, error, reason);
+    }
+
+    /// Sends a response to a peer's request.
+    pub fn send_response(
+        &mut self,
+        peer_id: PeerId,
+        stream_id: SubstreamId,
+        response: Response<TSpec>,
+    ) {
+        self.swarm
+            .send_successful_response(peer_id, stream_id, response);
+    }
+
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
         loop {
             tokio::select! {
-            event = self.swarm.next_event() => {
-                match event {
-                    SwarmEvent::Behaviour(behaviour) => {
-                        return Libp2pEvent::Behaviour(behaviour)
-                    }
-                    SwarmEvent::ConnectionEstablished {
-                        peer_id,
-                        endpoint,
-                        num_established,
-                    } => {
-                        debug!(self.log, "Connection established"; "peer_id"=> peer_id.to_string(), "connections" => num_established.get());
-                        // if this is the first connection inform the network layer a new connection
-                        // has been established and update the db
-                        if num_established.get() == 1 {
-                            // update the peerdb
-                            match endpoint {
-                                ConnectedPoint::Listener { .. } => {
-                                    self.swarm.peer_manager().connect_ingoing(&peer_id);
+                event = self.swarm.next_event() => {
+                    match event {
+                        SwarmEvent::Behaviour(behaviour) => {
+                            return Libp2pEvent::Behaviour(behaviour)
+                        }
+                        SwarmEvent::ConnectionEstablished {
+                            peer_id,
+                            endpoint,
+                            num_established,
+                        } => {
+                            debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connections" => num_established.get());
+                            // if this is the first connection inform the network layer a new connection
+                            // has been established and update the db
+                            if num_established.get() == 1 {
+                                // update the peerdb
+                                match endpoint {
+                                    ConnectedPoint::Listener { .. } => {
+                                        self.swarm.peer_manager().connect_ingoing(&peer_id);
+                                    }
+                                    ConnectedPoint::Dialer { .. } => self
+                                        .network_globals
+                                        .peers
+                                        .write()
+                                        .connect_outgoing(&peer_id),
                                 }
-                                ConnectedPoint::Dialer { .. } => self
-                                    .network_globals
-                                    .peers
-                                    .write()
-                                    .connect_outgoing(&peer_id),
+                                return Libp2pEvent::PeerConnected { peer_id, endpoint };
                             }
-                            return Libp2pEvent::PeerConnected { peer_id, endpoint };
                         }
-                    }
-                    SwarmEvent::ConnectionClosed {
-                        peer_id,
-                        cause,
-                        endpoint,
-                        num_established,
-                    } => {
-                        debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string(), "connections" => num_established);
-                        if num_established == 0 {
-                            // update the peer_db
-                            self.swarm.peer_manager().notify_disconnect(&peer_id);
-                            // the peer has disconnected
-                            return Libp2pEvent::PeerDisconnected {
-                                peer_id,
-                                endpoint,
-                            };
+                        SwarmEvent::ConnectionClosed {
+                            peer_id,
+                            cause,
+                            endpoint,
+                            num_established,
+                        } => {
+                            debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string(), "connections" => num_established);
+                            if num_established == 0 {
+                                // update the peer_db
+                                self.swarm.peer_manager().notify_disconnect(&peer_id);
+                                // the peer has disconnected
+                                return Libp2pEvent::PeerDisconnected {
+                                    peer_id,
+                                    endpoint,
+                                };
+                            }
                         }
-                    }
-                    SwarmEvent::NewListenAddr(multiaddr) => {
-                        return Libp2pEvent::NewListenAddr(multiaddr)
-                    }
+                        SwarmEvent::NewListenAddr(multiaddr) => {
+                            return Libp2pEvent::NewListenAddr(multiaddr)
+                        }
 
-                    SwarmEvent::IncomingConnection {
-                        local_addr,
-                        send_back_addr,
-                    } => {
-                        debug!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
-                    }
-                    SwarmEvent::IncomingConnectionError {
-                        local_addr,
-                        send_back_addr,
-                        error,
-                    } => {
-                        debug!(self.log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
-                    }
-                    SwarmEvent::BannedPeer {
-                        peer_id,
-                        endpoint: _,
-                    } => {
-                        debug!(self.log, "Attempted to dial a banned peer"; "peer_id" => peer_id.to_string())
-                    }
-                    SwarmEvent::UnreachableAddr {
-                        peer_id,
-                        address,
-                        error,
-                        attempts_remaining,
-                    } => {
-                        debug!(self.log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining);
-                        self.swarm.peer_manager().notify_disconnect(&peer_id);
-                    }
-                    SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
-                        debug!(self.log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string());
-                    }
-                    SwarmEvent::ExpiredListenAddr(multiaddr) => {
-                        debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
-                    }
-                    SwarmEvent::ListenerClosed { addresses, reason } => {
-                        debug!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
-                    }
-                    SwarmEvent::ListenerError { error } => {
-                        debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
-                    }
-                    SwarmEvent::Dialing(peer_id) => {
-                        debug!(self.log, "Dialing peer"; "peer" => peer_id.to_string());
-                        self.swarm.peer_manager().dialing_peer(&peer_id);
+                        SwarmEvent::IncomingConnection {
+                            local_addr,
+                            send_back_addr,
+                        } => {
+                            debug!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
+                        }
+                        SwarmEvent::IncomingConnectionError {
+                            local_addr,
+                            send_back_addr,
+                            error,
+                        } => {
+                            debug!(self.log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
+                        }
+                        SwarmEvent::BannedPeer {
+                            peer_id,
+                            endpoint: _,
+                        } => {
+                            debug!(self.log, "Attempted to dial a banned peer"; "peer_id" => peer_id.to_string())
+                        }
+                        SwarmEvent::UnreachableAddr {
+                            peer_id,
+                            address,
+                            error,
+                            attempts_remaining,
+                        } => {
+                            debug!(self.log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining);
+                            self.swarm.peer_manager().notify_disconnect(&peer_id);
+                        }
+                        SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
+                            debug!(self.log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string());
+                        }
+                        SwarmEvent::ExpiredListenAddr(multiaddr) => {
+                            debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
+                        }
+                        SwarmEvent::ListenerClosed { addresses, reason } => {
+                            debug!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
+                        }
+                        SwarmEvent::ListenerError { error } => {
+                            debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
+                        }
+                        SwarmEvent::Dialing(peer_id) => {
+                            debug!(self.log, "Dialing peer"; "peer" => peer_id.to_string());
+                            self.swarm.peer_manager().dialing_peer(&peer_id);
+                        }
                     }
                 }
-            }
-            Some(Ok(peer_to_ban)) = self.peers_to_ban.next() => {
-                let peer_id = peer_to_ban.into_inner();
-                Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
-                // TODO: Correctly notify protocols of the disconnect
-                // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
-                self.swarm.inject_disconnected(&peer_id);
-                // inform the behaviour that the peer has been banned
-                self.swarm.peer_banned(peer_id);
-            }
-            Some(Ok(peer_to_unban)) = self.peer_ban_timeout.next() => {
-                debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_to_unban));
-                let unban_peer = peer_to_unban.into_inner();
-                self.swarm.peer_unbanned(&unban_peer);
-                Swarm::unban_peer_id(&mut self.swarm, unban_peer);
-            }
+                Some(Ok(peer_to_ban)) = self.peers_to_ban.next() => {
+                    let peer_id = peer_to_ban.into_inner();
+                    Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
+                    // TODO: Correctly notify protocols of the disconnect
+                    // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
+                    self.swarm.inject_disconnected(&peer_id);
+                    // inform the behaviour that the peer has been banned
+                    self.swarm.peer_banned(peer_id);
+                }
+                Some(Ok(peer_to_unban)) = self.peer_ban_timeout.next() => {
+                    debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_to_unban));
+                    let unban_peer = peer_to_unban.into_inner();
+                    self.swarm.peer_unbanned(&unban_peer);
+                    Swarm::unban_peer_id(&mut self.swarm, unban_peer);
+                }
             }
         }
     }
 }
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption layer, and
-/// mplex or yamux as the multiplexing layer.
+/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption
+/// layer, and mplex or yamux as the multiplexing layer.
 fn build_transport(
     local_private_key: Keypair,
 ) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {

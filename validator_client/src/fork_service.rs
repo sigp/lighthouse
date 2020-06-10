@@ -1,9 +1,8 @@
 use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{debug, info, trace};
+use slog::{debug, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -100,9 +99,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     }
 
     /// Starts the service that periodically polls for the `Fork`.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<Signal, String> {
-        let log = self.context.log.clone();
-
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let duration_to_next_epoch = self
             .slot_clock
             .duration_to_next_epoch(E::slots_per_epoch())
@@ -117,15 +114,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             )
         };
 
-        let (exit_signal, exit_fut) = exit_future::signal();
-
         // Run an immediate update before starting the updater service.
         self.inner
             .context
-            .runtime_handle
+            .executor
+            .runtime_handle()
             .spawn(self.clone().do_update());
 
-        let runtime_handle = self.inner.context.runtime_handle.clone();
+        let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
@@ -133,18 +129,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
             }
         };
 
-        let future = futures::future::select(
-            Box::pin(interval_fut),
-            exit_fut.map(move |_| info!(log, "Shutdown complete")),
-        );
-        runtime_handle.spawn(future);
+        executor.spawn(interval_fut, "fork_service");
 
-        Ok(exit_signal)
+        Ok(())
     }
 
     /// Attempts to download the `Fork` from the server.
     async fn do_update(self) -> Result<(), ()> {
-        let log = &self.context.log;
+        let log = self.context.log();
 
         let fork = self
             .inner

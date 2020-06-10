@@ -4,8 +4,8 @@ use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
 
-pub fn store_full_state<S: Store<E>, E: EthSpec>(
-    store: &S,
+pub fn store_full_state<KV: KeyValueStore<E>, E: EthSpec>(
+    store: &KV,
     state_root: &Hash256,
     state: &BeaconState<E>,
 ) -> Result<(), Error> {
@@ -24,13 +24,13 @@ pub fn store_full_state<S: Store<E>, E: EthSpec>(
     result
 }
 
-pub fn get_full_state<S: Store<E>, E: EthSpec>(
-    store: &S,
+pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
+    db: &KV,
     state_root: &Hash256,
 ) -> Result<Option<BeaconState<E>>, Error> {
     let total_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
 
-    match store.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
+    match db.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
         Some(bytes) => {
             let overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_OVERHEAD_TIMES);
             let container = StorageContainer::from_ssz_bytes(&bytes)?;

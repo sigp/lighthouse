@@ -21,6 +21,7 @@ mod url_query;
 mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use bus::Bus;
 use client_network::NetworkMessage;
 pub use config::ApiEncodingFormat;
 use error::{ApiError, ApiResult};
@@ -30,12 +31,13 @@ use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server};
+use parking_lot::Mutex;
 use slog::{info, warn};
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
+use types::SignedBeaconBlockHash;
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
@@ -51,14 +53,16 @@ pub struct NetworkInfo<T: BeaconChainTypes> {
 // Allowing more than 7 arguments.
 #[allow(clippy::too_many_arguments)]
 pub fn start_server<T: BeaconChainTypes>(
+    executor: environment::TaskExecutor,
     config: &Config,
     beacon_chain: Arc<BeaconChain<T>>,
     network_info: NetworkInfo<T>,
     db_path: PathBuf,
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
-    log: slog::Logger,
-) -> Result<(oneshot::Sender<()>, SocketAddr), hyper::Error> {
+    events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
+) -> Result<SocketAddr, hyper::Error> {
+    let log = executor.log();
     let inner_log = log.clone();
     let eth2_config = Arc::new(eth2_config);
 
@@ -71,6 +75,7 @@ pub fn start_server<T: BeaconChainTypes>(
         let network_channel = network_info.network_chan.clone();
         let db_path = db_path.clone();
         let freezer_db_path = freezer_db_path.clone();
+        let events = events.clone();
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
@@ -83,6 +88,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     log.clone(),
                     db_path.clone(),
                     freezer_db_path.clone(),
+                    events.clone(),
                 )
             }))
         }
@@ -98,7 +104,7 @@ pub fn start_server<T: BeaconChainTypes>(
     let actual_listen_addr = server.local_addr();
 
     // Build a channel to kill the HTTP server.
-    let (exit_signal, exit) = oneshot::channel::<()>();
+    let exit = executor.exit();
     let inner_log = log.clone();
     let server_exit = async move {
         let _ = exit.await;
@@ -116,7 +122,8 @@ pub fn start_server<T: BeaconChainTypes>(
             inner_log,
             "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
             )
-        });
+        })
+        .unwrap_or_else(|_| ());
 
     info!(
         log,
@@ -125,18 +132,7 @@ pub fn start_server<T: BeaconChainTypes>(
         "port" => actual_listen_addr.port(),
     );
 
-    tokio::spawn(server_future);
+    executor.spawn_without_exit(server_future, "http");
 
-    Ok((exit_signal, actual_listen_addr))
-}
-
-#[derive(Clone)]
-pub struct DBPath(PathBuf);
-
-impl Deref for DBPath {
-    type Target = PathBuf;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+    Ok(actual_listen_addr)
 }

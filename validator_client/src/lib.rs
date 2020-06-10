@@ -17,7 +17,6 @@ use clap::ArgMatches;
 use config::SLASHING_PROTECTION_FILENAME;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
-use exit_future::Signal;
 use fork_service::{ForkService, ForkServiceBuilder};
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
@@ -41,7 +40,6 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    exit_signals: Vec<Signal>,
     config: Config,
 }
 
@@ -60,10 +58,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
     pub async fn new(mut context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
-        let log_1 = context.log.clone();
-        let log_2 = context.log.clone();
-        let log_3 = context.log.clone();
-        let log_4 = context.log.clone();
+        let log_1 = context.log().clone();
+        let log_2 = context.log().clone();
+        let log_3 = context.log().clone();
+        let log_4 = context.log().clone();
 
         info!(
             log_1,
@@ -217,46 +215,32 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             fork_service,
             block_service,
             attestation_service,
-            exit_signals: vec![],
             config,
         })
     }
 
     pub fn start_service(&mut self) -> Result<(), String> {
-        let duties_exit = self
-            .duties_service
+        self.duties_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
 
-        let fork_exit = self
-            .fork_service
+        self.fork_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start fork service: {}", e))?;
 
-        let block_exit = self
-            .block_service
+        self.block_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start block service: {}", e))?;
 
-        let attestation_exit = self
-            .attestation_service
+        self.attestation_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
-        let notifier_exit =
-            spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
-
-        self.exit_signals = vec![
-            duties_exit,
-            fork_exit,
-            block_exit,
-            attestation_exit,
-            notifier_exit,
-        ];
+        spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         Ok(())
     }

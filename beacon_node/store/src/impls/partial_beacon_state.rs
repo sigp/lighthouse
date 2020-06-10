@@ -1,7 +1,7 @@
 use crate::*;
 use ssz::{Decode, Encode};
 
-impl<T: EthSpec> SimpleStoreItem for PartialBeaconState<T> {
+impl<T: EthSpec> StoreItem for PartialBeaconState<T> {
     fn db_column() -> DBColumn {
         DBColumn::BeaconState
     }
