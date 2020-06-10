@@ -2,7 +2,6 @@ use crate::BeaconSnapshot;
 use fork_choice::ForkChoiceStore as ForkChoiceStoreTrait;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::iter::BlockRootsIterator;
@@ -17,7 +16,7 @@ pub enum Error {
     UnableToReadSlot,
     UnableToReadTime,
     InvalidGenesisSnapshot(Slot),
-    AncestorUnknown(Hash256),
+    AncestorUnknown { ancestor_slot: Slot },
     UninitializedBestJustifiedBalances,
     FailedToReadBlock(StoreError),
     MissingBlock(Hash256),
@@ -310,28 +309,40 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
         self.best_justified_checkpoint = checkpoint
     }
 
-    fn ancestor_at_slot(
+    fn state_ancestor_at_slot(
         &self,
         state: &BeaconState<E>,
-        root: Hash256,
         ancestor_slot: Slot,
     ) -> Result<Hash256, Error> {
-        let root = match state.get_block_root(ancestor_slot) {
-            Ok(root) => *root,
-            Err(_) => {
-                let start_slot = state.slot;
+        match state.get_block_root(ancestor_slot) {
+            Ok(ancestor_root) => Ok(*ancestor_root),
+            Err(_) => BlockRootsIterator::owned(self.store.clone(), state.clone())
+                .take_while(|(_, slot)| *slot >= ancestor_slot)
+                .find(|(_, slot)| ancestor_slot == *slot)
+                .map(|(ancestor_block_root, _)| ancestor_block_root)
+                .ok_or_else(|| Error::AncestorUnknown { ancestor_slot }),
+        }
+    }
 
-                let iter = BlockRootsIterator::owned(self.store.clone(), state.clone());
+    fn block_root_ancestor_at_slot(
+        &self,
+        block_root: Hash256,
+        ancestor_slot: Slot,
+    ) -> Result<Hash256, Error> {
+        let block = self
+            .store
+            .get_item::<SignedBeaconBlock<E>>(&block_root)
+            .map_err(Error::FailedToReadBlock)?
+            .ok_or_else(|| Error::MissingBlock(block_root))?
+            .message;
 
-                iter::once((root, start_slot))
-                    .chain(iter)
-                    .find(|(_, slot)| ancestor_slot == *slot)
-                    .map(|(ancestor_block_root, _)| ancestor_block_root)
-                    .ok_or_else(|| Error::AncestorUnknown(root))?
-            }
-        };
+        let state = self
+            .store
+            .get_state(&block.state_root, Some(block.slot))
+            .map_err(Error::FailedToReadState)?
+            .ok_or_else(|| Error::MissingState(block.state_root))?;
 
-        Ok(root)
+        self.state_ancestor_at_slot(&state, ancestor_slot)
     }
 }
 

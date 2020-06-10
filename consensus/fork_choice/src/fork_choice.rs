@@ -21,6 +21,7 @@ pub enum Error<T> {
     MissingProtoArrayBlock(Hash256),
     InconsistentOnTick { previous_slot: Slot, time: Slot },
     BeaconStateError(BeaconStateError),
+    AttemptToRevertJustification { store: Slot, state: Slot },
     ForkChoiceStoreError(T),
     UnableToSetJustifiedCheckpoint(T),
     AfterBlockFailed(T),
@@ -285,7 +286,11 @@ where
     /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
     /// to the block is *returned*, not the one that is supplied.)
     ///
-    /// The root of `state` must match the `block.state_root` of the block identified by `block_root`.
+    /// If `state_opt.is_some()`, the lookup will be much more efficient. However, the
+    /// state must fulfil the following conditions:
+    ///
+    /// 1. It must be from `block_root` or an **descendant** of `block_root`.
+    /// 2. It must have a equal to or greater than `ancestor_slot`.
     ///
     /// ## Specification
     ///
@@ -294,7 +299,7 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_ancestor
     fn get_ancestor(
         &self,
-        state: &BeaconState<E>,
+        state_opt: Option<&BeaconState<E>>,
         block_root: Hash256,
         ancestor_slot: Slot,
     ) -> Result<Hash256, Error<T::Error>>
@@ -307,13 +312,13 @@ where
             .get_block(&block_root)
             .ok_or_else(|| Error::MissingProtoArrayBlock(block_root))?;
 
-        self.get_ancestor_with_known_slot(state, block_root, block.slot, ancestor_slot)
+        self.get_ancestor_with_known_slot(state_opt, block_root, block.slot, ancestor_slot)
     }
 
     /// See `Self::get_ancestor` for docs.
     fn get_ancestor_with_known_slot(
         &self,
-        state: &BeaconState<E>,
+        state_opt: Option<&BeaconState<E>>,
         block_root: Hash256,
         block_slot: Slot,
         ancestor_slot: Slot,
@@ -323,9 +328,19 @@ where
         E: EthSpec,
     {
         if block_slot > ancestor_slot {
-            self.fc_store
-                .ancestor_at_slot(state, block_root, ancestor_slot)
-                .map_err(Error::ForkChoiceStoreError)
+            if let Some(state) = state_opt {
+                assert!(
+                    ancestor_slot < state.slot,
+                    "ancestor cannot be later than the state"
+                );
+                self.fc_store
+                    .state_ancestor_at_slot(state, ancestor_slot)
+                    .map_err(Error::ForkChoiceStoreError)
+            } else {
+                self.fc_store
+                    .block_root_ancestor_at_slot(block_root, ancestor_slot)
+                    .map_err(Error::ForkChoiceStoreError)
+            }
         } else if block_slot == ancestor_slot {
             Ok(block_root)
         } else {
@@ -394,7 +409,24 @@ where
 
         let justified_slot =
             compute_start_slot_at_epoch::<E>(self.fc_store.justified_checkpoint().epoch);
-        if self.get_ancestor(state, new_justified_checkpoint.root, justified_slot)?
+
+        // This sanity check is not in the spec, but the invariant is implied.
+        if justified_slot >= state.slot {
+            return Err(Error::AttemptToRevertJustification {
+                store: justified_slot,
+                state: state.slot,
+            });
+        }
+
+        // We know that the slot for `new_justified_checkpoint.root` is not greater than
+        // `state.slot`, since a state cannot justify it's own slot.
+        //
+        // We know that `new_justified_checkpoint.root` is an ancestor of `state`, since a `state`
+        // only ever justifies ancestors.
+        //
+        // A prior `if` statement protects against a justified_slot that is greater than
+        // `state.slot`
+        if self.get_ancestor(Some(state), new_justified_checkpoint.root, justified_slot)?
             != self.fc_store.justified_checkpoint().root
         {
             return Ok(false);
@@ -453,7 +485,7 @@ where
 
         // Check block is a descendant of the finalized block at the checkpoint finalized slot.
         let block_ancestor =
-            self.get_ancestor_with_known_slot(state, block_root, block.slot, finalized_slot)?;
+            self.get_ancestor_with_known_slot(Some(state), block_root, block.slot, finalized_slot)?;
         let finalized_root = self.fc_store.finalized_checkpoint().root;
         if block_ancestor != finalized_root {
             return Err(Error::InvalidBlock(InvalidBlock::NotFinalizedDescendant {
@@ -484,17 +516,20 @@ where
             let finalized_slot =
                 compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
 
-            if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch
-                // TODO: is this the correct state to be passing to this function? IMPORTANT!!
-                || self.get_ancestor(
-                    state,
-                    self.fc_store.justified_checkpoint().root,
-                    finalized_slot,
-                )? != self.fc_store.finalized_checkpoint().root
-            {
-                self.fc_store
-                    .set_justified_checkpoint(state.current_justified_checkpoint)
-                    .map_err(Error::UnableToSetJustifiedCheckpoint)?;
+            // TODO: add a note about this to the spec once i've created the PR.
+            if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint {
+                if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch
+                    // TODO: is this the correct state to be passing to this function? IMPORTANT!!
+                    || self.get_ancestor(
+                        None,
+                        self.fc_store.justified_checkpoint().root,
+                        finalized_slot,
+                    )? != self.fc_store.finalized_checkpoint().root
+                {
+                    self.fc_store
+                        .set_justified_checkpoint(state.current_justified_checkpoint)
+                        .map_err(Error::UnableToSetJustifiedCheckpoint)?;
+                }
             }
         }
 
