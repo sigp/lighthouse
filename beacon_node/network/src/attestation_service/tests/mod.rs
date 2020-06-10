@@ -328,7 +328,7 @@ mod tests {
             committee_index,
         )
         .unwrap();
-        let expected = vec![AttServiceMessage::DiscoverPeers{subnet_id, min_ttl}];
+        let expected = vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
@@ -397,10 +397,7 @@ mod tests {
         )
         .unwrap();
         let expected = vec![
-            AttServiceMessage::DiscoverPeers {
-                subnet_id,
-                min_ttl,
-            },
+            AttServiceMessage::DiscoverPeers { subnet_id, min_ttl },
             AttServiceMessage::Subscribe(subnet_id),
         ];
 
@@ -520,10 +517,8 @@ mod tests {
         .unwrap();
 
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
-        let expected: Vec<AttServiceMessage> = vec![AttServiceMessage::DiscoverPeers {
-            subnet_id,
-            min_ttl,
-        }];
+        let expected: Vec<AttServiceMessage> =
+            vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
 
