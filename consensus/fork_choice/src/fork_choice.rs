@@ -19,9 +19,19 @@ pub enum Error<T> {
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
     MissingProtoArrayBlock(Hash256),
-    InconsistentOnTick { previous_slot: Slot, time: Slot },
+    UnknownAncestor {
+        ancestor_slot: Slot,
+        descendant_root: Hash256,
+    },
+    InconsistentOnTick {
+        previous_slot: Slot,
+        time: Slot,
+    },
     BeaconStateError(BeaconStateError),
-    AttemptToRevertJustification { store: Slot, state: Slot },
+    AttemptToRevertJustification {
+        store: Slot,
+        state: Slot,
+    },
     ForkChoiceStoreError(T),
     UnableToSetJustifiedCheckpoint(T),
     AfterBlockFailed(T),
@@ -299,7 +309,6 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_ancestor
     fn get_ancestor(
         &self,
-        state_opt: Option<&BeaconState<E>>,
         block_root: Hash256,
         ancestor_slot: Slot,
     ) -> Result<Hash256, Error<T::Error>>
@@ -312,36 +321,18 @@ where
             .get_block(&block_root)
             .ok_or_else(|| Error::MissingProtoArrayBlock(block_root))?;
 
-        self.get_ancestor_with_known_slot(state_opt, block_root, block.slot, ancestor_slot)
-    }
-
-    /// See `Self::get_ancestor` for docs.
-    fn get_ancestor_with_known_slot(
-        &self,
-        state_opt: Option<&BeaconState<E>>,
-        block_root: Hash256,
-        block_slot: Slot,
-        ancestor_slot: Slot,
-    ) -> Result<Hash256, Error<T::Error>>
-    where
-        T: ForkChoiceStore<E>,
-        E: EthSpec,
-    {
-        if block_slot > ancestor_slot {
-            if let Some(state) = state_opt {
-                assert!(
-                    ancestor_slot < state.slot,
-                    "ancestor cannot be later than the state"
-                );
-                self.fc_store
-                    .state_ancestor_at_slot(state, ancestor_slot)
-                    .map_err(Error::ForkChoiceStoreError)
-            } else {
-                self.fc_store
-                    .block_root_ancestor_at_slot(block_root, ancestor_slot)
-                    .map_err(Error::ForkChoiceStoreError)
-            }
-        } else if block_slot == ancestor_slot {
+        if block.slot > ancestor_slot {
+            self.proto_array
+                .core_proto_array()
+                .iter_block_roots(&block_root)
+                .take_while(|(_, slot)| *slot >= ancestor_slot)
+                .find(|(_, slot)| *slot == ancestor_slot)
+                .map(|(root, _)| root)
+                .ok_or_else(|| Error::UnknownAncestor {
+                    ancestor_slot,
+                    descendant_root: block_root,
+                })
+        } else if block.slot == ancestor_slot {
             Ok(block_root)
         } else {
             // Root is older than queried slot, thus a skip slot. Return most recent root prior to
@@ -427,7 +418,7 @@ where
         // A prior `if` statement protects against a justified_slot that is greater than
         // `state.slot`
         let justified_ancestor =
-            self.get_ancestor(Some(state), new_justified_checkpoint.root, justified_slot)?;
+            self.get_ancestor(new_justified_checkpoint.root, justified_slot)?;
         if justified_ancestor != self.fc_store.justified_checkpoint().root {
             return Ok(false);
         }
@@ -484,8 +475,15 @@ where
         }
 
         // Check block is a descendant of the finalized block at the checkpoint finalized slot.
-        let block_ancestor =
-            self.get_ancestor_with_known_slot(Some(state), block_root, block.slot, finalized_slot)?;
+        //
+        // Note: the specification uses `hash_tree_root(block)` instead of `block.parent_root` for
+        // the start of this search. I claim that since `block.slot > finalized_slot` it is
+        // equivalent to use the parent root for this search. Doing so reduces a single lookup
+        // (trivial), but more importantly, it means we don't need to have added `block` to
+        // `self.proto_array` to do this search.
+        //
+        // TODO: add the PR here once I create it.
+        let block_ancestor = self.get_ancestor(block.parent_root, finalized_slot)?;
         let finalized_root = self.fc_store.finalized_checkpoint().root;
         if block_ancestor != finalized_root {
             return Err(Error::InvalidBlock(InvalidBlock::NotFinalizedDescendant {
@@ -516,12 +514,15 @@ where
             let finalized_slot =
                 compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
 
-            // TODO: add a note about this to the spec once i've created the PR.
+            // Note: the `if` statement here is not part of the specification, but I claim that it
+            // is an optimization and equivalent to the specification. See this PR for more
+            // information:
+            //
+            // https://github.com/ethereum/eth2.0-specs/pull/1880
             if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint {
                 if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch
                     // TODO: is this the correct state to be passing to this function? IMPORTANT!!
                     || self.get_ancestor(
-                        None,
                         self.fc_store.justified_checkpoint().root,
                         finalized_slot,
                     )? != self.fc_store.finalized_checkpoint().root

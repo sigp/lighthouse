@@ -51,18 +51,4 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Sets the `best_justified_checkpoint`.
     fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint);
-
-    /// Returns an ancestor at `slot` prior to the slot of the given `state`.
-    fn state_ancestor_at_slot(
-        &self,
-        state: &BeaconState<T>,
-        ancestor_slot: Slot,
-    ) -> Result<Hash256, Self::Error>;
-
-    /// Returns an ancestor at `slot` prior to the given `block_root`.
-    fn block_root_ancestor_at_slot(
-        &self,
-        block_root: Hash256,
-        ancestor_slot: Slot,
-    ) -> Result<Hash256, Self::Error>;
 }

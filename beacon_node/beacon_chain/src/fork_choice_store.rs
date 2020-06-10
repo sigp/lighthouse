@@ -4,7 +4,6 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::iter::BlockRootsIterator;
 use store::{DBColumn, Error as StoreError, Store, StoreItem};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, SignedBeaconBlock,
@@ -307,42 +306,6 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> 
 
     fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint) {
         self.best_justified_checkpoint = checkpoint
-    }
-
-    fn state_ancestor_at_slot(
-        &self,
-        state: &BeaconState<E>,
-        ancestor_slot: Slot,
-    ) -> Result<Hash256, Error> {
-        match state.get_block_root(ancestor_slot) {
-            Ok(ancestor_root) => Ok(*ancestor_root),
-            Err(_) => BlockRootsIterator::owned(self.store.clone(), state.clone())
-                .take_while(|(_, slot)| *slot >= ancestor_slot)
-                .find(|(_, slot)| ancestor_slot == *slot)
-                .map(|(ancestor_block_root, _)| ancestor_block_root)
-                .ok_or_else(|| Error::AncestorUnknown { ancestor_slot }),
-        }
-    }
-
-    fn block_root_ancestor_at_slot(
-        &self,
-        block_root: Hash256,
-        ancestor_slot: Slot,
-    ) -> Result<Hash256, Error> {
-        let block = self
-            .store
-            .get_item::<SignedBeaconBlock<E>>(&block_root)
-            .map_err(Error::FailedToReadBlock)?
-            .ok_or_else(|| Error::MissingBlock(block_root))?
-            .message;
-
-        let state = self
-            .store
-            .get_state(&block.state_root, Some(block.slot))
-            .map_err(Error::FailedToReadState)?
-            .ok_or_else(|| Error::MissingState(block.state_root))?;
-
-        self.state_ancestor_at_slot(&state, ancestor_slot)
     }
 }
 

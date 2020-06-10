@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::proto_array::ProtoArray;
+use crate::proto_array::{ProtoArray, ProtoNode};
 use crate::ssz_container::SszContainer;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -192,6 +192,12 @@ impl ProtoArrayForkChoice {
             justified_epoch: block.justified_epoch,
             finalized_epoch: block.finalized_epoch,
         })
+    }
+
+    /// This method will corrupt the DAG and should only be used during testing.
+    pub fn __get_mut_node(&mut self, block_root: &Hash256) -> Option<&mut ProtoNode> {
+        let block_index = self.proto_array.indices.get(block_root)?;
+        self.proto_array.nodes.get_mut(*block_index)
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
