@@ -217,7 +217,7 @@ fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
         .assert_justified_epoch(0)
         .assert_best_justified_epoch(0)
         .apply_blocks(1)
-        .assert_justified_epoch(0)
+        .assert_justified_epoch(2)
         .assert_best_justified_epoch(2);
 }
 

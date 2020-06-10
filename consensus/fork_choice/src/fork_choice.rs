@@ -344,8 +344,8 @@ where
         } else if block_slot == ancestor_slot {
             Ok(block_root)
         } else {
-            // root is older than queried slot, thus a skip slot. Return most recent root prior to
-            // slot
+            // Root is older than queried slot, thus a skip slot. Return most recent root prior to
+            // slot.
             Ok(block_root)
         }
     }
