@@ -187,18 +187,17 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
+        let state = self
+            .beacon_chain
+            .head()
+            .map(|head| head.beacon_state)
+            .map_err(|e| format!("Failed to get beacon state: {:?}", e))?;
         for subscription in subscriptions {
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
             // Registers the validator with the attestation service.
             // This will subscribe to long-lived random subnets if required.
             self.add_known_validator(subscription.validator_index);
-
-            let state = self
-                .beacon_chain
-                .head()
-                .map(|head| head.beacon_state)
-                .map_err(|e| format!("Failed to get beacon state: {:?}", e))?;
 
             let subnet_id = SubnetId::compute_subnet_for_attestation(
                 &state,
