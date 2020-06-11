@@ -5,7 +5,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, ForkChoiceError, ForkChoiceStore as BeaconForkChoiceStore,
 };
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
+    SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
 use std::sync::Mutex;
 use store::{MemoryStore, Store};
@@ -71,6 +72,25 @@ impl ForkChoiceTest {
             Epoch::new(epoch),
             "best_justified_epoch"
         );
+        self
+    }
+
+    pub fn inspect_queued_attestations<F>(self, mut func: F) -> Self
+    where
+        F: FnMut(&[QueuedAttestation]),
+    {
+        self.harness
+            .chain
+            .fork_choice
+            .write()
+            .update_time(self.harness.chain.slot().unwrap())
+            .unwrap();
+        func(self.harness.chain.fork_choice.read().queued_attestations());
+        self
+    }
+
+    pub fn skip_slot(self) -> Self {
+        self.harness.advance_slot();
         self
     }
 
@@ -518,6 +538,8 @@ fn invalid_attestation_empty_bitfield() {
 /// Specification v0.12.1:
 ///
 /// assert target.epoch in [expected_current_epoch, previous_epoch]
+///
+/// (tests epoch after current epoch)
 #[test]
 fn invalid_attestation_future_epoch() {
     ForkChoiceTest::new()
@@ -540,6 +562,8 @@ fn invalid_attestation_future_epoch() {
 /// Specification v0.12.1:
 ///
 /// assert target.epoch in [expected_current_epoch, previous_epoch]
+///
+/// (tests epoch prior to previous epoch)
 #[test]
 fn invalid_attestation_past_epoch() {
     ForkChoiceTest::new()
@@ -692,4 +716,22 @@ fn invalid_attestation_inconsistent_ffg_vote() {
                 )
             },
         );
+}
+
+/// Specification v0.12.1:
+///
+/// assert get_current_slot(store) >= attestation.data.slot + 1
+#[test]
+fn invalid_attestation_delayed_slot() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |_, _| {},
+            |result| assert_eq!(result.unwrap(), ()),
+        )
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 1))
+        .skip_slot()
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0));
 }
