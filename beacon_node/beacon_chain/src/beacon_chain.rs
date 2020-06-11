@@ -1509,8 +1509,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }?;
         }
 
-        drop(fork_choice);
-
         metrics::stop_timer(fork_choice_register_timer);
 
         metrics::observe(
@@ -1532,6 +1530,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // See: https://github.com/sigp/lighthouse/issues/692
         self.store.put_state(&block.state_root, &state)?;
         self.store.put_block(&block_root, signed_block.clone())?;
+
+        // The fork choice write-lock is dropped *after* the on-disk database has been updated.
+        // This prevents inconsistency between the two at the expense of concurrency.
+        drop(fork_choice);
 
         let parent_root = block.parent_root;
         let slot = block.slot;
