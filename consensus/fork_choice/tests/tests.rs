@@ -2,17 +2,27 @@
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    ForkChoiceError, ForkChoiceStore as BeaconForkChoiceStore,
+    BeaconChain, BeaconChainError, ForkChoiceError, ForkChoiceStore as BeaconForkChoiceStore,
 };
-use fork_choice::{ForkChoiceStore, InvalidBlock, SAFE_SLOTS_TO_UPDATE_JUSTIFIED};
+use fork_choice::{
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
+};
 use std::sync::Mutex;
 use store::{MemoryStore, Store};
-use types::{test_utils::generate_deterministic_keypairs, Epoch, EthSpec, MainnetEthSpec, Slot};
+use types::{
+    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
+    Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot,
+};
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 16;
+
+pub enum MutationDelay {
+    NoDelay,
+    Slots(usize),
+}
 
 struct ForkChoiceTest {
     harness: BeaconChainHarness<HarnessType<E>>,
@@ -84,6 +94,17 @@ impl ForkChoiceTest {
             count,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
+        );
+
+        self
+    }
+
+    pub fn apply_blocks_without_new_attestations(self, count: usize) -> Self {
+        self.harness.advance_slot();
+        self.harness.extend_chain(
+            count,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
         );
 
         self
@@ -183,6 +204,70 @@ impl ForkChoiceTest {
             fc.fc_store().justified_balances(),
             "balances should match"
         )
+    }
+
+    /// Returns an attestation that is valid for some slot in the given `chain`.
+    ///
+    /// Also returns some info about who created it.
+    fn apply_attestation_to_chain<F, G>(
+        self,
+        delay: MutationDelay,
+        mut mutation_func: F,
+        mut comparison_func: G,
+    ) -> Self
+    where
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<HarnessType<E>>),
+        G: FnMut(Result<(), BeaconChainError>),
+    {
+        let chain = &self.harness.chain;
+        let head = chain.head().expect("should get head");
+        let current_slot = chain.slot().expect("should get slot");
+
+        let mut attestation = chain
+            .produce_unaggregated_attestation(current_slot, 0)
+            .expect("should not error while producing attestation");
+
+        let validator_committee_index = 0;
+        let validator_index = *head
+            .beacon_state
+            .get_beacon_committee(current_slot, attestation.data.index)
+            .expect("should get committees")
+            .committee
+            .get(validator_committee_index)
+            .expect("there should be an attesting validator");
+
+        let validator_sk = generate_deterministic_keypair(validator_index).sk;
+
+        attestation
+            .sign(
+                &validator_sk,
+                validator_committee_index,
+                &head.beacon_state.fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            )
+            .expect("should sign attestation");
+
+        let mut verified_attestation = chain
+            .verify_unaggregated_attestation_for_gossip(attestation)
+            .expect("precondition: should gossip verify attestation");
+
+        if let MutationDelay::Slots(slots) = delay {
+            self.harness.advance_slot();
+            self.harness.extend_chain(
+                slots,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::SomeValidators(vec![]),
+            );
+        }
+
+        mutation_func(verified_attestation.__indexed_attestation_mut(), chain);
+
+        let result = chain.apply_attestation_to_fork_choice(&verified_attestation);
+
+        comparison_func(result);
+
+        self
     }
 }
 
@@ -383,6 +468,166 @@ fn invalid_block_finalized_descendant() {
                     err,
                     InvalidBlock::NotFinalizedDescendant {  block_ancestor, .. }
                     if block_ancestor == *invalid_ancestor.lock().unwrap()
+                )
+            },
+        );
+}
+
+macro_rules! assert_invalid_attestation {
+    ($err: tt, $($error: pat) |+ $( if $guard: expr )?) => {
+        assert!(
+            matches!(
+                $err,
+                $( Err(BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation($error))) ) |+ $( if $guard )?
+            ),
+            "{:?}",
+            $err
+        );
+    };
+}
+
+/// Ensure we can process a valid attestation.
+#[test]
+fn valid_attestation() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |_, _| {},
+            |result| assert_eq!(result.unwrap(), ()),
+        );
+}
+
+/// This test is not in the specification, however we reject an attestation with an empty
+/// aggregation bitfield since it has no purpose beyond wasting our time.
+#[test]
+fn invalid_attestation_empty_bitfield() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                attestation.attesting_indices = vec![].into();
+            },
+            |result| {
+                assert_invalid_attestation!(result, InvalidAttestation::EmptyAggregationBitfield)
+            },
+        );
+}
+
+/// Specification v0.12.1:
+///
+/// assert target.epoch in [expected_current_epoch, previous_epoch]
+#[test]
+fn invalid_attestation_future_epoch() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                attestation.data.target.epoch = Epoch::new(2);
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::FutureEpoch { attestation_epoch, current_epoch }
+                    if attestation_epoch == Epoch::new(2) && current_epoch == Epoch::new(0)
+                )
+            },
+        );
+}
+
+/// Specification v0.12.1:
+///
+/// assert target.epoch in [expected_current_epoch, previous_epoch]
+#[test]
+fn invalid_attestation_past_epoch() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(E::slots_per_epoch() as usize * 3 + 1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                attestation.data.target.epoch = Epoch::new(0);
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::PastEpoch { attestation_epoch, current_epoch }
+                    if attestation_epoch == Epoch::new(0) && current_epoch == Epoch::new(3)
+                )
+            },
+        );
+}
+
+/// Specification v0.12.1:
+///
+/// assert target.root in store.blocks
+#[test]
+fn invalid_attestation_unknown_target_root() {
+    let junk = Hash256::from_low_u64_be(42);
+
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                attestation.data.target.root = junk;
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::UnknownTargetRoot(root)
+                    if root == junk
+                )
+            },
+        );
+}
+
+/// Specification v0.12.1:
+///
+/// assert attestation.data.beacon_block_root in store.blocks
+#[test]
+fn invalid_attestation_unknown_beacon_block_root() {
+    let junk = Hash256::from_low_u64_be(42);
+
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                attestation.data.beacon_block_root = junk;
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::UnknownHeadBlock { beacon_block_root }
+                    if beacon_block_root == junk
+                )
+            },
+        );
+}
+
+/// Specification v0.12.1:
+///
+/// assert store.blocks[attestation.data.beacon_block_root].slot <= attestation.data.slot
+#[test]
+fn invalid_attestation_future_block() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .apply_attestation_to_chain(
+            MutationDelay::Slots(1),
+            |attestation, chain| {
+                attestation.data.beacon_block_root = chain
+                    .block_at_slot(chain.slot().unwrap())
+                    .unwrap()
+                    .unwrap()
+                    .canonical_root();
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::AttestsToFutureBlock { block, attestation }
+                    if block == 2 && attestation == 1
                 )
             },
         );
