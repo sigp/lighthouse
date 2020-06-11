@@ -13,6 +13,7 @@ use types::{
 ///
 /// The inner field is private, meaning instances of this type can only be constructed
 /// by calling `validate`.
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SigVerifiedOp<T>(T);
 
 impl<T> SigVerifiedOp<T> {

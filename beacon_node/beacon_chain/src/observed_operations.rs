@@ -30,6 +30,7 @@ pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
 }
 
 /// Was the observed operation new and valid for further processing, or a useless duplicate?
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ObservationOutcome<T> {
     New(SigVerifiedOp<T>),
     AlreadyKnown,
