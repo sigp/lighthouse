@@ -861,39 +861,99 @@ mod release_tests {
         }
     }
 
+    struct TestContext {
+        spec: ChainSpec,
+        state: BeaconState<MainnetEthSpec>,
+        keypairs: Vec<Keypair>,
+        op_pool: OperationPool<MainnetEthSpec>,
+    }
+
+    impl TestContext {
+        fn new() -> Self {
+            let spec = MainnetEthSpec::default_spec();
+            let num_validators = 32;
+            let mut state_builder =
+                TestingBeaconStateBuilder::<MainnetEthSpec>::from_deterministic_keypairs(
+                    num_validators,
+                    &spec,
+                );
+            state_builder.build_caches(&spec).unwrap();
+            let (state, keypairs) = state_builder.build();
+            let op_pool = OperationPool::new();
+
+            TestContext {
+                spec,
+                state,
+                keypairs,
+                op_pool,
+            }
+        }
+
+        fn proposer_slashing(&self, proposer_index: u64) -> ProposerSlashing {
+            TestingProposerSlashingBuilder::double_vote::<MainnetEthSpec>(
+                ProposerSlashingTestTask::Valid,
+                proposer_index,
+                &self.keypairs[proposer_index as usize].sk,
+                &self.state.fork,
+                self.state.genesis_validators_root,
+                &self.spec,
+            )
+        }
+
+        fn attester_slashing(&self, slashed_indices: &[u64]) -> AttesterSlashing<MainnetEthSpec> {
+            let signer =
+                |idx: u64, message: &[u8]| Signature::new(message, &self.keypairs[idx as usize].sk);
+            TestingAttesterSlashingBuilder::double_vote(
+                AttesterSlashingTestTask::Valid,
+                slashed_indices,
+                signer,
+                &self.state.fork,
+                self.state.genesis_validators_root,
+                &self.spec,
+            )
+        }
+    }
+
     /// Insert two slashings for the same proposer and ensure only one is returned.
     #[test]
     fn duplicate_proposer_slashing() {
-        let spec = MainnetEthSpec::default_spec();
-        let num_validators = 32;
-        let mut state_builder =
-            TestingBeaconStateBuilder::<MainnetEthSpec>::from_deterministic_keypairs(
-                num_validators,
-                &spec,
-            );
-        state_builder.build_caches(&spec).unwrap();
-        let (state, keypairs) = state_builder.build();
-        let op_pool = OperationPool::new();
-
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
         let proposer_index = 0;
-        let slashing1 = TestingProposerSlashingBuilder::double_vote::<MainnetEthSpec>(
-            ProposerSlashingTestTask::Valid,
-            proposer_index,
-            &keypairs[proposer_index as usize].sk,
-            &state.fork,
-            state.genesis_validators_root,
-            &spec,
-        );
+        let slashing1 = ctxt.proposer_slashing(proposer_index);
         let slashing2 = ProposerSlashing {
             signed_header_1: slashing1.signed_header_2.clone(),
             signed_header_2: slashing1.signed_header_1.clone(),
         };
 
         // Both slashings should be valid and accepted by the pool.
-        op_pool.insert_proposer_slashing(slashing1.clone().validate(&state, &spec).unwrap());
-        op_pool.insert_proposer_slashing(slashing2.clone().validate(&state, &spec).unwrap());
+        op_pool.insert_proposer_slashing(slashing1.clone().validate(state, spec).unwrap());
+        op_pool.insert_proposer_slashing(slashing2.clone().validate(state, spec).unwrap());
 
         // Should only get the second slashing back.
-        assert_eq!(op_pool.get_slashings(&state).0, vec![slashing2]);
+        assert_eq!(op_pool.get_slashings(state).0, vec![slashing2]);
+    }
+
+    // Sanity check on the pruning of proposer slashings
+    #[test]
+    fn prune_proposer_slashing_noop() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+        let slashing = ctxt.proposer_slashing(0);
+        op_pool.insert_proposer_slashing(slashing.clone().validate(state, spec).unwrap());
+        op_pool.prune_proposer_slashings(state);
+        assert_eq!(op_pool.get_slashings(state).0, vec![slashing]);
+    }
+
+    // Sanity check on the pruning of attester slashings
+    #[test]
+    fn prune_attester_slashing_noop() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+        let slashing = ctxt.attester_slashing(&[1, 3, 5, 7, 9]);
+        op_pool
+            .insert_attester_slashing(slashing.clone().validate(state, spec).unwrap(), state.fork);
+        op_pool.prune_attester_slashings(state, state.fork);
+        assert_eq!(op_pool.get_slashings(state).1, vec![slashing]);
     }
 }
