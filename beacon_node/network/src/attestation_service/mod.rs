@@ -186,7 +186,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     pub fn validator_subscriptions(
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         for subscription in subscriptions {
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
@@ -194,9 +194,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // This will subscribe to long-lived random subnets if required.
             self.add_known_validator(subscription.validator_index);
 
-            let state = self.beacon_chain.head()
-            .map(|head| head.beacon_state)
-            .map_err(|e| warn!(self.log, "Could not obtain beacon state to check attestation subnet id"; "error" => format!("{:?}", e)))?;
+            let state = self
+                .beacon_chain
+                .head()
+                .map(|head| head.beacon_state)
+                .map_err(|e| format!("Failed to get beacon state: {:?}", e))?;
 
             let subnet_id = SubnetId::compute_subnet_for_attestation(
                 &state,
@@ -204,9 +206,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 subscription.attestation_committee_index,
             )
             .map_err(|e| {
-                warn!(self.log,
-                    "Failed to compute subnet id for validator subscription";
-                    "error" => format!("{:?}", e)
+                format!(
+                    "Failed to compute subnet id for validator subscription: {:?}",
+                    e
                 )
             })?;
 
@@ -231,8 +233,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             if subscription.is_aggregator {
                 // set the subscription timer to subscribe to the next subnet if required
                 if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
-                    warn!(self.log, "Subscription to subnet error"; "error" => e);
-                    return Err(());
+                    return Err(format!("Subscription to subnet error: {:?}", e));
                 }
             }
         }

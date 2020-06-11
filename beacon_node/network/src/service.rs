@@ -14,7 +14,7 @@ use eth2_libp2p::{
 use eth2_libp2p::{BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
-use slog::{debug, error, info, o, trace};
+use slog::{debug, error, info, o, trace, warn};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -235,10 +235,11 @@ fn spawn_service<T: BeaconChainTypes>(
                             );
                         }
                         NetworkMessage::Subscribe { subscriptions } => {
-                            // the result is dropped as it used solely for ergonomics
-                            let _ = service
+                            if let Err(e) = service
                                 .attestation_service
-                                .validator_subscriptions(subscriptions);
+                                .validator_subscriptions(subscriptions) {
+                                    warn!(service.log, "Validator subscription failed"; "error" => e);
+                                }
                         }
                     }
                 }
