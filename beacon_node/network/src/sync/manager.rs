@@ -36,11 +36,11 @@
 use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
-use super::range_sync::{BatchId, ChainId, RangeSync};
+use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::rpc::BlocksByRootRequest;
+use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
@@ -189,6 +189,10 @@ pub fn spawn<T: BeaconChainTypes>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
+    assert!(
+        MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
+    );
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
