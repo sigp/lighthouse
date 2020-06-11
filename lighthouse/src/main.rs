@@ -89,6 +89,7 @@ fn main() {
                 .global(true),
         )
         .subcommand(beacon_node::cli_app())
+        .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .get_matches();
