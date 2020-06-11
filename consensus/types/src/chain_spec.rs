@@ -75,7 +75,7 @@ pub struct ChainSpec {
     /*
      * Time parameters
      */
-    pub min_genesis_delay: u64,
+    pub genesis_delay: u64,
     pub milliseconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
@@ -285,7 +285,7 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            min_genesis_delay: 86400, // 1 day
+            genesis_delay: 172800, // 2 days
             milliseconds_per_slot: 12_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -354,7 +354,7 @@ impl ChainSpec {
             eth1_follow_distance: 16,
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
             shard_committee_period: 64,
-            min_genesis_delay: 300,
+            genesis_delay: 300,
             milliseconds_per_slot: 6_000,
             safe_slots_to_update_justified: 2,
             network_id: 2, // lighthouse testnet network id
@@ -459,7 +459,7 @@ pub struct YamlConfig {
     shuffle_round_count: u8,
     min_genesis_active_validator_count: u64,
     min_genesis_time: u64,
-    min_genesis_delay: u64,
+    genesis_delay: u64,
     min_deposit_amount: u64,
     max_effective_balance: u64,
     ejection_balance: u64,
@@ -576,7 +576,7 @@ impl YamlConfig {
             shuffle_round_count: spec.shuffle_round_count,
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
-            min_genesis_delay: spec.min_genesis_delay,
+            genesis_delay: spec.genesis_delay,
             min_deposit_amount: spec.min_deposit_amount,
             max_effective_balance: spec.max_effective_balance,
             ejection_balance: spec.ejection_balance,
@@ -674,7 +674,7 @@ impl YamlConfig {
             min_genesis_active_validator_count: self.min_genesis_active_validator_count,
             min_genesis_time: self.min_genesis_time,
             min_deposit_amount: self.min_deposit_amount,
-            min_genesis_delay: self.min_genesis_delay,
+            genesis_delay: self.genesis_delay,
             max_effective_balance: self.max_effective_balance,
             hysteresis_quotient: self.hysteresis_quotient,
             hysteresis_downward_multiplier: self.hysteresis_downward_multiplier,
