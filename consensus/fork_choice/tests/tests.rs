@@ -20,16 +20,21 @@ pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 16;
 
+/// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
+    /// No delay between creation and submission.
     NoDelay,
-    Slots(usize),
+    /// Create `n` blocks before mutating the attestation.
+    Blocks(usize),
 }
 
+/// A helper struct to make testing fork choice more ergonomic and less repetitive.
 struct ForkChoiceTest {
     harness: BeaconChainHarness<HarnessType<E>>,
 }
 
 impl ForkChoiceTest {
+    /// Creates a new tester.
     pub fn new() -> Self {
         let harness = BeaconChainHarness::new_with_target_aggregators(
             MainnetEthSpec,
@@ -41,6 +46,7 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
+    /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
         T: Fn(&BeaconForkChoiceStore<MemoryStore<E>, E>) -> U,
@@ -48,6 +54,7 @@ impl ForkChoiceTest {
         func(&self.harness.chain.fork_choice.read().fc_store())
     }
 
+    /// Assert the epochs match.
     pub fn assert_finalized_epoch(self, epoch: u64) -> Self {
         assert_eq!(
             self.get(|fc_store| fc_store.finalized_checkpoint().epoch),
@@ -57,6 +64,7 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Assert the epochs match.
     pub fn assert_justified_epoch(self, epoch: u64) -> Self {
         assert_eq!(
             self.get(|fc_store| fc_store.justified_checkpoint().epoch),
@@ -66,6 +74,7 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Assert the epochs match.
     pub fn assert_best_justified_epoch(self, epoch: u64) -> Self {
         assert_eq!(
             self.get(|fc_store| fc_store.best_justified_checkpoint().epoch),
@@ -75,6 +84,7 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Inspect the queued attestations in fork choice.
     pub fn inspect_queued_attestations<F>(self, mut func: F) -> Self
     where
         F: FnMut(&[QueuedAttestation]),
@@ -89,11 +99,13 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Skip a slot, without producing a block.
     pub fn skip_slot(self) -> Self {
         self.harness.advance_slot();
         self
     }
 
+    /// Build the chain whilst `predicate` returns `true`.
     pub fn apply_blocks_while<F>(self, mut predicate: F) -> Self
     where
         F: FnMut(&BeaconBlock<E>, &BeaconState<E>) -> bool,
@@ -108,6 +120,7 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Apply `count` blocks to the chain (with attestations).
     pub fn apply_blocks(self, count: usize) -> Self {
         self.harness.advance_slot();
         self.harness.extend_chain(
@@ -119,6 +132,7 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Apply `count` blocks to the chain (without attestations).
     pub fn apply_blocks_without_new_attestations(self, count: usize) -> Self {
         self.harness.advance_slot();
         self.harness.extend_chain(
@@ -130,11 +144,16 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Moves to the next slot that is *outside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
+    ///
+    /// If the chain is presently in an unsafe period, transition through it and the following safe
+    /// period.
     pub fn move_to_next_unsafe_period(self) -> Self {
         self.move_inside_safe_to_update()
             .move_outside_safe_to_update()
     }
 
+    /// Moves to the next slot that is *outside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
     pub fn move_outside_safe_to_update(self) -> Self {
         while is_safe_to_update(self.harness.chain.slot().unwrap()) {
             self.harness.advance_slot()
@@ -142,6 +161,7 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Moves to the next slot that is *inside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
     pub fn move_inside_safe_to_update(self) -> Self {
         while !is_safe_to_update(self.harness.chain.slot().unwrap()) {
             self.harness.advance_slot()
@@ -149,6 +169,9 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Applies a block directly to fork choice, bypassing the beacon chain.
+    ///
+    /// Asserts the block was applied successfully.
     pub fn apply_block_directly_to_fork_choice<F>(self, mut func: F) -> Self
     where
         F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
@@ -165,6 +188,9 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Applies a block directly to fork choice, bypassing the beacon chain.
+    ///
+    /// Asserts that an error occurred and allows inspecting it via `comparison_func`.
     pub fn apply_invalid_block_directly_to_fork_choice<F, G>(
         self,
         mut mutation_func: F,
@@ -189,6 +215,8 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Compares the justified balances in the `ForkChoiceStore` verses a direct lookup from the
+    /// database.
     fn check_justified_balances(&self) {
         let harness = &self.harness;
         let fc = self.harness.chain.fork_choice.read();
@@ -272,7 +300,7 @@ impl ForkChoiceTest {
             .verify_unaggregated_attestation_for_gossip(attestation)
             .expect("precondition: should gossip verify attestation");
 
-        if let MutationDelay::Slots(slots) = delay {
+        if let MutationDelay::Blocks(slots) = delay {
             self.harness.advance_slot();
             self.harness.extend_chain(
                 slots,
@@ -432,6 +460,32 @@ macro_rules! assert_invalid_block {
     };
 }
 
+/// Specification v0.12.1
+///
+/// assert block.parent_root in store.block_states
+#[test]
+fn invalid_block_unknown_parent() {
+    let junk = Hash256::from_low_u64_be(42);
+
+    ForkChoiceTest::new()
+        .apply_blocks(2)
+        .apply_invalid_block_directly_to_fork_choice(
+            |block, _| {
+                block.parent_root = junk;
+            },
+            |err| {
+                assert_invalid_block!(
+                    err,
+                    InvalidBlock::UnknownParent(parent)
+                    if parent == junk
+                )
+            },
+        );
+}
+
+/// Specification v0.12.1
+///
+/// assert get_current_slot(store) >= block.slot
 #[test]
 fn invalid_block_future_slot() {
     ForkChoiceTest::new()
@@ -449,6 +503,9 @@ fn invalid_block_future_slot() {
         );
 }
 
+/// Specification v0.12.1
+///
+/// assert block.slot > finalized_slot
 #[test]
 fn invalid_block_finalized_slot() {
     ForkChoiceTest::new()
@@ -468,6 +525,14 @@ fn invalid_block_finalized_slot() {
         );
 }
 
+/// Specification v0.12.1
+///
+/// assert get_ancestor(store, hash_tree_root(block), finalized_slot) ==
+/// store.finalized_checkpoint.root
+///
+/// Note: we technically don't do this exact check, but an equivalent check. Reference:
+///
+/// https://github.com/ethereum/eth2.0-specs/pull/1884
 #[test]
 fn invalid_block_finalized_descendant() {
     let invalid_ancestor = Mutex::new(Hash256::zero());
@@ -661,7 +726,7 @@ fn invalid_attestation_future_block() {
     ForkChoiceTest::new()
         .apply_blocks_without_new_attestations(1)
         .apply_attestation_to_chain(
-            MutationDelay::Slots(1),
+            MutationDelay::Blocks(1),
             |attestation, chain| {
                 attestation.data.beacon_block_root = chain
                     .block_at_slot(chain.slot().unwrap())

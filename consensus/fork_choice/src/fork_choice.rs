@@ -45,6 +45,7 @@ impl<T> From<InvalidAttestation> for Error<T> {
 
 #[derive(Debug)]
 pub enum InvalidBlock {
+    UnknownParent(Hash256),
     FutureSlot {
         current_slot: Slot,
         block_slot: Slot,
@@ -447,6 +448,13 @@ where
         state: &BeaconState<E>,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot)?;
+
+        // Parent block must be known.
+        if !self.proto_array.contains_block(&block.parent_root) {
+            return Err(Error::InvalidBlock(InvalidBlock::UnknownParent(
+                block.parent_root,
+            )));
+        }
 
         // Blocks cannot be in the future. If they are, their consideration must be delayed until
         // the are in the past.
