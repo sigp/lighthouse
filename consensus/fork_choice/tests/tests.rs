@@ -632,3 +632,42 @@ fn invalid_attestation_future_block() {
             },
         );
 }
+
+/// Specification v0.12.1:
+///
+/// assert target.root == get_ancestor(store, attestation.data.beacon_block_root, target_slot)
+#[test]
+fn invalid_attestation_inconsistent_ffg_vote() {
+    let local_opt = Mutex::new(None);
+    let attestation_opt = Mutex::new(None);
+
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, chain| {
+                attestation.data.target.root = chain
+                    .block_at_slot(Slot::new(1))
+                    .unwrap()
+                    .unwrap()
+                    .canonical_root();
+
+                *attestation_opt.lock().unwrap() = Some(attestation.data.target.root);
+                *local_opt.lock().unwrap() = Some(
+                    chain
+                        .block_at_slot(Slot::new(0))
+                        .unwrap()
+                        .unwrap()
+                        .canonical_root(),
+                );
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::InvalidTarget { attestation, local }
+                    if attestation == attestation_opt.lock().unwrap().unwrap()
+                        && local == local_opt.lock().unwrap().unwrap()
+                )
+            },
+        );
+}

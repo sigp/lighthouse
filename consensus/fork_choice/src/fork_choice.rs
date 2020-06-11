@@ -84,7 +84,7 @@ pub enum InvalidAttestation {
     /// database.
     InvalidTarget {
         attestation: Hash256,
-        block: Hash256,
+        local: Hash256,
     },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
@@ -622,7 +622,7 @@ where
         if block.target_root != target.root {
             return Err(InvalidAttestation::InvalidTarget {
                 attestation: target.root,
-                block: block.target_root,
+                local: block.target_root,
             });
         }
 
