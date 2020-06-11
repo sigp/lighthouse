@@ -192,6 +192,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .head()
             .map(|head| head.beacon_state)
             .map_err(|e| format!("Failed to get beacon state: {:?}", e))?;
+
         for subscription in subscriptions {
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
@@ -199,17 +200,21 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // This will subscribe to long-lived random subnets if required.
             self.add_known_validator(subscription.validator_index);
 
-            let subnet_id = SubnetId::compute_subnet_for_attestation(
+            let subnet_id = match SubnetId::compute_subnet_for_attestation(
                 &state,
                 subscription.slot,
                 subscription.attestation_committee_index,
-            )
-            .map_err(|e| {
-                format!(
-                    "Failed to compute subnet id for validator subscription: {:?}",
-                    e
-                )
-            })?;
+            ) {
+                Ok(subnet_id) => subnet_id,
+                Err(e) => {
+                    warn!(self.log,
+                        "Failed to compute subnet id for validator subscription";
+                        "error" => format!("{:?}", e),
+                        "validator_index" => subscription.validator_index
+                    );
+                    continue;
+                }
+            };
 
             let exact_subnet = ExactSubnet {
                 subnet_id,
@@ -232,7 +237,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             if subscription.is_aggregator {
                 // set the subscription timer to subscribe to the next subnet if required
                 if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
-                    return Err(format!("Subscription to subnet error: {:?}", e));
+                    warn!(self.log,
+                        "Subscription to subnet error";
+                        "error" => e,
+                        "validator_index" => subscription.validator_index,
+                    );
+                    continue;
                 }
             }
         }
