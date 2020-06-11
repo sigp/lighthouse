@@ -67,7 +67,7 @@ pub enum InvalidAttestation {
     UnknownHeadBlock { beacon_block_root: Hash256 },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch` and therefore
     /// the attestation is invalid.
-    BadTargetEpoch,
+    BadTargetEpoch { target: Epoch, slot: Slot },
     /// The target root of the attestation points to a block that we have not verified.
     UnknownTargetRoot(Hash256),
     /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
@@ -596,7 +596,10 @@ where
         }
 
         if target.epoch != indexed_attestation.data.slot.epoch(E::slots_per_epoch()) {
-            return Err(InvalidAttestation::BadTargetEpoch);
+            return Err(InvalidAttestation::BadTargetEpoch {
+                target: target.epoch,
+                slot: indexed_attestation.data.slot,
+            });
         }
 
         // Attestation target must be for a known block.

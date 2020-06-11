@@ -561,6 +561,28 @@ fn invalid_attestation_past_epoch() {
 
 /// Specification v0.12.1:
 ///
+/// assert target.epoch == compute_epoch_at_slot(attestation.data.slot)
+#[test]
+fn invalid_attestation_target_epoch() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(E::slots_per_epoch() as usize + 1)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                attestation.data.slot = Slot::new(1);
+            },
+            |result| {
+                assert_invalid_attestation!(
+                    result,
+                    InvalidAttestation::BadTargetEpoch { target, slot }
+                    if target == Epoch::new(1) && slot == Slot::new(1)
+                )
+            },
+        );
+}
+
+/// Specification v0.12.1:
+///
 /// assert target.root in store.blocks
 #[test]
 fn invalid_attestation_unknown_target_root() {
