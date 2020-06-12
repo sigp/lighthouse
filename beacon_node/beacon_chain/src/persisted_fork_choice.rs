@@ -1,4 +1,4 @@
-use crate::fork_choice_store::PersistedForkChoiceStore as Store;
+use crate::beacon_fork_choice_store::PersistedForkChoiceStore as Store;
 use fork_choice::PersistedForkChoice as ForkChoice;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};

@@ -48,7 +48,7 @@ use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterato
 use store::{Error as DBError, Store};
 use types::*;
 
-pub type ForkChoiceError = fork_choice::Error<crate::fork_choice_store::Error>;
+pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 // Text included in blocks.
 // Must be 32-bytes or panic.
@@ -276,21 +276,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This operation is typically slow and causes a lot of allocations. It should be used
     /// sparingly.
     pub fn persist_op_pool(&self) -> Result<(), Error> {
-        let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
+        let _timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         self.store.put_item(
             &Hash256::from_slice(&OP_POOL_DB_KEY),
             &PersistedOperationPool::from_operation_pool(&self.op_pool),
         )?;
 
-        metrics::stop_timer(timer);
-
         Ok(())
     }
 
     /// Persists `self.eth1_chain` and its caches to disk.
     pub fn persist_eth1_cache(&self) -> Result<(), Error> {
-        let timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
+        let _timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
             self.store.put_item(
@@ -298,8 +296,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &eth1_chain.as_ssz_container(),
             )?;
         }
-
-        metrics::stop_timer(timer);
 
         Ok(())
     }
@@ -899,7 +895,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         verified: &'a impl SignatureVerifiedAttestation<T>,
     ) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_FORK_CHOICE);
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
         self.fork_choice
             .write()
@@ -1339,7 +1335,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
     ) -> Result<Hash256, BlockError> {
         // Start the Prometheus timer.
-        let full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
+        let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
@@ -1406,9 +1402,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(other)
             }
         };
-
-        // Stop the Prometheus timer.
-        metrics::stop_timer(full_timer);
 
         result
     }
@@ -1483,18 +1476,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
         }
 
-        let fork_choice_register_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE_REGISTER);
-
         let mut fork_choice = self.fork_choice.write();
 
         // Register the new block with the fork choice service.
-        fork_choice
-            .on_block(current_slot, block, block_root, &state)
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+        {
+            let _fork_choice_block_timer =
+                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
+            fork_choice
+                .on_block(current_slot, block, block_root, &state)
+                .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+        }
 
         // Register each attestation in the block with the fork choice service.
         for attestation in &block.body.attestations[..] {
+            let _fork_choice_attestation_timer =
+                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+
             let committee =
                 state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
             let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
@@ -1508,8 +1505,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
         }
-
-        metrics::stop_timer(fork_choice_register_timer);
 
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
@@ -1703,15 +1698,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub fn fork_choice(&self) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
-        let overall_timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
         let result = self.fork_choice_internal();
 
         if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
-
-        metrics::stop_timer(overall_timer);
 
         result
     }

@@ -4,7 +4,7 @@
 //! Additionally, the private `BalancesCache` struct is defined; a cache designed to avoid database
 //! reads when fork choice requires the validator balances of the justified state.
 
-use crate::BeaconSnapshot;
+use crate::{metrics, BeaconSnapshot};
 use fork_choice::ForkChoiceStore;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -295,8 +295,10 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStore<E> for BeaconForkChoiceStore<S, E>
         self.justified_checkpoint = checkpoint;
 
         if let Some(balances) = self.balances_cache.get(self.justified_checkpoint.root) {
+            metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
             self.justified_balances = balances;
         } else {
+            metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
             let justified_block = self
                 .store
                 .get_item::<SignedBeaconBlock<E>>(&self.justified_checkpoint.root)
