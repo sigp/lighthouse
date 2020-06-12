@@ -1,3 +1,9 @@
+//! Defines the `BeaconForkChoiceStore`, which provides the persistent storage for the `ForkChoice`
+//! struct.
+//!
+//! Additionally, the private `BalancesCache` struct is defined; a cache designed to avoid database
+//! reads when fork choice requires the validator balances of the justified state.
+
 use crate::BeaconSnapshot;
 use fork_choice::ForkChoiceStore;
 use ssz::{Decode, Encode};
@@ -31,6 +37,7 @@ impl From<BeaconStateError> for Error {
     }
 }
 
+/// The number of validator balance sets that are cached within `BalancesCache`.
 const MAX_BALANCE_CACHE_SIZE: usize = 4;
 
 /// Returns the effective balances for every validator in the given `state`.
@@ -63,7 +70,7 @@ struct CacheItem {
 /// Provides a cache to avoid reading `BeaconState` from disk when updating the current justified
 /// checkpoint.
 ///
-/// It should store a mapping of `epoch_boundary_block_root -> state.balances`.
+/// It is effectively a mapping of `epoch_boundary_block_root -> state.balances`.
 #[derive(PartialEq, Clone, Default, Debug, Encode, Decode)]
 struct BalancesCache {
     items: Vec<CacheItem>,
@@ -149,6 +156,8 @@ impl BalancesCache {
     }
 }
 
+/// Implements `fork_choice::ForkChoiceStore` in order to provide a persistent backing to the
+/// `fork_choice::ForkChoice` struct.
 #[derive(Debug)]
 pub struct BeaconForkChoiceStore<S, E> {
     store: Arc<S>,
@@ -211,6 +220,8 @@ impl<S: Store<E>, E: EthSpec> BeaconForkChoiceStore<S, E> {
         }
     }
 
+    /// Save the current state of `Self` to a `PersistedForkChoiceStore` which can be stored to the
+    /// on-disk database.
     pub fn to_persisted(&self) -> PersistedForkChoiceStore {
         PersistedForkChoiceStore {
             balances_cache: self.balances_cache.clone(),
@@ -222,6 +233,7 @@ impl<S: Store<E>, E: EthSpec> BeaconForkChoiceStore<S, E> {
         }
     }
 
+    /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
     pub fn from_persisted(
         persisted: PersistedForkChoiceStore,
         store: Arc<S>,
@@ -309,6 +321,7 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStore<E> for BeaconForkChoiceStore<S, E>
     }
 }
 
+/// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
 #[derive(Encode, Decode)]
 pub struct PersistedForkChoiceStore {
     balances_cache: BalancesCache,
@@ -317,19 +330,6 @@ pub struct PersistedForkChoiceStore {
     justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
-}
-
-impl<S: Store<E>, E: EthSpec> From<&BeaconForkChoiceStore<S, E>> for PersistedForkChoiceStore {
-    fn from(store: &BeaconForkChoiceStore<S, E>) -> Self {
-        Self {
-            balances_cache: store.balances_cache.clone(),
-            time: store.time,
-            finalized_checkpoint: store.finalized_checkpoint,
-            justified_checkpoint: store.justified_checkpoint,
-            justified_balances: store.justified_balances.clone(),
-            best_justified_checkpoint: store.best_justified_checkpoint,
-        }
-    }
 }
 
 impl StoreItem for PersistedForkChoiceStore {
