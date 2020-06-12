@@ -419,8 +419,13 @@ where
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_block
     ///
-    /// It only approximates the specification since it does not perform verification on the
-    /// `block`. It is assumed that this verification has already been completed by the caller.
+    /// It only approximates the specification since it does not run the `state_transition` check.
+    /// That should have already been called upstream and it's too expensive to call again.
+    ///
+    /// ## Notes:
+    ///
+    /// The supplied block **must** pass the `state_transition` function as it will not be run
+    /// here.
     pub fn on_block(
         &mut self,
         current_slot: Slot,
@@ -554,6 +559,13 @@ where
         Ok(())
     }
 
+    /// Validates the `indexed_attestation` for application to fork choice.
+    ///
+    /// ## Specification
+    ///
+    /// Equivalent to:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_on_attestation
     fn validate_on_attestation(
         &self,
         indexed_attestation: &IndexedAttestation<E>,
@@ -639,9 +651,14 @@ where
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_attestation
     ///
-    /// It only approximates the specification since it does not perform verification on the
-    /// `attestation`. It is assumed that this verification has already been completed by the
-    /// caller.
+    /// It only approximates the specification since it does not perform
+    /// `is_valid_indexed_attestation` since that should already have been called upstream and it's
+    /// too expensive to call again.
+    ///
+    /// ## Notes:
+    ///
+    /// The supplied `attestation` **must** pass the `in_valid_indexed_attestation` function as it
+    /// will not be run here.
     pub fn on_attestation(
         &mut self,
         current_slot: Slot,
