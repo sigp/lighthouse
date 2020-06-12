@@ -7,7 +7,7 @@ use beacon_chain::{
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     migrate::{BackgroundMigrator, Migrate},
     slot_clock::{SlotClock, SystemTimeSlotClock},
-    store::{HotColdDB, ItemStore, LevelDB, Store, StoreConfig},
+    store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, EventHandler,
 };
 use bus::Bus;
@@ -50,7 +50,7 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 /// `self.memory_store(..)` has been called.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
-    store: Option<Arc<T::Store>>,
+    store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
     chain_spec: Option<ChainSpec>,
@@ -66,7 +66,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
 }
 
 impl<
-        TStore,
         TStoreMigrator,
         TSlotClock,
         TEth1Backend,
@@ -77,7 +76,6 @@ impl<
     >
     ClientBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -88,10 +86,9 @@ impl<
         >,
     >
 where
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
@@ -372,7 +369,6 @@ where
         self,
     ) -> Client<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -392,7 +388,6 @@ where
 }
 
 impl<
-        TStore,
         TStoreMigrator,
         TSlotClock,
         TEth1Backend,
@@ -403,7 +398,6 @@ impl<
     >
     ClientBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -414,10 +408,9 @@ impl<
         >,
     >
 where
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
@@ -451,10 +444,9 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
     ClientBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -465,10 +457,9 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TCol
         >,
     >
 where
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
@@ -496,10 +487,9 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
     ClientBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -510,10 +500,9 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TCol
         >,
     >
 where
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
@@ -548,7 +537,6 @@ where
 impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
     ClientBuilder<
         Witness<
-            HotColdDB<TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>>,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -561,7 +549,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: Migrate<TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, HotColdDB<TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>>>
+    TEth1Backend: Eth1ChainBackend<TEthSpec>
         + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -593,7 +581,6 @@ where
 impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     ClientBuilder<
         Witness<
-            HotColdDB<TEthSpec, THotStore, TColdStore>,
             BackgroundMigrator<TEthSpec, THotStore, TColdStore>,
             TSlotClock,
             TEth1Backend,
@@ -605,7 +592,7 @@ impl<TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     >
 where
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, HotColdDB<TEthSpec, THotStore, TColdStore>> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
@@ -625,13 +612,12 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
     ClientBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
-            CachingEth1Backend<TEthSpec, TStore>,
+            CachingEth1Backend<TEthSpec>,
             TEthSpec,
             TEventHandler,
             THotStore,
@@ -639,7 +625,6 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TCo
         >,
     >
 where
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
@@ -659,10 +644,6 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "caching_eth1_backend requires a store".to_string())?;
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;
@@ -677,7 +658,7 @@ where
             // adding earlier blocks too.
             eth1_service_from_genesis.drop_block_cache();
 
-            CachingEth1Backend::from_service(eth1_service_from_genesis, store)
+            CachingEth1Backend::from_service(eth1_service_from_genesis)
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
@@ -685,7 +666,6 @@ where
                     Eth1Chain::from_ssz_container(
                         &persisted,
                         config.clone(),
-                        store.clone(),
                         &context.log().clone(),
                     )
                     .map(|chain| chain.into_backend())
@@ -694,7 +674,6 @@ where
                     Ok(CachingEth1Backend::new(
                         config,
                         context.log().clone(),
-                        store,
                     ))
                 })?
         };
@@ -740,10 +719,9 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     ClientBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             SystemTimeSlotClock,
             TEth1Backend,
@@ -754,9 +732,8 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, T
         >,
     >
 where
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,

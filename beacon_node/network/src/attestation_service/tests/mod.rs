@@ -25,12 +25,10 @@ mod tests {
     const SLOT_DURATION_MILLIS: u64 = 200;
 
     type TestBeaconChainType = Witness<
-        HotColdDB<MinimalEthSpec, MemoryStore<MinimalEthSpec>, MemoryStore<MinimalEthSpec>>,
         NullMigrator,
         SystemTimeSlotClock,
         CachingEth1Backend<
             MinimalEthSpec,
-            HotColdDB<MinimalEthSpec, MemoryStore<MinimalEthSpec>, MemoryStore<MinimalEthSpec>>,
         >,
         MinimalEthSpec,
         NullEventHandler<MinimalEthSpec>,

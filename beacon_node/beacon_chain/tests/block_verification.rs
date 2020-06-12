@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+use store::config::StoreConfig;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
     BeaconSnapshot, BlockError,
@@ -47,7 +48,7 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
-    let harness = BeaconChainHarness::new(MainnetEthSpec, KEYPAIRS[0..validator_count].to_vec());
+    let harness = BeaconChainHarness::new(MainnetEthSpec, KEYPAIRS[0..validator_count].to_vec(), StoreConfig::default());
 
     harness.advance_slot();
 

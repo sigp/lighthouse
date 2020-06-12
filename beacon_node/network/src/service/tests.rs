@@ -11,6 +11,7 @@ mod tests {
     use std::sync::Arc;
     use tokio::runtime::Runtime;
     use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
+    use store::config::StoreConfig;
 
     fn get_logger() -> Logger {
         let builder = NullLoggerBuilder;
@@ -22,7 +23,7 @@ mod tests {
         let log = get_logger();
 
         let beacon_chain = Arc::new(
-            BeaconChainHarness::new(MinimalEthSpec, generate_deterministic_keypairs(8)).chain,
+            BeaconChainHarness::new(MinimalEthSpec, generate_deterministic_keypairs(8), StoreConfig::default()).chain,
         );
 
         let store = beacon_chain.store.clone();

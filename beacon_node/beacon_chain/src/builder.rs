@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{ItemStore, Store};
+use store::{ItemStore, Store, HotColdDB};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
 };
@@ -34,7 +34,6 @@ pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
 pub struct Witness<
-    TStore,
     TStoreMigrator,
     TSlotClock,
     TEth1Backend,
@@ -44,7 +43,6 @@ pub struct Witness<
     TColdStore,
 >(
     PhantomData<(
-        TStore,
         TStoreMigrator,
         TSlotClock,
         TEth1Backend,
@@ -56,7 +54,6 @@ pub struct Witness<
 );
 
 impl<
-        TStore,
         TStoreMigrator,
         TSlotClock,
         TEth1Backend,
@@ -66,7 +63,6 @@ impl<
         TColdStore,
     > BeaconChainTypes
     for Witness<
-        TStore,
         TStoreMigrator,
         TSlotClock,
         TEth1Backend,
@@ -78,16 +74,14 @@ impl<
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
-    type Store = TStore;
     type StoreMigrator = TStoreMigrator;
     type SlotClock = TSlotClock;
     type Eth1Chain = TEth1Backend;
@@ -104,7 +98,7 @@ where
 ///
 /// See the tests for an example of a complete working example.
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
-    store: Option<Arc<T::Store>>,
+    store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
     canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
     /// The finalized checkpoint to anchor the chain. May be genesis or a higher
@@ -113,7 +107,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     genesis_block_root: Option<Hash256>,
     op_pool: Option<OperationPool<T::EthSpec>>,
     fork_choice: Option<ForkChoice<T>>,
-    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
+    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<T::EventHandler>,
     slot_clock: Option<T::SlotClock>,
     head_tracker: Option<HeadTracker>,
@@ -126,7 +120,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 }
 
 impl<
-        TStore,
         TStoreMigrator,
         TSlotClock,
         TEth1Backend,
@@ -137,7 +130,6 @@ impl<
     >
     BeaconChainBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -150,10 +142,9 @@ impl<
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -195,7 +186,7 @@ where
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
-    pub fn store(mut self, store: Arc<TStore>) -> Self {
+    pub fn store(mut self, store: Arc<HotColdDB<TEthSpec, THotStore, TColdStore>>) -> Self {
         self.store = Some(store);
         self
     }
@@ -433,7 +424,6 @@ where
     ) -> Result<
         BeaconChain<
             Witness<
-                TStore,
                 TStoreMigrator,
                 TSlotClock,
                 TEth1Backend,
@@ -543,7 +533,6 @@ where
 }
 
 impl<
-        TStore,
         TStoreMigrator,
         TSlotClock,
         TEth1Backend,
@@ -554,7 +543,6 @@ impl<
     >
     BeaconChainBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -565,10 +553,9 @@ impl<
         >,
     >
 where
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
     THotStore: ItemStore<TEthSpec> + 'static,
@@ -625,13 +612,12 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
-            CachingEth1Backend<TEthSpec, TStore>,
+            CachingEth1Backend<TEthSpec>,
             TEthSpec,
             TEventHandler,
             THotStore,
@@ -641,7 +627,6 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TCo
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
@@ -658,12 +643,8 @@ where
             .log
             .as_ref()
             .ok_or_else(|| "dummy_eth1_backend requires a log".to_string())?;
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "dummy_eth1_backend requires a store.".to_string())?;
 
-        let backend = CachingEth1Backend::new(Eth1Config::default(), log.clone(), store);
+        let backend = CachingEth1Backend::new(Eth1Config::default(), log.clone());
 
         let mut eth1_chain = Eth1Chain::new(backend);
         eth1_chain.use_dummy_backend = true;
@@ -674,10 +655,9 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+impl<TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TestingSlotClock,
             TEth1Backend,
@@ -690,9 +670,8 @@ impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, T
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -717,10 +696,9 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
-            TStore,
             TStoreMigrator,
             TSlotClock,
             TEth1Backend,
@@ -733,10 +711,9 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TCol
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
-    TStore: Store<TEthSpec> + 'static,
     TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` event handler to `NullEventHandler`.
@@ -766,7 +743,9 @@ fn genesis_block<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::migrate::{MemoryStore, NullMigrator};
+    use store::{MemoryStore, HotColdDB};
+    use crate::migrate::{NullMigrator};
+    use store::config::StoreConfig;
     use eth2_hashing::hash;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use sloggers::{null::NullLoggerBuilder, Build};
@@ -788,7 +767,7 @@ mod test {
         let genesis_time = 13_371_337;
 
         let log = get_logger();
-        let store = Arc::new(MemoryStore::open());
+        let store: HotColdDB<MinimalEthSpec, MemoryStore<MinimalEthSpec>, MemoryStore<MinimalEthSpec>> = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone()).unwrap();
         let spec = MinimalEthSpec::default_spec();
         let data_dir = tempdir().expect("should create temporary data_dir");
 
@@ -801,7 +780,7 @@ mod test {
 
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
-            .store(store)
+            .store(Arc::new(store))
             .store_migrator(NullMigrator)
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(genesis_state)

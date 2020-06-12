@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore, Store};
+use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -34,11 +34,10 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
-pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witness<
-    TStore,
+pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witness<
     TStoreMigrator,
     TestingSlotClock,
-    CachingEth1Backend<TEthSpec, TStore>,
+    CachingEth1Backend<TEthSpec>,
     TEthSpec,
     NullEventHandler<TEthSpec>,
     THotStore,
@@ -46,14 +45,12 @@ pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec, THotStore, TColdStore
 >;
 
 pub type HarnessType<E> = BaseHarnessType<
-    HotColdDB<E, MemoryStore<E>, MemoryStore<E>>,
     NullMigrator,
     E,
     MemoryStore<E>,
     MemoryStore<E>,
 >;
 pub type DiskHarnessType<E> = BaseHarnessType<
-    HotColdDB<E, LevelDB<E>, LevelDB<E>>,
     BlockingMigrator<E, LevelDB<E>, LevelDB<E>>,
     E,
     LevelDB<E>,
@@ -234,9 +231,8 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     }
 }
 
-impl<S, M, E, Hot, Cold> BeaconChainHarness<BaseHarnessType<S, M, E, Hot, Cold>>
+impl<M, E, Hot, Cold> BeaconChainHarness<BaseHarnessType<M, E, Hot, Cold>>
 where
-    S: Store<E>,
     M: Migrate<E, Hot, Cold>,
     E: EthSpec,
     Hot: ItemStore<E>,

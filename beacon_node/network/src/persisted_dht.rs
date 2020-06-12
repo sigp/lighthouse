@@ -1,13 +1,13 @@
 use eth2_libp2p::Enr;
 use rlp;
 use std::sync::Arc;
-use store::{DBColumn, Error as StoreError, Store, StoreItem};
+use store::{DBColumn, Error as StoreError, Store, StoreItem, ItemStore, HotColdDB};
 use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`.
 pub const DHT_DB_KEY: &str = "PERSISTEDDHTPERSISTEDDHTPERSISTE";
 
-pub fn load_dht<T: Store<E>, E: EthSpec>(store: Arc<T>) -> Vec<Enr> {
+pub fn load_dht<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(store: Arc<HotColdDB<E, Hot, Cold>>) -> Vec<Enr> {
     // Load DHT from store
     let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
     match store.get_item(&key) {
@@ -20,8 +20,8 @@ pub fn load_dht<T: Store<E>, E: EthSpec>(store: Arc<T>) -> Vec<Enr> {
 }
 
 /// Attempt to persist the ENR's in the DHT to `self.store`.
-pub fn persist_dht<T: Store<E>, E: EthSpec>(
-    store: Arc<T>,
+pub fn persist_dht<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+    store: Arc<HotColdDB<E, Hot, Cold>>,
     enrs: Vec<Enr>,
 ) -> Result<(), store::Error> {
     let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
