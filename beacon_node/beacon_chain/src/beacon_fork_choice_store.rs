@@ -1,4 +1,4 @@
-//! Defines the `BeaconForkChoiceStore`, which provides the persistent storage for the `ForkChoice`
+//! Defines the `BeaconForkChoiceStore` which provides the persistent storage for the `ForkChoice`
 //! struct.
 //!
 //! Additionally, the private `BalancesCache` struct is defined; a cache designed to avoid database

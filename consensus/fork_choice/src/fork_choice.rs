@@ -217,12 +217,6 @@ pub struct ForkChoice<T, E> {
     fc_store: T,
     /// The underlying representation of the block DAG.
     proto_array: ProtoArrayForkChoice,
-    /// Used for resolving the `0x00..00` alias back to genesis.
-    ///
-    /// Does not necessarily need to be the _actual_ genesis, it suffices to be the finalized root
-    /// whenever the struct was instantiated.
-    genesis_block_root: Hash256,
-    /// Stores queued attestations that can be applied once we have advanced a slot.
     queued_attestations: Vec<QueuedAttestation>,
     _phantom: PhantomData<E>,
 }
@@ -235,7 +229,6 @@ where
     fn eq(&self, other: &Self) -> bool {
         self.fc_store == other.fc_store
             && self.proto_array == other.proto_array
-            && self.genesis_block_root == other.genesis_block_root
             && self.queued_attestations == other.queued_attestations
     }
 }
@@ -269,7 +262,6 @@ where
         Ok(Self {
             fc_store,
             proto_array,
-            genesis_block_root,
             queued_attestations: vec![],
             _phantom: PhantomData,
         })
@@ -282,13 +274,11 @@ where
     pub fn from_components(
         fc_store: T,
         proto_array: ProtoArrayForkChoice,
-        genesis_block_root: Hash256,
         queued_attestations: Vec<QueuedAttestation>,
     ) -> Self {
         Self {
             fc_store,
             proto_array,
-            genesis_block_root,
             queued_attestations,
             _phantom: PhantomData,
         }
@@ -353,21 +343,12 @@ where
         self.update_time(current_slot)?;
 
         let store = &mut self.fc_store;
-        let genesis_block_root = self.genesis_block_root;
-
-        let remove_alias = |root| {
-            if root == Hash256::zero() {
-                genesis_block_root
-            } else {
-                root
-            }
-        };
 
         let result = self
             .proto_array
             .find_head(
                 store.justified_checkpoint().epoch,
-                remove_alias(store.justified_checkpoint().root),
+                store.justified_checkpoint().root,
                 store.finalized_checkpoint().epoch,
                 store.justified_balances(),
             )
@@ -779,11 +760,6 @@ where
         &self.fc_store
     }
 
-    /// Returns a reference to the genesis block root.
-    pub fn genesis_block_root(&self) -> &Hash256 {
-        &self.genesis_block_root
-    }
-
     /// Returns a reference to the currently queued attestations.
     pub fn queued_attestations(&self) -> &[QueuedAttestation] {
         &self.queued_attestations
@@ -810,7 +786,6 @@ where
         Ok(Self {
             fc_store,
             proto_array,
-            genesis_block_root: persisted.genesis_block_root,
             queued_attestations: persisted.queued_attestations,
             _phantom: PhantomData,
         })
@@ -822,7 +797,6 @@ where
         PersistedForkChoice {
             proto_array_bytes: self.proto_array().as_bytes(),
             queued_attestations: self.queued_attestations().to_vec(),
-            genesis_block_root: *self.genesis_block_root(),
         }
     }
 }
@@ -834,7 +808,6 @@ where
 pub struct PersistedForkChoice {
     proto_array_bytes: Vec<u8>,
     queued_attestations: Vec<QueuedAttestation>,
-    genesis_block_root: Hash256,
 }
 
 #[cfg(test)]
