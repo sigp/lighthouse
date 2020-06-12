@@ -322,7 +322,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: SubstreamId,
-        req: BlocksByRangeRequest,
+        mut req: BlocksByRangeRequest,
     ) {
         debug!(
             self.log,
@@ -333,6 +333,10 @@ impl<T: BeaconChainTypes> Processor<T> {
             "step" => req.step,
         );
 
+        // Should not send more than max request blocks
+        if req.count > MAX_REQUEST_BLOCKS {
+            req.count = MAX_REQUEST_BLOCKS;
+        }
         if req.step == 0 {
             warn!(self.log,
                 "Peer sent invalid range request";

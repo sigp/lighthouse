@@ -3,7 +3,51 @@
 use crate::types::EnrBitfield;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
+use ssz_types::{
+    typenum::{U1024, U256},
+    VariableList,
+};
+use std::ops::Deref;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+
+/// Maximum number of blocks in a single request.
+type MaxRequestBlocks = U1024;
+pub const MAX_REQUEST_BLOCKS: u64 = 1024;
+
+/// Maximum length of error message.
+type MaxErrorLen = U256;
+
+/// Wrapper over SSZ List to represent error message in rpc responses.
+#[derive(Debug, Clone)]
+pub struct ErrorType(VariableList<u8, MaxErrorLen>);
+
+impl From<String> for ErrorType {
+    fn from(s: String) -> Self {
+        Self(VariableList::from(s.as_bytes().to_vec()))
+    }
+}
+
+impl From<&str> for ErrorType {
+    fn from(s: &str) -> Self {
+        Self(VariableList::from(s.as_bytes().to_vec()))
+    }
+}
+
+impl Deref for ErrorType {
+    type Target = VariableList<u8, MaxErrorLen>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ToString for ErrorType {
+    fn to_string(&self) -> String {
+        match std::str::from_utf8(self.0.deref()) {
+            Ok(s) => s.to_string(),
+            Err(_) => format!("{:?}", self.0.deref()), // Display raw bytes if not a UTF-8 string
+        }
+    }
+}
 
 /* Request/Response data structures for RPC methods */
 
@@ -147,7 +191,7 @@ pub struct BlocksByRangeRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: Vec<Hash256>,
+    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
 }
 
 /* RPC Handling and Grouping */
@@ -190,13 +234,13 @@ pub enum RPCCodedResponse<T: EthSpec> {
     Success(RPCResponse<T>),
 
     /// The response was invalid.
-    InvalidRequest(String),
+    InvalidRequest(ErrorType),
 
     /// The response indicates a server error.
-    ServerError(String),
+    ServerError(ErrorType),
 
     /// There was an unknown response.
-    Unknown(String),
+    Unknown(ErrorType),
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
@@ -233,18 +277,18 @@ impl<T: EthSpec> RPCCodedResponse<T> {
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
     pub fn from_error(response_code: u8, err: String) -> Self {
         match response_code {
-            1 => RPCCodedResponse::InvalidRequest(err),
-            2 => RPCCodedResponse::ServerError(err),
-            _ => RPCCodedResponse::Unknown(err),
+            1 => RPCCodedResponse::InvalidRequest(err.into()),
+            2 => RPCCodedResponse::ServerError(err.into()),
+            _ => RPCCodedResponse::Unknown(err.into()),
         }
     }
 
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
     pub fn from_error_code(response_code: RPCResponseErrorCode, err: String) -> Self {
         match response_code {
-            RPCResponseErrorCode::InvalidRequest => RPCCodedResponse::InvalidRequest(err),
-            RPCResponseErrorCode::ServerError => RPCCodedResponse::ServerError(err),
-            RPCResponseErrorCode::Unknown => RPCCodedResponse::Unknown(err),
+            RPCResponseErrorCode::InvalidRequest => RPCCodedResponse::InvalidRequest(err.into()),
+            RPCResponseErrorCode::ServerError => RPCCodedResponse::ServerError(err.into()),
+            RPCResponseErrorCode::Unknown => RPCCodedResponse::Unknown(err.into()),
         }
     }
 

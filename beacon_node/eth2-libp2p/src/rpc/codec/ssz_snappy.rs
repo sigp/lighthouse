@@ -8,6 +8,7 @@ use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
+use ssz_types::VariableList;
 use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
@@ -60,9 +61,9 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) => res.as_ssz_bytes(),
             },
-            RPCCodedResponse::InvalidRequest(err) => err.into_bytes().as_ssz_bytes(),
-            RPCCodedResponse::ServerError(err) => err.into_bytes().as_ssz_bytes(),
-            RPCCodedResponse::Unknown(err) => err.into_bytes().as_ssz_bytes(),
+            RPCCodedResponse::InvalidRequest(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::ServerError(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::Unknown(err) => err.as_ssz_bytes(),
             RPCCodedResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
@@ -138,7 +139,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     },
                     Protocol::BlocksByRoot => match self.protocol.version {
                         Version::V1 => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                            block_roots: Vec::from_ssz_bytes(&decoded_buffer)?,
+                            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
                         }))),
                     },
                     Protocol::Ping => match self.protocol.version {

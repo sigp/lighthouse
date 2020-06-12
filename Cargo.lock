@@ -2990,6 +2990,7 @@ dependencies = [
  "error-chain",
  "eth2-libp2p",
  "eth2_ssz",
+ "eth2_ssz_types",
  "exit-future",
  "fnv",
  "futures 0.3.5",

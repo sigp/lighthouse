@@ -36,16 +36,17 @@
 use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
-use super::range_sync::{BatchId, ChainId, RangeSync};
+use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-use eth2_libp2p::rpc::BlocksByRootRequest;
+use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
+use ssz_types::VariableList;
 use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -188,6 +189,10 @@ pub fn spawn<T: BeaconChainTypes>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
+    assert!(
+        MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
+    );
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
@@ -489,7 +494,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         let request = BlocksByRootRequest {
-            block_roots: vec![block_hash],
+            block_roots: VariableList::from(vec![block_hash]),
         };
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
@@ -707,7 +712,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         };
 
         let request = BlocksByRootRequest {
-            block_roots: vec![parent_hash],
+            block_roots: VariableList::from(vec![parent_hash]),
         };
 
         // We continue to search for the chain of blocks from the same peer. Other peers are not
