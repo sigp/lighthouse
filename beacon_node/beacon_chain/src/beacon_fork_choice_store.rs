@@ -6,11 +6,10 @@
 
 use crate::{metrics, BeaconSnapshot};
 use fork_choice::ForkChoiceStore;
-use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{DBColumn, Error as StoreError, Store, StoreItem};
+use store::{Error as StoreError, Store};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, SignedBeaconBlock,
     Slot,
@@ -332,18 +331,4 @@ pub struct PersistedForkChoiceStore {
     justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
-}
-
-impl StoreItem for PersistedForkChoiceStore {
-    fn db_column() -> DBColumn {
-        DBColumn::ForkChoiceStore
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, StoreError> {
-        Self::from_ssz_bytes(bytes).map_err(Into::into)
-    }
 }

@@ -439,13 +439,8 @@ where
 
             let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), genesis);
 
-            ForkChoice::from_genesis(
-                fc_store,
-                genesis.beacon_block_root,
-                &genesis.beacon_block.message,
-                &genesis.beacon_state,
-            )
-            .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?
+            ForkChoice::from_genesis(fc_store, &genesis.beacon_block.message)
+                .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?
         };
 
         let beacon_chain = BeaconChain {

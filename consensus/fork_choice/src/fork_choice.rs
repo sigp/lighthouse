@@ -15,7 +15,6 @@ pub const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
     InvalidBlock(InvalidBlock),
-    // TODO: make this an actual error enum.
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
     MissingProtoArrayBlock(Hash256),
@@ -166,7 +165,7 @@ where
 }
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
-/// information about the attestation (i.e., it is simplified).
+/// information about the attestation.
 #[derive(Clone, PartialEq, Encode, Decode)]
 pub struct QueuedAttestation {
     slot: Slot,
@@ -217,6 +216,7 @@ pub struct ForkChoice<T, E> {
     fc_store: T,
     /// The underlying representation of the block DAG.
     proto_array: ProtoArrayForkChoice,
+    /// Attestations that arrived at the current slot and must be queued for later processing.
     queued_attestations: Vec<QueuedAttestation>,
     _phantom: PhantomData<E>,
 }
@@ -241,22 +241,17 @@ where
     /// Instantiates `Self` from the genesis parameters.
     pub fn from_genesis(
         fc_store: T,
-        genesis_block_root: Hash256,
         genesis_block: &BeaconBlock<E>,
-        genesis_state: &BeaconState<E>,
     ) -> Result<Self, Error<T::Error>> {
         let finalized_block_slot = genesis_block.slot;
         let finalized_block_state_root = genesis_block.state_root;
-        let justified_epoch = genesis_state.current_epoch();
-        let finalized_epoch = genesis_state.current_epoch();
-        let finalized_root = genesis_block_root;
 
         let proto_array = ProtoArrayForkChoice::new(
             finalized_block_slot,
             finalized_block_state_root,
-            justified_epoch,
-            finalized_epoch,
-            finalized_root,
+            fc_store.justified_checkpoint().epoch,
+            fc_store.finalized_checkpoint().epoch,
+            fc_store.finalized_checkpoint().root,
         )?;
 
         Ok(Self {
