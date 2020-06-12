@@ -9,8 +9,8 @@ use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metrics;
 use crate::{
-    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState,
-    StoreItem, StoreOp,
+    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
+    StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -88,7 +88,11 @@ pub enum HotColdDBError {
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Store a block and update the LRU cache.
-    pub fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
+    pub fn put_block(
+        &self,
+        block_root: &Hash256,
+        block: SignedBeaconBlock<E>,
+    ) -> Result<(), Error> {
         // Store on disk.
         self.hot_db.put(block_root, &block)?;
 
@@ -190,7 +194,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Result<impl Iterator<Item=Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         HybridForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root, spec)
     }
 

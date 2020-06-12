@@ -44,18 +44,9 @@ pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witn
     TColdStore,
 >;
 
-pub type HarnessType<E> = BaseHarnessType<
-    NullMigrator,
-    E,
-    MemoryStore<E>,
-    MemoryStore<E>,
->;
-pub type DiskHarnessType<E> = BaseHarnessType<
-    BlockingMigrator<E, LevelDB<E>, LevelDB<E>>,
-    E,
-    LevelDB<E>,
-    LevelDB<E>,
->;
+pub type HarnessType<E> = BaseHarnessType<NullMigrator, E, MemoryStore<E>, MemoryStore<E>>;
+pub type DiskHarnessType<E> =
+    BaseHarnessType<BlockingMigrator<E, LevelDB<E>, LevelDB<E>>, E, LevelDB<E>, LevelDB<E>>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]

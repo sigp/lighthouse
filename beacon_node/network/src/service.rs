@@ -17,10 +17,10 @@ use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
 use std::sync::Arc;
 use std::time::Duration;
+use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
 use types::EthSpec;
-use store::HotColdDB;
 
 mod tests;
 

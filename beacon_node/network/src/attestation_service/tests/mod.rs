@@ -27,9 +27,7 @@ mod tests {
     type TestBeaconChainType = Witness<
         NullMigrator,
         SystemTimeSlotClock,
-        CachingEth1Backend<
-            MinimalEthSpec,
-        >,
+        CachingEth1Backend<MinimalEthSpec>,
         MinimalEthSpec,
         NullEventHandler<MinimalEthSpec>,
         MemoryStore<MinimalEthSpec>,

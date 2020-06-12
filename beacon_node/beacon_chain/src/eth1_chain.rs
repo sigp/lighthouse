@@ -191,11 +191,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     fn as_bytes(&self) -> Vec<u8>;
 
     /// Create a `Eth1ChainBackend` instance given encoded bytes.
-    fn from_bytes(
-        bytes: &[u8],
-        config: Eth1Config,
-        log: Logger,
-    ) -> Result<Self, String>;
+    fn from_bytes(bytes: &[u8], config: Eth1Config, log: Logger) -> Result<Self, String>;
 }
 
 /// Provides a simple, testing-only backend that generates deterministic, meaningless eth1 data.
@@ -238,11 +234,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     }
 
     /// Create dummy eth1 backend.
-    fn from_bytes(
-        _bytes: &[u8],
-        _config: Eth1Config,
-        _log: Logger,
-    ) -> Result<Self, String> {
+    fn from_bytes(_bytes: &[u8], _config: Eth1Config, _log: Logger) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
 }
@@ -397,11 +389,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
     }
 
     /// Recover the cached backend from encoded bytes.
-    fn from_bytes(
-        bytes: &[u8],
-        config: Eth1Config,
-        log: Logger,
-    ) -> Result<Self, String> {
+    fn from_bytes(bytes: &[u8], config: Eth1Config, log: Logger) -> Result<Self, String> {
         let inner = HttpService::from_bytes(bytes, config, log.clone())?;
         Ok(Self {
             core: inner,
@@ -563,10 +551,7 @@ mod test {
         use eth1::DepositLog;
         use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
 
-        fn get_eth1_chain() -> Eth1Chain<
-            CachingEth1Backend<E>,
-            E,
-        > {
+        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };

@@ -9,7 +9,7 @@ use beacon_chain::{
 };
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::{HotColdDB, StoreConfig, LevelDB};
+use store::{HotColdDB, LevelDB, StoreConfig};
 use tempfile::{tempdir, TempDir};
 use types::{EthSpec, Keypair, MinimalEthSpec};
 

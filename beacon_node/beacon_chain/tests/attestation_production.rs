@@ -26,7 +26,11 @@ lazy_static! {
 fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
 
-    let harness = BeaconChainHarness::new(MainnetEthSpec, KEYPAIRS[..].to_vec(), StoreConfig::default());
+    let harness = BeaconChainHarness::new(
+        MainnetEthSpec,
+        KEYPAIRS[..].to_vec(),
+        StoreConfig::default(),
+    );
 
     // Skip past the genesis slot.
     harness.advance_slot();

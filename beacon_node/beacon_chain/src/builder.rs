@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{ItemStore, HotColdDB};
+use store::{HotColdDB, ItemStore};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
 };
@@ -53,15 +53,8 @@ pub struct Witness<
     )>,
 );
 
-impl<
-        TStoreMigrator,
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    > BeaconChainTypes
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
+    BeaconChainTypes
     for Witness<
         TStoreMigrator,
         TSlotClock,
@@ -119,15 +112,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     log: Option<Logger>,
 }
 
-impl<
-        TStoreMigrator,
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    >
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
             TStoreMigrator,
@@ -532,15 +517,7 @@ where
     }
 }
 
-impl<
-        TStoreMigrator,
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    >
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
             TStoreMigrator,
@@ -743,14 +720,14 @@ fn genesis_block<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use store::{MemoryStore, HotColdDB};
-    use crate::migrate::{NullMigrator};
-    use store::config::StoreConfig;
+    use crate::migrate::NullMigrator;
     use eth2_hashing::hash;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
+    use store::config::StoreConfig;
+    use store::{HotColdDB, MemoryStore};
     use tempfile::tempdir;
     use types::{EthSpec, MinimalEthSpec, Slot};
 
@@ -767,7 +744,12 @@ mod test {
         let genesis_time = 13_371_337;
 
         let log = get_logger();
-        let store: HotColdDB<MinimalEthSpec, MemoryStore<MinimalEthSpec>, MemoryStore<MinimalEthSpec>> = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone()).unwrap();
+        let store: HotColdDB<
+            MinimalEthSpec,
+            MemoryStore<MinimalEthSpec>,
+            MemoryStore<MinimalEthSpec>,
+        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
+            .unwrap();
         let spec = MinimalEthSpec::default_spec();
         let data_dir = tempdir().expect("should create temporary data_dir");
 

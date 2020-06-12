@@ -1,4 +1,4 @@
-use crate::{Error, ItemStore, HotColdDB};
+use crate::{Error, HotColdDB, ItemStore};
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -17,12 +17,15 @@ pub trait AncestorIter<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>, I: Ite
     fn try_iter_ancestor_roots(&self, store: Arc<HotColdDB<E, Hot, Cold>>) -> Option<I>;
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> AncestorIter<E, Hot, Cold, BlockRootsIterator<'a, E, Hot, Cold>>
-    for SignedBeaconBlock<E>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    AncestorIter<E, Hot, Cold, BlockRootsIterator<'a, E, Hot, Cold>> for SignedBeaconBlock<E>
 {
     /// Iterates across all available prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
-    fn try_iter_ancestor_roots(&self, store: Arc<HotColdDB<E, Hot, Cold>>) -> Option<BlockRootsIterator<'a, E, Hot, Cold>> {
+    fn try_iter_ancestor_roots(
+        &self,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
+    ) -> Option<BlockRootsIterator<'a, E, Hot, Cold>> {
         let state = store
             .get_state(&self.message.state_root, Some(self.message.slot))
             .ok()??;
@@ -31,12 +34,15 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> AncestorIter<E, Hot,
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> AncestorIter<E, Hot, Cold, StateRootsIterator<'a, E, Hot, Cold>>
-    for BeaconState<E>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    AncestorIter<E, Hot, Cold, StateRootsIterator<'a, E, Hot, Cold>> for BeaconState<E>
 {
     /// Iterates across all available prior state roots of `self`, starting at the most recent and ending
     /// at genesis.
-    fn try_iter_ancestor_roots(&self, store: Arc<HotColdDB<E, Hot, Cold>>) -> Option<StateRootsIterator<'a, E, Hot, Cold>> {
+    fn try_iter_ancestor_roots(
+        &self,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
+    ) -> Option<StateRootsIterator<'a, E, Hot, Cold>> {
         // The `self.clone()` here is wasteful.
         Some(StateRootsIterator::owned(store, self.clone()))
     }
@@ -46,7 +52,9 @@ pub struct StateRootsIterator<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore
     inner: RootsIterator<'a, T, Hot, Cold>,
 }
 
-impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone for StateRootsIterator<'a, T, Hot, Cold> {
+impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone
+    for StateRootsIterator<'a, T, Hot, Cold>
+{
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -68,7 +76,9 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> StateRootsIterator<'
     }
 }
 
-impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator for StateRootsIterator<'a, T, Hot, Cold> {
+impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
+    for StateRootsIterator<'a, T, Hot, Cold>
+{
     type Item = Result<(Hash256, Slot), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -90,7 +100,9 @@ pub struct BlockRootsIterator<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore
     inner: RootsIterator<'a, T, Hot, Cold>,
 }
 
-impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone for BlockRootsIterator<'a, T, Hot, Cold> {
+impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone
+    for BlockRootsIterator<'a, T, Hot, Cold>
+{
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -114,7 +126,9 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockRootsIterator<'
     }
 }
 
-impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator for BlockRootsIterator<'a, T, Hot, Cold> {
+impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
+    for BlockRootsIterator<'a, T, Hot, Cold>
+{
     type Item = Result<(Hash256, Slot), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -131,7 +145,9 @@ pub struct RootsIterator<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> 
     slot: Slot,
 }
 
-impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone for RootsIterator<'a, T, Hot, Cold> {
+impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone
+    for RootsIterator<'a, T, Hot, Cold>
+{
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
@@ -158,7 +174,10 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
         }
     }
 
-    pub fn from_block(store: Arc<HotColdDB<T, Hot, Cold>>, block_hash: Hash256) -> Result<Self, Error> {
+    pub fn from_block(
+        store: Arc<HotColdDB<T, Hot, Cold>>,
+        block_hash: Hash256,
+    ) -> Result<Self, Error> {
         let block = store
             .get_block(&block_hash)?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
@@ -198,7 +217,9 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
     }
 }
 
-impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator for RootsIterator<'a, T, Hot, Cold> {
+impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
+    for RootsIterator<'a, T, Hot, Cold>
+{
     /// (block_root, state_root, slot)
     type Item = Result<(Hash256, Hash256, Slot), Error>;
 
@@ -214,7 +235,9 @@ pub struct ParentRootBlockIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: Item
     _phantom: PhantomData<E>,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ParentRootBlockIterator<'a, E, Hot, Cold> {
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    ParentRootBlockIterator<'a, E, Hot, Cold>
+{
     pub fn new(store: &'a HotColdDB<E, Hot, Cold>, start_block_root: Hash256) -> Self {
         Self {
             store,
@@ -240,7 +263,9 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ParentRootBlockItera
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator for ParentRootBlockIterator<'a, E, Hot, Cold> {
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for ParentRootBlockIterator<'a, E, Hot, Cold>
+{
     type Item = Result<(Hash256, SignedBeaconBlock<E>), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -279,7 +304,9 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockIterator<'a, T,
     }
 }
 
-impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator for BlockIterator<'a, T, Hot, Cold> {
+impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
+    for BlockIterator<'a, T, Hot, Cold>
+{
     type Item = Result<SignedBeaconBlock<T>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {

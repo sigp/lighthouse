@@ -12,7 +12,7 @@ pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;
 use beacon_chain::migrate::BackgroundMigrator;
-use beacon_chain::store::{LevelDB};
+use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };

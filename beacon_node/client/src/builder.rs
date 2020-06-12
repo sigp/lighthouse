@@ -65,15 +65,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
 }
 
-impl<
-        TStoreMigrator,
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    >
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     ClientBuilder<
         Witness<
             TStoreMigrator,
@@ -387,15 +379,7 @@ where
     }
 }
 
-impl<
-        TStoreMigrator,
-        TSlotClock,
-        TEth1Backend,
-        TEthSpec,
-        TEventHandler,
-        THotStore,
-        TColdStore,
-    >
+impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     ClientBuilder<
         Witness<
             TStoreMigrator,
@@ -549,8 +533,7 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
 where
     TSlotClock: SlotClock + 'static,
     TStoreMigrator: Migrate<TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec>
-        + 'static,
+    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
@@ -670,12 +653,7 @@ where
                     )
                     .map(|chain| chain.into_backend())
                 })
-                .unwrap_or_else(|| {
-                    Ok(CachingEth1Backend::new(
-                        config,
-                        context.log().clone(),
-                    ))
-                })?
+                .unwrap_or_else(|| Ok(CachingEth1Backend::new(config, context.log().clone())))?
         };
 
         self.eth1_service = None;

@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
-    HotColdDB, StoreConfig, LevelDB,
+    HotColdDB, LevelDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
@@ -47,7 +47,10 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     )
 }
 
-fn get_harness(store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>, validator_count: usize) -> TestHarness {
+fn get_harness(
+    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    validator_count: usize,
+) -> TestHarness {
     let harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
         store,
