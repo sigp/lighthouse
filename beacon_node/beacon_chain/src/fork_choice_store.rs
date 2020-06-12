@@ -1,5 +1,5 @@
 use crate::BeaconSnapshot;
-use fork_choice::ForkChoiceStore as ForkChoiceStoreTrait;
+use fork_choice::ForkChoiceStore;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
@@ -150,7 +150,7 @@ impl BalancesCache {
 }
 
 #[derive(Debug)]
-pub struct ForkChoiceStore<S, E> {
+pub struct BeaconForkChoiceStore<S, E> {
     store: Arc<S>,
     balances_cache: BalancesCache,
     time: Slot,
@@ -161,7 +161,7 @@ pub struct ForkChoiceStore<S, E> {
     _phantom: PhantomData<E>,
 }
 
-impl<S, E> PartialEq for ForkChoiceStore<S, E> {
+impl<S, E> PartialEq for BeaconForkChoiceStore<S, E> {
     /// This implementation ignores the `store` and `slot_clock`.
     fn eq(&self, other: &Self) -> bool {
         self.balances_cache == other.balances_cache
@@ -173,7 +173,7 @@ impl<S, E> PartialEq for ForkChoiceStore<S, E> {
     }
 }
 
-impl<S: Store<E>, E: EthSpec> ForkChoiceStore<S, E> {
+impl<S: Store<E>, E: EthSpec> BeaconForkChoiceStore<S, E> {
     /// Initialize `Self` from some `anchor` checkpoint which may or may not be the genesis state.
     ///
     /// ## Specification
@@ -239,7 +239,7 @@ impl<S: Store<E>, E: EthSpec> ForkChoiceStore<S, E> {
     }
 }
 
-impl<S: Store<E>, E: EthSpec> ForkChoiceStoreTrait<E> for ForkChoiceStore<S, E> {
+impl<S: Store<E>, E: EthSpec> ForkChoiceStore<E> for BeaconForkChoiceStore<S, E> {
     type Error = Error;
 
     fn get_current_slot(&self) -> Slot {
@@ -319,8 +319,8 @@ pub struct PersistedForkChoiceStore {
     best_justified_checkpoint: Checkpoint,
 }
 
-impl<S: Store<E>, E: EthSpec> From<&ForkChoiceStore<S, E>> for PersistedForkChoiceStore {
-    fn from(store: &ForkChoiceStore<S, E>) -> Self {
+impl<S: Store<E>, E: EthSpec> From<&BeaconForkChoiceStore<S, E>> for PersistedForkChoiceStore {
+    fn from(store: &BeaconForkChoiceStore<S, E>) -> Self {
         Self {
             balances_cache: store.balances_cache.clone(),
             time: store.time,

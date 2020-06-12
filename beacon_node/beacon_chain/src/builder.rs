@@ -12,8 +12,8 @@ use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    BeaconChain, BeaconChainTypes, BeaconSnapshot, Eth1Chain, Eth1ChainBackend, EventHandler,
-    ForkChoiceStore,
+    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
+    Eth1ChainBackend, EventHandler,
 };
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
@@ -428,7 +428,7 @@ where
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {
-            let fc_store = ForkChoiceStore::from_persisted(persisted.store, store.clone())
+            let fc_store = BeaconForkChoiceStore::from_persisted(persisted.store, store.clone())
                 .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
 
             ForkChoice::from_persisted(persisted.fork_choice, fc_store)
@@ -436,7 +436,7 @@ where
         } else {
             let genesis = &canonical_head;
 
-            let fc_store = ForkChoiceStore::get_forkchoice_store(store.clone(), genesis);
+            let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), genesis);
 
             ForkChoice::from_genesis(
                 fc_store,

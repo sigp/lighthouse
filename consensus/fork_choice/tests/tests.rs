@@ -2,7 +2,7 @@
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
-    BeaconChain, BeaconChainError, ForkChoiceError, ForkChoiceStore as BeaconForkChoiceStore,
+    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ForkChoiceError,
 };
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,

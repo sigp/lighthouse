@@ -36,7 +36,7 @@ pub use attestation_verification::Error as AttestationError;
 pub use block_verification::{BlockError, BlockProcessingOutcome, GossipVerifiedBlock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::EventHandler;
-pub use fork_choice_store::{Error as ForkChoiceStoreError, ForkChoiceStore};
+pub use fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;
 pub use slot_clock;
