@@ -7,4 +7,5 @@ edition = "2018"
 [dev-dependencies]
 compare_fields_derive = { path = "../compare_fields_derive" }
 
-[dependencies]
+[package.metadata.cargo-udeps.ignore]
+development = ["compare_fields_derive"] # used in doc-tests
