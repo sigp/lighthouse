@@ -252,7 +252,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &Hash256::from_slice(&FORK_CHOICE_DB_KEY),
             &PersistedForkChoice {
                 fork_choice: fork_choice.to_persisted(),
-                store: fork_choice.fc_store().to_persisted(),
+                fork_choice_store: fork_choice.fc_store().to_persisted(),
             },
         )?;
 

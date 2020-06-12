@@ -251,7 +251,7 @@ where
     /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
     /// last-produced block (the head of the chain).
     ///
-    /// Chain will be extended by `num_blocks` blocks.
+    /// Chain will be extended while `predidcate` returns `true`.
     ///
     /// The `block_strategy` dictates where the new blocks will be placed.
     ///

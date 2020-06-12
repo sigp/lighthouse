@@ -428,8 +428,9 @@ where
             .map_err(|e| format!("DB error when reading persisted fork choice: {:?}", e))?;
 
         let fork_choice = if let Some(persisted) = persisted_fork_choice {
-            let fc_store = BeaconForkChoiceStore::from_persisted(persisted.store, store.clone())
-                .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
+            let fc_store =
+                BeaconForkChoiceStore::from_persisted(persisted.fork_choice_store, store.clone())
+                    .map_err(|e| format!("Unable to load ForkChoiceStore: {:?}", e))?;
 
             ForkChoice::from_persisted(persisted.fork_choice, fc_store)
                 .map_err(|e| format!("Unable to parse persisted fork choice from disk: {:?}", e))?

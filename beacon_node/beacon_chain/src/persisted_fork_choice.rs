@@ -1,4 +1,4 @@
-use crate::beacon_fork_choice_store::PersistedForkChoiceStore as Store;
+use crate::beacon_fork_choice_store::PersistedForkChoiceStore as ForkChoiceStore;
 use fork_choice::PersistedForkChoice as ForkChoice;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -7,7 +7,7 @@ use store::{DBColumn, Error, StoreItem};
 #[derive(Encode, Decode)]
 pub struct PersistedForkChoice {
     pub fork_choice: ForkChoice,
-    pub store: Store,
+    pub fork_choice_store: ForkChoiceStore,
 }
 
 impl StoreItem for PersistedForkChoice {
