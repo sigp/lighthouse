@@ -68,7 +68,7 @@ impl EnrExt for Enr {
         multiaddrs
     }
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`. 
+    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
     /// The vector remains empty if these fields are not defined.
     ///
     /// This also prepends the `PeerId` into each multiaddr with the `P2p` protocol.
