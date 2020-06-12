@@ -1,0 +1,71 @@
+//! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
+use slog;
+use clap::ArgMatches;
+use slog::{o, Drain, Level, Logger};
+
+use std::convert::TryFrom;
+mod config;
+mod server;
+mod cli;
+pub use cli::cli_app;
+use config::BootNodeConfig;
+
+/// Run the bootnode given the CLI configuration.
+pub fn run(matches: &ArgMatches<'_>) {
+
+
+    // set up the logging and run the main function
+    let debug_level = match matches
+        .value_of("debug-level")
+        .unwrap_or_else(|| "info")
+    {
+        "trace" => log::Level::Trace,
+        "debug" => log::Level::Debug,
+        "info" => log::Level::Info,
+        "warn" => log::Level::Warn,
+        "error" => log::Level::Error,
+        _ => unreachable!(),
+    };
+
+    // Setting up the initial logger format and building it.
+    let drain = {
+        let decorator = slog_term::TermDecorator::new().build();
+        let decorator =
+            logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        slog_async::Async::new(drain).build()
+    };
+
+    let drain = match debug_level {
+        log::Level::Info => drain.filter_level(Level::Info),
+        log::Level::Debug => drain.filter_level(Level::Debug),
+        log::Level::Trace => drain.filter_level(Level::Trace),
+        log::Level::Warn => drain.filter_level(Level::Warning),
+        log::Level::Error => drain.filter_level(Level::Error),
+    };
+
+    let logger = Logger::root(drain.fuse(), o!());
+    let log = logger.clone();
+    let _scope_guard = slog_scope::set_global_logger(logger);
+    let _log_guard = slog_stdlog::init_with_level(debug_level).unwrap();
+
+
+    // Run the main function emitting any errors
+    if let Err(e) = main(matches, log.clone()) {
+        slog::crit!(log, "{}", e);
+    }
+}
+
+fn main(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
+
+    // Builds a custom executor for the bootnode
+    let mut runtime = tokio::runtime::Builder::new().threaded_scheduler().enable_all().build().map_err(|e| format!("Failed to build runtime: {}", e))?;
+
+
+    // parse the CLI args into a useable config
+    let config = BootNodeConfig::try_from(matches)?;
+
+    // Run the boot node
+    runtime.block_on(server::run(config, log));
+    Ok(())
+}

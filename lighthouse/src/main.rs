@@ -25,6 +25,7 @@ fn main() {
     let matches = App::new("Lighthouse")
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
+        .setting(clap::AppSettings::ColoredHelp)
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
@@ -93,6 +94,12 @@ fn main() {
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .get_matches();
+
+    // boot node subcommand circumvents the environment
+    if let Some(matches) = matches.subcommand_matches("boot_node") {
+        boot_node::run(matches);
+        return;
+    }
 
     macro_rules! run_with_spec {
         ($env_builder: expr) => {
