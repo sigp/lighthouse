@@ -29,6 +29,8 @@ use tokio_util::{
 use types::{BeaconBlock, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock};
 
 lazy_static! {
+    // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
+    // same across different `EthSpec` implementations.
     pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec> {
         message: BeaconBlock::empty(&MainnetEthSpec::default_spec()),
         signature: Signature::empty_signature(),
@@ -41,17 +43,20 @@ lazy_static! {
     }
     .as_ssz_bytes()
     .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
-            .as_ssz_bytes()
-            .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(vec![
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize = BlocksByRootRequest {
+        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
+    }
+    .as_ssz_bytes()
+    .len();
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize = BlocksByRootRequest {
+        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(vec![
             Hash256::zero();
-            MAX_REQUEST_BLOCKS as usize
+            MAX_REQUEST_BLOCKS
+                as usize
         ])
-        .as_ssz_bytes()
-        .len();
+    }
+    .as_ssz_bytes()
+    .len();
 }
 
 /// The maximum bytes that can be sent across the RPC.
