@@ -468,6 +468,7 @@ dependencies = [
  "clap",
  "discv5 0.1.0-alpha.4",
  "eth2-libp2p",
+ "futures 0.3.5",
  "log 0.4.8",
  "logging",
  "slog",

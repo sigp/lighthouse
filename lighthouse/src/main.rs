@@ -18,9 +18,6 @@ pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
-    // Debugging output for libp2p and external crates.
-    Builder::from_env(Env::default()).init();
-
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(crate_version!())
@@ -100,6 +97,9 @@ fn main() {
         boot_node::run(matches);
         return;
     }
+
+    // Debugging output for libp2p and external crates.
+    Builder::from_env(Env::default()).init();
 
     macro_rules! run_with_spec {
         ($env_builder: expr) => {
