@@ -240,8 +240,6 @@ pub enum RPCCodedResponse<T: EthSpec> {
     ServerError(ErrorType),
 
     /// There was an unknown response.
-    // TODO: spec doesn't specify that this needs to be an ssz list
-    // keeping this for consistency.
     Unknown(ErrorType),
 
     /// Received a stream termination indicating which response is being terminated.

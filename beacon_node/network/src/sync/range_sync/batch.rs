@@ -77,11 +77,8 @@ impl<T: EthSpec> Batch<T> {
         BlocksByRangeRequest {
             start_slot: self.start_slot.into(),
             count: min(
-                min(
-                    T::slots_per_epoch() * EPOCHS_PER_BATCH,
-                    self.end_slot.sub(self.start_slot).into(),
-                ),
-                MAX_REQUEST_BLOCKS,
+                T::slots_per_epoch() * EPOCHS_PER_BATCH,
+                self.end_slot.sub(self.start_slot).into(),
             ),
             step: 1,
         }
