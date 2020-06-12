@@ -17,17 +17,21 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use slot_clock::{SlotClock, SystemTimeSlotClock};
     use std::time::{Duration, SystemTime};
-    use store::MemoryStore;
+    use store::config::StoreConfig;
+    use store::{HotColdDB, MemoryStore};
     use tempfile::tempdir;
     use types::{CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
 
     const SLOT_DURATION_MILLIS: u64 = 200;
 
     type TestBeaconChainType = Witness<
-        MemoryStore<MinimalEthSpec>,
+        HotColdDB<MinimalEthSpec, MemoryStore<MinimalEthSpec>, MemoryStore<MinimalEthSpec>>,
         NullMigrator,
         SystemTimeSlotClock,
-        CachingEth1Backend<MinimalEthSpec, MemoryStore<MinimalEthSpec>>,
+        CachingEth1Backend<
+            MinimalEthSpec,
+            HotColdDB<MinimalEthSpec, MemoryStore<MinimalEthSpec>, MemoryStore<MinimalEthSpec>>,
+        >,
         MinimalEthSpec,
         NullEventHandler<MinimalEthSpec>,
         MemoryStore<MinimalEthSpec>,
@@ -46,11 +50,14 @@ mod tests {
             let keypairs = generate_deterministic_keypairs(1);
 
             let log = get_logger();
+            let store =
+                HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone())
+                    .unwrap();
             let chain = Arc::new(
                 BeaconChainBuilder::new(MinimalEthSpec)
                     .logger(log.clone())
                     .custom_spec(spec.clone())
-                    .store(Arc::new(MemoryStore::open()))
+                    .store(Arc::new(store))
                     .store_migrator(NullMigrator)
                     .data_dir(data_dir.path().to_path_buf())
                     .genesis_state(

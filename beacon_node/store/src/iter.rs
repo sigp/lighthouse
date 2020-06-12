@@ -312,8 +312,10 @@ fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MemoryStore;
-    use types::{test_utils::TestingBeaconStateBuilder, Keypair, MainnetEthSpec};
+    use crate::config::StoreConfig;
+    use crate::HotColdDB;
+    use sloggers::{null::NullLoggerBuilder, Build};
+    use types::{test_utils::TestingBeaconStateBuilder, ChainSpec, Keypair, MainnetEthSpec};
 
     fn get_state<T: EthSpec>() -> BeaconState<T> {
         let builder = TestingBeaconStateBuilder::from_single_keypair(
@@ -327,7 +329,10 @@ mod test {
 
     #[test]
     fn block_root_iter() {
-        let store = Arc::new(MemoryStore::open());
+        let log = NullLoggerBuilder.build().unwrap();
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log).unwrap(),
+        );
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -371,7 +376,10 @@ mod test {
 
     #[test]
     fn state_root_iter() {
-        let store = Arc::new(MemoryStore::open());
+        let log = NullLoggerBuilder.build().unwrap();
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log).unwrap(),
+        );
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();

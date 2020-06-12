@@ -56,14 +56,19 @@ impl StoreItem for PersistedDht {
 mod tests {
     use super::*;
     use eth2_libp2p::Enr;
+    use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
-    use std::sync::Arc;
-    use store::{MemoryStore, Store};
-    use types::Hash256;
-    use types::MinimalEthSpec;
+    use store::config::StoreConfig;
+    use store::{HotColdDB, MemoryStore, Store};
+    use types::{ChainSpec, Hash256, MinimalEthSpec};
     #[test]
     fn test_persisted_dht() {
-        let store = Arc::new(MemoryStore::<MinimalEthSpec>::open());
+        let log = NullLoggerBuilder.build().unwrap();
+        let store: HotColdDB<
+            MinimalEthSpec,
+            MemoryStore<MinimalEthSpec>,
+            MemoryStore<MinimalEthSpec>,
+        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log).unwrap();
         let enrs = vec![Enr::from_str("enr:-IS4QHCYrYZbAKWCBRlAy5zzaDZXJBGkcnh4MHcBFZntXNFrdvJjX04jRzjzCBOonrkTfj499SZuOh8R33Ls8RRcy5wBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQPKY0yuDUmstAHYpMa2_oxVtw0RW_QAdpzBQA8yWM0xOIN1ZHCCdl8").unwrap()];
         let key = Hash256::from_slice(&DHT_DB_KEY.as_bytes());
         store

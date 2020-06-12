@@ -572,16 +572,28 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
-        use store::MemoryStore;
+        use store::config::StoreConfig;
+        use store::{HotColdDB, MemoryStore};
         use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
 
-        fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E, MemoryStore<E>>, E, MemoryStore<E>> {
+        fn get_eth1_chain() -> Eth1Chain<
+            CachingEth1Backend<E, HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,
+            E,
+            HotColdDB<E, MemoryStore<E>, MemoryStore<E>>,
+        > {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };
 
             let log = null_logger().unwrap();
-            let store = Arc::new(MemoryStore::open());
+            let store = Arc::new(
+                HotColdDB::open_ephemeral(
+                    StoreConfig::default(),
+                    ChainSpec::minimal(),
+                    log.clone(),
+                )
+                .unwrap(),
+            );
             Eth1Chain::new(CachingEth1Backend::new(eth1_config, log, store))
         }
 
