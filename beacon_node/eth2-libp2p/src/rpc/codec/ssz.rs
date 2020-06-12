@@ -1,7 +1,10 @@
 use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
-    protocol::{Encoding, Protocol, ProtocolId, RPCError, Version},
+    protocol::{
+        Encoding, Protocol, ProtocolId, RPCError, Version, BLOCKS_BY_ROOT_REQUEST_MAX,
+        BLOCKS_BY_ROOT_REQUEST_MIN, SIGNED_BEACON_BLOCK_MAX, SIGNED_BEACON_BLOCK_MIN,
+    },
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
@@ -84,29 +87,61 @@ impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
         match self.inner.decode(src).map_err(RPCError::from) {
             Ok(Some(packet)) => match self.protocol.message_name {
                 Protocol::Status => match self.protocol.version {
-                    Version::V1 => Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
-                        &packet,
-                    )?))),
+                    Version::V1 => {
+                        if packet.len() == <StatusMessage as Encode>::ssz_fixed_len() {
+                            Ok(Some(RPCRequest::Status(StatusMessage::from_ssz_bytes(
+                                &packet,
+                            )?)))
+                        } else {
+                            Err(RPCError::InvalidData)
+                        }
+                    }
                 },
                 Protocol::Goodbye => match self.protocol.version {
-                    Version::V1 => Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
-                        &packet,
-                    )?))),
+                    Version::V1 => {
+                        if packet.len() == <GoodbyeReason as Encode>::ssz_fixed_len() {
+                            Ok(Some(RPCRequest::Goodbye(GoodbyeReason::from_ssz_bytes(
+                                &packet,
+                            )?)))
+                        } else {
+                            Err(RPCError::InvalidData)
+                        }
+                    }
                 },
                 Protocol::BlocksByRange => match self.protocol.version {
-                    Version::V1 => Ok(Some(RPCRequest::BlocksByRange(
-                        BlocksByRangeRequest::from_ssz_bytes(&packet)?,
-                    ))),
+                    Version::V1 => {
+                        if packet.len() == <BlocksByRangeRequest as Encode>::ssz_fixed_len() {
+                            Ok(Some(RPCRequest::BlocksByRange(
+                                BlocksByRangeRequest::from_ssz_bytes(&packet)?,
+                            )))
+                        } else {
+                            Err(RPCError::InvalidData)
+                        }
+                    }
                 },
                 Protocol::BlocksByRoot => match self.protocol.version {
-                    Version::V1 => Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                        block_roots: VariableList::from_ssz_bytes(&packet)?,
-                    }))),
+                    Version::V1 => {
+                        if packet.len() >= *BLOCKS_BY_ROOT_REQUEST_MIN
+                            && packet.len() <= *BLOCKS_BY_ROOT_REQUEST_MAX
+                        {
+                            Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                                block_roots: VariableList::from_ssz_bytes(&packet)?,
+                            })))
+                        } else {
+                            Err(RPCError::InvalidData)
+                        }
+                    }
                 },
                 Protocol::Ping => match self.protocol.version {
-                    Version::V1 => Ok(Some(RPCRequest::Ping(Ping {
-                        data: u64::from_ssz_bytes(&packet)?,
-                    }))),
+                    Version::V1 => {
+                        if packet.len() == <Ping as Encode>::ssz_fixed_len() {
+                            Ok(Some(RPCRequest::Ping(Ping {
+                                data: u64::from_ssz_bytes(&packet)?,
+                            })))
+                        } else {
+                            Err(RPCError::InvalidData)
+                        }
+                    }
                 },
                 Protocol::MetaData => match self.protocol.version {
                     Version::V1 => {
@@ -208,30 +243,64 @@ impl<TSpec: EthSpec> Decoder for SSZOutboundCodec<TSpec> {
 
                     match self.protocol.message_name {
                         Protocol::Status => match self.protocol.version {
-                            Version::V1 => Ok(Some(RPCResponse::Status(
-                                StatusMessage::from_ssz_bytes(&raw_bytes)?,
-                            ))),
+                            Version::V1 => {
+                                if raw_bytes.len() == <StatusMessage as Encode>::ssz_fixed_len() {
+                                    Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
+                                        &raw_bytes,
+                                    )?)))
+                                } else {
+                                    Err(RPCError::InvalidData)
+                                }
+                            }
                         },
                         Protocol::Goodbye => Err(RPCError::InvalidData),
                         Protocol::BlocksByRange => match self.protocol.version {
-                            Version::V1 => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
-                            )))),
+                            Version::V1 => {
+                                if raw_bytes.len() >= *SIGNED_BEACON_BLOCK_MIN
+                                    && raw_bytes.len() <= *SIGNED_BEACON_BLOCK_MAX
+                                {
+                                    Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                        SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                                    ))))
+                                } else {
+                                    Err(RPCError::InvalidData)
+                                }
+                            }
                         },
                         Protocol::BlocksByRoot => match self.protocol.version {
-                            Version::V1 => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
-                            )))),
+                            Version::V1 => {
+                                if raw_bytes.len() >= *SIGNED_BEACON_BLOCK_MIN
+                                    && raw_bytes.len() <= *SIGNED_BEACON_BLOCK_MAX
+                                {
+                                    Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                        SignedBeaconBlock::from_ssz_bytes(&raw_bytes)?,
+                                    ))))
+                                } else {
+                                    Err(RPCError::InvalidData)
+                                }
+                            }
                         },
                         Protocol::Ping => match self.protocol.version {
-                            Version::V1 => Ok(Some(RPCResponse::Pong(Ping {
-                                data: u64::from_ssz_bytes(&raw_bytes)?,
-                            }))),
+                            Version::V1 => {
+                                if raw_bytes.len() == <Ping as Encode>::ssz_fixed_len() {
+                                    Ok(Some(RPCResponse::Pong(Ping {
+                                        data: u64::from_ssz_bytes(&raw_bytes)?,
+                                    })))
+                                } else {
+                                    Err(RPCError::InvalidData)
+                                }
+                            }
                         },
                         Protocol::MetaData => match self.protocol.version {
-                            Version::V1 => Ok(Some(RPCResponse::MetaData(
-                                MetaData::from_ssz_bytes(&raw_bytes)?,
-                            ))),
+                            Version::V1 => {
+                                if raw_bytes.len() == <MetaData<TSpec> as Encode>::ssz_fixed_len() {
+                                    Ok(Some(RPCResponse::MetaData(MetaData::from_ssz_bytes(
+                                        &raw_bytes,
+                                    )?)))
+                                } else {
+                                    Err(RPCError::InvalidData)
+                                }
+                            }
                         },
                     }
                 }
