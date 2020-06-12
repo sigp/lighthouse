@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::thread;
 use store::hot_cold_store::{process_finalization, HotColdDBError};
 use store::iter::{ParentRootBlockIterator, RootsIterator};
-use store::{Error, ItemStore, Store, StoreOp};
+use store::{Error, ItemStore, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};

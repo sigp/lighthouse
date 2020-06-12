@@ -9,7 +9,7 @@ use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metrics;
 use crate::{
-    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, Store,
+    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState,
     StoreItem, StoreOp,
 };
 use lru::LruCache;
@@ -86,11 +86,9 @@ pub enum HotColdDBError {
     RestorePointBlockHashError(BeaconStateError),
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E, Hot, Cold> {
-    type ForwardsBlockRootsIterator = HybridForwardsBlockRootsIterator<E, Hot, Cold>;
-
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Store a block and update the LRU cache.
-    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
+    pub fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
         // Store on disk.
         self.hot_db.put(block_root, &block)?;
 
@@ -101,7 +99,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E
     }
 
     /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+    pub fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
@@ -122,12 +120,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E
     }
 
     /// Delete a block from the store and the block cache.
-    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
+    pub fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
         self.block_cache.lock().pop(block_root);
         self.hot_db.delete::<SignedBeaconBlock<E>>(block_root)
     }
 
-    fn put_state_summary(
+    pub fn put_state_summary(
         &self,
         state_root: &Hash256,
         summary: HotStateSummary,
@@ -136,7 +134,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E
     }
 
     /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
+    pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
             self.store_cold_state(state_root, &state)
         } else {
@@ -145,7 +143,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E
     }
 
     /// Fetch a state from the store.
-    fn get_state(
+    pub fn get_state(
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
@@ -172,7 +170,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E
     /// than the split point. You shouldn't delete states from the finalized portion of the chain
     /// (which are frozen, and won't be deleted), or valid descendents of the finalized checkpoint
     /// (which will be deleted by this function but shouldn't be).
-    fn delete_state(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
+    pub fn delete_state(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
         // Delete the state summary.
         self.hot_db
             .key_delete(DBColumn::BeaconStateSummary.into(), state_root.as_bytes())?;
@@ -186,20 +184,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E
         Ok(())
     }
 
-    fn forwards_block_roots_iterator(
+    pub fn forwards_block_roots_iterator(
         store: Arc<Self>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Result<Self::ForwardsBlockRootsIterator, Error> {
+    ) -> Result<impl Iterator<Item=Result<(Hash256, Slot), Error>>, Error> {
         HybridForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root, spec)
     }
 
     /// Load an epoch boundary state by using the hot state summary look-up.
     ///
     /// Will fall back to the cold DB if a hot state summary is not found.
-    fn load_epoch_boundary_state(
+    pub fn load_epoch_boundary_state(
         &self,
         state_root: &Hash256,
     ) -> Result<Option<BeaconState<E>>, Error> {
@@ -228,19 +226,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E
         }
     }
 
-    fn put_item<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+    pub fn put_item<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         self.hot_db.put(key, item)
     }
 
-    fn get_item<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
+    pub fn get_item<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         self.hot_db.get(key)
     }
 
-    fn item_exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
+    pub fn item_exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         self.hot_db.exists::<I>(key)
     }
 
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+    pub fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
         let mut guard = self.block_cache.lock();
 
         let mut key_value_batch: Vec<KeyValueStoreOp> = Vec::with_capacity(batch.len());

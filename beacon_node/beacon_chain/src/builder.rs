@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{ItemStore, Store, HotColdDB};
+use store::{ItemStore, HotColdDB};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
 };

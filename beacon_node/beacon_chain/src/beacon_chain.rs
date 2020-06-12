@@ -40,7 +40,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
-use store::{Error as DBError, Store, HotColdDB};
+use store::{Error as DBError, HotColdDB};
 use types::*;
 
 // Text included in blocks.

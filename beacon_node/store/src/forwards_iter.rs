@@ -2,7 +2,7 @@ use crate::chunked_iter::ChunkedVectorIter;
 use crate::chunked_vector::BlockRoots;
 use crate::errors::{Error, Result};
 use crate::iter::BlockRootsIterator;
-use crate::{HotColdDB, ItemStore, Store};
+use crate::{HotColdDB, ItemStore};
 use itertools::process_results;
 use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
@@ -63,8 +63,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
 }
 
 impl SimpleForwardsBlockRootsIterator {
-    pub fn new<S: Store<E>, E: EthSpec>(
-        store: Arc<S>,
+    pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+        store: Arc<HotColdDB<E, Hot, Cold>>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,

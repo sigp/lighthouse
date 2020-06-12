@@ -13,7 +13,6 @@ use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use std::sync::Arc;
-use store::Store;
 use tokio::sync::mpsc;
 use types::{
     Attestation, ChainSpec, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock,

@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
-    HotColdDB, Store, StoreConfig, LevelDB,
+    HotColdDB, StoreConfig, LevelDB,
 };
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
@@ -1361,7 +1361,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
         .collect::<Vec<_>>();
 
     let head = harness.chain.head().expect("should get head");
-    let mut forward_block_roots = Store::forwards_block_roots_iterator(
+    let mut forward_block_roots = HotColdDB::forwards_block_roots_iterator(
         harness.chain.store.clone(),
         Slot::new(0),
         head.beacon_state,

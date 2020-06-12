@@ -1,7 +1,7 @@
 use eth2_libp2p::Enr;
 use rlp;
 use std::sync::Arc;
-use store::{DBColumn, Error as StoreError, Store, StoreItem, ItemStore, HotColdDB};
+use store::{DBColumn, Error as StoreError, StoreItem, ItemStore, HotColdDB};
 use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`.
@@ -59,7 +59,7 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use store::config::StoreConfig;
-    use store::{HotColdDB, MemoryStore, Store};
+    use store::{HotColdDB, MemoryStore};
     use types::{ChainSpec, Hash256, MinimalEthSpec};
     #[test]
     fn test_persisted_dht() {

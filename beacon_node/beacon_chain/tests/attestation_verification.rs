@@ -9,7 +9,6 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use state_processing::per_slot_processing;
-use store::Store;
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
