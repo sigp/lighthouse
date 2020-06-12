@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use store::Store;
+use store::{ItemStore, Store};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
 };
@@ -33,7 +33,16 @@ pub const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>(
+pub struct Witness<
+    TStore,
+    TStoreMigrator,
+    TSlotClock,
+    TEth1Backend,
+    TEthSpec,
+    TEventHandler,
+    THotStore,
+    TColdStore,
+>(
     PhantomData<(
         TStore,
         TStoreMigrator,
@@ -41,19 +50,43 @@ pub struct Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, T
         TEth1Backend,
         TEthSpec,
         TEventHandler,
+        THotStore,
+        TColdStore,
     )>,
 );
 
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler> BeaconChainTypes
-    for Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
+impl<
+        TStore,
+        TStoreMigrator,
+        TSlotClock,
+        TEth1Backend,
+        TEthSpec,
+        TEventHandler,
+        THotStore,
+        TColdStore,
+    > BeaconChainTypes
+    for Witness<
+        TStore,
+        TStoreMigrator,
+        TSlotClock,
+        TEth1Backend,
+        TEthSpec,
+        TEventHandler,
+        THotStore,
+        TColdStore,
+    >
 where
+    THotStore: ItemStore<TEthSpec> + 'static,
+    TColdStore: ItemStore<TEthSpec> + 'static,
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
 {
+    type HotStore = THotStore;
+    type ColdStore = TColdStore;
     type Store = TStore;
     type StoreMigrator = TStoreMigrator;
     type SlotClock = TSlotClock;
@@ -92,13 +125,33 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     log: Option<Logger>,
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
+impl<
+        TStore,
+        TStoreMigrator,
+        TSlotClock,
+        TEth1Backend,
+        TEthSpec,
+        TEventHandler,
+        THotStore,
+        TColdStore,
+    >
     BeaconChainBuilder<
-        Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TSlotClock,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+            THotStore,
+            TColdStore,
+        >,
     >
 where
+    THotStore: ItemStore<TEthSpec> + 'static,
+    TColdStore: ItemStore<TEthSpec> + 'static,
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
@@ -379,7 +432,16 @@ where
         self,
     ) -> Result<
         BeaconChain<
-            Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
+            Witness<
+                TStore,
+                TStoreMigrator,
+                TSlotClock,
+                TEth1Backend,
+                TEthSpec,
+                TEventHandler,
+                THotStore,
+                TColdStore,
+            >,
         >,
         String,
     > {
@@ -480,17 +542,37 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>
+impl<
+        TStore,
+        TStoreMigrator,
+        TSlotClock,
+        TEth1Backend,
+        TEthSpec,
+        TEventHandler,
+        THotStore,
+        TColdStore,
+    >
     BeaconChainBuilder<
-        Witness<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TSlotClock,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+            THotStore,
+            TColdStore,
+        >,
     >
 where
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
+    THotStore: ItemStore<TEthSpec> + 'static,
+    TColdStore: ItemStore<TEthSpec> + 'static,
 {
     /// Initializes a fork choice with the `ThreadSafeReducedTree` backend.
     ///
@@ -543,7 +625,7 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
             TStore,
@@ -552,11 +634,15 @@ impl<TStore, TStoreMigrator, TSlotClock, TEthSpec, TEventHandler>
             CachingEth1Backend<TEthSpec, TStore>,
             TEthSpec,
             TEventHandler,
+            THotStore,
+            TColdStore,
         >,
     >
 where
+    THotStore: ItemStore<TEthSpec> + 'static,
+    TColdStore: ItemStore<TEthSpec> + 'static,
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -588,13 +674,24 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler>
+impl<TStore, TStoreMigrator, TEth1Backend, TEthSpec, TEventHandler, THotStore, TColdStore>
     BeaconChainBuilder<
-        Witness<TStore, TStoreMigrator, TestingSlotClock, TEth1Backend, TEthSpec, TEventHandler>,
+        Witness<
+            TStore,
+            TStoreMigrator,
+            TestingSlotClock,
+            TEth1Backend,
+            TEthSpec,
+            TEventHandler,
+            THotStore,
+            TColdStore,
+        >,
     >
 where
+    THotStore: ItemStore<TEthSpec> + 'static,
+    TColdStore: ItemStore<TEthSpec> + 'static,
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,
     TEventHandler: EventHandler<TEthSpec> + 'static,
@@ -620,7 +717,7 @@ where
     }
 }
 
-impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
+impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
     BeaconChainBuilder<
         Witness<
             TStore,
@@ -629,11 +726,15 @@ impl<TStore, TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec>
             TEth1Backend,
             TEthSpec,
             NullEventHandler<TEthSpec>,
+            THotStore,
+            TColdStore,
         >,
     >
 where
+    THotStore: ItemStore<TEthSpec> + 'static,
+    TColdStore: ItemStore<TEthSpec> + 'static,
     TStore: Store<TEthSpec> + 'static,
-    TStoreMigrator: Migrate<TEthSpec> + 'static,
+    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore> + 'static,
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec, TStore> + 'static,
     TEthSpec: EthSpec + 'static,

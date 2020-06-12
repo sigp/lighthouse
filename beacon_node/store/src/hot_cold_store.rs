@@ -6,10 +6,11 @@ use crate::forwards_iter::HybridForwardsBlockRootsIterator;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::leveldb_store::LevelDB;
+use crate::memory_store::MemoryStore;
 use crate::metrics;
 use crate::{
-    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStore, KeyValueStoreOp,
-    PartialBeaconState, Store, StoreItem, StoreOp,
+    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, Store,
+    StoreItem, StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -33,7 +34,7 @@ pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
 /// intermittent "restore point" states pre-finalization.
-pub struct HotColdDB<E: EthSpec> {
+pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// The slot and state root at the point where the database is split between hot and cold.
     ///
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
@@ -41,11 +42,11 @@ pub struct HotColdDB<E: EthSpec> {
     split: RwLock<Split>,
     config: StoreConfig,
     /// Cold database containing compact historical data.
-    pub(crate) cold_db: LevelDB<E>,
+    pub(crate) cold_db: Cold,
     /// Hot database containing duplicated but quick-to-access recent data.
     ///
     /// The hot database also contains all blocks.
-    pub(crate) hot_db: LevelDB<E>,
+    pub(crate) hot_db: Hot,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -85,8 +86,8 @@ pub enum HotColdDBError {
     RestorePointBlockHashError(BeaconStateError),
 }
 
-impl<E: EthSpec> Store<E> for HotColdDB<E> {
-    type ForwardsBlockRootsIterator = HybridForwardsBlockRootsIterator<E>;
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Store<E> for HotColdDB<E, Hot, Cold> {
+    type ForwardsBlockRootsIterator = HybridForwardsBlockRootsIterator<E, Hot, Cold>;
 
     /// Store a block and update the LRU cache.
     fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error> {
@@ -283,7 +284,30 @@ impl<E: EthSpec> Store<E> for HotColdDB<E> {
     }
 }
 
-impl<E: EthSpec> HotColdDB<E> {
+impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+    pub fn open_ephemeral(
+        config: StoreConfig,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+
+        let db = HotColdDB {
+            split: RwLock::new(Split::default()),
+            cold_db: MemoryStore::open(),
+            hot_db: MemoryStore::open(),
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            config,
+            spec,
+            log,
+            _phantom: PhantomData,
+        };
+
+        Ok(db)
+    }
+}
+
+impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
     ///
     /// The `slots_per_restore_point` parameter must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
@@ -293,7 +317,7 @@ impl<E: EthSpec> HotColdDB<E> {
         config: StoreConfig,
         spec: ChainSpec,
         log: Logger,
-    ) -> Result<Self, Error> {
+    ) -> Result<HotColdDB<E, LevelDB<E>, LevelDB<E>>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
         let db = HotColdDB {
@@ -314,7 +338,9 @@ impl<E: EthSpec> HotColdDB<E> {
         }
         Ok(db)
     }
+}
 
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Store a post-finalization state efficiently in the hot database.
     ///
     /// On an epoch boundary, store a full state. On an intermediate slot, store
@@ -704,8 +730,8 @@ impl<E: EthSpec> HotColdDB<E> {
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
-pub fn process_finalization<E: EthSpec>(
-    store: Arc<HotColdDB<E>>,
+pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+    store: Arc<HotColdDB<E, Hot, Cold>>,
     frozen_head_root: Hash256,
     frozen_head: &BeaconState<E>,
 ) -> Result<(), Error> {

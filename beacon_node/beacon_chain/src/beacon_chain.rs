@@ -148,8 +148,10 @@ pub struct HeadInfo {
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
+    type HotStore: store::ItemStore<Self::EthSpec>;
+    type ColdStore: store::ItemStore<Self::EthSpec>;
     type Store: store::Store<Self::EthSpec>;
-    type StoreMigrator: Migrate<Self::EthSpec>;
+    type StoreMigrator: Migrate<Self::EthSpec, Self::HotStore, Self::ColdStore>;
     type SlotClock: slot_clock::SlotClock;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec, Self::Store>;
     type EthSpec: types::EthSpec;

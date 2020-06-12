@@ -30,6 +30,8 @@ mod tests {
         CachingEth1Backend<MinimalEthSpec, MemoryStore<MinimalEthSpec>>,
         MinimalEthSpec,
         NullEventHandler<MinimalEthSpec>,
+        MemoryStore<MinimalEthSpec>,
+        MemoryStore<MinimalEthSpec>,
     >;
 
     pub struct TestBeaconChain {
@@ -85,7 +87,7 @@ mod tests {
     }
 
     lazy_static! {
-        static ref CHAIN: TestBeaconChain = { TestBeaconChain::new_with_system_clock() };
+        static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
     }
 
     fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
