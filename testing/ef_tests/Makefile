@@ -1,5 +1,4 @@
-# Bump the test tag here and in .gitlab-ci.yml and CI will take care of updating the cached tarballs
-TESTS_TAG := v0.12.0
+TESTS_TAG := v0.12.1
 TESTS = general minimal mainnet
 TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
 

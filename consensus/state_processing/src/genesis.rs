@@ -84,7 +84,5 @@ pub fn process_activations<T: EthSpec>(
 ///
 /// Spec v0.11.1
 pub fn eth2_genesis_time(eth1_timestamp: u64, spec: &ChainSpec) -> Result<u64, ArithError> {
-    eth1_timestamp
-        .safe_sub(eth1_timestamp.safe_rem(spec.min_genesis_delay)?)?
-        .safe_add(2.safe_mul(spec.min_genesis_delay)?)
+    eth1_timestamp.safe_add(spec.genesis_delay)
 }

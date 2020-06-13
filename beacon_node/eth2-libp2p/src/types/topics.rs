@@ -6,7 +6,6 @@ use types::SubnetId;
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
 // For example /eth2/beacon_block/ssz
 pub const TOPIC_PREFIX: &str = "eth2";
-pub const SSZ_ENCODING_POSTFIX: &str = "ssz";
 pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
@@ -64,8 +63,6 @@ impl std::fmt::Display for GossipKind {
 /// The known encoding types for gossipsub messages.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GossipEncoding {
-    /// Messages are encoded with SSZ.
-    SSZ,
     /// Messages are encoded with SSZSnappy.
     SSZSnappy,
 }
@@ -117,7 +114,6 @@ impl GossipTopic {
             fork_digest.copy_from_slice(&digest_bytes);
 
             let encoding = match topic_parts[4] {
-                SSZ_ENCODING_POSTFIX => GossipEncoding::SSZ,
                 SSZ_SNAPPY_ENCODING_POSTFIX => GossipEncoding::SSZSnappy,
                 _ => return Err(format!("Unknown encoding: {}", topic)),
             };
@@ -153,7 +149,6 @@ impl Into<Topic> for GossipTopic {
 impl Into<String> for GossipTopic {
     fn into(self) -> String {
         let encoding = match self.encoding {
-            GossipEncoding::SSZ => SSZ_ENCODING_POSTFIX,
             GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
         };
 
