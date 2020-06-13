@@ -42,6 +42,11 @@ pub trait Migrate<E: EthSpec>: Send + Sync + 'static {
         new_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_slot: Slot,
     ) -> Result<(), BeaconChainError> {
+        // There will never be any blocks to prune if there is only a single head in the chain.
+        if head_tracker.heads().len() == 1 {
+            return Ok(());
+        }
+
         let old_finalized_slot = store
             .get_block(&old_finalized_block_hash.into())?
             .ok_or_else(|| BeaconChainError::MissingBeaconBlock(old_finalized_block_hash.into()))?
