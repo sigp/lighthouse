@@ -22,7 +22,7 @@ pub const VALIDATOR_COUNT: usize = 16;
 
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
-    /// No delay between creation and submission.
+    /// No delay between creation and mutation.
     NoDelay,
     /// Create `n` blocks before mutating the attestation.
     Blocks(usize),

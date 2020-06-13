@@ -469,9 +469,9 @@ where
         // the start of this search. I claim that since `block.slot > finalized_slot` it is
         // equivalent to use the parent root for this search. Doing so reduces a single lookup
         // (trivial), but more importantly, it means we don't need to have added `block` to
-        // `self.proto_array` to do this search.
+        // `self.proto_array` to do this search. See:
         //
-        // TODO: add the PR here once I create it.
+        // https://github.com/ethereum/eth2.0-specs/pull/1884
         let block_ancestor = self.get_ancestor(block.parent_root, finalized_slot)?;
         let finalized_root = self.fc_store.finalized_checkpoint().root;
         if block_ancestor != finalized_root {
@@ -480,8 +480,6 @@ where
                 block_ancestor,
             }));
         }
-
-        // TODO: block verification stuff here
 
         if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
             if state.current_justified_checkpoint.epoch
@@ -509,12 +507,11 @@ where
             //
             // https://github.com/ethereum/eth2.0-specs/pull/1880
             if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint {
-                if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch
-                    // TODO: is this the correct state to be passing to this function? IMPORTANT!!
-                    || self.get_ancestor(
-                        self.fc_store.justified_checkpoint().root,
-                        finalized_slot,
-                    )? != self.fc_store.finalized_checkpoint().root
+                if state.current_justified_checkpoint.epoch
+                    > self.fc_store.justified_checkpoint().epoch
+                    || self
+                        .get_ancestor(self.fc_store.justified_checkpoint().root, finalized_slot)?
+                        != self.fc_store.finalized_checkpoint().root
                 {
                     self.fc_store
                         .set_justified_checkpoint(state.current_justified_checkpoint)
@@ -669,14 +666,12 @@ where
         //
         // We have two options here:
         //
-        //  1. Apply all zero-hash attestations to the zero hash.
+        //  1. Apply all zero-hash attestations to the genesis block.
         //  2. Ignore all attestations to the zero hash.
         //
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        //
-        // Additionally, don't add any block hash to fork choice unless we have imported the block.
         if attestation.data.beacon_block_root == Hash256::zero() {
             return Ok(());
         }
