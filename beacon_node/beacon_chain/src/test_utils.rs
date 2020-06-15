@@ -195,11 +195,10 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_, LevelDB<E>, LevelDB<E>> as Migrate<
-                E,
-                LevelDB<E>,
-                LevelDB<E>,
-            >>::new(store, log.clone()))
+            .store_migrator(<BlockingMigrator<_, _, _> as Migrate<E, _, _>>::new(
+                store,
+                log.clone(),
+            ))
             .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
