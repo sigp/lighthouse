@@ -2,6 +2,7 @@
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::{BehaviourEvent, Libp2pEvent, Request, Response};
 use slog::{debug, warn, Level};
+use ssz_types::VariableList;
 use std::time::Duration;
 use tokio::time::delay_for;
 use types::{
@@ -467,11 +468,11 @@ async fn test_blocks_by_root_chunked_rpc() {
 
     // BlocksByRoot Request
     let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
-        block_roots: vec![
+        block_roots: VariableList::from(vec![
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),
-        ],
+        ]),
     });
 
     // BlocksByRoot Response
@@ -579,7 +580,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
 
     // BlocksByRoot Request
     let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
-        block_roots: vec![
+        block_roots: VariableList::from(vec![
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),
@@ -590,7 +591,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),
             Hash256::from_low_u64_be(0),
-        ],
+        ]),
     });
 
     // BlocksByRoot Response

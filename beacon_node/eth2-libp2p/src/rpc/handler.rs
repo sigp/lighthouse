@@ -455,7 +455,7 @@ where
                         let err = HandlerErr::Inbound {
                             id: inbound_id,
                             proto: *protocol,
-                            error: RPCError::ErrorResponse(*code, reason.clone()),
+                            error: RPCError::ErrorResponse(*code, reason.to_string()),
                         };
                         self.pending_errors.push(err);
                     }
@@ -917,7 +917,7 @@ where
                                 Err(HandlerErr::Outbound {
                                     id,
                                     proto,
-                                    error: RPCError::ErrorResponse(code, r.clone()),
+                                    error: RPCError::ErrorResponse(code, r.to_string()),
                                 })
                             }
                         };
