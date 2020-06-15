@@ -536,6 +536,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn compute_subnet_two_epochs_ahead() {
+        // subscription config
+        let validator_index = 1;
+        let committee_index = 1;
+        let subscription_slot = MinimalEthSpec::slots_per_epoch() * 2;
+
+        // create the attestation service and subscriptions
+        let mut attestation_service = get_attestation_service();
+        let current_slot = attestation_service
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Could not get current slot");
+
+        let subscriptions = vec![get_subscription(
+            validator_index,
+            committee_index,
+            current_slot + Slot::new(subscription_slot),
+        )];
+
+        let state = get_state(attestation_service.beacon_chain.clone());
+
+        // submit the subscriptions
+        attestation_service
+            .validator_subscriptions(subscriptions)
+            .unwrap();
+
+        // cannot compute subnet with lookahead > 1
+        assert!(SubnetId::compute_subnet_for_attestation(
+            &state,
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
     async fn subscribe_all_random_subnets() {
         // subscribe 10 slots ahead so we do not produce any exact subnet messages
         let subscription_slot = 10;
