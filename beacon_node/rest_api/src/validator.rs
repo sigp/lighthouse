@@ -488,17 +488,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
             )
         })?;
 
-    let state = beacon_chain
-        .head()
-        .map(|head| head.beacon_state)
-        .map_err(|e| {
-            handle_attestation_error(
-                AttnError::BeaconChainError(e),
-                "Failed to get beacon state",
-                data,
-                log,
-            )
-        })?;
+    let state = beacon_chain.head()?.beacon_state;
 
     // Publish the attestation to the network
     if let Err(e) = network_chan.send(NetworkMessage::Publish {

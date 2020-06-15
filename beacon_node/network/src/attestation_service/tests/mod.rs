@@ -478,6 +478,7 @@ mod tests {
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
+
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
