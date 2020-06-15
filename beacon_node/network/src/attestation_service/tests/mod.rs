@@ -19,7 +19,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use store::MemoryStore;
     use tempfile::tempdir;
-    use types::{CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
+    use types::{BeaconState, CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
 
     const SLOT_DURATION_MILLIS: u64 = 200;
 
@@ -129,6 +129,22 @@ mod tests {
         subscriptions
     }
 
+    fn get_state<T: BeaconChainTypes>(
+        beacon_chain: Arc<BeaconChain<T>>,
+    ) -> BeaconState<T::EthSpec> {
+        let current_slot = beacon_chain.slot().expect("Failed to get current slot");
+
+        let mut state = beacon_chain
+            .state_at_slot(current_slot, StateSkipConfig::WithoutStateRoots)
+            .expect("Failed to get beacon state");
+
+        // Ensure that the committee caches are built
+        state
+            .build_all_committee_caches(&T::EthSpec::default_spec())
+            .expect("Failed to build committee caches");
+        state
+    }
+
     // gets a number of events from the subscription service, or returns none if it times out after a number
     // of slots
     async fn get_events<S: Stream<Item = AttServiceMessage> + Unpin>(
@@ -179,11 +195,7 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
-        let state = attestation_service
-            .beacon_chain
-            .head()
-            .map(|head| head.beacon_state)
-            .unwrap();
+        let state = get_state(attestation_service.beacon_chain.clone());
         // submit the subscriptions
         attestation_service
             .validator_subscriptions(subscriptions)
@@ -239,11 +251,7 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
-        let state = attestation_service
-            .beacon_chain
-            .head()
-            .map(|head| head.beacon_state)
-            .unwrap();
+        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service
@@ -302,11 +310,7 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
-        let state = attestation_service
-            .beacon_chain
-            .head()
-            .map(|head| head.beacon_state)
-            .unwrap();
+        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service
@@ -370,11 +374,7 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
-        let state = attestation_service
-            .beacon_chain
-            .head()
-            .map(|head| head.beacon_state)
-            .unwrap();
+        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service
@@ -490,11 +490,7 @@ mod tests {
             current_slot + Slot::new(subscription_slot),
         )];
 
-        let state = attestation_service
-            .beacon_chain
-            .head()
-            .map(|head| head.beacon_state)
-            .unwrap();
+        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service

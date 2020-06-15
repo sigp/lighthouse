@@ -198,7 +198,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .map_err(|e| format!("Failed to get beacon state: {:?}", e))?;
 
         // Ensure that the committee caches are built
-        // TODO: can get away with just building RelativeEpoch::Next
         state
             .build_all_committee_caches(&T::EthSpec::default_spec())
             .map_err(|e| format!("Failed to build committee caches: {:?}", e))?;
