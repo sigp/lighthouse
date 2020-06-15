@@ -2,13 +2,13 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use eth2_libp2p::{types::GossipKind, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use hashset_delay::HashSetDelay;
 use rand::seq::SliceRandom;
 use rest_types::ValidatorSubscription;
-use slog::{crit, debug, error, o, warn};
+use slog::{crit, debug, error, o, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -187,17 +187,32 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
-        let state = self
+        let current_slot = self
             .beacon_chain
-            .head()
-            .map(|head| head.beacon_state)
+            .slot()
+            .map_err(|e| format!("Failed to get current slot: {:?}", e))?;
+
+        let mut state = self
+            .beacon_chain
+            .state_at_slot(current_slot, StateSkipConfig::WithoutStateRoots)
             .map_err(|e| format!("Failed to get beacon state: {:?}", e))?;
+
+        // Ensure that the committee caches are built
+        // TODO: can get away with just building RelativeEpoch::Next
+        state
+            .build_all_committee_caches(&T::EthSpec::default_spec())
+            .map_err(|e| format!("Failed to build committee caches: {:?}", e))?;
 
         for subscription in subscriptions {
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
             // Registers the validator with the attestation service.
             // This will subscribe to long-lived random subnets if required.
+            trace!(self.log,
+                "Validator subscription";
+                "subscription" => format!("{:?}", subscription),
+                "current_slot" => state.slot
+            );
             self.add_known_validator(subscription.validator_index);
 
             let subnet_id = match SubnetId::compute_subnet_for_attestation(
@@ -236,13 +251,18 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
             if subscription.is_aggregator {
                 // set the subscription timer to subscribe to the next subnet if required
-                if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
+                if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
                     warn!(self.log,
                         "Subscription to subnet error";
                         "error" => e,
                         "validator_index" => subscription.validator_index,
                     );
-                    continue;
+                } else {
+                    trace!(self.log,
+                        "Subscribed to subnet for aggregator duties";
+                        "exact_subnet" => format!("{:?}", exact_subnet),
+                        "validator_index" => subscription.validator_index
+                    );
                 }
             }
         }
@@ -258,13 +278,29 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: &SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
-        let state = match self.beacon_chain.head() {
-            Ok(head) => head.beacon_state,
+        let current_slot = match self.beacon_chain.slot() {
+            Ok(slot) => slot,
             Err(e) => {
-                warn!(self.log, "Could not obtain beacon state to check attestation subnet id"; "error" => format!("{:?}", e));
+                warn!(self.log, "Failed to get current slot: {:?}", e);
                 return false;
             }
         };
+
+        let mut state = match self
+            .beacon_chain
+            .state_at_slot(current_slot, StateSkipConfig::WithoutStateRoots)
+        {
+            Ok(state) => state,
+            Err(e) => {
+                warn!(self.log, "Failed to get beacon state: {:?}", e);
+                return false;
+            }
+        };
+
+        // Ensure that the committee caches are built
+        if let Err(e) = state.build_all_committee_caches(&T::EthSpec::default_spec()) {
+            warn!(self.log, "Failed to build committee caches: {:?}", e);
+        }
 
         // verify the attestation is on the correct subnet
         let expected_subnet = match SubnetId::compute_subnet_for_attestation(
