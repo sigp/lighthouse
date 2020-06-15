@@ -4312,7 +4312,7 @@ checksum = "c111b5bd5695e56cffe5129854aa230b39c93a305372fdbb2668ca2394eea9f8"
 name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
- "parking_lot 0.9.0",
+ "parking_lot 0.10.2",
  "r2d2",
  "r2d2_sqlite",
  "rayon",
@@ -4643,6 +4643,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slog",
+ "sloggers",
  "state_processing",
  "tempfile",
  "tree_hash",
