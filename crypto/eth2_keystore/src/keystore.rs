@@ -404,7 +404,8 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             scrypt(
                 password,
                 params.salt.as_bytes(),
-                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p).unwrap(),
+                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p)
+                    .expect("Invalid params for scrypt private key decryption."),
                 dk.as_mut_bytes(),
             )
             .expect("Could not decrypt private key using scrypt.");
