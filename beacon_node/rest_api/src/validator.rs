@@ -497,6 +497,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
                 &state,
                 attestation.data.slot,
                 attestation.data.index,
+                &beacon_chain.spec,
             )
             .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?,
             attestation,

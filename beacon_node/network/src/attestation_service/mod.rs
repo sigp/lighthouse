@@ -199,7 +199,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         // Ensure that the committee caches are built
         state
-            .build_all_committee_caches(&T::EthSpec::default_spec())
+            .build_all_committee_caches(&self.beacon_chain.spec)
             .map_err(|e| format!("Failed to build committee caches: {:?}", e))?;
 
         for subscription in subscriptions {
@@ -218,6 +218,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 &state,
                 subscription.slot,
                 subscription.attestation_committee_index,
+                &self.beacon_chain.spec,
             ) {
                 Ok(subnet_id) => subnet_id,
                 Err(e) => {
@@ -297,7 +298,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         };
 
         // Ensure that the committee caches are built
-        if let Err(e) = state.build_all_committee_caches(&T::EthSpec::default_spec()) {
+        if let Err(e) = state.build_all_committee_caches(&self.beacon_chain.spec) {
             warn!(self.log, "Failed to build committee caches: {:?}", e);
         }
 
@@ -306,6 +307,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             &state,
             attestation.data.slot,
             attestation.data.index,
+            &self.beacon_chain.spec,
         ) {
             Ok(v) => v,
             Err(e) => {

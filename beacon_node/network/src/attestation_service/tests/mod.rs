@@ -140,7 +140,7 @@ mod tests {
 
         // Ensure that the committee caches are built
         state
-            .build_all_committee_caches(&T::EthSpec::default_spec())
+            .build_all_committee_caches(&beacon_chain.spec)
             .expect("Failed to build committee caches");
         state
     }
@@ -207,6 +207,7 @@ mod tests {
                 &state,
                 current_slot + Slot::new(subscription_slot),
                 committee_index,
+                &attestation_service.beacon_chain.spec,
             )
             .unwrap(),
         )];
@@ -263,6 +264,7 @@ mod tests {
             &state,
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            &attestation_service.beacon_chain.spec,
         )
         .unwrap();
         let expected = vec![
@@ -330,6 +332,7 @@ mod tests {
             &state,
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            &attestation_service.beacon_chain.spec,
         )
         .unwrap();
         let expected = vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
@@ -394,6 +397,7 @@ mod tests {
             &state,
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            &attestation_service.beacon_chain.spec,
         )
         .unwrap();
         let expected = vec![
@@ -510,6 +514,7 @@ mod tests {
             &state,
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            &attestation_service.beacon_chain.spec,
         )
         .unwrap();
 
@@ -569,6 +574,7 @@ mod tests {
             &state,
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            &attestation_service.beacon_chain.spec,
         )
         .is_err());
     }
