@@ -552,7 +552,7 @@ fn invalid_block_finalized_descendant() {
                 assert_invalid_block!(
                     err,
                     InvalidBlock::NotFinalizedDescendant {  block_ancestor, .. }
-                    if block_ancestor == *invalid_ancestor.lock().unwrap()
+                    if block_ancestor == Some(*invalid_ancestor.lock().unwrap())
                 )
             },
         );

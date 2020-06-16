@@ -55,7 +55,7 @@ pub enum InvalidBlock {
     },
     NotFinalizedDescendant {
         finalized_root: Hash256,
-        block_ancestor: Hash256,
+        block_ancestor: Option<Hash256>,
     },
 }
 
@@ -282,11 +282,9 @@ where
     /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
     /// to the block is *returned*, not the one that is supplied.)
     ///
-    /// If `state_opt.is_some()`, the lookup will be much more efficient. However, the
-    /// state must fulfil the following conditions:
-    ///
-    /// 1. It must be from `block_root` or an **descendant** of `block_root`.
-    /// 2. It must have a equal to or greater than `ancestor_slot`.
+    /// The result may be `Ok(None)` if the block does not descend from the finalized block. This
+    /// is an artifact of proto-array, sometimes it contains descendants of blocks that have been
+    /// pruned.
     ///
     /// ## Specification
     ///
@@ -297,7 +295,7 @@ where
         &self,
         block_root: Hash256,
         ancestor_slot: Slot,
-    ) -> Result<Hash256, Error<T::Error>>
+    ) -> Result<Option<Hash256>, Error<T::Error>>
     where
         T: ForkChoiceStore<E>,
         E: EthSpec,
@@ -308,22 +306,20 @@ where
             .ok_or_else(|| Error::MissingProtoArrayBlock(block_root))?;
 
         if block.slot > ancestor_slot {
-            self.proto_array
+            Ok(self
+                .proto_array
                 .core_proto_array()
                 .iter_block_roots(&block_root)
-                .take_while(|(_, slot)| *slot >= ancestor_slot)
-                .find(|(_, slot)| *slot == ancestor_slot)
-                .map(|(root, _)| root)
-                .ok_or_else(|| Error::UnknownAncestor {
-                    ancestor_slot,
-                    descendant_root: block_root,
-                })
+                // Search for a slot that is **less than or equal to** the target slot. We check
+                // for lower slots to account for skip slots.
+                .find(|(_, slot)| *slot <= ancestor_slot)
+                .map(|(root, _)| root))
         } else if block.slot == ancestor_slot {
-            Ok(block_root)
+            Ok(Some(block_root))
         } else {
             // Root is older than queried slot, thus a skip slot. Return most recent root prior to
             // slot.
-            Ok(block_root)
+            Ok(Some(block_root))
         }
     }
 
@@ -396,7 +392,7 @@ where
         // `state.slot`
         let justified_ancestor =
             self.get_ancestor(new_justified_checkpoint.root, justified_slot)?;
-        if justified_ancestor != self.fc_store.justified_checkpoint().root {
+        if justified_ancestor != Some(self.fc_store.justified_checkpoint().root) {
             return Ok(false);
         }
 
@@ -474,7 +470,7 @@ where
         // https://github.com/ethereum/eth2.0-specs/pull/1884
         let block_ancestor = self.get_ancestor(block.parent_root, finalized_slot)?;
         let finalized_root = self.fc_store.finalized_checkpoint().root;
-        if block_ancestor != finalized_root {
+        if block_ancestor != Some(finalized_root) {
             return Err(Error::InvalidBlock(InvalidBlock::NotFinalizedDescendant {
                 finalized_root,
                 block_ancestor,
@@ -511,7 +507,7 @@ where
                     > self.fc_store.justified_checkpoint().epoch
                     || self
                         .get_ancestor(self.fc_store.justified_checkpoint().root, finalized_slot)?
-                        != self.fc_store.finalized_checkpoint().root
+                        != Some(self.fc_store.finalized_checkpoint().root)
                 {
                     self.fc_store
                         .set_justified_checkpoint(state.current_justified_checkpoint)
