@@ -13,7 +13,6 @@ bls = { path = "../../crypto/bls" }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }
 dirs = "2.0.2"
-derivative = "2.1.1"
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 ethereum-types = "0.9.1"
 eth2_hashing = "0.1.0"
@@ -42,7 +41,6 @@ rusqlite = { version = "0.23.1", features = ["bundled"], optional = true }
 arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
 
 [dev-dependencies]
-env_logger = "0.7.1"
 serde_json = "1.0.52"
 criterion = "0.3.2"
 

@@ -16,21 +16,22 @@ mod tests {
     use slog::Logger;
     use sloggers::{null::NullLoggerBuilder, Build};
     use slot_clock::{SlotClock, SystemTimeSlotClock};
-    use std::time::SystemTime;
-    use store::MemoryStore;
+    use std::time::{Duration, SystemTime};
+    use store::config::StoreConfig;
+    use store::{HotColdDB, MemoryStore};
     use tempfile::tempdir;
-    use tokio::time::Duration;
     use types::{CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
 
     const SLOT_DURATION_MILLIS: u64 = 200;
 
     type TestBeaconChainType = Witness<
-        MemoryStore<MinimalEthSpec>,
         NullMigrator,
         SystemTimeSlotClock,
-        CachingEth1Backend<MinimalEthSpec, MemoryStore<MinimalEthSpec>>,
+        CachingEth1Backend<MinimalEthSpec>,
         MinimalEthSpec,
         NullEventHandler<MinimalEthSpec>,
+        MemoryStore<MinimalEthSpec>,
+        MemoryStore<MinimalEthSpec>,
     >;
 
     pub struct TestBeaconChain {
@@ -45,11 +46,14 @@ mod tests {
             let keypairs = generate_deterministic_keypairs(1);
 
             let log = get_logger();
+            let store =
+                HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone())
+                    .unwrap();
             let chain = Arc::new(
                 BeaconChainBuilder::new(MinimalEthSpec)
                     .logger(log.clone())
                     .custom_spec(spec.clone())
-                    .store(Arc::new(MemoryStore::open()))
+                    .store(Arc::new(store))
                     .store_migrator(NullMigrator)
                     .data_dir(data_dir.path().to_path_buf())
                     .genesis_state(
@@ -86,7 +90,7 @@ mod tests {
     }
 
     lazy_static! {
-        static ref CHAIN: TestBeaconChain = { TestBeaconChain::new_with_system_clock() };
+        static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
     }
 
     fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
@@ -192,7 +196,10 @@ mod tests {
         assert_matches!(
             events[..3],
             [
-                AttServiceMessage::DiscoverPeers(_any2),
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant
+                },
                 AttServiceMessage::Subscribe(_any1),
                 AttServiceMessage::EnrAdd(_any3)
             ]
@@ -240,7 +247,10 @@ mod tests {
         assert_matches!(
             events[..3],
             [
-                AttServiceMessage::DiscoverPeers(_any2),
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant
+                },
                 AttServiceMessage::Subscribe(_any1),
                 AttServiceMessage::EnrAdd(_any3)
             ]
@@ -278,16 +288,28 @@ mod tests {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
+        let min_ttl = Instant::now().checked_add(
+            attestation_service
+                .beacon_chain
+                .slot_clock
+                .duration_to_slot(current_slot + Slot::new(subscription_slot) + Slot::new(1))
+                .unwrap(),
+        );
+
         // just discover peers, don't subscribe yet
-        let expected = vec![AttServiceMessage::DiscoverPeers(SubnetId::new(
-            validator_index,
-        ))];
+        let expected = vec![AttServiceMessage::DiscoverPeers {
+            subnet_id: SubnetId::new(validator_index),
+            min_ttl,
+        }];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
             events[..3],
             [
-                AttServiceMessage::DiscoverPeers(_any1),
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant
+                },
                 AttServiceMessage::Subscribe(_any2),
                 AttServiceMessage::EnrAdd(_any3)
             ]
@@ -325,9 +347,20 @@ mod tests {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
+        let min_ttl = Instant::now().checked_add(
+            attestation_service
+                .beacon_chain
+                .slot_clock
+                .duration_to_slot(current_slot + Slot::new(subscription_slot) + Slot::new(1))
+                .unwrap(),
+        );
+
         // we should discover peers, wait, then subscribe
         let expected = vec![
-            AttServiceMessage::DiscoverPeers(SubnetId::new(validator_index)),
+            AttServiceMessage::DiscoverPeers {
+                subnet_id: SubnetId::new(validator_index),
+                min_ttl,
+            },
             AttServiceMessage::Subscribe(SubnetId::new(validator_index)),
         ];
 
@@ -335,7 +368,10 @@ mod tests {
         assert_matches!(
             events[..3],
             [
-                AttServiceMessage::DiscoverPeers(_any1),
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant
+                },
                 AttServiceMessage::Subscribe(_any2),
                 AttServiceMessage::EnrAdd(_any3)
             ]
@@ -381,7 +417,10 @@ mod tests {
         assert_matches!(
             events[..3],
             [
-                AttServiceMessage::DiscoverPeers(_any1),
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant
+                },
                 AttServiceMessage::Subscribe(_any2),
                 AttServiceMessage::EnrAdd(_any3)
             ]
@@ -419,17 +458,29 @@ mod tests {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
+        let min_ttl = Instant::now().checked_add(
+            attestation_service
+                .beacon_chain
+                .slot_clock
+                .duration_to_slot(current_slot + Slot::new(subscription_slot) + Slot::new(1))
+                .unwrap(),
+        );
+
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
-        let expected: Vec<AttServiceMessage> = vec![AttServiceMessage::DiscoverPeers(
-            SubnetId::new(validator_index),
-        )];
+        let expected: Vec<AttServiceMessage> = vec![AttServiceMessage::DiscoverPeers {
+            subnet_id: SubnetId::new(validator_index),
+            min_ttl,
+        }];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
 
         assert_matches!(
             events[..3],
             [
-                AttServiceMessage::DiscoverPeers(_any1),
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant
+                },
                 AttServiceMessage::Subscribe(_any2),
                 AttServiceMessage::EnrAdd(_any3)
             ]
@@ -470,9 +521,10 @@ mod tests {
 
         for event in events {
             match event {
-                AttServiceMessage::DiscoverPeers(_any_subnet) => {
-                    discover_peer_count = discover_peer_count + 1
-                }
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant,
+                } => discover_peer_count = discover_peer_count + 1,
                 AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,
@@ -517,9 +569,10 @@ mod tests {
 
         for event in events {
             match event {
-                AttServiceMessage::DiscoverPeers(_any_subnet) => {
-                    discover_peer_count = discover_peer_count + 1
-                }
+                AttServiceMessage::DiscoverPeers {
+                    subnet_id: _any_subnet,
+                    min_ttl: _any_instant,
+                } => discover_peer_count = discover_peer_count + 1,
                 AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,

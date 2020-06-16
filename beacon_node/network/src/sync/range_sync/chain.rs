@@ -1,9 +1,8 @@
 use super::batch::{Batch, BatchId, PendingBatches};
 use crate::sync::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::SyncMessage;
+use crate::sync::{RequestId, SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use rand::prelude::*;
 use slog::{crit, debug, warn};

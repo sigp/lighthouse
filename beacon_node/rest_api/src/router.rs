@@ -3,14 +3,16 @@ use crate::{
     spec, validator, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use bus::Bus;
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
 use hyper::{Body, Error, Method, Request, Response};
+use parking_lot::Mutex;
 use slog::debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use types::Slot;
+use types::{SignedBeaconBlockHash, Slot};
 
 // Allowing more than 7 arguments.
 #[allow(clippy::too_many_arguments)]
@@ -23,6 +25,7 @@ pub async fn route<T: BeaconChainTypes>(
     local_log: slog::Logger,
     db_path: PathBuf,
     freezer_db_path: PathBuf,
+    events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
 ) -> Result<Response<Body>, Error> {
     metrics::inc_counter(&metrics::REQUEST_COUNT);
     let timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
@@ -63,6 +66,10 @@ pub async fn route<T: BeaconChainTypes>(
         (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req, beacon_chain),
         (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req, beacon_chain),
         (&Method::GET, "/beacon/fork") => beacon::get_fork::<T>(req, beacon_chain),
+        (&Method::GET, "/beacon/fork/stream") => {
+            let reader = events.lock().add_rx();
+            beacon::stream_forks::<T>(log, reader)
+        }
         (&Method::GET, "/beacon/genesis_time") => beacon::get_genesis_time::<T>(req, beacon_chain),
         (&Method::GET, "/beacon/genesis_validators_root") => {
             beacon::get_genesis_validators_root::<T>(req, beacon_chain)

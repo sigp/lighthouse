@@ -21,6 +21,7 @@ mod url_query;
 mod validator;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use bus::Bus;
 use client_network::NetworkMessage;
 pub use config::ApiEncodingFormat;
 use error::{ApiError, ApiResult};
@@ -30,12 +31,13 @@ use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server};
+use parking_lot::Mutex;
 use slog::{info, warn};
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use types::SignedBeaconBlockHash;
 use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
@@ -58,6 +60,7 @@ pub fn start_server<T: BeaconChainTypes>(
     db_path: PathBuf,
     freezer_db_path: PathBuf,
     eth2_config: Eth2Config,
+    events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
 ) -> Result<SocketAddr, hyper::Error> {
     let log = executor.log();
     let inner_log = log.clone();
@@ -72,6 +75,7 @@ pub fn start_server<T: BeaconChainTypes>(
         let network_channel = network_info.network_chan.clone();
         let db_path = db_path.clone();
         let freezer_db_path = freezer_db_path.clone();
+        let events = events.clone();
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
@@ -84,6 +88,7 @@ pub fn start_server<T: BeaconChainTypes>(
                     log.clone(),
                     db_path.clone(),
                     freezer_db_path.clone(),
+                    events.clone(),
                 )
             }))
         }
@@ -130,15 +135,4 @@ pub fn start_server<T: BeaconChainTypes>(
     executor.spawn_without_exit(server_future, "http");
 
     Ok(actual_listen_addr)
-}
-
-#[derive(Clone)]
-pub struct DBPath(PathBuf);
-
-impl Deref for DBPath {
-    type Target = PathBuf;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }

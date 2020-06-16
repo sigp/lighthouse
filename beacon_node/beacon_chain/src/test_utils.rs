@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{HotColdDB, MemoryStore, Store};
+use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -34,17 +34,19 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
-pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
-    TStore,
+pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witness<
     TStoreMigrator,
     TestingSlotClock,
-    CachingEth1Backend<TEthSpec, TStore>,
+    CachingEth1Backend<TEthSpec>,
     TEthSpec,
     NullEventHandler<TEthSpec>,
+    THotStore,
+    TColdStore,
 >;
 
-pub type HarnessType<E> = BaseHarnessType<MemoryStore<E>, NullMigrator, E>;
-pub type DiskHarnessType<E> = BaseHarnessType<HotColdDB<E>, BlockingMigrator<E>, E>;
+pub type HarnessType<E> = BaseHarnessType<NullMigrator, E, MemoryStore<E>, MemoryStore<E>>;
+pub type DiskHarnessType<E> =
+    BaseHarnessType<BlockingMigrator<E, LevelDB<E>, LevelDB<E>>, E, LevelDB<E>, LevelDB<E>>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -84,12 +86,12 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
+    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>, config: StoreConfig) -> Self {
         // Setting the target aggregators to really high means that _all_ validators in the
         // committee are required to produce an aggregate. This is overkill, however with small
         // validator counts it's the only way to be certain there is _at least one_ aggregator per
         // committee.
-        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32)
+        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32, config)
     }
 
     /// Instantiate a new harness with `validator_count` initial validators and a custom
@@ -98,6 +100,7 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
         eth_spec_instance: E,
         keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
+        config: StoreConfig,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
         let mut spec = E::default_spec();
@@ -105,11 +108,11 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
         let log = NullLoggerBuilder.build().expect("logger should build");
-
+        let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
+            .logger(log)
             .custom_spec(spec.clone())
-            .store(Arc::new(MemoryStore::open()))
+            .store(Arc::new(store))
             .store_migrator(NullMigrator)
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
@@ -140,7 +143,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
-        store: Arc<HotColdDB<E>>,
+        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
@@ -180,7 +183,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
-        store: Arc<HotColdDB<E>>,
+        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
@@ -192,7 +195,10 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<E>>::new(store, log.clone()))
+            .store_migrator(<BlockingMigrator<_, _, _> as Migrate<E, _, _>>::new(
+                store,
+                log.clone(),
+            ))
             .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
@@ -215,11 +221,12 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     }
 }
 
-impl<S, M, E> BeaconChainHarness<BaseHarnessType<S, M, E>>
+impl<M, E, Hot, Cold> BeaconChainHarness<BaseHarnessType<M, E, Hot, Cold>>
 where
-    S: Store<E>,
-    M: Migrate<E>,
+    M: Migrate<E, Hot, Cold>,
     E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
 {
     /// Advance the slot of the `BeaconChain`.
     ///
