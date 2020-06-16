@@ -29,7 +29,7 @@ pub use rest_types::{
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 15;
 
 #[cfg(not(debug_assertions))]
-pub const REQUEST_TIMEOUT_SECONDS: u64 = 6;
+pub const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
 #[derive(Clone)]
 /// Connects to a remote Lighthouse (or compatible) node via HTTP.
