@@ -275,7 +275,7 @@ where
     }
 
     /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
-    /// to the block is *returned*, not the one that is supplied.)
+    /// to the block that is *returned*, not the one that is supplied.)
     ///
     /// The result may be `Ok(None)` if the block does not descend from the finalized block. This
     /// is an artifact of proto-array, sometimes it contains descendants of blocks that have been
