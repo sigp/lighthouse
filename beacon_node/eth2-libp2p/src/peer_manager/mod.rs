@@ -1,27 +1,27 @@
 //! Implementation of a Lighthouse's peer management system.
 
 pub use self::peerdb::*;
-use crate::metrics;
+use crate::{metrics,error};
 use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
-use crate::{NetworkGlobals, PeerId};
+use crate::{NetworkGlobals, PeerId, NetworkConfig, Enr};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
-use std::convert::TryInto;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
-use types::EthSpec;
+use std::{convert::TryInto,pin::Pin, sync::Arc,task::{Context, Poll},time::{Duration, Instant}, net::SocketAddr};
+use types::{SubnetId, EthSpec};
+
+pub use libp2p::core::{Multiaddr, identity::Keypair};
 
 pub mod client;
 mod peer_info;
 mod peer_sync_status;
 mod peerdb;
 pub mod discovery;
+
+use discovery::{Discovery, DiscoveryEvent};
 
 pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
@@ -94,6 +94,10 @@ impl PeerAction {
 
 /// The events that the `PeerManager` outputs (requests).
 pub enum PeerManagerEvent {
+    /// Dial a PeerId.
+    Dial(PeerId),
+    /// Inform libp2p that our external socket addr has been updated.
+    SocketUpdated(Multiaddr),
     /// Sends a STATUS to a peer.
     Status(PeerId),
     /// Sends a PING to a peer.
@@ -107,15 +111,24 @@ pub enum PeerManagerEvent {
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
-    pub fn new(network_globals: Arc<NetworkGlobals<TSpec>>, log: &slog::Logger) -> Self {
-        PeerManager {
+    pub fn new(local_key: &Keypair, config: NetworkConfig, network_globals: Arc<NetworkGlobals<TSpec>>, log: &slog::Logger) -> error::Result<Self> {
+
+        // start the discovery service
+        let discovery = Discovery::new(local_key, config, network_globals.clone(), log)?;
+
+        // start searching for peers
+        discovery.discover_peers();
+
+        Ok(PeerManager {
             network_globals,
             events: SmallVec::new(),
+            target_peers: config.max_peers, //TODO: Add support for target peers and max peers
             _last_updated: Instant::now(),
             ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
+            discovery, 
             log: log.clone(),
-        }
+        })
     }
 
     /* Public accessible functions */
@@ -133,41 +146,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .extend_peers_on_subnet(subnet_id, min_ttl);
         }
 
-        // request the  subnet query from discovery
+        // request the subnet query from discovery
         self.discovery.discover_subnet_peers(subnet_id, min_ttl);
     }
 
-    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
-    fn addresses_of_peer(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        if let Some(enr) = self.discovery.enr_of_peer(peer_id) {
-            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
-            // port is removed, which is assumed to be associated with the discv5 protocol (and
-            // therefore irrelevant for other libp2p components).
-            let mut out_list = enr.multiaddr();
-            out_list.retain(|addr| {
-                addr.iter()
-                    .find(|v| match v {
-                        Protocol::Udp(_) => true,
-                        _ => false,
-                    })
-                    .is_none()
-            });
-
-            out_list
-        } else {
-            // PeerId is not known
-            Vec::new()
-        }
-    }
-
-    // The underlying discovery server has updated our external IP address. We send this up to
-    // notify libp2p.
-    fn socket_updated(&mut self, socket: SocketAddr) {
-        // Build a multiaddr to report to libp2p
-        let mut multiaaddr = Multiaddr::from(socket.ip());
-        multiaddr.push(Protocol::Tcp(self.tcp_port));
-        self.events.push(PeerManagerEvent::SocketUpdated(multiaddr));
-    }
 
     /// The Peer manager's heartbeat maintains the peer count.
     ///
@@ -178,7 +160,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn heartbeat(&mut self) {
 
         let peer_count = self.network_globals.connected_or_dialing_peers();
-
         if peer_count < self.target_peers {
             // If we need more peers, queue a discovery lookup.
             self.discovery.discover_peers();
@@ -186,46 +167,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // TODO: If we have too many peers, remove peers that are not required for subnet
         // validation.
-    }
-
-    /// Peers that have been returned by discovery requests are dialed here if they are suitable.
-    ///
-    /// NOTE: By dialing `PeerId`s and not multiaddrs, libp2p requests the multiaddr associated
-    /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
-    /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
-    /// proves resource constraining, we should switch to multiaddr dialling here.
-    fn dial_discovered_peers(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
-
-        for enr in peers {
-            // cache known peers
-            let peer_id = enr.peer_id();
-            self.cached_enrs.put(enr.peer_id(), enr);
-
-            // if we need more peers, attempt a connection
-            if self.network_globals.connected_or_dialing_peers() < self.max_peers
-                && !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&peer_id)
-                && !self.banned_peers.contains(&peer_id)
-            {
-                debug!(self.log, "Connecting to discovered peer"; "peer_id"=> peer_id.to_string());
-                // TODO: Update output
-                // This should be updated with the peer dialing. In fact created once the peer is
-                // dialed
-                if let Some(min_ttl) = min_ttl {
-                    self.network_globals
-                        .peers
-                        .write()
-                        .update_min_ttl(&peer_id, min_ttl);
-                }
-                self.events.push_back(NetworkBehaviourAction::DialPeer {
-                    peer_id,
-                    condition: DialPeerCondition::Disconnected,
-                });
-            }
-        }
     }
 
 
@@ -434,6 +375,74 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /* Internal functions */
 
+    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
+    fn addresses_of_peer(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
+        if let Some(enr) = self.discovery.enr_of_peer(peer_id) {
+            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+            // port is removed, which is assumed to be associated with the discv5 protocol (and
+            // therefore irrelevant for other libp2p components).
+            let mut out_list = enr.multiaddr();
+            out_list.retain(|addr| {
+                addr.iter()
+                    .find(|v| match v {
+                        Protocol::Udp(_) => true,
+                        _ => false,
+                    })
+                    .is_none()
+            });
+
+            out_list
+        } else {
+            // PeerId is not known
+            Vec::new()
+        }
+    }
+
+    // The underlying discovery server has updated our external IP address. We send this up to
+    // notify libp2p.
+    fn socket_updated(&mut self, socket: SocketAddr) {
+        // Build a multiaddr to report to libp2p
+        let mut multiaddr = Multiaddr::from(socket.ip());
+        multiaddr.push(Protocol::Tcp(self.tcp_port));
+        self.events.push(PeerManagerEvent::SocketUpdated(multiaddr));
+    }
+
+    /// Peers that have been returned by discovery requests are dialed here if they are suitable.
+    ///
+    /// NOTE: By dialing `PeerId`s and not multiaddrs, libp2p requests the multiaddr associated
+    /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
+    /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
+    /// proves resource constraining, we should switch to multiaddr dialling here.
+    fn peers_discovered(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
+        for enr in peers {
+
+            let peer_id = enr.peer_id();
+
+            // if we need more peers, attempt a connection
+            if self.network_globals.connected_or_dialing_peers() < self.max_peers
+                && !self
+                    .network_globals
+                    .peers
+                    .read()
+                    .is_connected_or_dialing(&peer_id)
+                && !self.banned_peers.contains(&peer_id)
+            {
+                debug!(self.log, "Dialing discovered peer"; "peer_id"=> peer_id.to_string());
+                // TODO: Update output
+                // This should be updated with the peer dialing. In fact created once the peer is
+                // dialed
+                if let Some(min_ttl) = min_ttl {
+                    self.network_globals
+                        .peers
+                        .write()
+                        .update_min_ttl(&peer_id, min_ttl);
+                }
+                self.events.push_back(PeerManagerEvent::Dial(peer_id));
+          }
+        }
+    }
+
+
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
     /// dialed or connecting to us.
     ///
@@ -575,6 +584,16 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
     type Item = PeerManagerEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+
+        // handle any discovery events
+        while let Poll::Ready(event) = self.discovery.poll(cx) {
+            match event {
+                DiscoveryEvent::SocketUpdated(socket_addr) => self.socket_updated(socket_addr),
+                DiscoveryEvent::QueryResult((min_ttl, peers)) => self.peers_discovered(*peers, min_ttl),
+            }
+        }
+
+
         // poll the timeouts for pings and status'
         loop {
             match self.ping_peers.poll_next_unpin(cx) {
