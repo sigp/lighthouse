@@ -1,5 +1,5 @@
 use crate::{lamport_secret_key::LamportSecretKey, plain_text::PlainText};
-use crypto::{digest::Digest, sha2::Sha256};
+use sha2::{Digest, Sha256};
 use num_bigint::BigUint;
 
 /// The byte size of a SHA256 hash.
@@ -68,14 +68,14 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> [u8; HASH_SIZE] {
                 .expect("lamport_pk must have adequate capacity");
 
             let mut hasher = Sha256::new();
-            hasher.input(chunk);
-            hasher.result(output_slice);
+            hasher.update(chunk);
+            output_slice.copy_from_slice(&hasher.finalize());
         });
 
     let mut compressed_lamport_pk = [0; HASH_SIZE];
     let mut hasher = Sha256::new();
-    hasher.input(&lamport_pk);
-    hasher.result(&mut compressed_lamport_pk);
+    hasher.update(&lamport_pk);
+    compressed_lamport_pk.copy_from_slice(&hasher.finalize());
 
     compressed_lamport_pk
 }
@@ -86,11 +86,11 @@ fn ikm_to_lamport_sk(salt: &[u8], ikm: &[u8]) -> LamportSecretKey {
 
 fn hkdf_extract(ikm: &[u8], salt: &[u8]) -> PlainText {
     let mut hasher = Sha256::new();
-    hasher.input(salt);
-    hasher.input(ikm);
+    hasher.update(salt);
+    hasher.update(ikm);
 
     let mut digest = vec![0; HASH_SIZE];
-    hasher.result(&mut digest);
+    digest.copy_from_slice(&hasher.finalize());
 
     digest.into()
 }
@@ -101,15 +101,15 @@ fn hkdf_expand(prk: &[u8]) -> LamportSecretKey {
     for i in 0..LAMPORT_ARRAY_SIZE {
         let mut hasher = Sha256::new();
 
-        hasher.input(prk);
+        hasher.update(prk);
 
         if let Some(prev) = i.checked_sub(1) {
-            hasher.input(okm.get_chunk(prev))
+            hasher.update(okm.get_chunk(prev))
         }
 
-        hasher.input(&[i + 1]);
+        hasher.update(&[i + 1]);
 
-        hasher.result(okm.get_mut_chunk(i));
+        okm.get_mut_chunk(i).copy_from_slice(&hasher.finalize());
     }
 
     okm

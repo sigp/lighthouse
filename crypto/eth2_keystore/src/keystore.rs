@@ -8,10 +8,16 @@ use crate::json_keystore::{
 };
 use crate::PlainText;
 use crate::Uuid;
+use aes_ctr::stream_cipher::generic_array::GenericArray;
+use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
+use aes_ctr::Aes128Ctr as AesCtr;
 use bls::{Keypair, PublicKey, SecretKey};
-use crypto::{digest::Digest, sha2::Sha256};
+use hmac::Hmac;
+use pbkdf2::pbkdf2;
 use rand::prelude::*;
+use scrypt::{scrypt, ScryptParams};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use ssz::DecodeError;
 use std::io::{Read, Write};
 
@@ -280,15 +286,13 @@ pub fn encrypt(
     let derived_key = derive_key(&password, &kdf)?;
 
     // Encrypt secret.
-    let mut cipher_text = vec![0; plain_text.len()];
+    let mut cipher_text = plain_text.to_vec();
     match &cipher {
         Cipher::Aes128Ctr(params) => {
-            crypto::aes::ctr(
-                crypto::aes::KeySize::KeySize128,
-                &derived_key.as_bytes()[0..16],
-                params.iv.as_bytes(),
-            )
-            .process(plain_text, &mut cipher_text);
+            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
+            let nonce = GenericArray::from_slice(params.iv.as_bytes());
+            let mut cipher = AesCtr::new(&key, &nonce);
+            cipher.apply_keystream(&mut cipher_text);
         }
     };
 
@@ -316,21 +320,20 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
         return Err(Error::InvalidPassword);
     }
 
-    let mut plain_text = PlainText::zero(cipher_message.len());
+    let mut plain_text = PlainText::from(cipher_message.as_bytes().to_vec());
     match &crypto.cipher.params {
         Cipher::Aes128Ctr(params) => {
-            crypto::aes::ctr(
-                crypto::aes::KeySize::KeySize128,
-                &derived_key.as_bytes()[0..16],
-                // NOTE: we do not check the size of the `iv` as there is no guidance about
-                // this on EIP-2335.
-                //
-                // Reference:
-                //
-                // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
-                params.iv.as_bytes(),
-            )
-            .process(cipher_message.as_bytes(), plain_text.as_mut_bytes());
+            // NOTE: we do not check the size of the `iv` as there is no guidance about
+            // this on EIP-2335.
+            //
+            // Reference:
+            //
+            // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
+            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
+            let nonce = GenericArray::from_slice(params.iv.as_bytes());
+            let mut cipher = AesCtr::new(&key, &nonce);
+            cipher.seek(0);
+            cipher.apply_keystream(plain_text.as_mut_bytes());
         }
     };
     Ok(plain_text)
@@ -340,11 +343,11 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
 /// `cipher_message`.
 fn generate_checksum(derived_key: &DerivedKey, cipher_message: &[u8]) -> [u8; HASH_SIZE] {
     let mut hasher = Sha256::new();
-    hasher.input(&derived_key.as_bytes()[16..32]);
-    hasher.input(cipher_message);
+    hasher.update(&derived_key.as_bytes()[16..32]);
+    hasher.update(cipher_message);
 
     let mut digest = [0; HASH_SIZE];
-    hasher.result(&mut digest);
+    digest.copy_from_slice(&hasher.finalize());
     digest
 }
 
@@ -354,8 +357,6 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
 
     match &kdf {
         Kdf::Pbkdf2(params) => {
-            let mut mac = params.prf.mac(password);
-
             // RFC2898 declares that `c` must be a "positive integer" and the `crypto` crate panics
             // if it is `0`.
             //
@@ -371,8 +372,8 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 return Err(Error::InvalidPbkdf2Param);
             }
 
-            crypto::pbkdf2::pbkdf2(
-                &mut mac,
+            pbkdf2::<Hmac<Sha256>>(
+                password,
                 params.salt.as_bytes(),
                 params.c,
                 dk.as_mut_bytes(),
@@ -400,12 +401,13 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 return Err(Error::InvalidScryptParam);
             }
 
-            crypto::scrypt::scrypt(
+            scrypt(
                 password,
                 params.salt.as_bytes(),
-                &crypto::scrypt::ScryptParams::new(log2_int(params.n) as u8, params.r, params.p),
+                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p).unwrap(),
                 dk.as_mut_bytes(),
-            );
+            )
+            .expect("Could not decrypt private key using scrypt.");
         }
     }
 
