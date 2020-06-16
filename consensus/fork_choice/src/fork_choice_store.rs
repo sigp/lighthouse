@@ -18,6 +18,7 @@ use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 /// hopefully making auditing easier.
 pub trait ForkChoiceStore<T: EthSpec>: Sized {
     type Error;
+
     /// Returns the last value passed to `Self::update_time`.
     fn get_current_slot(&self) -> Slot;
 

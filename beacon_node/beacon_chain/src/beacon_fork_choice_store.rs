@@ -62,7 +62,7 @@ pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
 struct CacheItem {
     /// The block root at which `self.balances` are valid.
     block_root: Hash256,
-    /// The `state.balances` list.
+    /// The effective balances from a `BeaconState` validator registry.
     balances: Vec<u64>,
 }
 
@@ -78,7 +78,7 @@ struct BalancesCache {
 impl BalancesCache {
     /// Inspect the given `state` and determine the root of the block at the first slot of
     /// `state.current_epoch`. If there is not already some entry for the given block root, then
-    /// add `state.balances` to the cache.
+    /// add the effective balances from the `state` to the cache.
     pub fn process_state<E: EthSpec>(
         &mut self,
         block_root: Hash256,

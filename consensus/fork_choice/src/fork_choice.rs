@@ -123,11 +123,6 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 
 /// Called whenever the current time increases.
 ///
-/// ## Notes
-///
-/// This function should only ever be passed a `time` that is less than, equal to or one greater
-/// than the previously passed value. I.e., it must be called each time the slot changes.
-///
 /// ## Specification
 ///
 /// Equivalent to:
@@ -383,7 +378,7 @@ where
         }
 
         // We know that the slot for `new_justified_checkpoint.root` is not greater than
-        // `state.slot`, since a state cannot justify it's own slot.
+        // `state.slot`, since a state cannot justify its own slot.
         //
         // We know that `new_justified_checkpoint.root` is an ancestor of `state`, since a `state`
         // only ever justifies ancestors.
@@ -401,7 +396,7 @@ where
 
     /// Add `block` to the fork choice DAG.
     ///
-    /// - `block_root_root` is the root of `block.
+    /// - `block_root` is the root of `block.
     /// - The root of `state` matches `block.state_root`.
     ///
     /// ## Specification
@@ -444,14 +439,10 @@ where
             }));
         }
 
-        let finalized_slot = self
-            .fc_store
-            .finalized_checkpoint()
-            .epoch
-            .start_slot(E::slots_per_epoch());
-
         // Check that block is later than the finalized epoch slot (optimization to reduce calls to
         // get_ancestor).
+        let finalized_slot =
+            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
         if block.slot <= finalized_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
                 finalized_slot,
@@ -477,6 +468,7 @@ where
             }));
         }
 
+        // Update justified checkpoint.
         if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
             if state.current_justified_checkpoint.epoch
                 > self.fc_store.best_justified_checkpoint().epoch
@@ -491,6 +483,7 @@ where
             }
         }
 
+        // Update finalized checkpoint.
         if state.finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
             self.fc_store
                 .set_finalized_checkpoint(state.finalized_checkpoint);
@@ -592,6 +585,9 @@ where
         }
 
         // Attestation target must be for a known block.
+        //
+        // We do not delay the block for later processing to reduce complexity and DoS attack
+        // surface.
         if !self.proto_array.contains_block(&target.root) {
             return Err(InvalidAttestation::UnknownTargetRoot(target.root));
         }

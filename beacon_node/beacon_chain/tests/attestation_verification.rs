@@ -120,19 +120,6 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         })
         .expect("should find aggregator for committee");
 
-    // FIXME(v0.12): this can be removed once the verification rules are updated for v0.12
-    // I needed to add it because the test only *happened* to work because aggregator and attester
-    // indices were the same before!
-    aggregate
-        .sign(
-            &aggregator_sk,
-            aggregator_committee_pos,
-            &state.fork,
-            chain.genesis_validators_root,
-            &chain.spec,
-        )
-        .expect("should sign attestation");
-
     let signed_aggregate = SignedAggregateAndProof::from_aggregate(
         aggregator_index as u64,
         aggregate,
