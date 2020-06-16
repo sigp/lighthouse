@@ -87,7 +87,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
 
 fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    mut aggregate: Attestation<T::EthSpec>,
+    aggregate: Attestation<T::EthSpec>,
 ) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
     let state = &chain.head().expect("should get head").beacon_state;
     let current_slot = chain.slot().expect("should get slot");
@@ -97,11 +97,10 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
-    let (aggregator_committee_pos, aggregator_index, aggregator_sk) = committee
+    let (aggregator_index, aggregator_sk) = committee
         .committee
         .iter()
-        .enumerate()
-        .find_map(|(committee_pos, &val_index)| {
+        .find_map(|&val_index| {
             let aggregator_sk = generate_deterministic_keypair(val_index).sk;
 
             let proof = SelectionProof::new::<T::EthSpec>(
@@ -113,7 +112,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
             );
 
             if proof.is_aggregator(committee_len, &chain.spec).unwrap() {
-                Some((committee_pos, val_index, aggregator_sk))
+                Some((val_index, aggregator_sk))
             } else {
                 None
             }
