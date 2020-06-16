@@ -1070,7 +1070,7 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "discv5"
 version = "0.1.0-alpha.4"
-source = "git+https://github.com/sigp/discv5?rev=3682d43b82244b50deca46c0fc39c46a19ceb672#3682d43b82244b50deca46c0fc39c46a19ceb672"
+source = "git+https://github.com/sigp/discv5?rev=ec41b2bc5bdabd95d6f031ea3b1c2537c8daed01#ec41b2bc5bdabd95d6f031ea3b1c2537c8daed01"
 dependencies = [
  "arrayvec 0.5.1",
  "digest",
