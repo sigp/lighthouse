@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
-    HotColdDB, Store, StoreConfig,
+    HotColdDB, LevelDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
@@ -35,7 +35,7 @@ lazy_static! {
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E>> {
+fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
@@ -47,7 +47,10 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E>> {
     )
 }
 
-fn get_harness(store: Arc<HotColdDB<E>>, validator_count: usize) -> TestHarness {
+fn get_harness(
+    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    validator_count: usize,
+) -> TestHarness {
     let harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
         store,
@@ -1310,7 +1313,7 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
 }
 
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
-fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E>>) {
+fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) {
     let split_slot = store.get_split_slot();
     assert_eq!(
         harness
@@ -1361,7 +1364,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
         .collect::<Vec<_>>();
 
     let head = harness.chain.head().expect("should get head");
-    let mut forward_block_roots = Store::forwards_block_roots_iterator(
+    let mut forward_block_roots = HotColdDB::forwards_block_roots_iterator(
         harness.chain.store.clone(),
         Slot::new(0),
         head.beacon_state,

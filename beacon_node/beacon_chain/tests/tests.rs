@@ -13,7 +13,7 @@ use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
-use store::Store;
+use store::config::StoreConfig;
 use types::{BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
@@ -25,7 +25,11 @@ lazy_static! {
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<MinimalEthSpec>> {
-    let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
+    let harness = BeaconChainHarness::new(
+        MinimalEthSpec,
+        KEYPAIRS[0..validator_count].to_vec(),
+        StoreConfig::default(),
+    );
 
     harness.advance_slot();
 

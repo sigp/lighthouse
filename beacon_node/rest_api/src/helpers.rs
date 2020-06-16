@@ -8,7 +8,7 @@ use hyper::{Body, Request};
 use itertools::process_results;
 use network::NetworkMessage;
 use ssz::Decode;
-use store::{iter::AncestorIter, Store};
+use store::iter::AncestorIter;
 use types::{
     BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, SignedBeaconBlock, Slot,
 };

@@ -9,7 +9,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use state_processing::per_slot_processing;
-use store::Store;
+use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, EthSpec, Hash256,
@@ -36,6 +36,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
         // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
         // not all.
         4,
+        StoreConfig::default(),
     );
 
     harness.advance_slot();

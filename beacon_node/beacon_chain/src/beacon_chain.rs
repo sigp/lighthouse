@@ -40,7 +40,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
-use store::{Error as DBError, Store};
+use store::{Error as DBError, HotColdDB};
 use types::*;
 
 // Text included in blocks.
@@ -148,10 +148,11 @@ pub struct HeadInfo {
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
-    type Store: store::Store<Self::EthSpec>;
-    type StoreMigrator: Migrate<Self::EthSpec>;
+    type HotStore: store::ItemStore<Self::EthSpec>;
+    type ColdStore: store::ItemStore<Self::EthSpec>;
+    type StoreMigrator: Migrate<Self::EthSpec, Self::HotStore, Self::ColdStore>;
     type SlotClock: slot_clock::SlotClock;
-    type Eth1Chain: Eth1ChainBackend<Self::EthSpec, Self::Store>;
+    type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
     type EthSpec: types::EthSpec;
     type EventHandler: EventHandler<Self::EthSpec>;
 }
@@ -161,7 +162,7 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
 pub struct BeaconChain<T: BeaconChainTypes> {
     pub spec: ChainSpec,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
-    pub store: Arc<T::Store>,
+    pub store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// Database migrator for running background maintenance on the store.
     pub store_migrator: T::StoreMigrator,
     /// Reports the current slot, typically based upon the system clock.
@@ -185,7 +186,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: ObservedBlockProducers<T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
-    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec, T::Store>>,
+    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     pub(crate) canonical_head: TimeoutRwLock<BeaconSnapshot<T::EthSpec>>,
     /// The root of the genesis block.
@@ -335,16 +336,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn forwards_iter_block_roots(
         &self,
         start_slot: Slot,
-    ) -> Result<<T::Store as Store<T::EthSpec>>::ForwardsBlockRootsIterator, Error> {
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         let local_head = self.head()?;
 
-        Ok(T::Store::forwards_block_roots_iterator(
+        let iter = HotColdDB::forwards_block_roots_iterator(
             self.store.clone(),
             start_slot,
             local_head.beacon_state,
             local_head.beacon_block_root,
             &self.spec,
-        )?)
+        )?;
+
+        Ok(iter.map(|result| result.map_err(Into::into)))
     }
 
     /// Traverse backwards from `block_root` to find the block roots of its ancestors.
