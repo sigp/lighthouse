@@ -17,4 +17,12 @@ lazy_static! {
         "libp2p_peer_disconnect_event_total",
         "Count of libp2p peer disconnect events"
     );
+    pub static ref DISCOVERY_QUEUE: Result<IntGauge> = try_create_int_gauge(
+        "discovery_queue_size",
+        "The number of discovery queries awaiting execution"
+    );
+    pub static ref DISCOVERY_REQS: Result<IntGauge> = try_create_int_gauge(
+        "discovery_requests",
+        "The number of unsolicited discovery requests per second"
+    );
 }

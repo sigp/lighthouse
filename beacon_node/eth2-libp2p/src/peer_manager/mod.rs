@@ -21,6 +21,7 @@ pub mod client;
 mod peer_info;
 mod peer_sync_status;
 mod peerdb;
+pub mod discovery;
 
 pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
@@ -43,6 +44,10 @@ pub struct PeerManager<TSpec: EthSpec> {
     ping_peers: HashSetDelay<PeerId>,
     /// A collection of peers awaiting to be Status'd.
     status_peers: HashSetDelay<PeerId>,
+    /// The target number of peers we would like to connect to.
+    target_peers: usize,
+    /// The discovery service
+    discovery: Discovery<TSpec>,
     /// Last updated moment.
     _last_updated: Instant,
     /// The logger associated with the `PeerManager`.
@@ -115,87 +120,114 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /* Public accessible functions */
 
-    /// A ping request has been received.
-    // NOTE: The behaviour responds with a PONG automatically
-    // TODO: Update last seen
-    pub fn ping_request(&mut self, peer_id: &PeerId, seq: u64) {
-        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
-            // received a ping
-            // reset the to-ping timer for this peer
-            debug!(self.log, "Received a ping request"; "peer_id" => peer_id.to_string(), "seq_no" => seq);
-            self.ping_peers.insert(peer_id.clone());
+    /* Discovery Requests */
+    
+    /// A request to find peers on a given subnet.
+    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
 
-            // if the sequence number is unknown send an update the meta data of the peer.
-            if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
-                    debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
-                    self.events
-                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
-                }
-            } else {
-                // if we don't know the meta-data, request it
-                debug!(self.log, "Requesting first metadata from peer";
-                    "peer_id" => peer_id.to_string());
-                self.events
-                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
-            }
+        // Extend the time to maintain peers if required.
+        if let Some(min_ttl) = min_ttl {
+            self.network_globals
+                .peers
+                .write()
+                .extend_peers_on_subnet(subnet_id, min_ttl);
+        }
+
+        // request the  subnet query from discovery
+        self.discovery.discover_subnet_peers(subnet_id, min_ttl);
+    }
+
+    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
+    fn addresses_of_peer(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
+        if let Some(enr) = self.discovery.enr_of_peer(peer_id) {
+            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+            // port is removed, which is assumed to be associated with the discv5 protocol (and
+            // therefore irrelevant for other libp2p components).
+            let mut out_list = enr.multiaddr();
+            out_list.retain(|addr| {
+                addr.iter()
+                    .find(|v| match v {
+                        Protocol::Udp(_) => true,
+                        _ => false,
+                    })
+                    .is_none()
+            });
+
+            out_list
         } else {
-            crit!(self.log, "Received a PING from an unknown peer";
-                "peer_id" => peer_id.to_string());
+            // PeerId is not known
+            Vec::new()
         }
     }
 
-    /// A PONG has been returned from a peer.
-    // TODO: Update last seen
-    pub fn pong_response(&mut self, peer_id: &PeerId, seq: u64) {
-        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
-            // received a pong
+    // The underlying discovery server has updated our external IP address. We send this up to
+    // notify libp2p.
+    fn socket_updated(&mut self, socket: SocketAddr) {
+        // Build a multiaddr to report to libp2p
+        let mut multiaaddr = Multiaddr::from(socket.ip());
+        multiaddr.push(Protocol::Tcp(self.tcp_port));
+        self.events.push(PeerManagerEvent::SocketUpdated(multiaddr));
+    }
 
-            // if the sequence number is unknown send update the meta data of the peer.
-            if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
-                    debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
-                    self.events
-                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
+    /// The Peer manager's heartbeat maintains the peer count.
+    ///
+    /// It will request discovery queries if the peer count has not reached the desired number of
+    /// peers. 
+    ///
+    /// NOTE: Discovery will only add a new query if one isn't already queued. 
+    fn heartbeat(&mut self) {
+
+        let peer_count = self.network_globals.connected_or_dialing_peers();
+
+        if peer_count < self.target_peers {
+            // If we need more peers, queue a discovery lookup.
+            self.discovery.discover_peers();
+        }
+
+        // TODO: If we have too many peers, remove peers that are not required for subnet
+        // validation.
+    }
+
+    /// Peers that have been returned by discovery requests are dialed here if they are suitable.
+    ///
+    /// NOTE: By dialing `PeerId`s and not multiaddrs, libp2p requests the multiaddr associated
+    /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
+    /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
+    /// proves resource constraining, we should switch to multiaddr dialling here.
+    fn dial_discovered_peers(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
+
+        for enr in peers {
+            // cache known peers
+            let peer_id = enr.peer_id();
+            self.cached_enrs.put(enr.peer_id(), enr);
+
+            // if we need more peers, attempt a connection
+            if self.network_globals.connected_or_dialing_peers() < self.max_peers
+                && !self
+                    .network_globals
+                    .peers
+                    .read()
+                    .is_connected_or_dialing(&peer_id)
+                && !self.banned_peers.contains(&peer_id)
+            {
+                debug!(self.log, "Connecting to discovered peer"; "peer_id"=> peer_id.to_string());
+                // TODO: Update output
+                // This should be updated with the peer dialing. In fact created once the peer is
+                // dialed
+                if let Some(min_ttl) = min_ttl {
+                    self.network_globals
+                        .peers
+                        .write()
+                        .update_min_ttl(&peer_id, min_ttl);
                 }
-            } else {
-                // if we don't know the meta-data, request it
-                debug!(self.log, "Requesting first metadata from peer";
-                    "peer_id" => peer_id.to_string());
-                self.events
-                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                self.events.push_back(NetworkBehaviourAction::DialPeer {
+                    peer_id,
+                    condition: DialPeerCondition::Disconnected,
+                });
             }
-        } else {
-            crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => peer_id.to_string());
         }
     }
 
-    /// Received a metadata response from a peer.
-    // TODO: Update last seen
-    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
-        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            if let Some(known_meta_data) = &peer_info.meta_data {
-                if known_meta_data.seq_number < meta_data.seq_number {
-                    debug!(self.log, "Updating peer's metadata";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
-                    peer_info.meta_data = Some(meta_data);
-                } else {
-                    debug!(self.log, "Received old metadata";
-                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
-                }
-            } else {
-                // we have no meta-data for this peer, update
-                debug!(self.log, "Obtained peer's metadata";
-                    "peer_id" => peer_id.to_string(), "new_seq_no" => meta_data.seq_number);
-                peer_info.meta_data = Some(meta_data);
-            }
-        } else {
-            crit!(self.log, "Received METADATA from an unknown peer";
-                "peer_id" => peer_id.to_string());
-        }
-    }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
     pub fn peer_statusd(&mut self, peer_id: &PeerId) {
@@ -315,6 +347,90 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         self.report_peer(peer_id, peer_action);
     }
+
+    /// A ping request has been received.
+    // NOTE: The behaviour responds with a PONG automatically
+    // TODO: Update last seen
+    pub fn ping_request(&mut self, peer_id: &PeerId, seq: u64) {
+        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
+            // received a ping
+            // reset the to-ping timer for this peer
+            debug!(self.log, "Received a ping request"; "peer_id" => peer_id.to_string(), "seq_no" => seq);
+            self.ping_peers.insert(peer_id.clone());
+
+            // if the sequence number is unknown send an update the meta data of the peer.
+            if let Some(meta_data) = &peer_info.meta_data {
+                if meta_data.seq_number < seq {
+                    debug!(self.log, "Requesting new metadata from peer";
+                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
+                    self.events
+                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                }
+            } else {
+                // if we don't know the meta-data, request it
+                debug!(self.log, "Requesting first metadata from peer";
+                    "peer_id" => peer_id.to_string());
+                self.events
+                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
+            }
+        } else {
+            crit!(self.log, "Received a PING from an unknown peer";
+                "peer_id" => peer_id.to_string());
+        }
+    }
+
+    /// A PONG has been returned from a peer.
+    // TODO: Update last seen
+    pub fn pong_response(&mut self, peer_id: &PeerId, seq: u64) {
+        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
+            // received a pong
+
+            // if the sequence number is unknown send update the meta data of the peer.
+            if let Some(meta_data) = &peer_info.meta_data {
+                if meta_data.seq_number < seq {
+                    debug!(self.log, "Requesting new metadata from peer";
+                        "peer_id" => peer_id.to_string(), "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
+                    self.events
+                        .push(PeerManagerEvent::MetaData(peer_id.clone()));
+                }
+            } else {
+                // if we don't know the meta-data, request it
+                debug!(self.log, "Requesting first metadata from peer";
+                    "peer_id" => peer_id.to_string());
+                self.events
+                    .push(PeerManagerEvent::MetaData(peer_id.clone()));
+            }
+        } else {
+            crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => peer_id.to_string());
+        }
+    }
+
+    /// Received a metadata response from a peer.
+    // TODO: Update last seen
+    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
+        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            if let Some(known_meta_data) = &peer_info.meta_data {
+                if known_meta_data.seq_number < meta_data.seq_number {
+                    debug!(self.log, "Updating peer's metadata";
+                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                    peer_info.meta_data = Some(meta_data);
+                } else {
+                    debug!(self.log, "Received old metadata";
+                        "peer_id" => peer_id.to_string(), "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                }
+            } else {
+                // we have no meta-data for this peer, update
+                debug!(self.log, "Obtained peer's metadata";
+                    "peer_id" => peer_id.to_string(), "new_seq_no" => meta_data.seq_number);
+                peer_info.meta_data = Some(meta_data);
+            }
+        } else {
+            crit!(self.log, "Received METADATA from an unknown peer";
+                "peer_id" => peer_id.to_string());
+        }
+    }
+
+
 
     /* Internal functions */
 
