@@ -2,8 +2,8 @@ use crate::helpers::{check_content_type_for_json, publish_beacon_block_to_networ
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, NetworkChannel, UrlQuery};
 use beacon_chain::{
-    attestation_verification::Error as AttnError, BeaconChain, BeaconChainTypes, BlockError,
-    StateSkipConfig,
+    attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BlockError, ForkChoiceError, StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
@@ -506,7 +506,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
     beacon_chain
         .apply_attestation_to_fork_choice(&verified_attestation)
         .map_err(|e| {
-            handle_attestation_error(
+            handle_fork_choice_error(
                 e,
                 &format!(
                     "unaggregated attestation {} was unable to be added to fork choice",
@@ -645,7 +645,7 @@ fn process_aggregated_attestation<T: BeaconChainTypes>(
     beacon_chain
         .apply_attestation_to_fork_choice(&verified_attestation)
         .map_err(|e| {
-            handle_attestation_error(
+            handle_fork_choice_error(
                 e,
                 &format!(
                     "aggregated attestation {} was unable to be added to fork choice",
@@ -712,6 +712,51 @@ fn handle_attestation_error(
 
             ApiError::ProcessingError(format!(
                 "Invalid local attestation. Error: {:?} Detail: {}",
+                e, detail
+            ))
+        }
+    }
+}
+
+/// Common handler for `ForkChoiceError` during attestation verification.
+fn handle_fork_choice_error(
+    e: BeaconChainError,
+    detail: &str,
+    data: &AttestationData,
+    log: &Logger,
+) -> ApiError {
+    match e {
+        BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
+            error!(
+                log,
+                "Local attestation invalid for fork choice";
+                "detail" => detail,
+                "reason" => format!("{:?}", e),
+                "target" => data.target.epoch,
+                "source" => data.source.epoch,
+                "index" => data.index,
+                "slot" => data.slot,
+            );
+
+            ApiError::ProcessingError(format!(
+                "Invalid local attestation. Error: {:?} Detail: {}",
+                e, detail
+            ))
+        }
+        e => {
+            error!(
+                log,
+                "Internal error applying attn to fork choice";
+                "detail" => detail,
+                "error" => format!("{:?}", e),
+                "target" => data.target.epoch,
+                "source" => data.source.epoch,
+                "index" => data.index,
+                "slot" => data.slot,
+            );
+
+            ApiError::ServerError(format!(
+                "Internal error verifying local attestation. Error: {:?}. Detail: {}",
                 e, detail
             ))
         }

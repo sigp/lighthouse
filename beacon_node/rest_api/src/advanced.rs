@@ -12,7 +12,13 @@ pub fn get_fork_choice<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
-    ResponseBuilder::new(&req)?.body_no_ssz(&*beacon_chain.fork_choice.core_proto_array())
+    ResponseBuilder::new(&req)?.body_no_ssz(
+        &*beacon_chain
+            .fork_choice
+            .read()
+            .proto_array()
+            .core_proto_array(),
+    )
 }
 
 /// Returns the `PersistedOperationPool` struct.

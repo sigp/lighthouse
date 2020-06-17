@@ -17,7 +17,7 @@ use types::{
 use url::Url;
 
 pub use operation_pool::PersistedOperationPool;
-pub use proto_array_fork_choice::core::ProtoArray;
+pub use proto_array::core::ProtoArray;
 pub use rest_types::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, Health, IndividualVotesRequest,
     IndividualVotesResponse, SyncingResponse, ValidatorDutiesRequest, ValidatorDutyBytes,

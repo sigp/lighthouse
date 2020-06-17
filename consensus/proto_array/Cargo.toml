@@ -1,15 +1,14 @@
 [package]
-name = "proto_array_fork_choice"
+name = "proto_array"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@sigmaprime.io>"]
 edition = "2018"
 
 [[bin]]
-name = "proto_array_fork_choice"
+name = "proto_array"
 path = "src/bin.rs"
 
 [dependencies]
-parking_lot = "0.10.2"
 types = { path = "../types" }
 itertools = "0.9.0"
 eth2_ssz = "0.1.2"

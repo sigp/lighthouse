@@ -64,8 +64,6 @@ mod tests {
                         Duration::from_secs(recent_genesis_time()),
                         Duration::from_millis(SLOT_DURATION_MILLIS),
                     ))
-                    .reduced_tree_fork_choice()
-                    .expect("should add fork choice to builder")
                     .build()
                     .expect("should build"),
             );

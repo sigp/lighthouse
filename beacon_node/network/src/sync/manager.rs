@@ -269,7 +269,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // consider it synced (it can be the case that the peer seems ahead of us, but we
                 // reject its chain).
 
-                if self.chain.fork_choice.contains_block(&remote.head_root) {
+                if self
+                    .chain
+                    .fork_choice
+                    .read()
+                    .contains_block(&remote.head_root)
+                {
                     self.synced_peer(&peer_id, remote);
                     // notify the range sync that a peer has been added
                     self.range_sync.fully_synced_peer_found();

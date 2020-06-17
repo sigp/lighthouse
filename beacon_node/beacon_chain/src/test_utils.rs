@@ -122,8 +122,6 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -164,8 +162,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -201,8 +197,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -243,6 +237,35 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) -> Hash256 {
+        let mut i = 0;
+        self.extend_chain_while(
+            |_, _| {
+                i += 1;
+                i <= num_blocks
+            },
+            block_strategy,
+            attestation_strategy,
+        )
+    }
+
+    /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
+    /// last-produced block (the head of the chain).
+    ///
+    /// Chain will be extended while `predidcate` returns `true`.
+    ///
+    /// The `block_strategy` dictates where the new blocks will be placed.
+    ///
+    /// The `attestation_strategy` dictates which validators will attest to the newly created
+    /// blocks.
+    pub fn extend_chain_while<F>(
+        &self,
+        mut predicate: F,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+    ) -> Hash256
+    where
+        F: FnMut(&SignedBeaconBlock<E>, &BeaconState<E>) -> bool,
+    {
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
@@ -265,12 +288,16 @@ where
 
         let mut head_block_root = None;
 
-        for _ in 0..num_blocks {
+        loop {
+            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+
+            if !predicate(&block, &new_state) {
+                break;
+            }
+
             while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
-
-            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
             let block_root = self
                 .chain
@@ -287,6 +314,39 @@ where
         }
 
         head_block_root.expect("did not produce any blocks")
+    }
+
+    /// A simple method to produce a block at the current slot without applying it to the chain.
+    ///
+    /// Always uses `BlockStrategy::OnCanonicalHead`.
+    pub fn get_block(&self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        let state = self
+            .chain
+            .state_at_slot(
+                self.chain.slot().unwrap() - 1,
+                StateSkipConfig::WithStateRoots,
+            )
+            .unwrap();
+
+        let slot = self.chain.slot().unwrap();
+
+        self.build_block(state, slot, BlockStrategy::OnCanonicalHead)
+    }
+
+    /// A simple method to produce and process all attestation at the current slot. Always uses
+    /// `AttestationStrategy::AllValidators`.
+    pub fn generate_all_attestations(&self) {
+        let slot = self.chain.slot().unwrap();
+        let (state, block_root) = {
+            let head = self.chain.head().unwrap();
+            (head.beacon_state.clone(), head.beacon_block_root)
+        };
+        self.add_attestations_for_slot(
+            &AttestationStrategy::AllValidators,
+            &state,
+            block_root,
+            slot,
+        );
     }
 
     /// Returns current canonical head slot
@@ -626,14 +686,16 @@ where
                         spec,
                     );
 
-                    self.chain
+                    let attn = self.chain
                         .verify_aggregated_attestation_for_gossip(signed_aggregate)
-                        .expect("should not error during attestation processing")
-                        .add_to_pool(&self.chain)
-                        .expect("should add attestation to naive aggregation pool")
-                        .add_to_fork_choice(&self.chain)
+                        .expect("should not error during attestation processing");
+
+                    self.chain.apply_attestation_to_fork_choice(&attn)
                         .expect("should add attestation to fork choice");
-                    }
+
+                    self.chain.add_to_block_inclusion_pool(attn)
+                        .expect("should add attestation to op pool");
+                }
             });
     }
 

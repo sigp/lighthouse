@@ -23,7 +23,7 @@
 //!              -------------------------------------
 //!                                |
 //!                                ▼
-//!                  ForkChoiceVerifiedAttestation
+//!                  impl SignatureVerifiedAttestation
 //! ```
 
 use crate::{
@@ -158,65 +158,21 @@ impl<T: BeaconChainTypes> Clone for VerifiedUnaggregatedAttestation<T> {
     }
 }
 
-/// Wraps an `indexed_attestation` that is valid for application to fork choice. The
-/// `indexed_attestation` will have been generated via the `VerifiedAggregatedAttestation` or
-/// `VerifiedUnaggregatedAttestation` wrappers.
-pub struct ForkChoiceVerifiedAttestation<'a, T: BeaconChainTypes> {
-    indexed_attestation: &'a IndexedAttestation<T::EthSpec>,
-}
-
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
-pub trait IntoForkChoiceVerifiedAttestation<'a, T: BeaconChainTypes> {
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<'a, T>, Error>;
+pub trait SignatureVerifiedAttestation<T: BeaconChainTypes> {
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
 }
 
-impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
-    for VerifiedAggregatedAttestation<T>
-{
-    /// Progresses the `VerifiedAggregatedAttestation` to a stage where it is valid for application
-    /// to the fork-choice rule (or not).
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            &self.indexed_attestation,
-            chain,
-        )
+impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedAggregatedAttestation<T> {
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
     }
 }
 
-impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
-    for VerifiedUnaggregatedAttestation<T>
-{
-    /// Progresses the `Attestation` to a stage where it is valid for application to the
-    /// fork-choice rule (or not).
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            &self.indexed_attestation,
-            chain,
-        )
-    }
-}
-
-impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
-    for ForkChoiceVerifiedAttestation<'a, T>
-{
-    /// Simply returns itself.
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        _: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        Ok(Self {
-            indexed_attestation: self.indexed_attestation,
-        })
+impl<T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedUnaggregatedAttestation<T> {
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
     }
 }
 
@@ -344,14 +300,6 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         chain.add_to_block_inclusion_pool(self)
     }
 
-    /// A helper function to add this aggregate to `beacon_chain.fork_choice`.
-    pub fn add_to_fork_choice(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        chain.apply_attestation_to_fork_choice(self)
-    }
-
     /// Returns the underlying `attestation` for the `signed_aggregate`.
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
@@ -449,114 +397,6 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     }
 }
 
-impl<'a, T: BeaconChainTypes> ForkChoiceVerifiedAttestation<'a, T> {
-    /// Returns `Ok(Self)` if the `attestation` is valid to be applied to the beacon chain fork
-    /// choice.
-    ///
-    /// The supplied `indexed_attestation` MUST have a valid signature, this function WILL NOT
-    /// CHECK THE SIGNATURE. Use the `VerifiedAggregatedAttestation` or
-    /// `VerifiedUnaggregatedAttestation` structs to do signature verification.
-    fn from_signature_verified_components(
-        indexed_attestation: &'a IndexedAttestation<T::EthSpec>,
-        chain: &BeaconChain<T>,
-    ) -> Result<Self, Error> {
-        // There is no point in processing an attestation with an empty bitfield. Reject
-        // it immediately.
-        //
-        // This is not in the specification, however it should be transparent to other nodes. We
-        // return early here to avoid wasting precious resources verifying the rest of it.
-        if indexed_attestation.attesting_indices.len() == 0 {
-            return Err(Error::EmptyAggregationBitfield);
-        }
-
-        let slot_now = chain.slot()?;
-        let epoch_now = slot_now.epoch(T::EthSpec::slots_per_epoch());
-        let target = indexed_attestation.data.target.clone();
-
-        // Attestation must be from the current or previous epoch.
-        if target.epoch > epoch_now {
-            return Err(Error::FutureEpoch {
-                attestation_epoch: target.epoch,
-                current_epoch: epoch_now,
-            });
-        } else if target.epoch + 1 < epoch_now {
-            return Err(Error::PastEpoch {
-                attestation_epoch: target.epoch,
-                current_epoch: epoch_now,
-            });
-        }
-
-        if target.epoch
-            != indexed_attestation
-                .data
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch())
-        {
-            return Err(Error::BadTargetEpoch);
-        }
-
-        // Attestation target must be for a known block.
-        if !chain.fork_choice.contains_block(&target.root) {
-            return Err(Error::UnknownTargetRoot(target.root));
-        }
-
-        // TODO: we're not testing an assert from the spec:
-        //
-        // `assert get_current_slot(store) >= compute_start_slot_at_epoch(target.epoch)`
-        //
-        // I think this check is redundant and I've raised an issue here:
-        //
-        // https://github.com/ethereum/eth2.0-specs/pull/1755
-        //
-        // To resolve this todo, observe the outcome of the above PR.
-
-        // Load the slot and state root for `attestation.data.beacon_block_root`.
-        //
-        // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
-        // choice. Any known, non-finalized block should be in fork choice, so this check
-        // immediately filters out attestations that attest to a block that has not been processed.
-        //
-        // Attestations must be for a known block. If the block is unknown, we simply drop the
-        // attestation and do not delay consideration for later.
-        let (block_slot, _state_root) = chain
-            .fork_choice
-            .block_slot_and_state_root(&indexed_attestation.data.beacon_block_root)
-            .ok_or_else(|| Error::UnknownHeadBlock {
-                beacon_block_root: indexed_attestation.data.beacon_block_root,
-            })?;
-
-        // TODO: currently we do not check the FFG source/target. This is what the spec dictates
-        // but it seems wrong.
-        //
-        // I have opened an issue on the specs repo for this:
-        //
-        // https://github.com/ethereum/eth2.0-specs/issues/1636
-        //
-        // We should revisit this code once that issue has been resolved.
-
-        // Attestations must not be for blocks in the future. If this is the case, the attestation
-        // should not be considered.
-        if block_slot > indexed_attestation.data.slot {
-            return Err(Error::AttestsToFutureBlock {
-                block: block_slot,
-                attestation: indexed_attestation.data.slot,
-            });
-        }
-
-        // Note: we're not checking the "attestations can only affect the fork choice of subsequent
-        // slots" part of the spec, we do this upstream.
-
-        Ok(Self {
-            indexed_attestation,
-        })
-    }
-
-    /// Returns the wrapped `IndexedAttestation`.
-    pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
-        &self.indexed_attestation
-    }
-}
-
 /// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
 ///
 /// The block root may not be known for two reasons:
@@ -573,6 +413,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     if chain
         .fork_choice
+        .read()
         .contains_block(&attestation.data.beacon_block_root)
     {
         Ok(())
@@ -765,9 +606,10 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    let (target_block_slot, target_block_state_root) = chain
+    let target_block = chain
         .fork_choice
-        .block_slot_and_state_root(&target.root)
+        .read()
+        .get_block(&target.root)
         .ok_or_else(|| Error::UnknownTargetRoot(target.root))?;
 
     // Obtain the shuffling cache, timing how long we wait.
@@ -800,15 +642,15 @@ where
             chain.log,
             "Attestation processing cache miss";
             "attn_epoch" => attestation_epoch.as_u64(),
-            "target_block_epoch" => target_block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
+            "target_block_epoch" => target_block.slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
         );
 
         let state_read_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
         let mut state = chain
-            .get_state(&target_block_state_root, Some(target_block_slot))?
-            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block_state_root))?;
+            .get_state(&target_block.state_root, Some(target_block.slot))?
+            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block.state_root))?;
 
         metrics::stop_timer(state_read_timer);
         let state_skip_timer =

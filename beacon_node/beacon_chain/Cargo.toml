@@ -40,15 +40,13 @@ futures = "0.3.5"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1.3"
 rand = "0.7.3"
-proto_array_fork_choice = { path = "../../consensus/proto_array_fork_choice" }
+proto_array = { path = "../../consensus/proto_array" }
 lru = "0.5.1"
 tempfile = "3.1.0"
 bitvec = "0.17.4"
 bls = { path = "../../crypto/bls" }
 safe_arith = { path = "../../consensus/safe_arith" }
+fork_choice = { path = "../../consensus/fork_choice" }
 environment = { path = "../../lighthouse/environment" }
 bus = "2.2.3"
-
-[dev-dependencies]
-lazy_static = "1.4.0"
 

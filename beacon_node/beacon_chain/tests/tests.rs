@@ -375,7 +375,13 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
         .into_iter()
@@ -397,7 +403,7 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
             assert_eq!(
                 latest_message.unwrap().1,
                 slot.epoch(MinimalEthSpec::slots_per_epoch()),
-                "Latest message slot for {} should be equal to slot {}.",
+                "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
                 slot
             )
@@ -485,7 +491,13 @@ fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
     let slots: Vec<Slot> = validators

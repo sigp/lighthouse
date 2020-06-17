@@ -12,6 +12,7 @@ use tree_hash_derive::TreeHash;
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     Default,

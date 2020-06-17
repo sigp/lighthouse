@@ -154,7 +154,7 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
         "genesis_block_root should be equal"
     );
     assert!(
-        a.fork_choice == b.fork_choice,
+        *a.fork_choice.read() == *b.fork_choice.read(),
         "fork_choice should be equal"
     );
 }
