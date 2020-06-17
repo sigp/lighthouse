@@ -369,12 +369,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-
-
-    /* Internal functions */
-
     // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
-    fn addresses_of_peer(&self, peer_id: &PeerId) -> Vec<Multiaddr> {
+    pub fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
         if let Some(enr) = self.discovery.enr_of_peer(peer_id) {
             // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
             // port is removed, which is assumed to be associated with the discv5 protocol (and
@@ -395,6 +391,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             Vec::new()
         }
     }
+
+    /* Internal functions */
 
     // The underlying discovery server has updated our external IP address. We send this up to
     // notify libp2p.

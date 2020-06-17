@@ -87,11 +87,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     }
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        let mut out = Vec::new();
-        out.extend(self.gossipsub.addresses_of_peer(peer_id));
-        out.extend(self.eth2_rpc.addresses_of_peer(peer_id));
-        out.extend(self.identify.addresses_of_peer(peer_id));
-        out
+        self.peer_manager.addresses_of_peer(peer_id)
     }
 
     fn inject_connected(&mut self, peer_id: &PeerId) {
@@ -426,8 +422,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Returns an iterator over all enr entries in the DHT.
-    pub fn enr_entries(&self) -> Vec<Enr> {
-        self.peer_manager.discovery().table_entries_enr()
+    pub fn enr_entries(&mut self) -> Vec<Enr> {
+        self.peer_manager.discovery_mut().table_entries_enr()
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.

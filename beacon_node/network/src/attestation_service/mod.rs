@@ -71,9 +71,8 @@ impl PartialEq for AttServiceMessage {
                     subnet_id: other_subnet_id,
                     min_ttl: other_min_ttl,
                 },
-            ) => 
-                if subnet_id == other_subnet_id {
-
+            ) =>  {
+                subnet_id == other_subnet_id  &&
                 match (min_ttl, other_min_ttl) {
                 (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
                     min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
@@ -85,7 +84,7 @@ impl PartialEq for AttServiceMessage {
                     (None, Some(_)) => true,
                     (Some(_), None) => true,
                     }
-                },
+            }
             _ => false,
         }
     }
@@ -360,7 +359,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                             (None, Some(_)) => {} // Keep the current one as it has an actual min_ttl
                             (Some(min_ttl), None) => {
                                 // Update the request to include a min_ttl.
-                                *other_min_ttl = min_ttl;
+                                *other_min_ttl = Some(min_ttl);
                             } 
                             (None, None) => {}    // Duplicate message, do nothing.
                         }

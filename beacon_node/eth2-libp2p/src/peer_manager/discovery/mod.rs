@@ -33,12 +33,6 @@ use futures::stream::FuturesUnordered;
 mod subnet_predicate;
 use subnet_predicate::subnet_predicate;
 
-/// Maximum seconds before searching for extra peers.
-const MAX_TIME_BETWEEN_PEER_SEARCHES: u64 = 120;
-/// Initial delay between peer searches.
-const INITIAL_SEARCH_DELAY: u64 = 5;
-/// The number of peers we must be connected to before increasing the discovery delay.
-const MINIMUM_PEERS_BEFORE_DELAY_INCREASE: usize = 5;
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
 /// Target number of peers we'd like to have connected to a given long-lived subnet.
@@ -492,7 +486,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
 
         // Build the future
-        let query_future = self.discv5.find_node_predicate2(random_node, predicate, target_peers).map(|v| QueryResult(query,v));
+        let query_future = self.discv5.find_node_predicate(random_node, predicate, target_peers).map(|v| QueryResult(query,v));
 
         // Add the future to active queries, to be executed.
         self.active_queries.push(Box::pin(query_future));

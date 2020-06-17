@@ -1071,6 +1071,7 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "discv5"
 version = "0.1.0-alpha.4"
+source = "git+https://github.com/sigp/discv5?rev=8da698d66c3b7b817e8c8de74e506fa405e21b14#8da698d66c3b7b817e8c8de74e506fa405e21b14"
 dependencies = [
  "arrayvec 0.5.1",
  "digest",
@@ -6063,8 +6064,3 @@ dependencies = [
  "syn",
  "synstructure",
 ]
-
-[[patch.unused]]
-name = "web3"
-version = "0.12.0"
-source = "git+https://github.com/tomusdrw/rust-web3#befcb2fb8f3ca0a43e3081f68886fa327e64c8e6"
