@@ -19,7 +19,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use store::MemoryStore;
     use tempfile::tempdir;
-    use types::{BeaconState, CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
+    use types::{CommitteeIndex, EnrForkId, EthSpec, MinimalEthSpec};
 
     const SLOT_DURATION_MILLIS: u64 = 200;
 
@@ -105,17 +105,23 @@ mod tests {
         validator_index: u64,
         attestation_committee_index: CommitteeIndex,
         slot: Slot,
+        committee_count_at_slot: u64,
     ) -> ValidatorSubscription {
         let is_aggregator = true;
         ValidatorSubscription {
             validator_index,
             attestation_committee_index,
             slot,
+            committee_count_at_slot,
             is_aggregator,
         }
     }
 
-    fn _get_subscriptions(validator_count: u64, slot: Slot) -> Vec<ValidatorSubscription> {
+    fn _get_subscriptions(
+        validator_count: u64,
+        slot: Slot,
+        committee_count_at_slot: u64,
+    ) -> Vec<ValidatorSubscription> {
         let mut subscriptions: Vec<ValidatorSubscription> = Vec::new();
         for validator_index in 0..validator_count {
             let is_aggregator = true;
@@ -123,26 +129,11 @@ mod tests {
                 validator_index,
                 attestation_committee_index: validator_index,
                 slot,
+                committee_count_at_slot,
                 is_aggregator,
             });
         }
         subscriptions
-    }
-
-    fn get_state<T: BeaconChainTypes>(
-        beacon_chain: Arc<BeaconChain<T>>,
-    ) -> BeaconState<T::EthSpec> {
-        let current_slot = beacon_chain.slot().expect("Failed to get current slot");
-
-        let mut state = beacon_chain
-            .state_at_slot(current_slot, StateSkipConfig::WithoutStateRoots)
-            .expect("Failed to get beacon state");
-
-        // Ensure that the committee caches are built
-        state
-            .build_all_committee_caches(&beacon_chain.spec)
-            .expect("Failed to build committee caches");
-        state
     }
 
     // gets a number of events from the subscription service, or returns none if it times out after a number
@@ -180,6 +171,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 0;
         let no_events_expected = 4;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -193,9 +185,9 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
-        let state = get_state(attestation_service.beacon_chain.clone());
         // submit the subscriptions
         attestation_service
             .validator_subscriptions(subscriptions)
@@ -203,10 +195,10 @@ mod tests {
 
         // not enough time for peer discovery, just subscribe
         let expected = vec![AttServiceMessage::Subscribe(
-            SubnetId::compute_subnet_for_attestation(
-                &state,
+            SubnetId::compute_subnet::<MinimalEthSpec>(
                 current_slot + Slot::new(subscription_slot),
                 committee_index,
+                committee_count,
                 &attestation_service.beacon_chain.spec,
             )
             .unwrap(),
@@ -237,6 +229,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 0;
         let no_events_expected = 5;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -250,9 +243,8 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
-
-        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service
@@ -260,10 +252,10 @@ mod tests {
             .unwrap();
 
         // not enough time for peer discovery, just subscribe, unsubscribe
-        let subnet_id = SubnetId::compute_subnet_for_attestation(
-            &state,
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            committee_count,
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
@@ -297,6 +289,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 5;
         let no_events_expected = 4;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -310,9 +303,8 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
-
-        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service
@@ -328,10 +320,10 @@ mod tests {
         );
 
         // just discover peers, don't subscribe yet
-        let subnet_id = SubnetId::compute_subnet_for_attestation(
-            &state,
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            committee_count,
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
@@ -362,6 +354,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 5;
         let no_events_expected = 5;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -375,9 +368,8 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
-
-        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service
@@ -393,10 +385,10 @@ mod tests {
         );
 
         // we should discover peers, wait, then subscribe
-        let subnet_id = SubnetId::compute_subnet_for_attestation(
-            &state,
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            committee_count,
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
@@ -430,6 +422,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 7;
         let no_events_expected = 3;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -443,6 +436,7 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
         // submit the subscriptions
@@ -479,6 +473,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 10;
         let no_events_expected = 4;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -493,9 +488,8 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
-
-        let state = get_state(attestation_service.beacon_chain.clone());
 
         // submit the subscriptions
         attestation_service
@@ -510,10 +504,10 @@ mod tests {
                 .unwrap(),
         );
 
-        let subnet_id = SubnetId::compute_subnet_for_attestation(
-            &state,
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
             current_slot + Slot::new(subscription_slot),
             committee_index,
+            committee_count,
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
@@ -542,48 +536,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compute_subnet_two_epochs_ahead() {
-        // subscription config
-        let validator_index = 1;
-        let committee_index = 1;
-        let subscription_slot = MinimalEthSpec::slots_per_epoch() * 2;
-
-        // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service();
-        let current_slot = attestation_service
-            .beacon_chain
-            .slot_clock
-            .now()
-            .expect("Could not get current slot");
-
-        let subscriptions = vec![get_subscription(
-            validator_index,
-            committee_index,
-            current_slot + Slot::new(subscription_slot),
-        )];
-
-        let state = get_state(attestation_service.beacon_chain.clone());
-
-        // submit the subscriptions
-        attestation_service
-            .validator_subscriptions(subscriptions)
-            .unwrap();
-
-        // cannot compute subnet with lookahead > 1
-        assert!(SubnetId::compute_subnet_for_attestation(
-            &state,
-            current_slot + Slot::new(subscription_slot),
-            committee_index,
-            &attestation_service.beacon_chain.spec,
-        )
-        .is_err());
-    }
-
-    #[tokio::test]
     async fn subscribe_all_random_subnets() {
         // subscribe 10 slots ahead so we do not produce any exact subnet messages
         let subscription_slot = 10;
         let subscription_count = 64;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -593,8 +550,11 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions =
-            _get_subscriptions(subscription_count, current_slot + subscription_slot);
+        let subscriptions = _get_subscriptions(
+            subscription_count,
+            current_slot + subscription_slot,
+            committee_count,
+        );
 
         // submit the subscriptions
         attestation_service
@@ -632,6 +592,7 @@ mod tests {
         let subscription_slot = 10;
         // the 65th subscription should result in no more messages than the previous scenario
         let subscription_count = 65;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -641,8 +602,11 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions =
-            _get_subscriptions(subscription_count, current_slot + subscription_slot);
+        let subscriptions = _get_subscriptions(
+            subscription_count,
+            current_slot + subscription_slot,
+            committee_count,
+        );
 
         // submit the subscriptions
         attestation_service
