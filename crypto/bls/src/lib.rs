@@ -18,7 +18,7 @@ pub use milagro_bls::{compress_g2, hash_to_curve_g2};
 pub use plain_text::PlainText;
 pub use signature_set::{verify_signature_sets, SignatureSet};
 
-#[cfg(feature = "with-arbitrary")]
+#[cfg(feature = "arbitrary")]
 pub use arbitrary;
 
 #[cfg(feature = "fake_crypto")]

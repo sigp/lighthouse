@@ -20,4 +20,3 @@ zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
 
 [features]
 fake_crypto = []
-with-arbitrary = ["arbitrary"]
