@@ -48,7 +48,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
         self.db
-            .get(self.read_options(), column_key)
+            .get(self.read_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
             .map(|opt| {
                 opt.map(|bytes| {
@@ -68,7 +68,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         self.db
-            .put(self.write_options(), column_key, val)
+            .put(self.write_options(), BytesKey::from_vec(column_key), val)
             .map_err(Into::into)
             .map(|()| {
                 metrics::stop_timer(timer);
@@ -82,7 +82,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
 
         self.db
-            .get(self.read_options(), column_key)
+            .get(self.read_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
             .and_then(|val| Ok(val.is_some()))
     }
@@ -94,34 +94,16 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
 
         self.db
-            .delete(self.write_options(), column_key)
+            .delete(self.write_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
     }
 
-    fn do_atomically(&self, ops_batch: &[StoreOp]) -> Result<(), Error> {
+    fn do_atomically(&self, ops_batch: &[KeyValueStoreOp]) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
-        for op in ops_batch {
+        for op in ops_batch.into_iter() {
             match op {
-                StoreOp::DeleteBlock(block_hash) => {
-                    let untyped_hash: Hash256 = (*block_hash).into();
-                    let key =
-                        get_key_for_col(DBColumn::BeaconBlock.into(), untyped_hash.as_bytes());
-                    leveldb_batch.delete(key);
-                }
-
-                StoreOp::DeleteState(state_hash, slot) => {
-                    let untyped_hash: Hash256 = (*state_hash).into();
-                    let state_summary_key = get_key_for_col(
-                        DBColumn::BeaconStateSummary.into(),
-                        untyped_hash.as_bytes(),
-                    );
-                    leveldb_batch.delete(state_summary_key);
-
-                    if *slot % E::slots_per_epoch() == 0 {
-                        let state_key =
-                            get_key_for_col(DBColumn::BeaconState.into(), untyped_hash.as_bytes());
-                        leveldb_batch.delete(state_key);
-                    }
+                KeyValueStoreOp::DeleteKey(key) => {
+                    leveldb_batch.delete(BytesKey::from_vec(key.to_vec()));
                 }
             }
         }
@@ -147,10 +129,10 @@ impl Key for BytesKey {
     }
 }
 
-fn get_key_for_col(col: &str, key: &[u8]) -> BytesKey {
-    let mut col = col.as_bytes().to_vec();
-    col.append(&mut key.to_vec());
-    BytesKey { key: col }
+impl BytesKey {
+    fn from_vec(key: Vec<u8>) -> Self {
+        Self { key }
+    }
 }
 
 impl From<LevelDBError> for Error {

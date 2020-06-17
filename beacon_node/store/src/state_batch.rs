@@ -1,4 +1,4 @@
-use crate::{Error, HotStateSummary, Store};
+use crate::{Error, HotColdDB, HotStateSummary, ItemStore};
 use types::{BeaconState, EthSpec, Hash256};
 
 /// A collection of states to be stored in the database.
@@ -36,7 +36,10 @@ impl<E: EthSpec> StateBatch<E> {
     /// Write the batch to the database.
     ///
     /// May fail to write the full batch if any of the items error (i.e. not atomic!)
-    pub fn commit<S: Store<E>>(self, store: &S) -> Result<(), Error> {
+    pub fn commit<Hot: ItemStore<E>, Cold: ItemStore<E>>(
+        self,
+        store: &HotColdDB<E, Hot, Cold>,
+    ) -> Result<(), Error> {
         self.items.into_iter().try_for_each(|item| match item {
             BatchItem::Full(state_root, state) => store.put_state(&state_root, &state),
             BatchItem::Summary(state_root, summary) => {

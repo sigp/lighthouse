@@ -17,6 +17,7 @@ use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
 use std::sync::Arc;
 use std::time::Duration;
+use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
 use types::EthSpec;
@@ -40,7 +41,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
     /// A reference to lighthouse's database to persist the DHT.
-    store: Arc<T::Store>,
+    store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// A delay that expires when a new fork takes place.
@@ -78,7 +79,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (network_globals, mut libp2p) =
             LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log)?;
 
-        for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
+        for enr in load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone()) {
             libp2p.swarm.add_enr(enr);
         }
 
@@ -142,7 +143,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         "Number of peers" => format!("{}", enrs.len()),
                     );
 
-                    match persist_dht::<T::Store, T::EthSpec>(service.store.clone(), enrs) {
+                    match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(service.store.clone(), enrs) {
                         Err(e) => error!(
                             service.log,
                             "Failed to persist DHT on drop";

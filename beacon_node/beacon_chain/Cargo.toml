@@ -49,4 +49,4 @@ safe_arith = { path = "../../consensus/safe_arith" }
 fork_choice = { path = "../../consensus/fork_choice" }
 environment = { path = "../../lighthouse/environment" }
 bus = "2.2.3"
-
+itertools = "0.9.0"

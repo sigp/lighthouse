@@ -7,6 +7,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
     BeaconSnapshot, BlockError,
 };
+use store::config::StoreConfig;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
     AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, EthSpec, Hash256,
@@ -47,7 +48,11 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
-    let harness = BeaconChainHarness::new(MainnetEthSpec, KEYPAIRS[0..validator_count].to_vec());
+    let harness = BeaconChainHarness::new(
+        MainnetEthSpec,
+        KEYPAIRS[0..validator_count].to_vec(),
+        StoreConfig::default(),
+    );
 
     harness.advance_slot();
 

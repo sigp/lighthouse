@@ -15,8 +15,6 @@ serde = "1.0.110"
 serde_derive = "1.0.110"
 lazy_static = "1.4.0"
 serde_yaml = "0.8.11"
-beacon_chain = { path = "../../beacon_node/beacon_chain" }
-store = { path = "../../beacon_node/store" }
 
 [dependencies]
 bls = { path = "../../crypto/bls" }
