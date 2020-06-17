@@ -1,7 +1,7 @@
 use crate::peer_manager::{PeerManager, PeerManagerEvent};
 use crate::rpc::*;
-use crate::Eth2Enr;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use crate::Eth2Enr;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, BehaviourHandlerOut, DelegateIn, DelegateOut};
@@ -79,11 +79,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     type OutEvent = BehaviourEvent<TSpec>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        BehaviourHandler::new(
-            &mut self.gossipsub,
-            &mut self.eth2_rpc,
-            &mut self.identify,
-        )
+        BehaviourHandler::new(&mut self.gossipsub, &mut self.eth2_rpc, &mut self.identify)
     }
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
@@ -413,13 +409,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Notify discovery that the peer has been banned.
     // TODO: Remove this and integrate all disconnection/banning logic inside the peer manager.
-    pub fn peer_banned(&mut self, _peer_id: PeerId) {
-    }
+    pub fn peer_banned(&mut self, _peer_id: PeerId) {}
 
     /// Notify discovery that the peer has been unbanned.
     // TODO: Remove this and integrate all disconnection/banning logic inside the peer manager.
-    pub fn peer_unbanned(&mut self, _peer_id: &PeerId) {
-    }
+    pub fn peer_unbanned(&mut self, _peer_id: &PeerId) {}
 
     /// Returns an iterator over all enr entries in the DHT.
     pub fn enr_entries(&mut self) -> Vec<Enr> {
@@ -435,7 +429,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
     pub fn update_enr_subnet(&mut self, subnet_id: SubnetId, value: bool) {
-        if let Err(e) = self.peer_manager.discovery_mut().update_enr_bitfield(subnet_id, value) {
+        if let Err(e) = self
+            .peer_manager
+            .discovery_mut()
+            .update_enr_bitfield(subnet_id, value)
+        {
             crit!(self.log, "Could not update ENR bitfield"; "error" => e);
         }
         // update the local meta data which informs our peers of the update during PINGS
@@ -450,7 +448,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.
     pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
-        self.peer_manager.discovery_mut().update_eth2_enr(enr_fork_id.clone());
+        self.peer_manager
+            .discovery_mut()
+            .update_eth2_enr(enr_fork_id.clone());
 
         // unsubscribe from all gossip topics and re-subscribe to their new fork counterparts
         let subscribed_topics = self
@@ -481,7 +481,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Updates the current meta data of the node to match the local ENR.
     fn update_metadata(&mut self) {
         self.meta_data.seq_number += 1;
-        self.meta_data.attnets = self.peer_manager.discovery()
+        self.meta_data.attnets = self
+            .peer_manager
+            .discovery()
             .local_enr()
             .bitfield::<TSpec>()
             .expect("Local discovery must have bitfield");
@@ -724,11 +726,14 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             match self.peer_manager.poll_next_unpin(cx) {
                 Poll::Ready(Some(event)) => match event {
                     PeerManagerEvent::Dial(peer_id) => {
-                        return Poll::Ready(NBAction::DialPeer { peer_id, condition: libp2p::swarm::DialPeerCondition::Disconnected });
-                   }
-                   PeerManagerEvent::SocketUpdated(address) => {
-                        return Poll::Ready(NBAction::ReportObservedAddr{address } );
-                   }
+                        return Poll::Ready(NBAction::DialPeer {
+                            peer_id,
+                            condition: libp2p::swarm::DialPeerCondition::Disconnected,
+                        });
+                    }
+                    PeerManagerEvent::SocketUpdated(address) => {
+                        return Poll::Ready(NBAction::ReportObservedAddr { address });
+                    }
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
                         // the network to send a status to this peer

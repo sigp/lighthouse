@@ -110,7 +110,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn peer_banned(&self, peer_id: &PeerId) -> bool {
         match self.peers.get(peer_id).map(|info| &info.connection_status) {
             Some(status) => status.is_banned(),
-            None => false
+            None => false,
         }
     }
 

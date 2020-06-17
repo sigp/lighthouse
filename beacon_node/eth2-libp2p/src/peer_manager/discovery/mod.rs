@@ -4,8 +4,8 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 pub use enr::{build_enr, CombinedKey, Eth2Enr};
-pub use libp2p::core::identity::Keypair;
 pub use enr_ext::{CombinedKeyExt, EnrExt};
+pub use libp2p::core::identity::Keypair;
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
@@ -14,6 +14,7 @@ use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use libp2p::core::PeerId;
 // use libp2p::multiaddr::Protocol;
+use futures::stream::FuturesUnordered;
 use lru::LruCache;
 use slog::{crit, debug, info, trace, warn};
 use ssz::{Decode, Encode};
@@ -28,7 +29,6 @@ use std::{
 };
 use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec, SubnetId};
-use futures::stream::FuturesUnordered;
 
 mod subnet_predicate;
 use subnet_predicate::subnet_predicate;
@@ -60,7 +60,7 @@ pub enum DiscoveryEvent {
 enum QueryType {
     /// We are searching for subnet peers.
     Subnet {
-        subnet_id: SubnetId, 
+        subnet_id: SubnetId,
         min_ttl: Option<Instant>,
         retries: usize,
     },
@@ -73,10 +73,10 @@ impl QueryType {
     pub fn expired(&self) -> bool {
         match self {
             Self::FindPeers => false,
-            Self::Subnet{ min_ttl, .. } => {
+            Self::Subnet { min_ttl, .. } => {
                 if let Some(ttl) = min_ttl {
                     ttl > &Instant::now()
-                } else  {
+                } else {
                     true
                 }
             }
@@ -117,8 +117,8 @@ pub struct Discovery<TSpec: EthSpec> {
     /// A queue of discovery queries to be processed.
     queued_queries: VecDeque<QueryType>,
 
-    /// Active discovery queries. 
-    active_queries: FuturesUnordered<std::pin::Pin<Box<dyn Future<Output=QueryResult> + Send>>>,
+    /// Active discovery queries.
+    active_queries: FuturesUnordered<std::pin::Pin<Box<dyn Future<Output = QueryResult> + Send>>>,
 
     /// The discv5 event stream.
     event_stream: mpsc::Receiver<Discv5Event>,
@@ -152,12 +152,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&local_key)?;
 
         // TODO: Add executor
-        let mut discv5 = Discv5::new(
-            local_enr,
-            enr_key,
-            config.discv5_config.clone(),
-        )
-        .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
+        let mut discv5 = Discv5::new(local_enr, enr_key, config.discv5_config.clone())
+            .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes.clone() {
@@ -184,9 +180,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         debug!(log, "Discovery service started");
 
         // obtain the event stream
-        let event_stream_fut = async {
-            discv5.event_stream().await
-        };
+        let event_stream_fut = async { discv5.event_stream().await };
 
         // Must be spawned within a tokio executor
         let event_stream = match tokio::runtime::Handle::current().block_on(event_stream_fut) {
@@ -222,10 +216,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             trace!(self.log, "Queuing a peer discovery request");
             self.queued_queries.push_back(query);
             // update the metrics
-        metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
     }
-
 
     /// Processes a request to search for more peers on a subnet.
     pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
@@ -235,7 +228,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
     /// updates the min_ttl field.
     fn add_subnet_query(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>, retries: usize) {
-
         // remove the entry and complete the query if greater than the maximum search count
         if retries >= MAX_DISCOVERY_RETRY {
             debug!(
@@ -249,8 +241,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // already exists
         let mut found = false;
         for query in self.queued_queries.iter_mut() {
-            if let QueryType::Subnet {subnet_id: ref mut q_subnet_id, min_ttl: ref mut q_min_ttl, retries: ref mut q_retries } = query {
-                    if *q_subnet_id == subnet_id {
+            if let QueryType::Subnet {
+                subnet_id: ref mut q_subnet_id,
+                min_ttl: ref mut q_min_ttl,
+                retries: ref mut q_retries,
+            } = query
+            {
+                if *q_subnet_id == subnet_id {
                     if *q_min_ttl < min_ttl {
                         *q_min_ttl = min_ttl;
                     }
@@ -382,7 +379,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /* Internal Functions */
 
-    /// Consume the discovery queue and initiate queries when applicable. 
+    /// Consume the discovery queue and initiate queries when applicable.
     ///
     /// This also sanitizes the queue removing out-dated queries.
     fn process_queue(&mut self) {
@@ -397,9 +394,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     // This is a regular request to find additional peers
                     debug!(self.log, "Searching for new peers");
                     self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS);
-
                 }
-                Some(QueryType::Subnet { subnet_id, min_ttl, retries }) => {
+                Some(QueryType::Subnet {
+                    subnet_id,
+                    min_ttl,
+                    retries,
+                }) => {
                     // This query is for searching for peers of a particular subnet
                     self.start_subnet_query(subnet_id, min_ttl, retries);
                 }
@@ -419,8 +419,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Runs a discovery request for a given subnet_id if one already exists.
-    fn start_subnet_query(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>, retries: usize) {
-
+    fn start_subnet_query(
+        &mut self,
+        subnet_id: SubnetId,
+        min_ttl: Option<Instant>,
+        retries: usize,
+    ) {
         // Determine if we have sufficient peers, which may make this discovery unnecessary.
         let peers_on_subnet = self
             .network_globals
@@ -448,18 +452,20 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         );
 
         // start the query, and update the queries map if necessary
-        let query = QueryType::Subnet{ subnet_id, min_ttl, retries };
+        let query = QueryType::Subnet {
+            subnet_id,
+            min_ttl,
+            retries,
+        };
         self.start_query(query, target_peers);
     }
-
 
     /// Search for a specified number of new peers using the underlying discovery mechanism.
     ///
     /// This can optionally search for peers for a given predicate. Regardless of the predicate
     /// given, this will only search for peers on the same enr_fork_id as specified in the local
     /// ENR.
-    fn start_query(&mut self, query: QueryType, target_peers: usize) 
-    {
+    fn start_query(&mut self, query: QueryType, target_peers: usize) {
         // Generate a random target node id.
         let random_node = NodeId::random();
 
@@ -473,7 +479,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // predicate for finding nodes with a matching fork
         let eth2_fork_predicate = move |enr: &Enr| enr.eth2() == Ok(enr_fork_id.clone());
 
-
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> = match &query {
             QueryType::FindPeers => Box::new(eth2_fork_predicate),
@@ -481,12 +486,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 // build the subnet predicate as a combination of the eth2_fork_predicate and the
                 // subnet predicate
                 let subnet_predicate = subnet_predicate::<TSpec>(subnet_id.clone(), &self.log);
-                Box::new(move | enr: &Enr| eth2_fork_predicate(enr) && subnet_predicate(enr))
+                Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && subnet_predicate(enr))
             }
         };
 
         // Build the future
-        let query_future = self.discv5.find_node_predicate(random_node, predicate, target_peers).map(|v| QueryResult(query,v));
+        let query_future = self
+            .discv5
+            .find_node_predicate(random_node, predicate, target_peers)
+            .map(|v| QueryResult(query, v));
 
         // Add the future to active queries, to be executed.
         self.active_queries.push(Box::pin(query_future));
@@ -496,49 +504,46 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     fn poll_queries(&mut self, cx: &mut Context) -> Option<(Option<Instant>, Vec<Enr>)> {
         while let Poll::Ready(Some(query_future)) = self.active_queries.poll_next_unpin(cx) {
             match query_future.0 {
-                QueryType::FindPeers => {
-                match query_future.1 {
-                    Ok(r) if !r.is_empty() =>  {
-                            debug!(self.log, "Discovery query yielded no results.");
+                QueryType::FindPeers => match query_future.1 {
+                    Ok(r) if !r.is_empty() => {
+                        debug!(self.log, "Discovery query yielded no results.");
                     }
-                    Ok(r) =>  {
+                    Ok(r) => {
                         debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
                         return Some((None, r));
                     }
                     Err(e) => {
                         warn!(self.log, "Discovery query failed"; "error" => e.to_string());
                     }
-                }
-                }
-                QueryType::Subnet{subnet_id, min_ttl, retries } => {
-                match query_future.1 {
-                    Ok(r) if !r.is_empty() =>  {
+                },
+                QueryType::Subnet {
+                    subnet_id,
+                    min_ttl,
+                    retries,
+                } => {
+                    match query_future.1 {
+                        Ok(r) if !r.is_empty() => {
                             debug!(self.log, "Subnet discovery query yielded no results."; "subnet_id" => *subnet_id, "retries" => retries);
+                        }
+                        Ok(r) => {
+                            debug!(self.log, "Peer subnet discovery request completed"; "peers_found" => r.len(), "subnet_id" => *subnet_id);
+                            // A subnet query has completed. Add back to the queue, incrementing retries.
+                            self.add_subnet_query(subnet_id, min_ttl, retries + 1);
+                            // Report the results back to the peer manager.
+                            return Some((query_future.0.min_ttl(), r));
+                        }
+                        Err(e) => {
+                            warn!(self.log,"Subnet Discovery query failed"; "subnet_id" => *subnet_id, "error" => e.to_string());
+                        }
                     }
-                    Ok(r) =>  {
-                    debug!(self.log, "Peer subnet discovery request completed"; "peers_found" => r.len(), "subnet_id" => *subnet_id);
-                    // A subnet query has completed. Add back to the queue, incrementing retries.
-                    self.add_subnet_query(subnet_id, min_ttl, retries + 1);
-                    // Report the results back to the peer manager.
-                    return Some((query_future.0.min_ttl(), r));
-                    }
-                    Err(e) => {
-                        warn!(self.log,"Subnet Discovery query failed"; "subnet_id" => *subnet_id, "error" => e.to_string());
-                    }
-                }
                 }
             }
-        } 
-        None 
+        }
+        None
     }
 
     // Main execution loop to be driven by the peer manager.
-    pub fn poll(
-        &mut self,
-        cx: &mut Context,
-    ) -> Poll<DiscoveryEvent>
-    {
-
+    pub fn poll(&mut self, cx: &mut Context) -> Poll<DiscoveryEvent> {
         // Process the query queue
         self.process_queue();
 
@@ -549,38 +554,38 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 self.cached_enrs.put(enr.peer_id(), enr);
             }
             // return the result to the peer manager
-            return Poll::Ready(DiscoveryEvent::QueryResult(min_ttl, Box::new(result) ));
+            return Poll::Ready(DiscoveryEvent::QueryResult(min_ttl, Box::new(result)));
         }
 
-        // Process the server event stream 
+        // Process the server event stream
         while let Ok(event) = self.event_stream.try_recv() {
             match event {
                 // We filter out unwanted discv5 events here and only propagate useful results to
                 // the peer manager.
-                        Discv5Event::Discovered(_enr) => {
-                            // Peers that get discovered during a query but are not contactable or
-                            // don't match a predicate can end up here. For debugging purposes we
-                            // log these to see if we are unnecessarily dropping discovered peers
-                            /*
-                            if enr.eth2() == self.local_enr().eth2() {
-                                trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
-                            } else {
-                                // this is temporary warning for debugging the DHT
-                                warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
-                            }
-                            */
-                        }
-                        Discv5Event::SocketUpdated(socket) => {
-                            info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
-                            metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
-                            // Discv5 will have updated our local ENR. We save the updated version
-                            // to disk.
-                            let enr = self.discv5.local_enr();
-                            enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
-                            return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
-                        }
-                        _ => {  }// Ignore all other discv5 server events
+                Discv5Event::Discovered(_enr) => {
+                    // Peers that get discovered during a query but are not contactable or
+                    // don't match a predicate can end up here. For debugging purposes we
+                    // log these to see if we are unnecessarily dropping discovered peers
+                    /*
+                    if enr.eth2() == self.local_enr().eth2() {
+                        trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                    } else {
+                        // this is temporary warning for debugging the DHT
+                        warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                    }
+                    */
                 }
+                Discv5Event::SocketUpdated(socket) => {
+                    info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
+                    metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
+                    // Discv5 will have updated our local ENR. We save the updated version
+                    // to disk.
+                    let enr = self.discv5.local_enr();
+                    enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
+                    return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
+                }
+                _ => {} // Ignore all other discv5 server events
+            }
         }
         Poll::Pending
     }

@@ -2,11 +2,11 @@
 
 pub use discv5::enr::{self, CombinedKey, EnrBuilder};
 
-use libp2p::core::identity::Keypair;
+use super::enr_ext::CombinedKeyExt;
 use super::ENR_FILENAME;
 use crate::types::{Enr, EnrBitfield};
-use super::enr_ext::CombinedKeyExt;
 use crate::NetworkConfig;
+use libp2p::core::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;

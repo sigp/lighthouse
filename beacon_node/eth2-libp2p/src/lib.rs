@@ -20,5 +20,9 @@ pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use peer_manager::discovery;
-pub use peer_manager::{discovery::{CombinedKeyExt, EnrExt, Eth2Enr}, client::Client, PeerDB, PeerInfo, PeerSyncStatus, SyncInfo};
+pub use peer_manager::{
+    client::Client,
+    discovery::{CombinedKeyExt, EnrExt, Eth2Enr},
+    PeerDB, PeerInfo, PeerSyncStatus, SyncInfo,
+};
 pub use service::{Libp2pEvent, Service, NETWORK_KEY_FILENAME};

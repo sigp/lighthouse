@@ -1,26 +1,32 @@
 //! Implementation of a Lighthouse's peer management system.
 
 pub use self::peerdb::*;
-use crate::{metrics,error};
 use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
-use crate::{NetworkGlobals, PeerId, NetworkConfig, Enr, EnrExt};
+use crate::{error, metrics};
+use crate::{Enr, EnrExt, NetworkConfig, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
-use libp2p::identify::IdentifyInfo;
 use libp2p::core::multiaddr::Protocol as MProtocol;
+use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error};
 use smallvec::SmallVec;
-use std::{pin::Pin, sync::Arc,task::{Context, Poll},time::{Duration, Instant}, net::SocketAddr};
-use types::{SubnetId, EthSpec};
+use std::{
+    net::SocketAddr,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::{Duration, Instant},
+};
+use types::{EthSpec, SubnetId};
 
-pub use libp2p::core::{Multiaddr, identity::Keypair};
+pub use libp2p::core::{identity::Keypair, Multiaddr};
 
 pub mod client;
+pub mod discovery;
 mod peer_info;
 mod peer_sync_status;
 mod peerdb;
-pub mod discovery;
 
 use discovery::{Discovery, DiscoveryEvent};
 
@@ -117,8 +123,12 @@ pub enum PeerManagerEvent {
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
-    pub fn new(local_key: &Keypair, config: &NetworkConfig, network_globals: Arc<NetworkGlobals<TSpec>>, log: &slog::Logger) -> error::Result<Self> {
-
+    pub fn new(
+        local_key: &Keypair,
+        config: &NetworkConfig,
+        network_globals: Arc<NetworkGlobals<TSpec>>,
+        log: &slog::Logger,
+    ) -> error::Result<Self> {
         // start the discovery service
         let mut discovery = Discovery::new(local_key, config, network_globals.clone(), log)?;
 
@@ -133,7 +143,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
             target_peers: config.max_peers, //TODO: Add support for target peers and max peers
-            discovery, 
+            discovery,
             heartbeat,
             log: log.clone(),
         })
@@ -152,10 +162,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn discovery_mut(&mut self) -> &mut Discovery<TSpec> {
         &mut self.discovery
     }
-    
+
     /// A request to find peers on a given subnet.
     pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
-
         // Extend the time to maintain peers if required.
         if let Some(min_ttl) = min_ttl {
             self.network_globals
@@ -413,7 +422,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// proves resource constraining, we should switch to multiaddr dialling here.
     fn peers_discovered(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
         for enr in peers {
-
             let peer_id = enr.peer_id();
 
             // if we need more peers, attempt a connection
@@ -436,10 +444,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         .update_min_ttl(&peer_id, min_ttl);
                 }
                 self.events.push(PeerManagerEvent::Dial(peer_id));
-          }
+            }
         }
     }
-
 
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
     /// dialed or connecting to us.
@@ -580,11 +587,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
     ///
     /// It will request discovery queries if the peer count has not reached the desired number of
-    /// peers. 
+    /// peers.
     ///
-    /// NOTE: Discovery will only add a new query if one isn't already queued. 
+    /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
-
         // TODO: Provide a back-off time for discovery queries. I.e Queue many initially, then only
         // perform discoveries over a larger fixed interval. Perhaps one every 6 heartbeats
         let peer_count = self.network_globals.connected_or_dialing_peers();
@@ -595,20 +601,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // TODO: If we have too many peers, remove peers that are not required for subnet
         // validation.
-        
 
         // TODO: Perform peer reputation maintenance here
-
     }
-
-
 }
 
 impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
     type Item = PeerManagerEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-
         // perform the heartbeat when necessary
         while let Poll::Ready(Some(_)) = self.heartbeat.poll_next_unpin(cx) {
             self.heartbeat();
@@ -618,7 +619,9 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         while let Poll::Ready(event) = self.discovery.poll(cx) {
             match event {
                 DiscoveryEvent::SocketUpdated(socket_addr) => self.socket_updated(socket_addr),
-                DiscoveryEvent::QueryResult(min_ttl, peers) => self.peers_discovered(*peers, min_ttl),
+                DiscoveryEvent::QueryResult(min_ttl, peers) => {
+                    self.peers_discovered(*peers, min_ttl)
+                }
             }
         }
 

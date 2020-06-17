@@ -117,7 +117,7 @@ impl Default for Config {
             .query_parallelism(5)
             .query_timeout(Duration::from_secs(60))
             .query_peer_timeout(Duration::from_secs(2))
-            .ip_limit() // limits /24 IP's in buckets. 
+            .ip_limit() // limits /24 IP's in buckets.
             .ping_interval(Duration::from_secs(300))
             .build();
 

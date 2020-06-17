@@ -71,18 +71,18 @@ impl PartialEq for AttServiceMessage {
                     subnet_id: other_subnet_id,
                     min_ttl: other_min_ttl,
                 },
-            ) =>  {
-                subnet_id == other_subnet_id  &&
-                match (min_ttl, other_min_ttl) {
-                (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
-                    min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
-                        < DURATION_DIFFERENCE
-                        && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
-                            < DURATION_DIFFERENCE
-                    }
-                    (None, None) => true,
-                    (None, Some(_)) => true,
-                    (Some(_), None) => true,
+            ) => {
+                subnet_id == other_subnet_id
+                    && match (min_ttl, other_min_ttl) {
+                        (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
+                            min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
+                                < DURATION_DIFFERENCE
+                                && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
+                                    < DURATION_DIFFERENCE
+                        }
+                        (None, None) => true,
+                        (None, Some(_)) => true,
+                        (Some(_), None) => true,
                     }
             }
             _ => false,
@@ -360,8 +360,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                             (Some(min_ttl), None) => {
                                 // Update the request to include a min_ttl.
                                 *other_min_ttl = Some(min_ttl);
-                            } 
-                            (None, None) => {}    // Duplicate message, do nothing.
+                            }
+                            (None, None) => {} // Duplicate message, do nothing.
                         }
                         is_duplicate = true;
                         return;

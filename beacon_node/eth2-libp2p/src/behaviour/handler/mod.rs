@@ -26,11 +26,7 @@ pub struct BehaviourHandler<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> BehaviourHandler<TSpec> {
-    pub fn new(
-        gossipsub: &mut Gossipsub,
-        rpc: &mut RPC<TSpec>,
-        identify: &mut Identify,
-    ) -> Self {
+    pub fn new(gossipsub: &mut Gossipsub, rpc: &mut RPC<TSpec>, identify: &mut Identify) -> Self {
         BehaviourHandler {
             delegate: DelegatingHandler::new(gossipsub, rpc, identify),
             keep_alive: KeepAlive::Yes,

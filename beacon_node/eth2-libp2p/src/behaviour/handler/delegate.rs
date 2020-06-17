@@ -30,11 +30,7 @@ pub(super) struct DelegatingHandler<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> DelegatingHandler<TSpec> {
-    pub fn new(
-        gossipsub: &mut Gossipsub,
-        rpc: &mut RPC<TSpec>,
-        identify: &mut Identify,
-    ) -> Self {
+    pub fn new(gossipsub: &mut Gossipsub, rpc: &mut RPC<TSpec>, identify: &mut Identify) -> Self {
         DelegatingHandler {
             gossip_handler: gossipsub.new_handler(),
             rpc_handler: rpc.new_handler(),
@@ -119,14 +115,16 @@ impl<TSpec: EthSpec> std::fmt::Display for DelegateError<TSpec> {
 pub type DelegateInProto<TSpec> = SelectUpgrade<
     <GossipHandler as ProtocolsHandler>::InboundProtocol,
     SelectUpgrade<
-        <RPCHandler<TSpec> as ProtocolsHandler>::InboundProtocol, <IdentifyHandler as ProtocolsHandler>::InboundProtocol,
+        <RPCHandler<TSpec> as ProtocolsHandler>::InboundProtocol,
+        <IdentifyHandler as ProtocolsHandler>::InboundProtocol,
     >,
 >;
 
 pub type DelegateOutProto<TSpec> = EitherUpgrade<
     <GossipHandler as ProtocolsHandler>::OutboundProtocol,
     EitherUpgrade<
-        <RPCHandler<TSpec> as ProtocolsHandler>::OutboundProtocol, <IdentifyHandler as ProtocolsHandler>::OutboundProtocol,
+        <RPCHandler<TSpec> as ProtocolsHandler>::OutboundProtocol,
+        <IdentifyHandler as ProtocolsHandler>::OutboundProtocol,
     >,
 >;
 
@@ -135,7 +133,7 @@ pub type DelegateOutInfo<TSpec> = EitherOutput<
     <GossipHandler as ProtocolsHandler>::OutboundOpenInfo,
     EitherOutput<
         <RPCHandler<TSpec> as ProtocolsHandler>::OutboundOpenInfo,
-            <IdentifyHandler as ProtocolsHandler>::OutboundOpenInfo,
+        <IdentifyHandler as ProtocolsHandler>::OutboundOpenInfo,
     >,
 >;
 
@@ -160,10 +158,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
 
         let select = SelectUpgrade::new(
             gossip_proto.into_upgrade().1,
-            SelectUpgrade::new(
-                rpc_proto.into_upgrade().1,
-                identify_proto.into_upgrade().1,
-                ),
+            SelectUpgrade::new(rpc_proto.into_upgrade().1, identify_proto.into_upgrade().1),
         );
 
         SubstreamProtocol::new(select).with_timeout(timeout)
@@ -369,8 +364,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             }
             Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                    protocol: protocol
-                        .map_upgrade(|u| EitherUpgrade::B(EitherUpgrade::B(u))),
+                    protocol: protocol.map_upgrade(|u| EitherUpgrade::B(EitherUpgrade::B(u))),
                     info: EitherOutput::Second(EitherOutput::Second(info)),
                 });
             }
