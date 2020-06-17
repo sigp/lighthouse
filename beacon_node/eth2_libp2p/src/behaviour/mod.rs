@@ -246,14 +246,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         );
 
         let enr_fork_id = network_globals
-            .local_enr
-            .read()
+            .local_enr()
             .eth2()
             .expect("Local ENR must have a fork id");
 
         let attnets = network_globals
-            .local_enr
-            .read()
+            .local_enr()
             .bitfield::<TSpec>()
             .expect("Local ENR must have subnet bitfield");
 
@@ -274,6 +272,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             enr_fork_id,
             log: behaviour_log,
         })
+    }
+
+    /// Returns the local ENR of the node.
+    pub fn local_enr(&self) -> Enr {
+        self.network_globals.local_enr()
     }
 
     /// Obtain a reference to the gossipsub protocol.

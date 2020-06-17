@@ -80,6 +80,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let db_path = client_config.create_db_path()?;
         let freezer_db_path_res = client_config.create_freezer_db_path();
 
+        let executor = context.executor.clone();
+
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
@@ -116,6 +118,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let (builder, events) = builder
             .system_time_slot_clock()?
             .tee_event_handler(client_config.websocket_server.clone())?;
+
+
+        // Inject the executor into the discv5 network config.
+        client_config.network.discv5_config.executor = Some(Box::new(executor));
 
         let builder = builder
             .build_beacon_chain()?

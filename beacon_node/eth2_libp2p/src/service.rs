@@ -121,7 +121,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             let transport = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
+            let behaviour = Behaviour::new(&local_keypair,config, network_globals.clone(), &log)?;
 
             // use the executor for libp2p
             struct Executor(environment::TaskExecutor);

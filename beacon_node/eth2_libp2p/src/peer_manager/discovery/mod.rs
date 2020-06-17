@@ -26,6 +26,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
     time::Instant,
+    pin::Pin,
 };
 use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec, SubnetId};
@@ -98,6 +99,18 @@ impl QueryType {
 /// The result of a query.
 struct QueryResult(QueryType, Result<Vec<Enr>, discv5::QueryError>);
 
+// Awaiting the event stream future
+enum EventStream {
+    /// Awaiting an event stream to be generated. This is required due to the poll nature of
+    /// `Discovery`
+    Awaiting(Pin<Box<dyn Future<Output=Result<mpsc::Receiver<Discv5Event>, discv5::Discv5Error>>+ Send>>),
+    /// The future has completed.
+    Present(mpsc::Receiver<Discv5Event>),
+    // The future has failed, there are no events from discv5.
+    Failed
+}
+
+
 pub struct Discovery<TSpec: EthSpec> {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
     cached_enrs: LruCache<PeerId, Enr>,
@@ -121,7 +134,7 @@ pub struct Discovery<TSpec: EthSpec> {
     active_queries: FuturesUnordered<std::pin::Pin<Box<dyn Future<Output = QueryResult> + Send>>>,
 
     /// The discv5 event stream.
-    event_stream: mpsc::Receiver<Discv5Event>,
+    event_stream: EventStream,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -151,7 +164,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&local_key)?;
 
-        // TODO: Add executor
         let mut discv5 = Discv5::new(local_enr, enr_key, config.discv5_config.clone())
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
@@ -180,16 +192,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         debug!(log, "Discovery service started");
 
         // obtain the event stream
-        let event_stream_fut = async { discv5.event_stream().await };
-
-        // Must be spawned within a tokio executor
-        let event_stream = match tokio::runtime::Handle::current().block_on(event_stream_fut) {
-            Ok(es) => es,
-            Err(e) => {
-                slog::error!(log, "Could not obtain the event stream from the discovery server"; "error"=> format!("{:?}", e));
-                return Err("Failed obtaining event stream".into());
-            }
-        };
+        let event_stream = EventStream::Awaiting(Box::pin(discv5.event_stream()));
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
@@ -387,7 +390,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.queued_queries.retain(|query| !query.expired());
 
         // Check that we are within our query concurrency limit
-        while !self.at_capacity() {
+        while !self.at_capacity() && !self.queued_queries.is_empty() {
             // consume and process the query queue
             match self.queued_queries.pop_front() {
                 Some(QueryType::FindPeers) => {
@@ -558,7 +561,24 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
 
         // Process the server event stream
-        while let Ok(event) = self.event_stream.try_recv() {
+        match self.event_stream {
+            EventStream::Awaiting(ref mut fut) => {
+                // Still awaiting the event stream, poll it
+                futures::pin_mut!(fut);
+                if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
+                    match event_stream {
+                        Ok(stream) => self.event_stream = EventStream::Present(stream), 
+                        Err(e) => {
+                            slog::crit!(self.log, "Discv5 event stream failed"; "error" => e.to_string());
+                            self.event_stream = EventStream::Failed;
+                        }
+                    }
+                }
+            }
+            EventStream::Failed => {} // ignore checking the stream
+            EventStream::Present(ref mut stream) =>  {
+
+        while let Ok(event) = stream.try_recv() {
             match event {
                 // We filter out unwanted discv5 events here and only propagate useful results to
                 // the peer manager.
@@ -585,6 +605,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
                 }
                 _ => {} // Ignore all other discv5 server events
+            }
+        }
             }
         }
         Poll::Pending

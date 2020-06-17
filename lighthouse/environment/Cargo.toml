@@ -23,6 +23,7 @@ slog-json = "2.3.0"
 exit-future = "0.2.0"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
+discv5 = { git = "https://github.com/sigp/discv5", rev = "4a72b51db1d74281849a0c77949dcc6b837c2af0" }
 
 [dev-dependencies]
 beacon_node = { path = "../../beacon_node" }

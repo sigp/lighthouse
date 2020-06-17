@@ -25,4 +25,5 @@ pub use peer_manager::{
     discovery::{CombinedKeyExt, EnrExt, Eth2Enr},
     PeerDB, PeerInfo, PeerSyncStatus, SyncInfo,
 };
+pub use discv5;
 pub use service::{Libp2pEvent, Service, NETWORK_KEY_FILENAME};
