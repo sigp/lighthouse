@@ -1,9 +1,9 @@
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature, SignedRoot,
+    Signature, SignedRoot, SubnetId,
 };
 use crate::{test_utils::TestRandom, Hash256};
-
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -13,6 +13,7 @@ use tree_hash_derive::TreeHash;
 pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
+    SubnetCountIsZero(ArithError),
 }
 
 /// Details an attestation that can be slashable.
@@ -81,6 +82,18 @@ impl<T: EthSpec> Attestation<T> {
 
             Ok(())
         }
+    }
+
+    /// Returns the subnet id associated with the attestation.
+    ///
+    /// Note, this will return the subnet id for an aggregated attestation. This is done
+    /// to avoid checking aggregate bits every time we wish to get an id.
+    pub fn subnet_id(&self, spec: &ChainSpec) -> Result<SubnetId, Error> {
+        self.data
+            .index
+            .safe_rem(spec.attestation_subnet_count)
+            .map(Into::into)
+            .map_err(Error::SubnetCountIsZero)
     }
 }
 
