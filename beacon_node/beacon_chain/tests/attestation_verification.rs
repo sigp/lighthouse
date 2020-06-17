@@ -783,7 +783,7 @@ fn fork_choice_verification() {
     harness.advance_slot();
 
     // We're going to produce the attestations at the first slot of the epoch.
-    let (valid_attestation, _validator_index, _validator_committee_index, _validator_sk) =
+    let (valid_attestation, _validator_index, _validator_committee_index, _validator_sk, subnet_id) =
         get_valid_unaggregated_attestation(&harness.chain);
 
     // Extend the chain two more blocks, but without any attestations so we don't trigger the
@@ -802,7 +802,7 @@ fn fork_choice_verification() {
 
     let attestation = harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone())
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
         .expect("precondition: should gossip verify attestation");
 
     macro_rules! assert_invalid {
