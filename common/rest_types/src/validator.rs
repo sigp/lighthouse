@@ -3,7 +3,7 @@ use eth2_hashing::hash;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
-use types::{Attestation, CommitteeIndex, Epoch, Slot, SubnetId};
+use types::{CommitteeIndex, Epoch, Slot};
 
 /// A Validator duty with the validator public key represented a `PublicKeyBytes`.
 pub type ValidatorDutyBytes = ValidatorDutyBase<PublicKeyBytes>;
