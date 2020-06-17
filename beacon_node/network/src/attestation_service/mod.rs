@@ -273,54 +273,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// verification, re-propagates and returns false.
     pub fn should_process_attestation(
         &mut self,
-        _message_id: &MessageId,
-        peer_id: &PeerId,
         subnet: &SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
-        let current_slot = match self.beacon_chain.slot() {
-            Ok(slot) => slot,
-            Err(e) => {
-                warn!(self.log, "Failed to get current slot: {:?}", e);
-                return false;
-            }
-        };
-
-        let mut state = match self
-            .beacon_chain
-            .state_at_slot(current_slot, StateSkipConfig::WithoutStateRoots)
-        {
-            Ok(state) => state,
-            Err(e) => {
-                warn!(self.log, "Failed to get beacon state: {:?}", e);
-                return false;
-            }
-        };
-
-        // Ensure that the committee caches are built
-        if let Err(e) = state.build_all_committee_caches(&self.beacon_chain.spec) {
-            warn!(self.log, "Failed to build committee caches: {:?}", e);
-        }
-
-        // verify the attestation is on the correct subnet
-        let expected_subnet = match SubnetId::compute_subnet_for_attestation(
-            &state,
-            attestation.data.slot,
-            attestation.data.index,
-            &self.beacon_chain.spec,
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(self.log, "Could not obtain attestation subnet_id"; "error" => format!("{:?}", e));
-                return false;
-            }
-        };
-
-        if expected_subnet != *subnet {
-            warn!(self.log, "Received an attestation on the wrong subnet"; "subnet_received" => format!("{:?}", subnet), "subnet_expected" => format!("{:?}",expected_subnet), "peer_id" => format!("{}", peer_id));
-            return false;
-        }
-
         let exact_subnet = ExactSubnet {
             subnet_id: subnet.clone(),
             slot: attestation.data.slot,

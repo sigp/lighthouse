@@ -16,7 +16,7 @@ use store::Store;
 use tokio::sync::mpsc;
 use types::{
     Attestation, ChainSpec, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock,
-    Slot,
+    Slot, SubnetId,
 };
 
 //TODO: Rate limit requests
@@ -823,12 +823,13 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         unaggregated_attestation: Attestation<T::EthSpec>,
+        subnet_id: SubnetId,
     ) -> Option<VerifiedUnaggregatedAttestation<T>> {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = unaggregated_attestation.data.beacon_block_root;
 
         self.chain
-            .verify_unaggregated_attestation_for_gossip(unaggregated_attestation)
+            .verify_unaggregated_attestation_for_gossip(unaggregated_attestation, subnet_id)
             .map_err(|e| {
                 self.handle_attestation_verification_failure(
                     peer_id,

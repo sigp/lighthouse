@@ -234,6 +234,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     self.processor.verify_unaggregated_attestation_for_gossip(
                         peer_id.clone(),
                         subnet_attestation.1.clone(),
+                        subnet_attestation.0,
                     )
                 {
                     self.propagate_message(id, peer_id.clone());
