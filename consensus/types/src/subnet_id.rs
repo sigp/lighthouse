@@ -30,17 +30,17 @@ impl SubnetId {
 
     /// Compute the subnet for an attestation with `attestation.data.slot == slot` and
     /// `attestation.data.index == committee_index` where each slot in the attestation epoch
-    /// contains `committee_count_per_slot` committees.
+    /// contains `committee_count_at_slot` committees.
     pub fn compute_subnet<T: EthSpec>(
         slot: Slot,
         committee_index: CommitteeIndex,
-        committee_count_per_slot: u64,
+        committee_count_at_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
         let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(T::slots_per_epoch())?;
 
         let committees_since_epoch_start =
-            committee_count_per_slot.safe_mul(slots_since_epoch_start)?;
+            committee_count_at_slot.safe_mul(slots_since_epoch_start)?;
 
         Ok(committees_since_epoch_start
             .safe_add(committee_index)?
