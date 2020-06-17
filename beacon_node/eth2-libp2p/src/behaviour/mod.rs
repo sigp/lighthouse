@@ -3,7 +3,6 @@ use crate::peer_manager::{PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
-use discv5::Discv5Event;
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, BehaviourHandlerOut, DelegateIn, DelegateOut};
 use libp2p::{
@@ -83,12 +82,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     type OutEvent = BehaviourEvent<TSpec>;
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        BehaviourHandler::new(
-            &mut self.gossipsub,
-            &mut self.eth2_rpc,
-            &mut self.identify,
-            &mut self.discovery,
-        )
+        BehaviourHandler::new(&mut self.gossipsub, &mut self.eth2_rpc, &mut self.identify)
     }
 
     fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
@@ -176,7 +170,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                 DelegateOut::Gossipsub(ev) => self.gossipsub.inject_event(peer_id, conn_id, ev),
                 DelegateOut::RPC(ev) => self.eth2_rpc.inject_event(peer_id, conn_id, ev),
                 DelegateOut::Identify(ev) => self.identify.inject_event(peer_id, conn_id, ev),
-                DelegateOut::Discovery(ev) => self.discovery.inject_event(peer_id, conn_id, ev),
             },
             /* Custom events sent BY the handler */
             BehaviourHandlerOut::Custom => {
@@ -238,7 +231,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         poll_behaviour!(gossipsub, on_gossip_event, DelegateIn::Gossipsub);
         poll_behaviour!(eth2_rpc, on_rpc_event, DelegateIn::RPC);
         poll_behaviour!(identify, on_identify_event, DelegateIn::Identify);
-        poll_behaviour!(discovery, on_discovery_event, DelegateIn::Discovery);
 
         self.custom_poll(cx)
     }
@@ -803,10 +795,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             IdentifyEvent::Sent { .. } => {}
             IdentifyEvent::Error { .. } => {}
         }
-    }
-
-    fn on_discovery_event(&mut self, _event: Discv5Event) {
-        // discv5 has no events to inject
     }
 }
 
