@@ -3,7 +3,7 @@
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
-use eth2_libp2p::{types::GossipKind, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{types::GossipKind, NetworkGlobals};
 use futures::prelude::*;
 use hashset_delay::HashSetDelay;
 use rand::seq::SliceRandom;
@@ -214,10 +214,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             );
             self.add_known_validator(subscription.validator_index);
 
-            let subnet_id = match SubnetId::compute_subnet_for_attestation(
-                &state,
+            let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
                 subscription.slot,
                 subscription.attestation_committee_index,
+                subscription.committee_count_at_slot,
                 &self.beacon_chain.spec,
             ) {
                 Ok(subnet_id) => subnet_id,

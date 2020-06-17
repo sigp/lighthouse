@@ -748,6 +748,18 @@ impl<T: BeaconChainTypes> Processor<T> {
                  * The peer has published an invalid consensus message.
                  */
             }
+
+            AttnError::InvalidSubnetId { received, expected } => {
+                /*
+                 * The attestation was received on an incorrect subnet id.
+                 */
+                debug!(
+                    self.log,
+                    "Received attestation on incorrect subnet";
+                    "expected" => format!("{:?}", expected),
+                    "received" => format!("{:?}", received),
+                )
+            }
             AttnError::Invalid(_) => {
                 /*
                  * The attestation failed the state_processing verification.
