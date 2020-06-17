@@ -1,0 +1,20 @@
+[package]
+name = "fork_choice"
+version = "0.1.0"
+authors = ["Paul Hauner <paul@paulhauner.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+types = { path = "../types" }
+proto_array = { path = "../proto_array" }
+eth2_ssz = { path = "../ssz" }
+eth2_ssz_derive = { path = "../ssz_derive" }
+
+[dev-dependencies]
+state_processing = { path = "../../consensus/state_processing" }
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
+store = { path = "../../beacon_node/store" }
+tree_hash = { path = "../../consensus/tree_hash" }
+slot_clock = { path = "../../common/slot_clock" }

@@ -14,6 +14,7 @@ use remote_beacon_node::{
 use rest_types::ValidatorDutyBytes;
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
     test_utils::{
         build_double_vote_attester_slashing, build_proposer_slashing,
@@ -419,10 +420,16 @@ fn validator_block_post() {
 
     let spec = &E::default_spec();
 
+    let two_slots_secs = (spec.milliseconds_per_slot / 1_000) * 2;
+
     let mut config = testing_client_config();
     config.genesis = ClientGenesis::Interop {
         validator_count: 8,
-        genesis_time: 13_371_337,
+        genesis_time: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - two_slots_secs,
     };
 
     let node = build_node(&mut env, config);
@@ -768,6 +775,7 @@ fn get_genesis_state_root() {
         .expect("should have beacon chain")
         .rev_iter_state_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .find(|(_cur_root, cur_slot)| slot == *cur_slot)
         .map(|(cur_root, _)| cur_root)
         .expect("chain should have state root at slot");
@@ -795,6 +803,7 @@ fn get_genesis_block_root() {
         .expect("should have beacon chain")
         .rev_iter_block_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .find(|(_cur_root, cur_slot)| slot == *cur_slot)
         .map(|(cur_root, _)| cur_root)
         .expect("chain should have state root at slot");
@@ -944,6 +953,8 @@ fn get_fork_choice() {
             .beacon_chain()
             .expect("node should have beacon chain")
             .fork_choice
+            .read()
+            .proto_array()
             .core_proto_array(),
         "result should be as expected"
     );

@@ -9,14 +9,16 @@ use std::sync::Arc;
 use std::thread;
 use store::hot_cold_store::{process_finalization, HotColdDBError};
 use store::iter::{ParentRootBlockIterator, RootsIterator};
-use store::{Error, Store, StoreOp};
+use store::{Error, ItemStore, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::*;
 use types::{BeaconState, EthSpec, Hash256, Slot};
 
 /// Trait for migration processes that update the database upon finalization.
-pub trait Migrate<E: EthSpec>: Send + Sync + 'static {
-    fn new(db: Arc<HotColdDB<E>>, log: Logger) -> Self;
+pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
+    Send + Sync + 'static
+{
+    fn new(db: Arc<HotColdDB<E, Hot, Cold>>, log: Logger) -> Self;
 
     fn process_finalization(
         &self,
@@ -30,18 +32,23 @@ pub trait Migrate<E: EthSpec>: Send + Sync + 'static {
     }
 
     /// Traverses live heads and prunes blocks and states of chains that we know can't be built
-    /// upon because finalization would prohibit it.  This is a optimisation intended to save disk
+    /// upon because finalization would prohibit it.  This is an optimisation intended to save disk
     /// space.
     ///
     /// Assumptions:
     ///  * It is called after every finalization.
     fn prune_abandoned_forks(
-        store: Arc<HotColdDB<E>>,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
         head_tracker: Arc<HeadTracker>,
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_slot: Slot,
     ) -> Result<(), BeaconChainError> {
+        // There will never be any blocks to prune if there is only a single head in the chain.
+        if head_tracker.heads().len() == 1 {
+            return Ok(());
+        }
+
         let old_finalized_slot = store
             .get_block(&old_finalized_block_hash.into())?
             .ok_or_else(|| BeaconChainError::MissingBeaconBlock(old_finalized_block_hash.into()))?
@@ -84,9 +91,10 @@ pub trait Migrate<E: EthSpec>: Send + Sync + 'static {
                 .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?
                 .state_root();
 
-            let iterator = std::iter::once((head_hash, head_state_hash, head_slot))
+            let iter = std::iter::once(Ok((head_hash, head_state_hash, head_slot)))
                 .chain(RootsIterator::from_block(Arc::clone(&store), head_hash)?);
-            for (block_hash, state_hash, slot) in iterator {
+            for maybe_tuple in iter {
+                let (block_hash, state_hash, slot) = maybe_tuple?;
                 if slot < old_finalized_slot {
                     // We must assume here any candidate chains include old_finalized_block_hash,
                     // i.e. there aren't any forks starting at a block that is a strict ancestor of
@@ -165,8 +173,8 @@ pub trait Migrate<E: EthSpec>: Send + Sync + 'static {
 /// Migrator that does nothing, for stores that don't need migration.
 pub struct NullMigrator;
 
-impl<E: EthSpec> Migrate<E> for NullMigrator {
-    fn new(_: Arc<HotColdDB<E>>, _: Logger) -> Self {
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold> for NullMigrator {
+    fn new(_: Arc<HotColdDB<E, Hot, Cold>>, _: Logger) -> Self {
         NullMigrator
     }
 }
@@ -174,12 +182,14 @@ impl<E: EthSpec> Migrate<E> for NullMigrator {
 /// Migrator that immediately calls the store's migration function, blocking the current execution.
 ///
 /// Mostly useful for tests.
-pub struct BlockingMigrator<E: EthSpec> {
-    db: Arc<HotColdDB<E>>,
+pub struct BlockingMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    db: Arc<HotColdDB<E, Hot, Cold>>,
 }
 
-impl<E: EthSpec> Migrate<E> for BlockingMigrator<E> {
-    fn new(db: Arc<HotColdDB<E>>, _: Logger) -> Self {
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
+    for BlockingMigrator<E, Hot, Cold>
+{
+    fn new(db: Arc<HotColdDB<E, Hot, Cold>>, _: Logger) -> Self {
         BlockingMigrator { db }
     }
 
@@ -219,14 +229,16 @@ type MpscSender<E> = mpsc::Sender<(
 )>;
 
 /// Migrator that runs a background thread to migrate state from the hot to the cold database.
-pub struct BackgroundMigrator<E: EthSpec> {
-    db: Arc<HotColdDB<E>>,
+pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    db: Arc<HotColdDB<E, Hot, Cold>>,
     tx_thread: Mutex<(MpscSender<E>, thread::JoinHandle<()>)>,
     log: Logger,
 }
 
-impl<E: EthSpec> Migrate<E> for BackgroundMigrator<E> {
-    fn new(db: Arc<HotColdDB<E>>, log: Logger) -> Self {
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
+    for BackgroundMigrator<E, Hot, Cold>
+{
+    fn new(db: Arc<HotColdDB<E, Hot, Cold>>, log: Logger) -> Self {
         let tx_thread = Mutex::new(Self::spawn_thread(db.clone(), log.clone()));
         Self { db, tx_thread, log }
     }
@@ -277,7 +289,7 @@ impl<E: EthSpec> Migrate<E> for BackgroundMigrator<E> {
     }
 }
 
-impl<E: EthSpec> BackgroundMigrator<E> {
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
     /// Return true if a migration needs to be performed, given a new `finalized_slot`.
     fn needs_migration(&self, finalized_slot: Slot, max_finality_distance: u64) -> bool {
         let finality_distance = finalized_slot - self.db.get_split_slot();
@@ -288,7 +300,7 @@ impl<E: EthSpec> BackgroundMigrator<E> {
     ///
     /// Return a channel handle for sending new finalized states to the thread.
     fn spawn_thread(
-        db: Arc<HotColdDB<E>>,
+        db: Arc<HotColdDB<E, Hot, Cold>>,
         log: Logger,
     ) -> (
         mpsc::Sender<(

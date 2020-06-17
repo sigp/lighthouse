@@ -1,5 +1,5 @@
+use crate::beacon_chain::ForkChoiceError;
 use crate::eth1_chain::Error as Eth1ChainError;
-use crate::fork_choice::Error as ForkChoiceError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_attestations::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;

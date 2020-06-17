@@ -49,10 +49,6 @@ lazy_static! {
         "beacon_block_processing_db_write_seconds",
         "Time spent writing a newly processed block and state to DB"
     );
-    pub static ref BLOCK_PROCESSING_FORK_CHOICE_REGISTER: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_fork_choice_register_seconds",
-        "Time spent registering the new block with fork choice (but not finding head)"
-    );
     pub static ref BLOCK_PROCESSING_ATTESTATION_OBSERVATION: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_attestation_observation_seconds",
         "Time spent hashing and remembering all the attestations in the block"
@@ -115,10 +111,6 @@ lazy_static! {
     /*
      * General Attestation Processing
      */
-    pub static ref ATTESTATION_PROCESSING_APPLY_TO_FORK_CHOICE: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_apply_to_fork_choice",
-        "Time spent applying an attestation to fork choice"
-    );
     pub static ref ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_apply_to_agg_pool",
         "Time spent applying an attestation to the naive aggregation pool"

@@ -2,7 +2,6 @@ use crate::{
     proto_array::{ProtoArray, ProtoNode},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
 };
-use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -21,11 +20,11 @@ pub struct SszContainer {
 
 impl From<&ProtoArrayForkChoice> for SszContainer {
     fn from(from: &ProtoArrayForkChoice) -> Self {
-        let proto_array = from.proto_array.read();
+        let proto_array = &from.proto_array;
 
         Self {
-            votes: from.votes.read().0.clone(),
-            balances: from.balances.read().clone(),
+            votes: from.votes.0.clone(),
+            balances: from.balances.clone(),
             prune_threshold: proto_array.prune_threshold,
             justified_epoch: proto_array.justified_epoch,
             finalized_epoch: proto_array.finalized_epoch,
@@ -46,9 +45,9 @@ impl From<SszContainer> for ProtoArrayForkChoice {
         };
 
         Self {
-            proto_array: RwLock::new(proto_array),
-            votes: RwLock::new(ElasticList(from.votes)),
-            balances: RwLock::new(from.balances),
+            proto_array: proto_array,
+            votes: ElasticList(from.votes),
+            balances: from.balances,
         }
     }
 }
