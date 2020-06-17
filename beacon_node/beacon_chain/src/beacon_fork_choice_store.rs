@@ -9,7 +9,7 @@ use fork_choice::ForkChoiceStore;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use store::{Error as StoreError, Store};
+use store::{Error as StoreError, HotColdDB, ItemStore};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, SignedBeaconBlock,
     Slot,
@@ -158,8 +158,8 @@ impl BalancesCache {
 /// Implements `fork_choice::ForkChoiceStore` in order to provide a persistent backing to the
 /// `fork_choice::ForkChoice` struct.
 #[derive(Debug)]
-pub struct BeaconForkChoiceStore<S, E> {
-    store: Arc<S>,
+pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    store: Arc<HotColdDB<E, Hot, Cold>>,
     balances_cache: BalancesCache,
     time: Slot,
     finalized_checkpoint: Checkpoint,
@@ -169,7 +169,12 @@ pub struct BeaconForkChoiceStore<S, E> {
     _phantom: PhantomData<E>,
 }
 
-impl<S, E> PartialEq for BeaconForkChoiceStore<S, E> {
+impl<E, Hot, Cold> PartialEq for BeaconForkChoiceStore<E, Hot, Cold>
+where
+    E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
+{
     /// This implementation ignores the `store` and `slot_clock`.
     fn eq(&self, other: &Self) -> bool {
         self.balances_cache == other.balances_cache
@@ -181,7 +186,12 @@ impl<S, E> PartialEq for BeaconForkChoiceStore<S, E> {
     }
 }
 
-impl<S: Store<E>, E: EthSpec> BeaconForkChoiceStore<S, E> {
+impl<E, Hot, Cold> BeaconForkChoiceStore<E, Hot, Cold>
+where
+    E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
+{
     /// Initialize `Self` from some `anchor` checkpoint which may or may not be the genesis state.
     ///
     /// ## Specification
@@ -193,7 +203,10 @@ impl<S: Store<E>, E: EthSpec> BeaconForkChoiceStore<S, E> {
     /// ## Notes:
     ///
     /// It is assumed that `anchor` is already persisted in `store`.
-    pub fn get_forkchoice_store(store: Arc<S>, anchor: &BeaconSnapshot<E>) -> Self {
+    pub fn get_forkchoice_store(
+        store: Arc<HotColdDB<E, Hot, Cold>>,
+        anchor: &BeaconSnapshot<E>,
+    ) -> Self {
         let anchor_state = &anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header.clone();
         if anchor_block_header.state_root == Hash256::zero() {
@@ -235,7 +248,7 @@ impl<S: Store<E>, E: EthSpec> BeaconForkChoiceStore<S, E> {
     /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
     pub fn from_persisted(
         persisted: PersistedForkChoiceStore,
-        store: Arc<S>,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
     ) -> Result<Self, Error> {
         Ok(Self {
             store,
@@ -250,7 +263,12 @@ impl<S: Store<E>, E: EthSpec> BeaconForkChoiceStore<S, E> {
     }
 }
 
-impl<S: Store<E>, E: EthSpec> ForkChoiceStore<E> for BeaconForkChoiceStore<S, E> {
+impl<E, Hot, Cold> ForkChoiceStore<E> for BeaconForkChoiceStore<E, Hot, Cold>
+where
+    E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
+{
     type Error = Error;
 
     fn get_current_slot(&self) -> Slot {

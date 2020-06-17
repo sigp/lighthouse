@@ -9,7 +9,7 @@ use fork_choice::{
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
 use std::sync::Mutex;
-use store::{MemoryStore, Store};
+use store::{MemoryStore, StoreConfig};
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
     Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot,
@@ -41,6 +41,7 @@ impl ForkChoiceTest {
             generate_deterministic_keypairs(VALIDATOR_COUNT),
             // Ensure we always have an aggregator for each slot.
             u64::max_value(),
+            StoreConfig::default(),
         );
 
         Self { harness }
@@ -49,7 +50,7 @@ impl ForkChoiceTest {
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
-        T: Fn(&BeaconForkChoiceStore<MemoryStore<E>, E>) -> U,
+        T: Fn(&BeaconForkChoiceStore<E, MemoryStore<E>, MemoryStore<E>>) -> U,
     {
         func(&self.harness.chain.fork_choice.read().fc_store())
     }
