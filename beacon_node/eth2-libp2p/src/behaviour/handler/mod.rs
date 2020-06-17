@@ -1,4 +1,3 @@
-use crate::discovery::Discovery;
 use crate::rpc::*;
 use delegate::DelegatingHandler;
 pub(super) use delegate::{
@@ -31,10 +30,9 @@ impl<TSpec: EthSpec> BehaviourHandler<TSpec> {
         gossipsub: &mut Gossipsub,
         rpc: &mut RPC<TSpec>,
         identify: &mut Identify,
-        discovery: &mut Discovery<TSpec>,
     ) -> Self {
         BehaviourHandler {
-            delegate: DelegatingHandler::new(gossipsub, rpc, identify, discovery),
+            delegate: DelegatingHandler::new(gossipsub, rpc, identify),
             keep_alive: KeepAlive::Yes,
         }
     }

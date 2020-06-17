@@ -3,14 +3,14 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-pub use enr::{build_enr, CombinedKey};
+pub use enr::{build_enr, CombinedKey, Eth2Enr};
 pub use libp2p::core::identity::Keypair;
 pub use enr_ext::{CombinedKeyExt, EnrExt};
 
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
-use enr::{Eth2Enr, BITFIELD_ENR_KEY, ETH2_ENR_KEY};
+use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use libp2p::core::PeerId;
 // use libp2p::multiaddr::Protocol;
@@ -31,7 +31,6 @@ use types::{EnrForkId, EthSpec, SubnetId};
 use futures::stream::FuturesUnordered;
 
 mod subnet_predicate;
-
 use subnet_predicate::subnet_predicate;
 
 /// Maximum seconds before searching for extra peers.
@@ -112,12 +111,10 @@ pub struct Discovery<TSpec: EthSpec> {
     /// The directory where the ENR is stored.
     enr_dir: String,
 
-    /// The TCP port for libp2p. Used to convert an updated IP address to a multiaddr. Note: This
-    /// assumes that the external TCP port is the same as the internal TCP port if behind a NAT.
-    //TODO: Improve NAT handling limit the above restriction
-    tcp_port: u16,
-
     /// The handle for the underlying discv5 Server.
+    ///
+    /// This is behind a Reference counter to allow for futures to be spawned and polled with a
+    /// static lifetime.
     discv5: Discv5,
 
     /// A collection of network constants that can be read from other threads.
@@ -127,7 +124,7 @@ pub struct Discovery<TSpec: EthSpec> {
     queued_queries: VecDeque<QueryType>,
 
     /// Active discovery queries. 
-    active_queries: FuturesUnordered<std::pin::Pin<Box<dyn Future<Output=QueryResult>>>>,
+    active_queries: FuturesUnordered<std::pin::Pin<Box<dyn Future<Output=QueryResult> + Send>>>,
 
     /// The discv5 event stream.
     event_stream: mpsc::Receiver<Discv5Event>,
@@ -196,6 +193,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let event_stream_fut = async {
             discv5.event_stream().await
         };
+
         // Must be spawned within a tokio executor
         let event_stream = match tokio::runtime::Handle::current().block_on(event_stream_fut) {
             Ok(es) => es,
@@ -207,7 +205,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
-            tcp_port: config.libp2p_port,
             network_globals,
             queued_queries: VecDeque::with_capacity(10),
             active_queries: FuturesUnordered::new(),
@@ -258,7 +255,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // already exists
         let mut found = false;
         for query in self.queued_queries.iter_mut() {
-            if let QueryType::Subnet {subnet_id: ref q_subnet_id, min_ttl: ref q_min_ttl, retries: ref q_retries } = query {
+            if let QueryType::Subnet {subnet_id: ref mut q_subnet_id, min_ttl: ref mut q_min_ttl, retries: ref mut q_retries } = query {
                     if *q_subnet_id == subnet_id {
                     if *q_min_ttl < min_ttl {
                         *q_min_ttl = min_ttl;
@@ -299,7 +296,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Returns an iterator over all enr entries in the DHT.
-    pub fn enr_entries_enr(&mut self) -> Vec<Enr> {
+    pub fn table_entries_enr(&mut self) -> Vec<Enr> {
         self.discv5.table_entries_enr()
     }
 
@@ -494,18 +491,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         };
 
-        let discv5 = std::rc::Rc::new(self.discv5);
-
         // Build the future
-        let query_future = discv5.find_node_predicate(random_node, predicate, target_peers).map(|v| QueryResult(query,v));
-
-        let fut = async move { 
-            query_future.await
-        };
-
+        let query_future = self.discv5.find_node_predicate2(random_node, predicate, target_peers).map(|v| QueryResult(query,v));
 
         // Add the future to active queries, to be executed.
-        self.active_queries.push(Box::pin(fut));
+        self.active_queries.push(Box::pin(query_future));
     }
 
     /// Drives the queries returning any results from completed queries.
