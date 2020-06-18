@@ -3,12 +3,12 @@
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{types::GossipKind, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{types::GossipKind, NetworkGlobals};
 use futures::prelude::*;
 use hashset_delay::HashSetDelay;
 use rand::seq::SliceRandom;
 use rest_types::ValidatorSubscription;
-use slog::{crit, debug, error, o, warn};
+use slog::{crit, debug, error, o, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -186,18 +186,34 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     pub fn validator_subscriptions(
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         for subscription in subscriptions {
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
             // Registers the validator with the attestation service.
             // This will subscribe to long-lived random subnets if required.
+            trace!(self.log,
+                "Validator subscription";
+                "subscription" => format!("{:?}", subscription),
+            );
             self.add_known_validator(subscription.validator_index);
 
-            let subnet_id = SubnetId::new(
-                subscription.attestation_committee_index
-                    % self.beacon_chain.spec.attestation_subnet_count,
-            );
+            let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
+                subscription.slot,
+                subscription.attestation_committee_index,
+                subscription.committee_count_at_slot,
+                &self.beacon_chain.spec,
+            ) {
+                Ok(subnet_id) => subnet_id,
+                Err(e) => {
+                    warn!(self.log,
+                        "Failed to compute subnet id for validator subscription";
+                        "error" => format!("{:?}", e),
+                        "validator_index" => subscription.validator_index
+                    );
+                    continue;
+                }
+            };
 
             let exact_subnet = ExactSubnet {
                 subnet_id,
@@ -219,9 +235,18 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
             if subscription.is_aggregator {
                 // set the subscription timer to subscribe to the next subnet if required
-                if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
-                    warn!(self.log, "Subscription to subnet error"; "error" => e);
-                    return Err(());
+                if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
+                    warn!(self.log,
+                        "Subscription to subnet error";
+                        "error" => e,
+                        "validator_index" => subscription.validator_index,
+                    );
+                } else {
+                    trace!(self.log,
+                        "Subscribed to subnet for aggregator duties";
+                        "exact_subnet" => format!("{:?}", exact_subnet),
+                        "validator_index" => subscription.validator_index
+                    );
                 }
             }
         }
@@ -232,25 +257,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// verification, re-propagates and returns false.
     pub fn should_process_attestation(
         &mut self,
-        _message_id: &MessageId,
-        peer_id: &PeerId,
         subnet: &SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
-        // verify the attestation is on the correct subnet
-        let expected_subnet = match attestation.subnet_id(&self.beacon_chain.spec) {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(self.log, "Could not obtain attestation subnet_id"; "error" => format!("{:?}", e));
-                return false;
-            }
-        };
-
-        if expected_subnet != *subnet {
-            warn!(self.log, "Received an attestation on the wrong subnet"; "subnet_received" => format!("{:?}", subnet), "subnet_expected" => format!("{:?}",expected_subnet), "peer_id" => format!("{}", peer_id));
-            return false;
-        }
-
         let exact_subnet = ExactSubnet {
             subnet_id: subnet.clone(),
             slot: attestation.data.slot,
@@ -511,7 +520,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             self.random_subnets.insert(subnet_id);
 
             // if we are not already subscribed, then subscribe
-            let topic_kind = &GossipKind::CommitteeIndex(subnet_id);
+            let topic_kind = &GossipKind::Attestation(subnet_id);
 
             let already_subscribed = self
                 .network_globals
@@ -574,7 +583,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // we are also not un-subscribing from a subnet if the next slot requires us to be
             // subscribed. Therefore there could be the case that we are already still subscribed
             // to the required subnet. In which case we do not issue another subscription request.
-            let topic_kind = &GossipKind::CommitteeIndex(exact_subnet.subnet_id);
+            let topic_kind = &GossipKind::Attestation(exact_subnet.subnet_id);
             if self
                 .network_globals
                 .gossipsub_subscriptions

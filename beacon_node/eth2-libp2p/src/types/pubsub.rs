@@ -41,7 +41,7 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
-                GossipKind::CommitteeIndex(attestation_data.0)
+                GossipKind::Attestation(attestation_data.0)
             }
             PubsubMessage::VoluntaryExit(_) => GossipKind::VoluntaryExit,
             PubsubMessage::ProposerSlashing(_) => GossipKind::ProposerSlashing,
@@ -97,7 +97,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 agg_and_proof,
                             )));
                         }
-                        GossipKind::CommitteeIndex(subnet_id) => {
+                        GossipKind::Attestation(subnet_id) => {
                             let attestation = Attestation::from_ssz_bytes(decompressed_data)
                                 .map_err(|e| format!("{:?}", e))?;
                             return Ok(PubsubMessage::Attestation(Box::new((

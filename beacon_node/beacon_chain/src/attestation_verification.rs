@@ -52,7 +52,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
-    RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot,
+    RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 
 /// Returned when an attestation was not successfully verified. It might not have been verified for
@@ -123,6 +123,11 @@ pub enum Error {
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     AttestsToFutureBlock { block: Slot, attestation: Slot },
+    /// The attestation was received on an invalid attestation subnet.
+    InvalidSubnetId {
+        received: SubnetId,
+        expected: SubnetId,
+    },
     /// The attestation failed the `state_processing` verification stage.
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
@@ -234,28 +239,29 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
             return Err(Error::EmptyAggregationBitfield);
         }
 
-        let indexed_attestation = map_attestation_committee(chain, attestation, |committee| {
-            // Note: this clones the signature which is known to be a relatively slow operation.
-            //
-            // Future optimizations should remove this clone.
-            let selection_proof =
-                SelectionProof::from(signed_aggregate.message.selection_proof.clone());
+        let indexed_attestation =
+            map_attestation_committee(chain, attestation, |(committee, _)| {
+                // Note: this clones the signature which is known to be a relatively slow operation.
+                //
+                // Future optimizations should remove this clone.
+                let selection_proof =
+                    SelectionProof::from(signed_aggregate.message.selection_proof.clone());
 
-            if !selection_proof
-                .is_aggregator(committee.committee.len(), &chain.spec)
-                .map_err(|e| Error::BeaconChainError(e.into()))?
-            {
-                return Err(Error::InvalidSelectionProof { aggregator_index });
-            }
+                if !selection_proof
+                    .is_aggregator(committee.committee.len(), &chain.spec)
+                    .map_err(|e| Error::BeaconChainError(e.into()))?
+                {
+                    return Err(Error::InvalidSelectionProof { aggregator_index });
+                }
 
-            // Ensure the aggregator is a member of the committee for which it is aggregating.
-            if !committee.committee.contains(&(aggregator_index as usize)) {
-                return Err(Error::AggregatorNotInCommittee { aggregator_index });
-            }
+                // Ensure the aggregator is a member of the committee for which it is aggregating.
+                if !committee.committee.contains(&(aggregator_index as usize)) {
+                    return Err(Error::AggregatorNotInCommittee { aggregator_index });
+                }
 
-            get_indexed_attestation(committee.committee, &attestation)
-                .map_err(|e| BeaconChainError::from(e).into())
-        })?;
+                get_indexed_attestation(committee.committee, &attestation)
+                    .map_err(|e| BeaconChainError::from(e).into())
+            })?;
 
         // Ensure that all signatures are valid.
         if !verify_signed_aggregate_signatures(chain, &signed_aggregate, &indexed_attestation)? {
@@ -309,8 +315,12 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     /// Returns `Ok(Self)` if the `attestation` is valid to be (re)published on the gossip
     /// network.
+    ///
+    /// `subnet_id` is the subnet from which we received this attestation. This function will
+    /// verify that it was received on the correct subnet.
     pub fn verify(
         attestation: Attestation<T::EthSpec>,
+        subnet_id: SubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // Ensure attestation is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
@@ -330,7 +340,23 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         // attestation and do not delay consideration for later.
         verify_head_block_is_known(chain, &attestation)?;
 
-        let indexed_attestation = obtain_indexed_attestation(chain, &attestation)?;
+        let (indexed_attestation, committees_per_slot) =
+            obtain_indexed_attestation_and_committees_per_slot(chain, &attestation)?;
+
+        let expected_subnet_id = SubnetId::compute_subnet_for_attestation_data::<T::EthSpec>(
+            &indexed_attestation.data,
+            committees_per_slot,
+            &chain.spec,
+        )
+        .map_err(BeaconChainError::from)?;
+
+        // Ensure the attestation is from the correct subnet.
+        if subnet_id != expected_subnet_id {
+            return Err(Error::InvalidSubnetId {
+                received: subnet_id,
+                expected: expected_subnet_id,
+            });
+        }
 
         let validator_index = *indexed_attestation
             .attesting_indices
@@ -566,19 +592,23 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     Ok(verify_signature_sets(signature_sets))
 }
 
-/// Returns the `indexed_attestation` for the `attestation` using the public keys cached in the
-/// `chain`.
-pub fn obtain_indexed_attestation<T: BeaconChainTypes>(
+/// Assists in readability.
+type CommitteesPerSlot = u64;
+
+/// Returns the `indexed_attestation` and committee count per slot for the `attestation` using the
+/// public keys cached in the `chain`.
+pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
-) -> Result<IndexedAttestation<T::EthSpec>, Error> {
-    map_attestation_committee(chain, attestation, |committee| {
+) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
+    map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
         get_indexed_attestation(committee.committee, &attestation)
+            .map(|attestation| (attestation, committees_per_slot))
             .map_err(|e| BeaconChainError::from(e).into())
     })
 }
 
-/// Runs the `map_fn` with the committee for the given `attestation`.
+/// Runs the `map_fn` with the committee and committee count per slot for the given `attestation`.
 ///
 /// This function exists in this odd "map" pattern because efficiently obtaining the committee for
 /// an attestation can be complex. It might involve reading straight from the
@@ -594,7 +624,7 @@ pub fn map_attestation_committee<'a, T, F, R>(
 ) -> Result<R, Error>
 where
     T: BeaconChainTypes,
-    F: Fn(BeaconCommittee) -> Result<R, Error>,
+    F: Fn((BeaconCommittee, CommitteesPerSlot)) -> Result<R, Error>,
 {
     let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
     let target = &attestation.data.target;
@@ -624,9 +654,10 @@ where
     metrics::stop_timer(cache_wait_timer);
 
     if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
+        let committees_per_slot = committee_cache.committees_per_slot();
         committee_cache
             .get_beacon_committee(attestation.data.slot, attestation.data.index)
-            .map(map_fn)
+            .map(|committee| map_fn((committee, committees_per_slot)))
             .unwrap_or_else(|| {
                 Err(Error::NoCommitteeForSlotAndIndex {
                     slot: attestation.data.slot,
@@ -689,9 +720,10 @@ where
 
         metrics::stop_timer(committee_building_timer);
 
+        let committees_per_slot = committee_cache.committees_per_slot();
         committee_cache
             .get_beacon_committee(attestation.data.slot, attestation.data.index)
-            .map(map_fn)
+            .map(|committee| map_fn((committee, committees_per_slot)))
             .unwrap_or_else(|| {
                 Err(Error::NoCommitteeForSlotAndIndex {
                     slot: attestation.data.slot,

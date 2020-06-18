@@ -12,7 +12,7 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex,
     Epoch, EthSpec, Fork, Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
 };
 use url::Url;
 
@@ -227,7 +227,7 @@ impl<E: EthSpec> Validator<E> {
     /// Posts a list of attestations to the beacon node, expecting it to verify it and publish it to the network.
     pub async fn publish_attestations(
         &self,
-        attestation: Vec<Attestation<E>>,
+        attestation: Vec<(Attestation<E>, SubnetId)>,
     ) -> Result<PublishStatus, Error> {
         let client = self.0.clone();
         let url = self.url("attestations")?;

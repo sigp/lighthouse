@@ -19,7 +19,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, ChainSpec, Epoch, EthSpec, Hash256, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
 };
 
 //TODO: Rate limit requests
@@ -760,6 +760,18 @@ impl<T: BeaconChainTypes> Processor<T> {
                  * The peer has published an invalid consensus message.
                  */
             }
+
+            AttnError::InvalidSubnetId { received, expected } => {
+                /*
+                 * The attestation was received on an incorrect subnet id.
+                 */
+                debug!(
+                    self.log,
+                    "Received attestation on incorrect subnet";
+                    "expected" => format!("{:?}", expected),
+                    "received" => format!("{:?}", received),
+                )
+            }
             AttnError::Invalid(_) => {
                 /*
                  * The attestation failed the state_processing verification.
@@ -835,12 +847,13 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         unaggregated_attestation: Attestation<T::EthSpec>,
+        subnet_id: SubnetId,
     ) -> Option<VerifiedUnaggregatedAttestation<T>> {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = unaggregated_attestation.data.beacon_block_root;
 
         self.chain
-            .verify_unaggregated_attestation_for_gossip(unaggregated_attestation)
+            .verify_unaggregated_attestation_for_gossip(unaggregated_attestation, subnet_id)
             .map_err(|e| {
                 self.handle_attestation_verification_failure(
                     peer_id,

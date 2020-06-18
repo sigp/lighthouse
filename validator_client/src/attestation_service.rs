@@ -5,13 +5,13 @@ use crate::{
 use environment::RuntimeContext;
 use futures::StreamExt;
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use slog::{crit, debug, info, trace};
+use slog::{crit, debug, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{delay_until, interval_at, Duration, Instant};
-use types::{Attestation, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use types::{Attestation, ChainSpec, CommitteeIndex, EthSpec, Slot, SubnetId};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
@@ -334,17 +334,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .iter()
             .filter_map(|duty| {
                 // Ensure that all required fields are present in the validator duty.
-                let (duty_slot, duty_committee_index, validator_committee_position, _) =
-                    if let Some(tuple) = duty.attestation_duties() {
-                        tuple
-                    } else {
-                        crit!(
-                            log,
-                            "Missing validator duties when signing";
-                            "duties" => format!("{:?}", duty)
-                        );
-                        return None;
-                    };
+                let (
+                    duty_slot,
+                    duty_committee_index,
+                    validator_committee_position,
+                    _,
+                    committee_count_at_slot,
+                ) = if let Some(tuple) = duty.attestation_duties() {
+                    tuple
+                } else {
+                    crit!(
+                        log,
+                        "Missing validator duties when signing";
+                        "duties" => format!("{:?}", duty)
+                    );
+                    return None;
+                };
 
                 // Ensure that the attestation matches the duties.
                 if duty_slot != attestation.data.slot
@@ -363,7 +368,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 }
 
                 let mut attestation = attestation.clone();
-
+                let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
+                    &attestation.data,
+                    committee_count_at_slot,
+                    &self.context.eth2_config().spec,
+                )
+                .map_err(|e| {
+                    error!(
+                        log,
+                        "Failed to compute subnet id to publish attestation: {:?}", e
+                    )
+                })
+                .ok()?;
                 self.validator_store
                     .sign_attestation(
                         duty.validator_pubkey(),
@@ -371,7 +387,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         &mut attestation,
                         current_epoch,
                     )
-                    .map(|_| attestation)
+                    .map(|_| (attestation, subnet_id))
             })
             .collect::<Vec<_>>();
 
@@ -379,7 +395,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         // just return early.
         if let Some(attestation) = signed_attestations.first().cloned() {
             let num_attestations = signed_attestations.len();
-            let beacon_block_root = attestation.data.beacon_block_root;
+            let beacon_block_root = attestation.0.data.beacon_block_root;
 
             self.beacon_node
                 .http
@@ -409,7 +425,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         crit!(log, "Unknown condition when publishing unagg. attestation")
                     }
                 })
-                .map(|()| Some(attestation))
+                .map(|()| Some(attestation.0))
         } else {
             debug!(
                 log,
@@ -459,7 +475,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 // subscribed aggregators.
                 let selection_proof = duty_and_proof.selection_proof.as_ref()?.clone();
 
-                let (duty_slot, duty_committee_index, _, validator_index) =
+                let (duty_slot, duty_committee_index, _, validator_index, _) =
                     duty_and_proof.attestation_duties().or_else(|| {
                         crit!(log, "Missing duties when signing aggregate");
                         None
