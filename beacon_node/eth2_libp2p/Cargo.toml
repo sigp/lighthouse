@@ -32,8 +32,7 @@ snap = "1.0.0"
 void = "1.0.2"
 tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
-# Patched for quick updates
-discv5 = { git = "https://github.com/sigp/discv5", rev = "4a72b51db1d74281849a0c77949dcc6b837c2af0" }
+discv5 = { version = "0.1.0-alpha.5", features = ["libp2p"] }
 tiny-keccak = "2.0.2"
 environment = { path = "../../lighthouse/environment" }
 libp2p-tcp = { version = "0.19.1", default-features = false, features = ["tokio"] }
