@@ -70,7 +70,7 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
 }
 
 impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
-    pub fn observe(
+    pub fn verify_and_observe(
         &self,
         op: T,
         head_state: &BeaconState<E>,
@@ -79,7 +79,7 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         let mut observed_validator_indices = self.observed_validator_indices.lock();
         let new_validator_indices = op.observed_validators();
 
-        // If all of the new validator indices have been previously observed, short-curcuit
+        // If all of the new validator indices have been previously observed, short-circuit
         // the validation. This implements the uniqueness check part of the spec, which for attester
         // slashings reads:
         //

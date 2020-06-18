@@ -1087,7 +1087,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self
             .observed_voluntary_exits
-            .observe(exit, &wall_clock_state, &self.spec)?)
+            .verify_and_observe(exit, &wall_clock_state, &self.spec)?)
     }
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
@@ -1103,7 +1103,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposer_slashing: ProposerSlashing,
     ) -> Result<ObservationOutcome<ProposerSlashing>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
-        Ok(self.observed_proposer_slashings.observe(
+        Ok(self.observed_proposer_slashings.verify_and_observe(
             proposer_slashing,
             &wall_clock_state,
             &self.spec,
@@ -1123,7 +1123,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         attester_slashing: AttesterSlashing<T::EthSpec>,
     ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
-        Ok(self.observed_attester_slashings.observe(
+        Ok(self.observed_attester_slashings.verify_and_observe(
             attester_slashing,
             &wall_clock_state,
             &self.spec,

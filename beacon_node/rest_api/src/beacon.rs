@@ -545,7 +545,6 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
             ))
         })
         .and_then(move |attester_slashing| {
-            println!("Got this attester slashing: {:#?}", attester_slashing);
             if beacon_chain.eth1_chain.is_some() {
                 beacon_chain
                     .verify_attester_slashing_for_gossip(attester_slashing)

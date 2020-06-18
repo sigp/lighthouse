@@ -262,8 +262,8 @@ impl<T: BeaconChainTypes> Router<T> {
                     .processor
                     .verify_voluntary_exit_for_gossip(&peer_id, *exit)
                 {
-                    self.processor.import_verified_voluntary_exit(verified_exit);
                     self.propagate_message(id, peer_id.clone());
+                    self.processor.import_verified_voluntary_exit(verified_exit);
                 }
             }
             PubsubMessage::ProposerSlashing(proposer_slashing) => {
@@ -276,9 +276,9 @@ impl<T: BeaconChainTypes> Router<T> {
                     .processor
                     .verify_proposer_slashing_for_gossip(&peer_id, *proposer_slashing)
                 {
+                    self.propagate_message(id, peer_id.clone());
                     self.processor
                         .import_verified_proposer_slashing(verified_proposer_slashing);
-                    self.propagate_message(id, peer_id.clone());
                 }
             }
             PubsubMessage::AttesterSlashing(attester_slashing) => {
@@ -291,9 +291,9 @@ impl<T: BeaconChainTypes> Router<T> {
                     .processor
                     .verify_attester_slashing_for_gossip(&peer_id, *attester_slashing)
                 {
+                    self.propagate_message(id, peer_id.clone());
                     self.processor
                         .import_verified_attester_slashing(verified_attester_slashing);
-                    self.propagate_message(id, peer_id.clone());
                 }
             }
         }
