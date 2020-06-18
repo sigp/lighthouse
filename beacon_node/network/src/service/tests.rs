@@ -9,6 +9,7 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
+    use store::config::StoreConfig;
     use tokio::runtime::Runtime;
     use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
 
@@ -22,7 +23,12 @@ mod tests {
         let log = get_logger();
 
         let beacon_chain = Arc::new(
-            BeaconChainHarness::new(MinimalEthSpec, generate_deterministic_keypairs(8)).chain,
+            BeaconChainHarness::new(
+                MinimalEthSpec,
+                generate_deterministic_keypairs(8),
+                StoreConfig::default(),
+            )
+            .chain,
         );
 
         let store = beacon_chain.store.clone();

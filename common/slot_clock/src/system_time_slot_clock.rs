@@ -22,6 +22,11 @@ impl SlotClock for SystemTimeSlotClock {
         self.clock.slot_of(now)
     }
 
+    fn is_prior_to_genesis(&self) -> Option<bool> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+        Some(now < *self.clock.genesis_duration())
+    }
+
     fn now_duration(&self) -> Option<Duration> {
         SystemTime::now().duration_since(UNIX_EPOCH).ok()
     }

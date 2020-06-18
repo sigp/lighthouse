@@ -2,19 +2,20 @@ use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
     attestation_verification::{
-        Error as AttnError, IntoForkChoiceVerifiedAttestation, VerifiedAggregatedAttestation,
+        Error as AttnError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
         VerifiedUnaggregatedAttestation,
     },
     observed_operations::ObservationOutcome,
-    BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProcessingOutcome,
+    ForkChoiceError, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{NetworkGlobals, PeerId, Request, Response};
+use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use state_processing::SigVerifiedOp;
 use std::sync::Arc;
-use store::Store;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, ChainSpec, Epoch, EthSpec, Hash256, ProposerSlashing,
@@ -363,20 +364,29 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // pick out the required blocks, ignoring skip-slots and stepping by the step parameter;
         let mut last_block_root = None;
-        let block_roots = forwards_block_root_iter
-            .take_while(|(_root, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
-            // map skip slots to None
-            .map(|(root, _slot)| {
-                let result = if Some(root) == last_block_root {
-                    None
-                } else {
-                    Some(root)
-                };
-                last_block_root = Some(root);
-                result
-            })
-            .step_by(req.step as usize)
-            .collect::<Vec<_>>();
+        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
+            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot + req.count * req.step)
+                // map skip slots to None
+                .map(|(root, _)| {
+                    let result = if Some(root) == last_block_root {
+                        None
+                    } else {
+                        Some(root)
+                    };
+                    last_block_root = Some(root);
+                    result
+                })
+                .step_by(req.step as usize)
+                .collect::<Vec<Option<Hash256>>>()
+        });
+
+        let block_roots = match maybe_block_roots {
+            Ok(block_roots) => block_roots,
+            Err(e) => {
+                error!(self.log, "Error during iteration over blocks"; "error" => format!("{:?}", e));
+                return;
+            }
+        };
 
         // remove all skip slots
         let block_roots = block_roots
@@ -883,16 +893,27 @@ impl<T: BeaconChainTypes> Processor<T> {
         &self,
         peer_id: PeerId,
         beacon_block_root: Hash256,
-        attestation: &'a impl IntoForkChoiceVerifiedAttestation<'a, T>,
+        attestation: &'a impl SignatureVerifiedAttestation<T>,
     ) {
         if let Err(e) = self.chain.apply_attestation_to_fork_choice(attestation) {
-            debug!(
-                self.log,
-                "Attestation invalid for fork choice";
-                "reason" => format!("{:?}", e),
-                "peer" => format!("{:?}", peer_id),
-                "beacon_block_root" => format!("{:?}", beacon_block_root)
-            )
+            match e {
+                BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
+                    debug!(
+                        self.log,
+                        "Attestation invalid for fork choice";
+                        "reason" => format!("{:?}", e),
+                        "peer" => format!("{:?}", peer_id),
+                        "beacon_block_root" => format!("{:?}", beacon_block_root)
+                    )
+                }
+                e => error!(
+                    self.log,
+                    "Error applying attestation to fork choice";
+                    "reason" => format!("{:?}", e),
+                    "peer" => format!("{:?}", peer_id),
+                    "beacon_block_root" => format!("{:?}", beacon_block_root)
+                ),
+            }
         }
     }
 

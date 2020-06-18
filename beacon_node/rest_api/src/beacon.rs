@@ -15,7 +15,6 @@ use rest_types::{
 };
 use std::io::Write;
 use std::sync::Arc;
-use store::Store;
 
 use slog::{error, Logger};
 use types::{

@@ -3,6 +3,8 @@ use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use types::{BeaconStateError, Hash256};
 
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug)]
 pub enum Error {
     SszDecodeError(DecodeError),
@@ -13,6 +15,7 @@ pub enum Error {
     DBError { message: String },
     RlpError(String),
     BlockNotFound(Hash256),
+    NoContinuationData,
 }
 
 impl From<DecodeError> for Error {

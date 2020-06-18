@@ -7,6 +7,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy},
     StateSkipConfig,
 };
+use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{AggregateSignature, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
 
@@ -25,7 +26,11 @@ lazy_static! {
 fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
 
-    let harness = BeaconChainHarness::new(MainnetEthSpec, KEYPAIRS[..].to_vec());
+    let harness = BeaconChainHarness::new(
+        MainnetEthSpec,
+        KEYPAIRS[..].to_vec(),
+        StoreConfig::default(),
+    );
 
     // Skip past the genesis slot.
     harness.advance_slot();

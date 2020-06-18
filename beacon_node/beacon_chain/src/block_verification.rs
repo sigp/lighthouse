@@ -530,7 +530,11 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
         //  because it will revert finalization. Note that the finalized block is stored in fork
         //  choice, so we will not reject any child of the finalized block (this is relevant during
         //  genesis).
-        if !chain.fork_choice.contains_block(&block.parent_root()) {
+        if !chain
+            .fork_choice
+            .read()
+            .contains_block(&block.parent_root())
+        {
             return Err(BlockError::ParentUnknown(block.parent_root()));
         }
 
@@ -727,7 +731,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.
-    if chain.fork_choice.contains_block(&block_root) {
+    if chain.fork_choice.read().contains_block(&block_root) {
         return Err(BlockError::BlockIsAlreadyKnown);
     }
 
@@ -767,7 +771,7 @@ fn load_parent<T: BeaconChainTypes>(
     //  because it will revert finalization. Note that the finalized block is stored in fork
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
-    if !chain.fork_choice.contains_block(&block.parent_root) {
+    if !chain.fork_choice.read().contains_block(&block.parent_root) {
         return Err(BlockError::ParentUnknown(block.parent_root));
     }
 

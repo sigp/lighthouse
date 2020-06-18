@@ -95,7 +95,7 @@ async fn test_status_rpc() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(2000)) => {
+        _ = delay_for(Duration::from_secs(30)) => {
             panic!("Future timed out");
         }
     }
@@ -205,7 +205,7 @@ async fn test_blocks_by_range_chunked_rpc() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(2000)) => {
+        _ = delay_for(Duration::from_secs(30)) => {
             panic!("Future timed out");
         }
     }
@@ -292,7 +292,7 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
             // sent in the timeout
             match futures::future::select(
                 Box::pin(receiver.next_event()),
-                tokio::time::delay_for(Duration::from_millis(50)),
+                tokio::time::delay_for(Duration::from_secs(1)),
             )
             .await
             {
@@ -335,7 +335,7 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(2000)) => {
+        _ = delay_for(Duration::from_secs(30)) => {
             panic!("Future timed out");
         }
     }
@@ -442,7 +442,7 @@ async fn test_blocks_by_range_single_empty_rpc() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(800)) => {
+        _ = delay_for(Duration::from_secs(20)) => {
             panic!("Future timed out");
         }
     }
@@ -556,7 +556,7 @@ async fn test_blocks_by_root_chunked_rpc() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(2000)) => {
+        _ = delay_for(Duration::from_secs(30)) => {
             panic!("Future timed out");
         }
     }
@@ -652,7 +652,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
             // sent in the timeout
             match futures::future::select(
                 Box::pin(receiver.next_event()),
-                tokio::time::delay_for(Duration::from_millis(50)),
+                tokio::time::delay_for(Duration::from_millis(1000)),
             )
             .await
             {
@@ -695,7 +695,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(2000)) => {
+        _ = delay_for(Duration::from_secs(30)) => {
             panic!("Future timed out");
         }
     }
@@ -753,7 +753,7 @@ async fn test_goodbye_rpc() {
     tokio::select! {
         _ = sender_future => {}
         _ = receiver_future => {}
-        _ = delay_for(Duration::from_millis(2000)) => {
+        _ = delay_for(Duration::from_secs(30)) => {
             panic!("Future timed out");
         }
     }

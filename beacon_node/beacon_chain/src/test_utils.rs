@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{HotColdDB, MemoryStore, Store};
+use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -34,17 +34,19 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
-pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
-    TStore,
+pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witness<
     TStoreMigrator,
     TestingSlotClock,
-    CachingEth1Backend<TEthSpec, TStore>,
+    CachingEth1Backend<TEthSpec>,
     TEthSpec,
     NullEventHandler<TEthSpec>,
+    THotStore,
+    TColdStore,
 >;
 
-pub type HarnessType<E> = BaseHarnessType<MemoryStore<E>, NullMigrator, E>;
-pub type DiskHarnessType<E> = BaseHarnessType<HotColdDB<E>, BlockingMigrator<E>, E>;
+pub type HarnessType<E> = BaseHarnessType<NullMigrator, E, MemoryStore<E>, MemoryStore<E>>;
+pub type DiskHarnessType<E> =
+    BaseHarnessType<BlockingMigrator<E, LevelDB<E>, LevelDB<E>>, E, LevelDB<E>, LevelDB<E>>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -84,12 +86,12 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
+    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>, config: StoreConfig) -> Self {
         // Setting the target aggregators to really high means that _all_ validators in the
         // committee are required to produce an aggregate. This is overkill, however with small
         // validator counts it's the only way to be certain there is _at least one_ aggregator per
         // committee.
-        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32)
+        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32, config)
     }
 
     /// Instantiate a new harness with `validator_count` initial validators and a custom
@@ -98,6 +100,7 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
         eth_spec_instance: E,
         keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
+        config: StoreConfig,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
         let mut spec = E::default_spec();
@@ -105,11 +108,11 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
         let log = NullLoggerBuilder.build().expect("logger should build");
-
+        let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
+            .logger(log)
             .custom_spec(spec.clone())
-            .store(Arc::new(MemoryStore::open()))
+            .store(Arc::new(store))
             .store_migrator(NullMigrator)
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
@@ -122,8 +125,6 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -140,7 +141,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
-        store: Arc<HotColdDB<E>>,
+        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
@@ -164,8 +165,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -180,7 +179,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
-        store: Arc<HotColdDB<E>>,
+        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
@@ -192,7 +191,10 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<E>>::new(store, log.clone()))
+            .store_migrator(<BlockingMigrator<_, _, _> as Migrate<E, _, _>>::new(
+                store,
+                log.clone(),
+            ))
             .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
@@ -201,8 +203,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -215,11 +215,12 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     }
 }
 
-impl<S, M, E> BeaconChainHarness<BaseHarnessType<S, M, E>>
+impl<M, E, Hot, Cold> BeaconChainHarness<BaseHarnessType<M, E, Hot, Cold>>
 where
-    S: Store<E>,
-    M: Migrate<E>,
+    M: Migrate<E, Hot, Cold>,
     E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
 {
     /// Advance the slot of the `BeaconChain`.
     ///
@@ -243,6 +244,35 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) -> Hash256 {
+        let mut i = 0;
+        self.extend_chain_while(
+            |_, _| {
+                i += 1;
+                i <= num_blocks
+            },
+            block_strategy,
+            attestation_strategy,
+        )
+    }
+
+    /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
+    /// last-produced block (the head of the chain).
+    ///
+    /// Chain will be extended while `predidcate` returns `true`.
+    ///
+    /// The `block_strategy` dictates where the new blocks will be placed.
+    ///
+    /// The `attestation_strategy` dictates which validators will attest to the newly created
+    /// blocks.
+    pub fn extend_chain_while<F>(
+        &self,
+        mut predicate: F,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+    ) -> Hash256
+    where
+        F: FnMut(&SignedBeaconBlock<E>, &BeaconState<E>) -> bool,
+    {
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
@@ -265,12 +295,16 @@ where
 
         let mut head_block_root = None;
 
-        for _ in 0..num_blocks {
+        loop {
+            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+
+            if !predicate(&block, &new_state) {
+                break;
+            }
+
             while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
-
-            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
             let block_root = self
                 .chain
@@ -287,6 +321,39 @@ where
         }
 
         head_block_root.expect("did not produce any blocks")
+    }
+
+    /// A simple method to produce a block at the current slot without applying it to the chain.
+    ///
+    /// Always uses `BlockStrategy::OnCanonicalHead`.
+    pub fn get_block(&self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        let state = self
+            .chain
+            .state_at_slot(
+                self.chain.slot().unwrap() - 1,
+                StateSkipConfig::WithStateRoots,
+            )
+            .unwrap();
+
+        let slot = self.chain.slot().unwrap();
+
+        self.build_block(state, slot, BlockStrategy::OnCanonicalHead)
+    }
+
+    /// A simple method to produce and process all attestation at the current slot. Always uses
+    /// `AttestationStrategy::AllValidators`.
+    pub fn generate_all_attestations(&self) {
+        let slot = self.chain.slot().unwrap();
+        let (state, block_root) = {
+            let head = self.chain.head().unwrap();
+            (head.beacon_state.clone(), head.beacon_block_root)
+        };
+        self.add_attestations_for_slot(
+            &AttestationStrategy::AllValidators,
+            &state,
+            block_root,
+            slot,
+        );
     }
 
     /// Returns current canonical head slot
@@ -626,14 +693,16 @@ where
                         spec,
                     );
 
-                    self.chain
+                    let attn = self.chain
                         .verify_aggregated_attestation_for_gossip(signed_aggregate)
-                        .expect("should not error during attestation processing")
-                        .add_to_pool(&self.chain)
-                        .expect("should add attestation to naive aggregation pool")
-                        .add_to_fork_choice(&self.chain)
+                        .expect("should not error during attestation processing");
+
+                    self.chain.apply_attestation_to_fork_choice(&attn)
                         .expect("should add attestation to fork choice");
-                    }
+
+                    self.chain.add_to_block_inclusion_pool(attn)
+                        .expect("should add attestation to op pool");
+                }
             });
     }
 

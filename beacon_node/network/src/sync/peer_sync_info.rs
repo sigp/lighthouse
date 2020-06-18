@@ -21,7 +21,7 @@ pub struct PeerSyncInfo {
 pub enum PeerSyncType {
     /// The peer is on our chain and is fully synced with respect to our chain.
     FullySynced,
-    /// The peer has a greater knowledge of the chain that us that warrants a full sync.
+    /// The peer has a greater knowledge of the chain than us that warrants a full sync.
     Advanced,
     /// A peer is behind in the sync and not useful to us for downloading blocks.
     Behind,
@@ -56,8 +56,8 @@ impl PeerSyncInfo {
         Some(Self::from(status_message(chain)?))
     }
 
-    /// Given another peer's `PeerSyncInfo` this will determine how useful that peer is for us in
-    /// regards to syncing.  This returns the peer sync type that can then be handled by the
+    /// Given another peer's `PeerSyncInfo` this will determine how useful that peer is to us in
+    /// regards to syncing. This returns the peer sync type that can then be handled by the
     /// `SyncManager`.
     pub fn peer_sync_type(&self, remote_peer_sync_info: &PeerSyncInfo) -> PeerSyncType {
         // check if the peer is fully synced with our current chain
