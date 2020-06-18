@@ -128,7 +128,7 @@ impl TaskExecutor {
 }
 
 impl discv5::Executor for TaskExecutor {
-  fn spawn(&self, future: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>) {
-      self.spawn(future, "discv5")
-  }
+    fn spawn(&self, future: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>) {
+        self.spawn(future, "discv5")
+    }
 }

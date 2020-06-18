@@ -121,7 +121,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .system_time_slot_clock()?
             .tee_event_handler(client_config.websocket_server.clone())?;
 
-
         // Inject the executor into the discv5 network config.
         client_config.network.discv5_config.executor = Some(Box::new(executor));
 

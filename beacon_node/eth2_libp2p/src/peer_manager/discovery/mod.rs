@@ -23,10 +23,10 @@ use std::{
     collections::VecDeque,
     net::SocketAddr,
     path::Path,
+    pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::Instant,
-    pin::Pin,
 };
 use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec, SubnetId};
@@ -103,13 +103,19 @@ struct QueryResult(QueryType, Result<Vec<Enr>, discv5::QueryError>);
 enum EventStream {
     /// Awaiting an event stream to be generated. This is required due to the poll nature of
     /// `Discovery`
-    Awaiting(Pin<Box<dyn Future<Output=Result<mpsc::Receiver<Discv5Event>, discv5::Discv5Error>>+ Send>>),
+    Awaiting(
+        Pin<
+            Box<
+                dyn Future<Output = Result<mpsc::Receiver<Discv5Event>, discv5::Discv5Error>>
+                    + Send,
+            >,
+        >,
+    ),
     /// The future has completed.
     Present(mpsc::Receiver<Discv5Event>),
     // The future has failed, there are no events from discv5.
-    Failed
+    Failed,
 }
-
 
 pub struct Discovery<TSpec: EthSpec> {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
@@ -567,7 +573,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 futures::pin_mut!(fut);
                 if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
                     match event_stream {
-                        Ok(stream) => self.event_stream = EventStream::Present(stream), 
+                        Ok(stream) => self.event_stream = EventStream::Present(stream),
                         Err(e) => {
                             slog::crit!(self.log, "Discv5 event stream failed"; "error" => e.to_string());
                             self.event_stream = EventStream::Failed;
@@ -576,37 +582,36 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 }
             }
             EventStream::Failed => {} // ignore checking the stream
-            EventStream::Present(ref mut stream) =>  {
-
-        while let Ok(event) = stream.try_recv() {
-            match event {
-                // We filter out unwanted discv5 events here and only propagate useful results to
-                // the peer manager.
-                Discv5Event::Discovered(_enr) => {
-                    // Peers that get discovered during a query but are not contactable or
-                    // don't match a predicate can end up here. For debugging purposes we
-                    // log these to see if we are unnecessarily dropping discovered peers
-                    /*
-                    if enr.eth2() == self.local_enr().eth2() {
-                        trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
-                    } else {
-                        // this is temporary warning for debugging the DHT
-                        warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+            EventStream::Present(ref mut stream) => {
+                while let Ok(event) = stream.try_recv() {
+                    match event {
+                        // We filter out unwanted discv5 events here and only propagate useful results to
+                        // the peer manager.
+                        Discv5Event::Discovered(_enr) => {
+                            // Peers that get discovered during a query but are not contactable or
+                            // don't match a predicate can end up here. For debugging purposes we
+                            // log these to see if we are unnecessarily dropping discovered peers
+                            /*
+                            if enr.eth2() == self.local_enr().eth2() {
+                                trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                            } else {
+                                // this is temporary warning for debugging the DHT
+                                warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                            }
+                            */
+                        }
+                        Discv5Event::SocketUpdated(socket) => {
+                            info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
+                            metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
+                            // Discv5 will have updated our local ENR. We save the updated version
+                            // to disk.
+                            let enr = self.discv5.local_enr();
+                            enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
+                            return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
+                        }
+                        _ => {} // Ignore all other discv5 server events
                     }
-                    */
                 }
-                Discv5Event::SocketUpdated(socket) => {
-                    info!(self.log, "Address updated"; "ip" => format!("{}",socket.ip()), "udp_port" => format!("{}", socket.port()));
-                    metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
-                    // Discv5 will have updated our local ENR. We save the updated version
-                    // to disk.
-                    let enr = self.discv5.local_enr();
-                    enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
-                    return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
-                }
-                _ => {} // Ignore all other discv5 server events
-            }
-        }
             }
         }
         Poll::Pending
