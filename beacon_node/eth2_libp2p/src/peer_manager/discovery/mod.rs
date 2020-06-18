@@ -133,6 +133,10 @@ pub struct Discovery<TSpec: EthSpec> {
     /// A collection of network constants that can be read from other threads.
     network_globals: Arc<NetworkGlobals<TSpec>>,
 
+    /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
+    /// a time, regardless of the query concurrency.
+    find_peer_active: bool,
+
     /// A queue of discovery queries to be processed.
     queued_queries: VecDeque<QueryType>,
 
@@ -203,6 +207,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         Ok(Self {
             cached_enrs: LruCache::new(50),
             network_globals,
+            find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),
             active_queries: FuturesUnordered::new(),
             discv5,
@@ -400,8 +405,14 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             // consume and process the query queue
             match self.queued_queries.pop_front() {
                 Some(QueryType::FindPeers) => {
+                    // Only permit one FindPeers query at a time
+                    if self.find_peer_active {
+                        self.queued_queries.push_back(QueryType::FindPeers);
+                        continue;
+                    }
                     // This is a regular request to find additional peers
                     debug!(self.log, "Searching for new peers");
+                    self.find_peer_active = true;
                     self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS);
                 }
                 Some(QueryType::Subnet {
@@ -513,25 +524,28 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     fn poll_queries(&mut self, cx: &mut Context) -> Option<(Option<Instant>, Vec<Enr>)> {
         while let Poll::Ready(Some(query_future)) = self.active_queries.poll_next_unpin(cx) {
             match query_future.0 {
-                QueryType::FindPeers => match query_future.1 {
-                    Ok(r) if !r.is_empty() => {
-                        debug!(self.log, "Discovery query yielded no results.");
+                QueryType::FindPeers => {
+                    self.find_peer_active = false;
+                    match query_future.1 {
+                        Ok(r) if r.is_empty() => {
+                            debug!(self.log, "Discovery query yielded no results.");
+                        }
+                        Ok(r) => {
+                            debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
+                            return Some((None, r));
+                        }
+                        Err(e) => {
+                            warn!(self.log, "Discovery query failed"; "error" => e.to_string());
+                        }
                     }
-                    Ok(r) => {
-                        debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
-                        return Some((None, r));
-                    }
-                    Err(e) => {
-                        warn!(self.log, "Discovery query failed"; "error" => e.to_string());
-                    }
-                },
+                }
                 QueryType::Subnet {
                     subnet_id,
                     min_ttl,
                     retries,
                 } => {
                     match query_future.1 {
-                        Ok(r) if !r.is_empty() => {
+                        Ok(r) if r.is_empty() => {
                             debug!(self.log, "Subnet discovery query yielded no results."; "subnet_id" => *subnet_id, "retries" => retries);
                         }
                         Ok(r) => {
