@@ -15,7 +15,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 ///
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
@@ -49,7 +49,7 @@ pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
 /// Returns a descriptive `Err` if the attestation is malformed or does not accurately reflect the
 /// prior blocks in `state`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn verify_attestation_for_state<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
@@ -76,7 +76,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
 
 /// Check target epoch and source checkpoint.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 fn verify_casper_ffg_vote<T: EthSpec>(
     attestation: &Attestation<T>,
     state: &BeaconState<T>,

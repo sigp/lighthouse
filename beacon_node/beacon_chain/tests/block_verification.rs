@@ -558,7 +558,7 @@ fn block_gossip_verification() {
     /*
      * This test ensures that:
      *
-     * Spec v0.11.2
+     * Spec v0.12.1
      *
      * The block is not from a future slot (with a MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) --
      * i.e. validate that signed_beacon_block.message.slot <= current_slot (a client MAY queue
@@ -583,7 +583,7 @@ fn block_gossip_verification() {
     /*
      * This test ensure that:
      *
-     * Spec v0.11.2
+     * Spec v0.12.1
      *
      * The block is from a slot greater than the latest finalized slot -- i.e. validate that
      * signed_beacon_block.message.slot >
@@ -616,7 +616,7 @@ fn block_gossip_verification() {
     /*
      * This test ensures that:
      *
-     * Spec v0.11.2
+     * Spec v0.12.1
      *
      * The proposer signature, signed_beacon_block.signature, is valid with respect to the
      * proposer_index pubkey.
@@ -635,7 +635,7 @@ fn block_gossip_verification() {
     /*
      * This test ensures that:
      *
-     * Spec v0.11.2
+     * Spec v0.12.1
      *
      * The block is proposed by the expected proposer_index for the block's slot in the context of
      * the current shuffling (defined by parent_root/slot). If the proposer_index cannot
@@ -689,7 +689,7 @@ fn block_gossip_verification() {
     /*
      * This test ensures that:
      *
-     * Spec v0.11.2
+     * Spec v0.12.1
      *
      * The block is the first block with valid signature received for the proposer for the slot,
      * signed_beacon_block.message.slot.

@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// The data upon which an attestation is based.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug,

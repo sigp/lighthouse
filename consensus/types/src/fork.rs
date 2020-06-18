@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug,
@@ -41,7 +41,7 @@ pub struct Fork {
 impl Fork {
     /// Return the fork version of the given ``epoch``.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn get_fork_version(&self, epoch: Epoch) -> [u8; 4] {
         if epoch < self.epoch {
             return self.previous_version;

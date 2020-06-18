@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 /// Information about a `BeaconChain` validator.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 pub struct Validator {
@@ -45,7 +45,7 @@ impl Validator {
 
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
         self.activation_eligibility_epoch == spec.far_future_epoch
             && self.effective_balance == spec.max_effective_balance
@@ -53,7 +53,7 @@ impl Validator {
 
     /// Returns `true` if the validator is eligible to be activated.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn is_eligible_for_activation<E: EthSpec>(
         &self,
         state: &BeaconState<E>,

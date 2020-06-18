@@ -222,7 +222,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Performs the first step of the attesting process: downloading `Attestation` objects,
     /// signing them and returning them to the validator.
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.11.0/specs/phase0/validator.md#attesting
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/validator.md#attesting
     ///
     /// ## Detail
     ///
@@ -291,7 +291,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Performs the first step of the attesting process: downloading `Attestation` objects,
     /// signing them and returning them to the validator.
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.11.0/specs/phase0/validator.md#attesting
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/validator.md#attesting
     ///
     /// ## Detail
     ///
@@ -441,7 +441,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Performs the second step of the attesting process: downloading an aggregated `Attestation`,
     /// converting it into a `SignedAggregateAndProof` and returning it to the BN.
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.11.0/specs/phase0/validator.md#broadcast-aggregate
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/validator.md#broadcast-aggregate
     ///
     /// ## Detail
     ///

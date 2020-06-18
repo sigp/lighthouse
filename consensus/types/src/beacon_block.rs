@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
@@ -27,7 +27,7 @@ impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlock {
             slot: spec.genesis_slot,
@@ -152,7 +152,7 @@ impl<T: EthSpec> BeaconBlock<T> {
 
     /// Returns the `tree_hash_root` of the block.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
@@ -164,7 +164,7 @@ impl<T: EthSpec> BeaconBlock<T> {
     ///
     /// Note: performs a full tree-hash of `self.body`.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             slot: self.slot,
@@ -177,7 +177,7 @@ impl<T: EthSpec> BeaconBlock<T> {
 
     /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn temporary_block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {
             state_root: Hash256::zero(),

@@ -8,7 +8,7 @@ use types::{
 
 /// Defined here:
 ///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#configuration
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#configuration
 pub const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 
 #[derive(Debug)]
@@ -103,7 +103,7 @@ impl<T> From<String> for Error<T> {
 ///
 /// Equivalent to:
 ///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#compute_slots_since_epoch_start
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#compute_slots_since_epoch_start
 pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
     slot - slot
         .epoch(E::slots_per_epoch())
@@ -116,7 +116,7 @@ pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
 ///
 /// Equivalent to:
 ///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/beacon-chain.md#compute_start_slot_at_epoch
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#compute_start_slot_at_epoch
 fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
@@ -127,7 +127,7 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 ///
 /// Equivalent to:
 ///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_tick
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#on_tick
 fn on_tick<T, E>(store: &mut T, time: Slot) -> Result<(), Error<T::Error>>
 where
     T: ForkChoiceStore<E>,
@@ -198,7 +198,7 @@ fn dequeue_attestations(
 
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
+/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
 ///
 /// ## Detail
 ///
@@ -285,7 +285,7 @@ where
     ///
     /// Equivalent to:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_ancestor
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_ancestor
     fn get_ancestor(
         &self,
         block_root: Hash256,
@@ -324,7 +324,7 @@ where
     ///
     /// Is equivalent to:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#get_head
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
     pub fn get_head(&mut self, current_slot: Slot) -> Result<Hash256, Error<T::Error>> {
         self.update_time(current_slot)?;
 
@@ -350,7 +350,7 @@ where
     ///
     /// Is equivalent to:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#should_update_justified_checkpoint
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#should_update_justified_checkpoint
     fn should_update_justified_checkpoint(
         &mut self,
         current_slot: Slot,
@@ -403,7 +403,7 @@ where
     ///
     /// Approximates:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_block
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#on_block
     ///
     /// It only approximates the specification since it does not run the `state_transition` check.
     /// That should have already been called upstream and it's too expensive to call again.
@@ -633,7 +633,7 @@ where
     ///
     /// Approximates:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.0/specs/phase0/fork-choice.md#on_attestation
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#on_attestation
     ///
     /// It only approximates the specification since it does not perform
     /// `is_valid_indexed_attestation` since that should already have been called upstream and it's
