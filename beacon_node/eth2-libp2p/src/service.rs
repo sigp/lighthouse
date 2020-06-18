@@ -379,7 +379,7 @@ fn build_transport(
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
         let trans_clone = transport.clone();
-        transport.or_transport(websocket::WsConfig::new(trans_clone))
+        transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
     // Authentication
     let transport = transport
