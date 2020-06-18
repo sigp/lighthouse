@@ -459,10 +459,10 @@ fn attestations_with_increasing_slots() {
         harness.advance_slot();
     }
 
-    for attestation in attestations.into_iter().flatten() {
+    for (attestation, subnet_id) in attestations.into_iter().flatten() {
         let res = harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation.clone());
+            .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id);
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;

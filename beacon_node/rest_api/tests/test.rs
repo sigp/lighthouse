@@ -22,7 +22,7 @@ use types::{
     },
     BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
     RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
-    Validator,
+    SubnetId, Validator,
 };
 use version;
 
@@ -144,7 +144,16 @@ fn validator_produce_attestation() {
         ))
         .expect("should fetch duties from http api");
     let duties = &duties[0];
-
+    let committee_count = duties
+        .committee_count_at_slot
+        .expect("should have committee count");
+    let subnet_id = SubnetId::compute_subnet::<E>(
+        attestation.data.slot,
+        attestation.data.index,
+        committee_count,
+        spec,
+    )
+    .unwrap();
     // Try publishing the attestation without a signature or a committee bit set, ensure it is
     // raises an error.
     let publish_status = env
@@ -153,7 +162,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestations(vec![attestation.clone()]),
+                .publish_attestations(vec![(attestation.clone(), subnet_id)]),
         )
         .expect("should publish unsigned attestation");
     assert!(
@@ -179,7 +188,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestations(vec![attestation.clone()]),
+                .publish_attestations(vec![(attestation.clone(), subnet_id)]),
         )
         .expect("should publish attestation with invalid signature");
     assert!(
@@ -217,7 +226,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestations(vec![attestation.clone()]),
+                .publish_attestations(vec![(attestation.clone(), subnet_id)]),
         )
         .expect("should publish attestation");
     assert!(

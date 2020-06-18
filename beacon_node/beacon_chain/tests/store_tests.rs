@@ -293,7 +293,7 @@ fn epoch_boundary_state_attestation_processing() {
 
     let mut checked_pre_fin = false;
 
-    for attestation in late_attestations.into_iter().flatten() {
+    for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
         let block = store.get_block(&block_root).unwrap().expect("block exists");
@@ -317,7 +317,7 @@ fn epoch_boundary_state_attestation_processing() {
 
         let res = harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation.clone());
+            .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id);
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;

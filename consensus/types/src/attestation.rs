@@ -1,10 +1,9 @@
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature, SignedRoot, SubnetId,
+    Signature, SignedRoot,
 };
 use crate::{test_utils::TestRandom, Hash256};
-use safe_arith::{ArithError, SafeArith};
-
+use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -83,18 +82,6 @@ impl<T: EthSpec> Attestation<T> {
 
             Ok(())
         }
-    }
-
-    /// Returns the subnet id associated with the attestation.
-    ///
-    /// Note, this will return the subnet id for an aggregated attestation. This is done
-    /// to avoid checking aggregate bits every time we wish to get an id.
-    pub fn subnet_id(&self, spec: &ChainSpec) -> Result<SubnetId, Error> {
-        self.data
-            .index
-            .safe_rem(spec.attestation_subnet_count)
-            .map(SubnetId::new)
-            .map_err(Error::SubnetCountIsZero)
     }
 }
 

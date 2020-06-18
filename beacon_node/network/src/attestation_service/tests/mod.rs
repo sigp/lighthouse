@@ -108,17 +108,23 @@ mod tests {
         validator_index: u64,
         attestation_committee_index: CommitteeIndex,
         slot: Slot,
+        committee_count_at_slot: u64,
     ) -> ValidatorSubscription {
         let is_aggregator = true;
         ValidatorSubscription {
             validator_index,
             attestation_committee_index,
             slot,
+            committee_count_at_slot,
             is_aggregator,
         }
     }
 
-    fn _get_subscriptions(validator_count: u64, slot: Slot) -> Vec<ValidatorSubscription> {
+    fn _get_subscriptions(
+        validator_count: u64,
+        slot: Slot,
+        committee_count_at_slot: u64,
+    ) -> Vec<ValidatorSubscription> {
         let mut subscriptions: Vec<ValidatorSubscription> = Vec::new();
         for validator_index in 0..validator_count {
             let is_aggregator = true;
@@ -126,6 +132,7 @@ mod tests {
                 validator_index,
                 attestation_committee_index: validator_index,
                 slot,
+                committee_count_at_slot,
                 is_aggregator,
             });
         }
@@ -167,6 +174,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 0;
         let no_events_expected = 4;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -180,6 +188,7 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
         // submit the subscriptions
@@ -188,7 +197,15 @@ mod tests {
             .unwrap();
 
         // not enough time for peer discovery, just subscribe
-        let expected = vec![AttServiceMessage::Subscribe(SubnetId::new(validator_index))];
+        let expected = vec![AttServiceMessage::Subscribe(
+            SubnetId::compute_subnet::<MinimalEthSpec>(
+                current_slot + Slot::new(subscription_slot),
+                committee_index,
+                committee_count,
+                &attestation_service.beacon_chain.spec,
+            )
+            .unwrap(),
+        )];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
@@ -215,6 +232,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 0;
         let no_events_expected = 5;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -228,6 +246,7 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
         // submit the subscriptions
@@ -236,9 +255,16 @@ mod tests {
             .unwrap();
 
         // not enough time for peer discovery, just subscribe, unsubscribe
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
         let expected = vec![
-            AttServiceMessage::Subscribe(SubnetId::new(validator_index)),
-            AttServiceMessage::Unsubscribe(SubnetId::new(validator_index)),
+            AttServiceMessage::Subscribe(subnet_id),
+            AttServiceMessage::Unsubscribe(subnet_id),
         ];
 
         let events = get_events(attestation_service, no_events_expected, 2).await;
@@ -266,6 +292,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 5;
         let no_events_expected = 4;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -279,6 +306,7 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
         // submit the subscriptions
@@ -295,10 +323,14 @@ mod tests {
         );
 
         // just discover peers, don't subscribe yet
-        let expected = vec![AttServiceMessage::DiscoverPeers {
-            subnet_id: SubnetId::new(validator_index),
-            min_ttl,
-        }];
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
+        let expected = vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
@@ -325,6 +357,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 5;
         let no_events_expected = 5;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -338,6 +371,7 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
         // submit the subscriptions
@@ -354,12 +388,16 @@ mod tests {
         );
 
         // we should discover peers, wait, then subscribe
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
         let expected = vec![
-            AttServiceMessage::DiscoverPeers {
-                subnet_id: SubnetId::new(validator_index),
-                min_ttl,
-            },
-            AttServiceMessage::Subscribe(SubnetId::new(validator_index)),
+            AttServiceMessage::DiscoverPeers { subnet_id, min_ttl },
+            AttServiceMessage::Subscribe(subnet_id),
         ];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
@@ -387,6 +425,7 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 7;
         let no_events_expected = 3;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -400,6 +439,7 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
         // submit the subscriptions
@@ -436,9 +476,11 @@ mod tests {
         let committee_index = 1;
         let subscription_slot = 10;
         let no_events_expected = 4;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
+
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -449,6 +491,7 @@ mod tests {
             validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
+            committee_count,
         )];
 
         // submit the subscriptions
@@ -464,11 +507,17 @@ mod tests {
                 .unwrap(),
         );
 
+        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
+            current_slot + Slot::new(subscription_slot),
+            committee_index,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
+
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
-        let expected: Vec<AttServiceMessage> = vec![AttServiceMessage::DiscoverPeers {
-            subnet_id: SubnetId::new(validator_index),
-            min_ttl,
-        }];
+        let expected: Vec<AttServiceMessage> =
+            vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
 
@@ -494,6 +543,7 @@ mod tests {
         // subscribe 10 slots ahead so we do not produce any exact subnet messages
         let subscription_slot = 10;
         let subscription_count = 64;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -503,8 +553,11 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions =
-            _get_subscriptions(subscription_count, current_slot + subscription_slot);
+        let subscriptions = _get_subscriptions(
+            subscription_count,
+            current_slot + subscription_slot,
+            committee_count,
+        );
 
         // submit the subscriptions
         attestation_service
@@ -542,6 +595,7 @@ mod tests {
         let subscription_slot = 10;
         // the 65th subscription should result in no more messages than the previous scenario
         let subscription_count = 65;
+        let committee_count = 1;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
@@ -551,8 +605,11 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions =
-            _get_subscriptions(subscription_count, current_slot + subscription_slot);
+        let subscriptions = _get_subscriptions(
+            subscription_count,
+            current_slot + subscription_slot,
+            committee_count,
+        );
 
         // submit the subscriptions
         attestation_service

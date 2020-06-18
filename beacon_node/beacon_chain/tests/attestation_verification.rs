@@ -14,7 +14,7 @@ use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, EthSpec, Hash256,
     Keypair, MainnetEthSpec, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, Unsigned,
+    SignedBeaconBlock, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -49,7 +49,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
 /// Also returns some info about who created it.
 fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> (Attestation<T::EthSpec>, usize, usize, SecretKey) {
+) -> (Attestation<T::EthSpec>, usize, usize, SecretKey, SubnetId) {
     let head = chain.head().expect("should get head");
     let current_slot = chain.slot().expect("should get slot");
 
@@ -78,11 +78,21 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         )
         .expect("should sign attestation");
 
+    let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
+        &valid_attestation.data,
+        head.beacon_state
+            .get_committee_count_at_slot(current_slot)
+            .expect("should get committee count"),
+        &chain.spec,
+    )
+    .expect("should get subnet_id");
+
     (
         valid_attestation,
         validator_index,
         validator_committee_index,
         validator_sk,
+        subnet_id,
     )
 }
 
@@ -194,7 +204,7 @@ fn aggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, _attester_index, _attester_committee_index, validator_sk) =
+    let (valid_attestation, _attester_index, _attester_committee_index, validator_sk, _subnet_id) =
         get_valid_unaggregated_attestation(&harness.chain);
     let (valid_aggregate, aggregator_index, aggregator_sk) =
         get_valid_aggregated_attestation(&harness.chain, valid_attestation);
@@ -541,16 +551,21 @@ fn unaggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, expected_validator_index, validator_committee_index, validator_sk) =
-        get_valid_unaggregated_attestation(&harness.chain);
+    let (
+        valid_attestation,
+        expected_validator_index,
+        validator_committee_index,
+        validator_sk,
+        subnet_id,
+    ) = get_valid_unaggregated_attestation(&harness.chain);
 
     macro_rules! assert_invalid {
-        ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+        ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
             assert!(
                 matches!(
                     harness
                         .chain
-                        .verify_unaggregated_attestation_for_gossip($attn_getter)
+                        .verify_unaggregated_attestation_for_gossip($attn_getter, $subnet_getter)
                         .err()
                         .expect(&format!(
                             "{} should error during verify_unaggregated_attestation_for_gossip",
@@ -563,6 +578,29 @@ fn unaggregated_gossip_verification() {
             );
         };
     }
+
+    /*
+     * The following test ensures:
+     *
+     * Spec v0.12.1
+     *
+     * The attestation is for the correct subnet (i.e. compute_subnet_for_attestation(state,
+     * attestation.data.slot, attestation.data.index) == subnet_id).
+     */
+    let id: u64 = subnet_id.into();
+    let invalid_subnet_id = SubnetId::new(id + 1);
+    assert_invalid!(
+        "attestation from future slot",
+        {
+            valid_attestation.clone()
+        },
+        invalid_subnet_id,
+        AttnError::InvalidSubnetId {
+            received,
+            expected,
+        }
+        if received == invalid_subnet_id && expected == subnet_id
+    );
 
     /*
      * The following two tests ensure:
@@ -583,6 +621,7 @@ fn unaggregated_gossip_verification() {
             a.data.slot = future_slot;
             a
         },
+        subnet_id,
         AttnError::FutureSlot {
             attestation_slot,
             latest_permissible_slot,
@@ -602,6 +641,7 @@ fn unaggregated_gossip_verification() {
             a.data.slot = early_slot;
             a
         },
+        subnet_id,
         AttnError::PastSlot {
             attestation_slot,
             // Subtract an additional slot since the harness will be exactly on the start of the
@@ -634,6 +674,7 @@ fn unaggregated_gossip_verification() {
             );
             a
         },
+        subnet_id,
         AttnError::NotExactlyOneAggregationBitSet(0)
     );
 
@@ -646,6 +687,7 @@ fn unaggregated_gossip_verification() {
                 .expect("should set second aggregation bit");
             a
         },
+        subnet_id,
         AttnError::NotExactlyOneAggregationBitSet(2)
     );
 
@@ -665,6 +707,7 @@ fn unaggregated_gossip_verification() {
             a.data.beacon_block_root = unknown_root;
             a
         },
+        subnet_id,
         AttnError::UnknownHeadBlock {
             beacon_block_root,
         }
@@ -690,13 +733,14 @@ fn unaggregated_gossip_verification() {
 
             a
         },
+        subnet_id,
         AttnError::InvalidSignature
     );
 
     assert!(
         harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(valid_attestation.clone())
+            .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
             .is_ok(),
         "valid attestation should be verified"
     );
@@ -714,6 +758,7 @@ fn unaggregated_gossip_verification() {
     assert_invalid!(
         "attestation that has already been seen",
         valid_attestation.clone(),
+        subnet_id,
         AttnError::PriorAttestationKnown {
             validator_index,
             epoch,
@@ -755,7 +800,7 @@ fn attestation_that_skips_epochs() {
         per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
     }
 
-    let attestation = harness
+    let (attestation, subnet_id) = harness
         .get_unaggregated_attestations(
             &AttestationStrategy::AllValidators,
             &state,
@@ -785,6 +830,6 @@ fn attestation_that_skips_epochs() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(attestation)
+        .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
         .expect("should gossip verify attestation that skips slots");
 }

@@ -14,7 +14,7 @@ use eth2_libp2p::{
 use eth2_libp2p::{BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
-use slog::{debug, error, info, o, trace};
+use slog::{debug, error, info, o, trace, warn};
 use std::sync::Arc;
 use std::time::Duration;
 use store::HotColdDB;
@@ -236,10 +236,11 @@ fn spawn_service<T: BeaconChainTypes>(
                             );
                         }
                         NetworkMessage::Subscribe { subscriptions } => {
-                            // the result is dropped as it used solely for ergonomics
-                            let _ = service
+                            if let Err(e) = service
                                 .attestation_service
-                                .validator_subscriptions(subscriptions);
+                                .validator_subscriptions(subscriptions) {
+                                    warn!(service.log, "Validator subscription failed"; "error" => e);
+                                }
                         }
                     }
                 }
@@ -327,8 +328,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                         // checks if we have an aggregator for the slot. If so, we process
                                         // the attestation
                                         if service.attestation_service.should_process_attestation(
-                                            &id,
-                                            &source,
                                             subnet,
                                             attestation,
                                         ) {

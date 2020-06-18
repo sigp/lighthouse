@@ -872,12 +872,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_unaggregated_attestation_for_gossip(
         &self,
         attestation: Attestation<T::EthSpec>,
+        subnet_id: SubnetId,
     ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedUnaggregatedAttestation::verify(attestation, self).map(|v| {
+        VerifiedUnaggregatedAttestation::verify(attestation, subnet_id, self).map(|v| {
             metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
             v
         })

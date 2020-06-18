@@ -24,7 +24,7 @@ use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, EthSpec,
     Hash256, Keypair, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot, SubnetId,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -536,11 +536,15 @@ where
         state: &BeaconState<E>,
         head_block_root: Hash256,
         attestation_slot: Slot,
-    ) -> Vec<Vec<Attestation<E>>> {
+    ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
         let spec = &self.spec;
         let fork = &state.fork;
 
         let attesting_validators = self.get_attesting_validators(attestation_strategy);
+
+        let committee_count = state
+            .get_committee_count_at_slot(state.slot)
+            .expect("should get committee count");
 
         state
             .get_beacon_committees_at_slot(state.slot)
@@ -589,7 +593,14 @@ where
                             agg_sig
                         };
 
-                        Some(attestation)
+                        let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
+                            &attestation.data,
+                            committee_count,
+                            &self.chain.spec,
+                        )
+                        .expect("should get subnet_id");
+
+                        Some((attestation, subnet_id))
                     })
                     .collect()
             })
@@ -634,16 +645,16 @@ where
             .into_iter()
             .for_each(|committee_attestations| {
                 // Submit each unaggregated attestation to the chain.
-                for attestation in &committee_attestations {
+                for (attestation, subnet_id) in &committee_attestations {
                     self.chain
-                        .verify_unaggregated_attestation_for_gossip(attestation.clone())
+                        .verify_unaggregated_attestation_for_gossip(attestation.clone(), *subnet_id)
                         .expect("should not error during attestation processing")
                         .add_to_pool(&self.chain)
                         .expect("should add attestation to naive pool");
                 }
 
                 // If there are any attestations in this committee, create an aggregate.
-                if let Some(attestation) = committee_attestations.first() {
+                if let Some((attestation, _)) = committee_attestations.first() {
                     let bc = state.get_beacon_committee(attestation.data.slot, attestation.data.index)
                         .expect("should get committee");
 
@@ -677,7 +688,7 @@ where
                         .get_aggregated_attestation(&attestation.data)
                         .expect("should not error whilst finding aggregate")
                         .unwrap_or_else(|| {
-                            committee_attestations.iter().skip(1).fold(attestation.clone(), |mut agg, att| {
+                            committee_attestations.iter().skip(1).fold(attestation.clone(), |mut agg, (att, _)| {
                                 agg.aggregate(att);
                                 agg
                             })

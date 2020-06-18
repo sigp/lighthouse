@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use store::{MemoryStore, StoreConfig};
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
-    Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot,
+    Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
 };
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
@@ -285,6 +285,15 @@ impl ForkChoiceTest {
             .get(validator_committee_index)
             .expect("there should be an attesting validator");
 
+        let committee_count = head
+            .beacon_state
+            .get_committee_count_at_slot(current_slot)
+            .expect("should not error while getting committee count");
+
+        let subnet_id =
+            SubnetId::compute_subnet::<E>(current_slot, 0, committee_count, &chain.spec)
+                .expect("should compute subnet id");
+
         let validator_sk = generate_deterministic_keypair(validator_index).sk;
 
         attestation
@@ -298,7 +307,7 @@ impl ForkChoiceTest {
             .expect("should sign attestation");
 
         let mut verified_attestation = chain
-            .verify_unaggregated_attestation_for_gossip(attestation)
+            .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
             .expect("precondition: should gossip verify attestation");
 
         if let MutationDelay::Blocks(slots) = delay {
