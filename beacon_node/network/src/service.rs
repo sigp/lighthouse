@@ -11,7 +11,7 @@ use eth2_libp2p::{
     rpc::{RPCResponseErrorCode, RequestId},
     Libp2pEvent, PeerRequestId, PubsubMessage, Request, Response,
 };
-use eth2_libp2p::{BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{BehaviourEvent, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
@@ -136,7 +136,7 @@ fn spawn_service<T: BeaconChainTypes>(
                 // handle network shutdown
                 _ = (&mut exit_rx) => {
                     // network thread is terminating
-                    let enrs: Vec<Enr> = service.libp2p.swarm.enr_entries().cloned().collect();
+                    let enrs = service.libp2p.swarm.enr_entries();
                     debug!(
                         service.log,
                         "Persisting DHT to store";

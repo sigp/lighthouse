@@ -71,17 +71,20 @@ impl PartialEq for AttServiceMessage {
                     subnet_id: other_subnet_id,
                     min_ttl: other_min_ttl,
                 },
-            ) => match (min_ttl, other_min_ttl) {
-                (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
-                    min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
-                        < DURATION_DIFFERENCE
-                        && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
-                            < DURATION_DIFFERENCE
-                        && subnet_id == other_subnet_id
-                }
-                (None, None) => subnet_id == other_subnet_id,
-                _ => false,
-            },
+            ) => {
+                subnet_id == other_subnet_id
+                    && match (min_ttl, other_min_ttl) {
+                        (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
+                            min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
+                                < DURATION_DIFFERENCE
+                                && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
+                                    < DURATION_DIFFERENCE
+                        }
+                        (None, None) => true,
+                        (None, Some(_)) => true,
+                        (Some(_), None) => true,
+                    }
+            }
             _ => false,
         }
     }
@@ -353,12 +356,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                                     *other_min_ttl = min_ttl;
                                 }
                             }
-                            (None, Some(_)) => {
-                                // Update the min_ttl to None, because the new message is longer-lived.
-                                *other_min_ttl = None;
+                            (None, Some(_)) => {} // Keep the current one as it has an actual min_ttl
+                            (Some(min_ttl), None) => {
+                                // Update the request to include a min_ttl.
+                                *other_min_ttl = Some(min_ttl);
                             }
-                            (Some(_), None) => {} // Don't replace this because the existing message is for a longer-lived peer.
-                            (None, None) => {}    // Duplicate message, do nothing.
+                            (None, None) => {} // Duplicate message, do nothing.
                         }
                         is_duplicate = true;
                         return;

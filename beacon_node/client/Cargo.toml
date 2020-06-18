@@ -13,7 +13,7 @@ beacon_chain = { path = "../beacon_chain" }
 store = { path = "../store" }
 network = { path = "../network" }
 timer = { path = "../timer" }
-eth2-libp2p = { path = "../eth2-libp2p" }
+eth2_libp2p = { path = "../eth2_libp2p" }
 rest_api = { path = "../rest_api" }
 parking_lot = "0.10.2"
 websocket_server = { path = "../websocket_server" }

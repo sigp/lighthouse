@@ -106,6 +106,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
     }
 
+    /// Returns true if the Peer is banned.
+    pub fn peer_banned(&self, peer_id: &PeerId) -> bool {
+        match self.peers.get(peer_id).map(|info| &info.connection_status) {
+            Some(status) => status.is_banned(),
+            None => false,
+        }
+    }
+
     /// Gives the ids of all known connected peers.
     pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
         self.peers

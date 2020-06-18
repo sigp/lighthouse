@@ -5,7 +5,7 @@ members = [
     "beacon_node/beacon_chain",
     "beacon_node/client",
     "beacon_node/eth1",
-    "beacon_node/eth2-libp2p",
+    "beacon_node/eth2_libp2p",
     "beacon_node/network",
     "beacon_node/rest_api",
     "beacon_node/store",
@@ -72,4 +72,3 @@ eth2_ssz = { path = "consensus/ssz" }
 eth2_ssz_derive = { path = "consensus/ssz_derive" }
 eth2_ssz_types = { path = "consensus/ssz_types" }
 eth2_hashing = { path = "crypto/eth2_hashing" }
-web3 = { git = "https://github.com/tomusdrw/rust-web3" }
