@@ -2,7 +2,7 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
-use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::GossipKind, NetworkGlobals};
 use futures::prelude::*;
 use hashset_delay::HashSetDelay;
@@ -187,21 +187,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
-        let current_slot = self
-            .beacon_chain
-            .slot()
-            .map_err(|e| format!("Failed to get current slot: {:?}", e))?;
-
-        let mut state = self
-            .beacon_chain
-            .state_at_slot(current_slot, StateSkipConfig::WithoutStateRoots)
-            .map_err(|e| format!("Failed to get beacon state: {:?}", e))?;
-
-        // Ensure that the committee caches are built
-        state
-            .build_all_committee_caches(&self.beacon_chain.spec)
-            .map_err(|e| format!("Failed to build committee caches: {:?}", e))?;
-
         for subscription in subscriptions {
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
@@ -210,7 +195,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             trace!(self.log,
                 "Validator subscription";
                 "subscription" => format!("{:?}", subscription),
-                "current_slot" => state.slot
             );
             self.add_known_validator(subscription.validator_index);
 
