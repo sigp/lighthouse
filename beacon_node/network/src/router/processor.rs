@@ -8,7 +8,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{NetworkGlobals, PeerId, Request, Response};
+use eth2_libp2p::{NetworkGlobals, PeerId, PeerRequestId, Request, Response};
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
@@ -118,7 +118,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        request_id: SubstreamId,
+        request_id: PeerRequestId,
         status: StatusMessage,
     ) {
         debug!(
@@ -283,7 +283,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_root_request(
         &mut self,
         peer_id: PeerId,
-        request_id: SubstreamId,
+        request_id: PeerRequestId,
         request: BlocksByRootRequest,
     ) {
         let mut send_block_count = 0;
@@ -321,7 +321,7 @@ impl<T: BeaconChainTypes> Processor<T> {
     pub fn on_blocks_by_range_request(
         &mut self,
         peer_id: PeerId,
-        request_id: SubstreamId,
+        request_id: PeerRequestId,
         req: BlocksByRangeRequest,
     ) {
         debug!(
@@ -958,29 +958,24 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         })
     }
 
-    pub fn send_response(
-        &mut self,
-        peer_id: PeerId,
-        response: Response<T>,
-        stream_id: SubstreamId,
-    ) {
+    pub fn send_response(&mut self, peer_id: PeerId, response: Response<T>, id: PeerRequestId) {
         self.inform_network(NetworkMessage::SendResponse {
             peer_id,
-            stream_id,
+            id,
             response,
         })
     }
     pub fn _send_error_response(
         &mut self,
         peer_id: PeerId,
-        substream_id: SubstreamId,
+        id: PeerRequestId,
         error: RPCResponseErrorCode,
         reason: String,
     ) {
         self.inform_network(NetworkMessage::SendError {
             peer_id,
             error,
-            substream_id,
+            id,
             reason,
         })
     }
