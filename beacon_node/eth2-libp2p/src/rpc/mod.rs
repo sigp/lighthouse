@@ -80,6 +80,8 @@ impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
 pub struct RPCMessage<TSpec: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
+    /// Handler managing this message.
+    pub conn_id: ConnectionId,
     /// The message that was sent.
     pub event: <RPCHandler<TSpec> as ProtocolsHandler>::OutEvent,
 }
@@ -102,14 +104,35 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         }
     }
 
+    /// Sends an RPC response.
+    ///
+    /// The peer must be connected for this to succeed.
+    pub fn send_response(
+        &mut self,
+        peer_id: PeerId,
+        id: (ConnectionId, SubstreamId),
+        event: RPCCodedResponse<TSpec>,
+    ) {
+        self.events.push(NetworkBehaviourAction::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(id.0),
+            event: RPCSend::Response(id.1, event),
+        });
+    }
+
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_rpc(&mut self, peer_id: PeerId, event: RPCSend<TSpec>) {
+    pub fn send_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        event: RPCRequest<TSpec>,
+    ) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
-            event,
+            event: RPCSend::Request(request_id, event),
         });
     }
 }
@@ -126,7 +149,7 @@ where
             SubstreamProtocol::new(RPCProtocol {
                 phantom: PhantomData,
             }),
-            Duration::from_secs(5),
+            Duration::from_secs(30),
             &self.log,
         )
     }
@@ -169,13 +192,14 @@ where
     fn inject_event(
         &mut self,
         peer_id: PeerId,
-        _: ConnectionId,
+        conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         // send the event to the user
         self.events
             .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
                 peer_id,
+                conn_id,
                 event,
             }));
     }

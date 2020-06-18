@@ -10,8 +10,8 @@ use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
-    rpc::{RPCError, RequestId, SubstreamId},
-    MessageId, NetworkGlobals, PeerId, PubsubMessage, Request, Response,
+    rpc::{RPCError, RequestId},
+    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use futures::prelude::*;
 use processor::Processor;
@@ -46,7 +46,7 @@ pub enum RouterMessage<T: EthSpec> {
     /// An RPC request has been received.
     RPCRequestReceived {
         peer_id: PeerId,
-        stream_id: SubstreamId,
+        id: PeerRequestId,
         request: Request,
     },
     /// An RPC response has been received.
@@ -127,10 +127,10 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             RouterMessage::RPCRequestReceived {
                 peer_id,
-                stream_id,
+                id,
                 request,
             } => {
-                self.handle_rpc_request(peer_id, stream_id, request);
+                self.handle_rpc_request(peer_id, id, request);
             }
             RouterMessage::RPCResponseReceived {
                 peer_id,
@@ -160,11 +160,11 @@ impl<T: BeaconChainTypes> Router<T> {
     /* RPC - Related functionality */
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request(&mut self, peer_id: PeerId, stream_id: SubstreamId, request: Request) {
+    fn handle_rpc_request(&mut self, peer_id: PeerId, id: PeerRequestId, request: Request) {
         match request {
             Request::Status(status_message) => {
                 self.processor
-                    .on_status_request(peer_id, stream_id, status_message)
+                    .on_status_request(peer_id, id, status_message)
             }
             Request::Goodbye(goodbye_reason) => {
                 debug!(
@@ -177,10 +177,10 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             Request::BlocksByRange(request) => self
                 .processor
-                .on_blocks_by_range_request(peer_id, stream_id, request),
+                .on_blocks_by_range_request(peer_id, id, request),
             Request::BlocksByRoot(request) => self
                 .processor
-                .on_blocks_by_root_request(peer_id, stream_id, request),
+                .on_blocks_by_root_request(peer_id, id, request),
         }
     }
 

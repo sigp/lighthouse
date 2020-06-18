@@ -1,7 +1,7 @@
-use crate::behaviour::{Behaviour, BehaviourEvent, Request, Response};
+use crate::behaviour::{Behaviour, BehaviourEvent, PeerRequestId, Request, Response};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{RPCResponseErrorCode, RequestId, SubstreamId};
+use crate::rpc::{RPCResponseErrorCode, RequestId};
 use crate::types::{error, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals};
@@ -235,23 +235,16 @@ impl<TSpec: EthSpec> Service<TSpec> {
     pub fn respond_with_error(
         &mut self,
         peer_id: PeerId,
-        stream_id: SubstreamId,
+        id: PeerRequestId,
         error: RPCResponseErrorCode,
         reason: String,
     ) {
-        self.swarm
-            ._send_error_reponse(peer_id, stream_id, error, reason);
+        self.swarm._send_error_reponse(peer_id, id, error, reason);
     }
 
     /// Sends a response to a peer's request.
-    pub fn send_response(
-        &mut self,
-        peer_id: PeerId,
-        stream_id: SubstreamId,
-        response: Response<TSpec>,
-    ) {
-        self.swarm
-            .send_successful_response(peer_id, stream_id, response);
+    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
+        self.swarm.send_successful_response(peer_id, id, response);
     }
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
@@ -382,7 +375,7 @@ fn build_transport(
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
         let trans_clone = transport.clone();
-        transport.or_transport(websocket::WsConfig::new(trans_clone))
+        transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
     // Authentication
     Ok(transport

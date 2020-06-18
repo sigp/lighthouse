@@ -422,8 +422,10 @@ pub enum RPCError {
     InvalidData,
     /// An error occurred due to internal reasons. Ex: timer failure.
     InternalError(&'static str),
-    /// Negotiation with this peer timed out
+    /// Negotiation with this peer timed out.
     NegotiationTimeout,
+    /// Handler rejected this request.
+    HandlerRejected,
 }
 
 impl From<ssz::DecodeError> for RPCError {
@@ -461,6 +463,7 @@ impl std::fmt::Display for RPCError {
             RPCError::IncompleteStream => write!(f, "Stream ended unexpectedly"),
             RPCError::InternalError(ref err) => write!(f, "Internal error: {}", err),
             RPCError::NegotiationTimeout => write!(f, "Negotiation timeout"),
+            RPCError::HandlerRejected => write!(f, "Handler rejected the request"),
         }
     }
 }
@@ -478,6 +481,7 @@ impl std::error::Error for RPCError {
             RPCError::InternalError(_) => None,
             RPCError::ErrorResponse(_, _) => None,
             RPCError::NegotiationTimeout => None,
+            RPCError::HandlerRejected => None,
         }
     }
 }

@@ -96,9 +96,7 @@ pub enum PeerManagerEvent {
     /// Request METADATA from a peer.
     MetaData(PeerId),
     /// The peer should be disconnected.
-    _DisconnectPeer(PeerId),
-    /// The peer should be disconnected and banned.
-    _BanPeer(PeerId),
+    DisconnectPeer(PeerId),
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
@@ -234,6 +232,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.connect_peer(peer_id, ConnectingType::Dialing)
     }
 
+    /// Updates the database informing that a peer is being disconnected.
+    pub fn _disconnecting_peer(&mut self, _peer_id: &PeerId) -> bool {
+        // TODO: implement
+        true
+    }
+
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
@@ -267,7 +271,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // They closed early, this could mean poor connection
                 PeerAction::MidToleranceError
             }
-            RPCError::InternalError(_reason) => {
+            RPCError::InternalError(_) | RPCError::HandlerRejected => {
                 // Our fault. Do nothing
                 return;
             }
@@ -444,7 +448,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         for id in ban_queue {
             pdb.ban(&id);
 
-            self.events.push(PeerManagerEvent::_BanPeer(id.clone()));
+            self.events
+                .push(PeerManagerEvent::DisconnectPeer(id.clone()));
         }
 
         for id in unban_queue {
