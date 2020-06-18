@@ -354,8 +354,6 @@ fn roundtrip_operation_pool() {
         .persist_op_pool()
         .expect("should persist op pool");
 
-    let head_state = harness.chain.head().expect("should get head").beacon_state;
-
     let key = Hash256::from_slice(&OP_POOL_DB_KEY);
     let restored_op_pool = harness
         .chain
@@ -363,7 +361,7 @@ fn roundtrip_operation_pool() {
         .get_item::<PersistedOperationPool<MinimalEthSpec>>(&key)
         .expect("should read db")
         .expect("should find op pool")
-        .into_operation_pool(&head_state, &harness.spec);
+        .into_operation_pool();
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }

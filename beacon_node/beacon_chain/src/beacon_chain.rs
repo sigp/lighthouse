@@ -16,6 +16,7 @@ use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggrega
 use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
 use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
 use crate::observed_block_producers::ObservedBlockProducers;
+use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::ShufflingCache;
@@ -31,13 +32,10 @@ use parking_lot::RwLock;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
-    common::get_indexed_attestation,
-    per_block_processing::errors::{
-        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-        ProposerSlashingValidationError,
-    },
+    common::get_indexed_attestation, per_block_processing,
+    per_block_processing::errors::AttestationValidationError, per_slot_processing,
+    BlockSignatureStrategy, SigVerifiedOp,
 };
-use state_processing::{per_block_processing, per_slot_processing, BlockSignatureStrategy};
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -193,6 +191,12 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_aggregators: ObservedAggregators<T::EthSpec>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: ObservedBlockProducers<T::EthSpec>,
+    /// Maintains a record of which validators have submitted voluntary exits.
+    pub observed_voluntary_exits: ObservedOperations<SignedVoluntaryExit, T::EthSpec>,
+    /// Maintains a record of which validators we've seen proposer slashings for.
+    pub observed_proposer_slashings: ObservedOperations<ProposerSlashing, T::EthSpec>,
+    /// Maintains a record of which validators we've seen attester slashings for.
+    pub observed_attester_slashings: ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
@@ -1075,81 +1079,68 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Accept some exit and queue it for inclusion in an appropriate block.
-    pub fn process_voluntary_exit(
+    /// Verify a voluntary exit before allowing it to propagate on the gossip network.
+    pub fn verify_voluntary_exit_for_gossip(
         &self,
         exit: SignedVoluntaryExit,
-    ) -> Result<(), ExitValidationError> {
-        match self.wall_clock_state() {
-            Ok(state) => {
-                if self.eth1_chain.is_some() {
-                    self.op_pool.insert_voluntary_exit(exit, &state, &self.spec)
-                } else {
-                    Ok(())
-                }
-            }
-            Err(e) => {
-                error!(
-                    &self.log,
-                    "Unable to process voluntary exit";
-                    "error" => format!("{:?}", e),
-                    "reason" => "no state"
-                );
-                Ok(())
-            }
+    ) -> Result<ObservationOutcome<SignedVoluntaryExit>, Error> {
+        // NOTE: this could be more efficient if it avoided cloning the head state
+        let wall_clock_state = self.wall_clock_state()?;
+        Ok(self
+            .observed_voluntary_exits
+            .verify_and_observe(exit, &wall_clock_state, &self.spec)?)
+    }
+
+    /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
+    pub fn import_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit>) {
+        if self.eth1_chain.is_some() {
+            self.op_pool.insert_voluntary_exit(exit)
         }
+    }
+
+    /// Verify a proposer slashing before allowing it to propagate on the gossip network.
+    pub fn verify_proposer_slashing_for_gossip(
+        &self,
+        proposer_slashing: ProposerSlashing,
+    ) -> Result<ObservationOutcome<ProposerSlashing>, Error> {
+        let wall_clock_state = self.wall_clock_state()?;
+        Ok(self.observed_proposer_slashings.verify_and_observe(
+            proposer_slashing,
+            &wall_clock_state,
+            &self.spec,
+        )?)
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
-    pub fn process_proposer_slashing(
-        &self,
-        proposer_slashing: ProposerSlashing,
-    ) -> Result<(), ProposerSlashingValidationError> {
-        match self.wall_clock_state() {
-            Ok(state) => {
-                if self.eth1_chain.is_some() {
-                    self.op_pool
-                        .insert_proposer_slashing(proposer_slashing, &state, &self.spec)
-                } else {
-                    Ok(())
-                }
-            }
-            Err(e) => {
-                error!(
-                    &self.log,
-                    "Unable to process proposer slashing";
-                    "error" => format!("{:?}", e),
-                    "reason" => "no state"
-                );
-                Ok(())
-            }
+    pub fn import_proposer_slashing(&self, proposer_slashing: SigVerifiedOp<ProposerSlashing>) {
+        if self.eth1_chain.is_some() {
+            self.op_pool.insert_proposer_slashing(proposer_slashing)
         }
     }
 
-    /// Accept some attester slashing and queue it for inclusion in an appropriate block.
-    pub fn process_attester_slashing(
+    /// Verify an attester slashing before allowing it to propagate on the gossip network.
+    pub fn verify_attester_slashing_for_gossip(
         &self,
         attester_slashing: AttesterSlashing<T::EthSpec>,
-    ) -> Result<(), AttesterSlashingValidationError> {
-        match self.wall_clock_state() {
-            Ok(state) => {
-                if self.eth1_chain.is_some() {
-                    self.op_pool
-                        .insert_attester_slashing(attester_slashing, &state, &self.spec)
-                } else {
-                    Ok(())
-                }
-            }
-            Err(e) => {
-                error!(
-                    &self.log,
-                    "Unable to process attester slashing";
-                    "error" => format!("{:?}", e),
-                    "reason" => "no state"
-                );
-                Ok(())
-            }
+    ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>>, Error> {
+        let wall_clock_state = self.wall_clock_state()?;
+        Ok(self.observed_attester_slashings.verify_and_observe(
+            attester_slashing,
+            &wall_clock_state,
+            &self.spec,
+        )?)
+    }
+
+    /// Accept some attester slashing and queue it for inclusion in an appropriate block.
+    pub fn import_attester_slashing(
+        &self,
+        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
+    ) -> Result<(), Error> {
+        if self.eth1_chain.is_some() {
+            self.op_pool
+                .insert_attester_slashing(attester_slashing, self.head_info()?.fork)
         }
+        Ok(())
     }
 
     /// Attempt to verify and import a chain of blocks to `self`.
@@ -1637,8 +1628,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut graffiti: [u8; 32] = [0; 32];
         graffiti.copy_from_slice(GRAFFITI.as_bytes());
 
-        let (proposer_slashings, attester_slashings) =
-            self.op_pool.get_slashings(&state, &self.spec);
+        let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain
@@ -1930,7 +1920,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .get_state(&finalized_block.state_root, Some(finalized_block.slot))?
                 .ok_or_else(|| Error::MissingBeaconState(finalized_block.state_root))?;
 
-            self.op_pool.prune_all(&finalized_state, &self.spec);
+            self.op_pool
+                .prune_all(&finalized_state, self.head_info()?.fork);
 
             // TODO: configurable max finality distance
             let max_finality_distance = 0;

@@ -237,6 +237,7 @@ dependencies = [
  "bitvec",
  "bls",
  "bus",
+ "derivative",
  "environment",
  "eth1",
  "eth2_config",
@@ -267,6 +268,7 @@ dependencies = [
  "slog",
  "sloggers",
  "slot_clock",
+ "smallvec 1.4.0",
  "state_processing",
  "store",
  "tempfile",
@@ -923,6 +925,17 @@ dependencies = [
  "serde_json",
  "tree_hash",
  "types",
+]
+
+[[package]]
+name = "derivative"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb582b60359da160a9477ee80f15c8d784c477e69c217ef2cdd4169c24ea380f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2904,6 +2917,7 @@ dependencies = [
  "sloggers",
  "slot_clock",
  "smallvec 1.4.0",
+ "state_processing",
  "store",
  "tempfile",
  "tokio 0.2.21",
@@ -5254,6 +5268,7 @@ dependencies = [
  "compare_fields",
  "compare_fields_derive",
  "criterion",
+ "derivative",
  "dirs",
  "eth2_hashing",
  "eth2_interop_keypairs",

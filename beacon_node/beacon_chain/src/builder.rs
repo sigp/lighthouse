@@ -283,8 +283,8 @@ where
             store
                 .get_item::<PersistedOperationPool<TEthSpec>>(&Hash256::from_slice(&OP_POOL_DB_KEY))
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
-                .map(|persisted| persisted.into_operation_pool(&head_state, &self.spec))
-                .unwrap_or_else(|| OperationPool::new()),
+                .map(PersistedOperationPool::into_operation_pool)
+                .unwrap_or_else(OperationPool::new),
         );
 
         let finalized_block_root = head_state.finalized_checkpoint.root;
@@ -500,6 +500,10 @@ where
             observed_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
+            observed_voluntary_exits: <_>::default(),
+            observed_proposer_slashings: <_>::default(),
+            observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),

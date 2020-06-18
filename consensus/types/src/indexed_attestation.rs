@@ -1,7 +1,8 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
-
 use serde_derive::{Deserialize, Serialize};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use std::hash::{Hash, Hasher};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -11,7 +12,9 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.11.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
@@ -34,6 +37,19 @@ impl<T: EthSpec> IndexedAttestation<T> {
     pub fn is_surround_vote(&self, other: &Self) -> bool {
         self.data.source.epoch < other.data.source.epoch
             && other.data.target.epoch < self.data.target.epoch
+    }
+}
+
+/// Implementation of non-crypto-secure `Hash`, for use with `HashMap` and `HashSet`.
+///
+/// Guarantees `att1 == att2 -> hash(att1) == hash(att2)`.
+///
+/// Used in the operation pool.
+impl<T: EthSpec> Hash for IndexedAttestation<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.attesting_indices.hash(state);
+        self.data.hash(state);
+        self.signature.as_ssz_bytes().hash(state);
     }
 }
 

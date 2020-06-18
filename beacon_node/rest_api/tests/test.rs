@@ -1019,7 +1019,7 @@ fn proposer_slashing() {
     let spec = &chain.spec;
 
     // Check that there are no proposer slashings before insertion
-    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(proposer_slashings.len(), 0);
 
     let slot = state.slot;
@@ -1050,7 +1050,7 @@ fn proposer_slashing() {
     assert!(result, true);
 
     // Length should be just one as we've inserted only one proposer slashing
-    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(proposer_slashings.len(), 1);
     assert_eq!(proposer_slashing.clone(), proposer_slashings[0]);
 
@@ -1073,7 +1073,7 @@ fn proposer_slashing() {
     assert!(result.is_err());
 
     // Length should still be one as we've inserted nothing since last time.
-    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(proposer_slashings.len(), 1);
     assert_eq!(proposer_slashing, proposer_slashings[0]);
 }
@@ -1106,7 +1106,7 @@ fn attester_slashing() {
     let fork = &state.fork;
 
     // Checking there are no attester slashings before insertion
-    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(attester_slashings.len(), 0);
 
     let attester_slashing = build_double_vote_attester_slashing(
@@ -1130,7 +1130,7 @@ fn attester_slashing() {
     assert!(result, true);
 
     // Length should be just one as we've inserted only one attester slashing
-    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(attester_slashings.len(), 1);
     assert_eq!(attester_slashing, attester_slashings[0]);
 
@@ -1151,10 +1151,10 @@ fn attester_slashing() {
             .beacon()
             .attester_slashing(invalid_attester_slashing),
     );
-    assert!(result.is_err());
+    result.unwrap_err();
 
     // Length should still be one as we've failed to insert the attester slashing.
-    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(attester_slashings.len(), 1);
     assert_eq!(attester_slashing, attester_slashings[0]);
 }

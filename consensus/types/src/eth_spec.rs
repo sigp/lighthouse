@@ -8,7 +8,7 @@ use ssz_types::typenum::{
 };
 use std::fmt::Debug;
 
-pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
+pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
     /*
      * Constants
      */
@@ -18,7 +18,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq {
     /*
      * Misc
      */
-    type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
     /*
      * Time parameters
      */
@@ -135,7 +135,7 @@ macro_rules! params_from_eth_spec {
 ///
 /// Spec v0.11.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
@@ -173,7 +173,7 @@ pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 ///
 /// Spec v0.11.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
@@ -212,7 +212,7 @@ pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;
 
 /// Interop testnet spec
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct InteropEthSpec;
 
 impl EthSpec for InteropEthSpec {

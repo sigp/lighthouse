@@ -93,6 +93,7 @@ pub use crate::voluntary_exit::VoluntaryExit;
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
 pub type Address = H160;
+pub type ForkVersion = [u8; 4];
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

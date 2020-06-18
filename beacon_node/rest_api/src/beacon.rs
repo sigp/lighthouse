@@ -2,7 +2,9 @@ use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
 use crate::validator::get_state_for_epoch;
 use crate::{ApiError, ApiResult, UrlQuery};
-use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
+use beacon_chain::{
+    observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
+};
 use bus::BusReader;
 use futures::executor::block_on;
 use hyper::body::Bytes;
@@ -504,31 +506,23 @@ pub async fn proposer_slashing<T: BeaconChainTypes>(
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
 
     serde_json::from_slice::<ProposerSlashing>(&chunks)
-        .map_err(|e| {
-            ApiError::BadRequest(format!(
-                "Unable to parse JSON into ProposerSlashing: {:?}",
-                e
-            ))
-        })
+        .map_err(|e| format!("Unable to parse JSON into ProposerSlashing: {:?}", e))
         .and_then(move |proposer_slashing| {
-            let spec = &beacon_chain.spec;
-            let state = &beacon_chain.head().unwrap().beacon_state;
             if beacon_chain.eth1_chain.is_some() {
-                beacon_chain
-                    .op_pool
-                    .insert_proposer_slashing(proposer_slashing, state, spec)
-                    .map_err(|e| {
-                        ApiError::BadRequest(format!(
-                            "Error while inserting proposer slashing: {:?}",
-                            e
-                        ))
-                    })
+                let obs_outcome = beacon_chain
+                    .verify_proposer_slashing_for_gossip(proposer_slashing)
+                    .map_err(|e| format!("Error while verifying proposer slashing: {:?}", e))?;
+                if let ObservationOutcome::New(verified_proposer_slashing) = obs_outcome {
+                    beacon_chain.import_proposer_slashing(verified_proposer_slashing);
+                    Ok(())
+                } else {
+                    Err("Proposer slashing for that validator index already known".into())
+                }
             } else {
-                return Err(ApiError::BadRequest(
-                    "Cannot insert proposer slashing on node without Eth1 connection.".to_string(),
-                ));
+                Err("Cannot insert proposer slashing on node without Eth1 connection.".to_string())
             }
         })
+        .map_err(ApiError::BadRequest)
         .and_then(|_| response_builder?.body(&true))
 }
 
@@ -551,18 +545,24 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
             ))
         })
         .and_then(move |attester_slashing| {
-            let spec = &beacon_chain.spec;
-            let state = &beacon_chain.head().unwrap().beacon_state;
             if beacon_chain.eth1_chain.is_some() {
                 beacon_chain
-                    .op_pool
-                    .insert_attester_slashing(attester_slashing, state, spec)
-                    .map_err(|e| {
-                        ApiError::BadRequest(format!(
-                            "Error while inserting attester slashing: {:?}",
-                            e
-                        ))
+                    .verify_attester_slashing_for_gossip(attester_slashing)
+                    .map_err(|e| format!("Error while verifying attester slashing: {:?}", e))
+                    .and_then(|outcome| {
+                        if let ObservationOutcome::New(verified_attester_slashing) = outcome {
+                            beacon_chain
+                                .import_attester_slashing(verified_attester_slashing)
+                                .map_err(|e| {
+                                    format!("Error while importing attester slashing: {:?}", e)
+                                })
+                        } else {
+                            Err(format!(
+                                "Attester slashing only covers already slashed indices"
+                            ))
+                        }
                     })
+                    .map_err(ApiError::BadRequest)
             } else {
                 Err(ApiError::BadRequest(
                     "Cannot insert attester slashing on node without Eth1 connection.".to_string(),

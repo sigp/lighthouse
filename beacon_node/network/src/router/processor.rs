@@ -5,6 +5,7 @@ use beacon_chain::{
         Error as AttnError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
         VerifiedUnaggregatedAttestation,
     },
+    observed_operations::ObservationOutcome,
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProcessingOutcome,
     ForkChoiceError, GossipVerifiedBlock,
 };
@@ -13,11 +14,12 @@ use eth2_libp2p::{NetworkGlobals, PeerId, Request, Response};
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
+use state_processing::SigVerifiedOp;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, ChainSpec, Epoch, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock,
-    Slot, SubnetId,
+    Attestation, AttesterSlashing, ChainSpec, Epoch, EthSpec, Hash256, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
 };
 
 //TODO: Rate limit requests
@@ -925,6 +927,142 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "beacon_block_root" => format!("{:?}", beacon_block_root)
                 ),
             }
+        }
+    }
+
+    /// Verify a voluntary exit before gossiping or processing it.
+    ///
+    /// Errors are logged at debug level.
+    pub fn verify_voluntary_exit_for_gossip(
+        &self,
+        peer_id: &PeerId,
+        voluntary_exit: SignedVoluntaryExit,
+    ) -> Option<SigVerifiedOp<SignedVoluntaryExit>> {
+        let validator_index = voluntary_exit.message.validator_index;
+
+        match self.chain.verify_voluntary_exit_for_gossip(voluntary_exit) {
+            Ok(ObservationOutcome::New(sig_verified_exit)) => Some(sig_verified_exit),
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Dropping exit for already exiting validator";
+                    "validator_index" => validator_index,
+                    "peer" => format!("{:?}", peer_id)
+                );
+                None
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid exit";
+                    "validator_index" => validator_index,
+                    "peer" => format!("{:?}", peer_id),
+                    "error" => format!("{:?}", e)
+                );
+                None
+            }
+        }
+    }
+
+    /// Import a verified exit into the op pool.
+    pub fn import_verified_voluntary_exit(
+        &self,
+        verified_voluntary_exit: SigVerifiedOp<SignedVoluntaryExit>,
+    ) {
+        self.chain.import_voluntary_exit(verified_voluntary_exit);
+        debug!(self.log, "Successfully imported voluntary exit");
+    }
+
+    /// Verify a proposer slashing before gossiping or processing it.
+    ///
+    /// Errors are logged at debug level.
+    pub fn verify_proposer_slashing_for_gossip(
+        &self,
+        peer_id: &PeerId,
+        proposer_slashing: ProposerSlashing,
+    ) -> Option<SigVerifiedOp<ProposerSlashing>> {
+        let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
+
+        match self
+            .chain
+            .verify_proposer_slashing_for_gossip(proposer_slashing)
+        {
+            Ok(ObservationOutcome::New(verified_slashing)) => Some(verified_slashing),
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Dropping proposer slashing";
+                    "reason" => "Already seen a proposer slashing for that validator",
+                    "validator_index" => validator_index,
+                    "peer" => format!("{:?}", peer_id)
+                );
+                None
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid proposer slashing";
+                    "validator_index" => validator_index,
+                    "peer" => format!("{:?}", peer_id),
+                    "error" => format!("{:?}", e)
+                );
+                None
+            }
+        }
+    }
+
+    /// Import a verified proposer slashing into the op pool.
+    pub fn import_verified_proposer_slashing(
+        &self,
+        proposer_slashing: SigVerifiedOp<ProposerSlashing>,
+    ) {
+        self.chain.import_proposer_slashing(proposer_slashing);
+        debug!(self.log, "Successfully imported proposer slashing");
+    }
+
+    /// Verify an attester slashing before gossiping or processing it.
+    ///
+    /// Errors are logged at debug level.
+    pub fn verify_attester_slashing_for_gossip(
+        &self,
+        peer_id: &PeerId,
+        attester_slashing: AttesterSlashing<T::EthSpec>,
+    ) -> Option<SigVerifiedOp<AttesterSlashing<T::EthSpec>>> {
+        match self
+            .chain
+            .verify_attester_slashing_for_gossip(attester_slashing)
+        {
+            Ok(ObservationOutcome::New(verified_slashing)) => Some(verified_slashing),
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Dropping attester slashing";
+                    "reason" => "Slashings already known for all slashed validators",
+                    "peer" => format!("{:?}", peer_id)
+                );
+                None
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid attester slashing";
+                    "peer" => format!("{:?}", peer_id),
+                    "error" => format!("{:?}", e)
+                );
+                None
+            }
+        }
+    }
+
+    /// Import a verified attester slashing into the op pool.
+    pub fn import_verified_attester_slashing(
+        &self,
+        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
+    ) {
+        if let Err(e) = self.chain.import_attester_slashing(attester_slashing) {
+            debug!(self.log, "Error importing attester slashing"; "error" => format!("{:?}", e));
+        } else {
+            debug!(self.log, "Successfully imported attester slashing");
         }
     }
 }

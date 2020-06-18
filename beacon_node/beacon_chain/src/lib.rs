@@ -18,6 +18,7 @@ mod naive_aggregation_pool;
 mod observed_attestations;
 mod observed_attesters;
 mod observed_block_producers;
+pub mod observed_operations;
 mod persisted_beacon_chain;
 mod persisted_fork_choice;
 mod shuffling_cache;
