@@ -21,15 +21,15 @@ mod delegate;
 pub struct BehaviourHandler<TSpec: EthSpec> {
     /// Handler combining all sub behaviour's handlers.
     delegate: DelegatingHandler<TSpec>,
-    /// Keep alive for this handler.
-    keep_alive: KeepAlive,
+    /// Flag indicating if the handler is shutting down.
+    shutting_down: bool,
 }
 
 impl<TSpec: EthSpec> BehaviourHandler<TSpec> {
     pub fn new(gossipsub: &mut Gossipsub, rpc: &mut RPC<TSpec>, identify: &mut Identify) -> Self {
         BehaviourHandler {
             delegate: DelegatingHandler::new(gossipsub, rpc, identify),
-            keep_alive: KeepAlive::Yes,
+            shutting_down: false,
         }
     }
 }
@@ -37,8 +37,8 @@ impl<TSpec: EthSpec> BehaviourHandler<TSpec> {
 #[derive(Clone)]
 pub enum BehaviourHandlerIn<TSpec: EthSpec> {
     Delegate(DelegateIn<TSpec>),
-    // TODO: replace custom with incoming events
-    Custom,
+    /// Start the shutdown process.
+    Shutdown(Option<(RequestId, RPCRequest<TSpec>)>),
 }
 
 pub enum BehaviourHandlerOut<TSpec: EthSpec> {
@@ -78,8 +78,9 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
         match event {
             BehaviourHandlerIn::Delegate(delegated_ev) => self.delegate.inject_event(delegated_ev),
             /* Events comming from the behaviour */
-            BehaviourHandlerIn::Custom => {
-                // TODO: implement
+            BehaviourHandlerIn::Shutdown(last_message) => {
+                self.shutting_down = true;
+                self.delegate.rpc_mut().shutdown(last_message);
             }
         }
     }
@@ -95,8 +96,13 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
-        // TODO: refine this logic
-        self.keep_alive.min(self.delegate.connection_keep_alive())
+        if self.shutting_down {
+            let rpc_keep_alive = self.delegate.rpc().connection_keep_alive();
+            let identify_keep_alive = self.delegate.identify().connection_keep_alive();
+            rpc_keep_alive.max(identify_keep_alive)
+        } else {
+            KeepAlive::Yes
+        }
     }
 
     fn poll(
@@ -129,7 +135,5 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
         }
 
         Poll::Pending
-
-        // TODO: speak to our behaviour here
     }
 }

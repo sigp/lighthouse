@@ -11,7 +11,7 @@ tree_hash = { path = "../../consensus/tree_hash" }
 rusqlite = { version = "0.23.1", features = ["bundled"] }
 r2d2 = "0.8.8"
 r2d2_sqlite = "0.16.0"
-parking_lot = "0.9.0"
+parking_lot = "0.10.2"
 
 [dev-dependencies]
 rayon = "1.3.0"

@@ -14,7 +14,7 @@ mod service;
 pub mod types;
 
 pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage};
-pub use behaviour::{BehaviourEvent, Request, Response};
+pub use behaviour::{BehaviourEvent, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};

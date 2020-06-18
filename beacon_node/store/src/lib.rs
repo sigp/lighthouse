@@ -25,8 +25,6 @@ mod state_batch;
 
 pub mod iter;
 
-use std::sync::Arc;
-
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary};
 pub use self::leveldb_store::LevelDB;
@@ -52,7 +50,17 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 
     /// Execute either all of the operations in `batch` or none at all, returning an error.
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
+    fn do_atomically(&self, batch: &[KeyValueStoreOp]) -> Result<(), Error>;
+}
+
+pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
+    let mut result = column.as_bytes().to_vec();
+    result.extend_from_slice(key);
+    result
+}
+
+pub enum KeyValueStoreOp {
+    DeleteKey(Vec<u8>),
 }
 
 pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
@@ -91,75 +99,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
         self.key_delete(column, key)
     }
-}
-
-/// An object capable of storing and retrieving objects implementing `StoreItem`.
-///
-/// A `Store` is fundamentally backed by a key-value database, however it provides support for
-/// columns. A simple column implementation might involve prefixing a key with some bytes unique to
-/// each column.
-pub trait Store<E: EthSpec>: Sync + Send + Sized + 'static {
-    type ForwardsBlockRootsIterator: Iterator<Item = Result<(Hash256, Slot), Error>>;
-
-    /// Store a block in the store.
-    fn put_block(&self, block_root: &Hash256, block: SignedBeaconBlock<E>) -> Result<(), Error>;
-
-    /// Fetch a block from the store.
-    fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error>;
-
-    /// Delete a block from the store.
-    fn delete_block(&self, block_root: &Hash256) -> Result<(), Error>;
-
-    /// Store a state in the store.
-    fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error>;
-
-    /// Store a state summary in the store.
-    fn put_state_summary(
-        &self,
-        state_root: &Hash256,
-        summary: HotStateSummary,
-    ) -> Result<(), Error>;
-
-    /// Fetch a state from the store.
-    fn get_state(
-        &self,
-        state_root: &Hash256,
-        slot: Option<Slot>,
-    ) -> Result<Option<BeaconState<E>>, Error>;
-
-    /// Delete a state from the store.
-    fn delete_state(&self, state_root: &Hash256, _slot: Slot) -> Result<(), Error>;
-
-    /// Get a forwards (slot-ascending) iterator over the beacon block roots since `start_slot`.
-    ///
-    /// Will be efficient for frozen portions of the database if using `HotColdDB`.
-    ///
-    /// The `end_state` and `end_block_root` are required for backtracking in the post-finalization
-    /// part of the chain, and should be usually be set to the current head. Importantly, the
-    /// `end_state` must be a state that has had a block applied to it, and the hash of that
-    /// block must be `end_block_root`.
-    // NOTE: could maybe optimise by getting the `BeaconState` and end block root from a closure, as
-    // it's not always required.
-    fn forwards_block_roots_iterator(
-        store: Arc<Self>,
-        start_slot: Slot,
-        end_state: BeaconState<E>,
-        end_block_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<Self::ForwardsBlockRootsIterator, Error>;
-
-    fn load_epoch_boundary_state(
-        &self,
-        state_root: &Hash256,
-    ) -> Result<Option<BeaconState<E>>, Error>;
-
-    fn put_item<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error>;
-
-    fn get_item<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error>;
-
-    fn item_exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error>;
-
-    fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error>;
 }
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.

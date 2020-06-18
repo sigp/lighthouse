@@ -11,7 +11,6 @@ insecure_keys = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-eth2_wallet = { path = "../../crypto/eth2_wallet" }
 bls = { path = "../../crypto/bls" }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 types = { path = "../../consensus/types" }
