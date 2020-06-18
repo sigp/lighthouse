@@ -13,7 +13,6 @@ use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
 use libp2p::core::PeerId;
-// use libp2p::multiaddr::Protocol;
 use futures::stream::FuturesUnordered;
 use lru::LruCache;
 use slog::{crit, debug, info, trace, warn};
@@ -167,6 +166,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let local_enr = network_globals.local_enr.read().clone();
 
+
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> format!("{:?}", local_enr.udp()), "tcp" => format!("{:?}", local_enr.tcp()));
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
@@ -197,11 +197,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             });
         }
 
-        // start the discv5 service.
+        // Start the discv5 service.
         discv5.start(listen_socket);
         debug!(log, "Discovery service started");
 
-        // obtain the event stream
+        // Obtain the event stream
         let event_stream = EventStream::Awaiting(Box::pin(discv5.event_stream()));
 
         Ok(Self {
