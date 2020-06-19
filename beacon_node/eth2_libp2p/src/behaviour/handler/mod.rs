@@ -1,4 +1,3 @@
-use crate::discovery::Discovery;
 use crate::rpc::*;
 use delegate::DelegatingHandler;
 pub(super) use delegate::{
@@ -27,14 +26,9 @@ pub struct BehaviourHandler<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> BehaviourHandler<TSpec> {
-    pub fn new(
-        gossipsub: &mut Gossipsub,
-        rpc: &mut RPC<TSpec>,
-        identify: &mut Identify,
-        discovery: &mut Discovery<TSpec>,
-    ) -> Self {
+    pub fn new(gossipsub: &mut Gossipsub, rpc: &mut RPC<TSpec>, identify: &mut Identify) -> Self {
         BehaviourHandler {
-            delegate: DelegatingHandler::new(gossipsub, rpc, identify, discovery),
+            delegate: DelegatingHandler::new(gossipsub, rpc, identify),
             shutting_down: false,
         }
     }

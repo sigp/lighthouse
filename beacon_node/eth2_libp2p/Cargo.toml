@@ -1,5 +1,5 @@
 [package]
-name = "eth2-libp2p"
+name = "eth2_libp2p"
 version = "0.1.2"
 authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
@@ -32,8 +32,7 @@ snap = "1.0.0"
 void = "1.0.2"
 tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
-# Patched for quick updates
-discv5 = { git = "https://github.com/sigp/discv5", rev = "7b3bd40591b62b8c002ffdb85de008aa9f82e2e5" }
+discv5 = { version = "0.1.0-alpha.5", features = ["libp2p"] }
 tiny-keccak = "2.0.2"
 environment = { path = "../../lighthouse/environment" }
 libp2p-tcp = { version = "0.19.1", default-features = false, features = ["tokio"] }
