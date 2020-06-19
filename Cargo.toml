@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "account_manager",
+
     "beacon_node",
     "beacon_node/beacon_chain",
     "beacon_node/client",
@@ -12,6 +13,8 @@ members = [
     "beacon_node/timer",
     "beacon_node/version",
     "beacon_node/websocket_server",
+
+	"boot_node",
 
     "common/clap_utils",
     "common/compare_fields",

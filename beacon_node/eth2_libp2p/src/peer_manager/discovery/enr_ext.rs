@@ -12,6 +12,9 @@ pub trait EnrExt {
     /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
     /// The vector remains empty if these fields are not defined.
     fn multiaddr(&self) -> Vec<Multiaddr>;
+
+    /// Returns the multiaddr with the `PeerId` prepended.
+    fn multiaddr_p2p(&self) -> Vec<Multiaddr>;
 }
 
 /// Extend ENR CombinedPublicKey for libp2p types.
@@ -34,8 +37,6 @@ impl EnrExt for Enr {
 
     /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
     /// The vector remains empty if these fields are not defined.
-    ///
-    /// Note: Only available with the `libp2p` feature flag.
     fn multiaddr(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(ip) = self.ip() {
@@ -61,6 +62,46 @@ impl EnrExt for Enr {
             if let Some(tcp6) = self.tcp6() {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Tcp(tcp6));
+                multiaddrs.push(multiaddr);
+            }
+        }
+        multiaddrs
+    }
+
+    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
+    /// The vector remains empty if these fields are not defined.
+    ///
+    /// This also prepends the `PeerId` into each multiaddr with the `P2p` protocol.
+    fn multiaddr_p2p(&self) -> Vec<Multiaddr> {
+        let peer_id = self.peer_id();
+        let mut multiaddrs: Vec<Multiaddr> = Vec::new();
+        if let Some(ip) = self.ip() {
+            if let Some(udp) = self.udp() {
+                let mut multiaddr: Multiaddr = ip.into();
+                multiaddr.push(Protocol::Udp(udp));
+                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddrs.push(multiaddr);
+            }
+
+            if let Some(tcp) = self.tcp() {
+                let mut multiaddr: Multiaddr = ip.into();
+                multiaddr.push(Protocol::Tcp(tcp));
+                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddrs.push(multiaddr);
+            }
+        }
+        if let Some(ip6) = self.ip6() {
+            if let Some(udp6) = self.udp6() {
+                let mut multiaddr: Multiaddr = ip6.into();
+                multiaddr.push(Protocol::Udp(udp6));
+                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddrs.push(multiaddr);
+            }
+
+            if let Some(tcp6) = self.tcp6() {
+                let mut multiaddr: Multiaddr = ip6.into();
+                multiaddr.push(Protocol::Tcp(tcp6));
+                multiaddr.push(Protocol::P2p(peer_id.into()));
                 multiaddrs.push(multiaddr);
             }
         }
