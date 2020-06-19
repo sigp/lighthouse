@@ -102,6 +102,10 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         let mut leveldb_batch = Writebatch::new();
         for op in ops_batch.into_iter() {
             match op {
+                KeyValueStoreOp::PutKeyValue(key, value) => {
+                    leveldb_batch.put(BytesKey::from_vec(key.to_vec()), value);
+                }
+
                 KeyValueStoreOp::DeleteKey(key) => {
                     leveldb_batch.delete(BytesKey::from_vec(key.to_vec()));
                 }
