@@ -67,7 +67,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Note: the number of committees per slot is constant in each epoch, and depends only on
     /// the `active_validator_count` during the slot's epoch.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     fn get_committee_count_per_slot(
         active_validator_count: usize,
         spec: &ChainSpec,
@@ -96,28 +96,28 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
 
     /// Returns the `SLOTS_PER_EPOCH` constant for this specification.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     fn slots_per_epoch() -> u64 {
         Self::SlotsPerEpoch::to_u64()
     }
 
     /// Returns the `SLOTS_PER_HISTORICAL_ROOT` constant for this specification.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     fn slots_per_historical_root() -> usize {
         Self::SlotsPerHistoricalRoot::to_usize()
     }
 
     /// Returns the `EPOCHS_PER_HISTORICAL_VECTOR` constant for this specification.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     fn epochs_per_historical_vector() -> usize {
         Self::EpochsPerHistoricalVector::to_usize()
     }
 
     /// Returns the `SLOTS_PER_ETH1_VOTING_PERIOD` constant for this specification.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     fn slots_per_eth1_voting_period() -> usize {
         Self::SlotsPerEth1VotingPeriod::to_usize()
     }
@@ -133,7 +133,7 @@ macro_rules! params_from_eth_spec {
 
 /// Ethereum Foundation specifications.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
@@ -171,7 +171,7 @@ pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;

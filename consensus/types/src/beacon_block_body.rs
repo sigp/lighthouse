@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]

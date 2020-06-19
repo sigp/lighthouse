@@ -259,7 +259,7 @@ Typical Responses | 200
 
 ### Returns
 
-Returns an object containing the [`Fork`](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/specs/phase0/beacon-chain.md#fork) of the current head.
+Returns an object containing the [`Fork`](https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#fork) of the current head.
 
 ### Example Response
 
@@ -478,7 +478,7 @@ canonical chain.
 ### Returns
 
 Returns an object containing a single
-[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/specs/phase0/beacon-chain.md#beaconstate)
+[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#beaconstate)
 and its tree hash root.
 
 ### Example Response
@@ -540,7 +540,7 @@ Typical Responses | 200
 ### Returns
 
 Returns an object containing the genesis
-[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.11.1/specs/phase0/beacon-chain.md#beaconstate).
+[`BeaconState`](https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#beaconstate).
 
 ### Example Response
 

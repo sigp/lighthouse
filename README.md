@@ -37,7 +37,7 @@ Like all Ethereum 2.0 clients, Lighthouse is a work-in-progress.
 
 Current development overview:
 
-- Specification `v0.11.1` implemented, optimized and passing test vectors.
+- Specification `v0.12.1` implemented, optimized and passing test vectors.
 - Rust-native libp2p with Gossipsub and Discv5.
 - RESTful JSON API via HTTP server.
 - Events via WebSocket.

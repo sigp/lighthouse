@@ -34,7 +34,7 @@ impl Delta {
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -65,7 +65,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 fn get_attestation_deltas<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
@@ -269,7 +269,7 @@ fn get_proposer_reward(base_reward: u64, spec: &ChainSpec) -> Result<u64, Error>
 
 /// Is the validator eligible for penalties and rewards at the current epoch?
 ///
-/// Spec: v0.12.0
+/// Spec: v0.12.1
 fn is_eligible_validator(validator: &ValidatorStatus) -> bool {
     validator.is_active_in_previous_epoch
         || (validator.is_slashed && !validator.is_withdrawable_in_current_epoch)
