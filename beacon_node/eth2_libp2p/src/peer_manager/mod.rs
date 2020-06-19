@@ -1,6 +1,7 @@
 //! Implementation of a Lighthouse's peer management system.
 
 pub use self::peerdb::*;
+use crate::discovery::{Discovery, DiscoveryEvent};
 use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
 use crate::{Enr, EnrExt, NetworkConfig, NetworkGlobals, PeerId};
@@ -23,12 +24,9 @@ use types::{EthSpec, SubnetId};
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
 pub mod client;
-pub mod discovery;
 mod peer_info;
 mod peer_sync_status;
 mod peerdb;
-
-use discovery::{Discovery, DiscoveryEvent};
 
 pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};

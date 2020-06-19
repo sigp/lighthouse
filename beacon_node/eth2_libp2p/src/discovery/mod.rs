@@ -188,7 +188,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 "tcp" => format!("{:?}", bootnode_enr.tcp())
             );
             let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
-                warn!(
+                debug!(
                     log,
                     "Could not add peer to the local routing table";
                     "error" => format!("{}", e)
