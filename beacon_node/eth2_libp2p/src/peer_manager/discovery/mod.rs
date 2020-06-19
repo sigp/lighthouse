@@ -166,7 +166,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let local_enr = network_globals.local_enr.read().clone();
 
-
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> format!("{}",local_enr.node_id()), "ip" => format!("{:?}", local_enr.ip()), "udp"=> format!("{:?}", local_enr.udp()), "tcp" => format!("{:?}", local_enr.tcp()));
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
@@ -590,7 +589,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         match self.event_stream {
             EventStream::Awaiting(ref mut fut) => {
                 // Still awaiting the event stream, poll it
-                futures::pin_mut!(fut);
                 if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
                     match event_stream {
                         Ok(stream) => self.event_stream = EventStream::Present(stream),
