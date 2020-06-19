@@ -58,7 +58,7 @@ pub async fn run(config: BootNodeConfig, log: slog::Logger) {
     let mut event_stream = match discv5.event_stream().await {
         Ok(stream) => stream,
         Err(e) => {
-            slog::crit!(log, "Failed to obtain event stream"; "error" => e);
+            slog::crit!(log, "Failed to obtain event stream"; "error" => e.to_string());
             return;
         }
     };

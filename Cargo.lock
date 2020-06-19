@@ -466,7 +466,7 @@ name = "boot_node"
 version = "0.1.0"
 dependencies = [
  "clap",
- "discv5 0.1.0-alpha.4",
+ "discv5 0.1.0-alpha.5",
  "eth2-libp2p",
  "futures 0.3.5",
  "log 0.4.8",
@@ -1112,8 +1112,9 @@ dependencies = [
 
 [[package]]
 name = "discv5"
-version = "0.1.0-alpha.4"
-source = "git+https://github.com/sigp/discv5?rev=2447c3c45b4d2116ee9e8919c51f4f059587cc19#2447c3c45b4d2116ee9e8919c51f4f059587cc19"
+version = "0.1.0-alpha.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66319abef3e2f4dc434bf0c9bcb5dee5907d7fece3327dfd7da82db905d02441"
 dependencies = [
  "arrayvec 0.5.1",
  "digest",
