@@ -135,7 +135,7 @@ async fn test_secio_noise_fallback() {
     let log = common::build_log(log_level, enable_logging);
 
     let port = common::unused_port("tcp").unwrap();
-    let noisy_config = common::build_config(port, vec![], None);
+    let noisy_config = common::build_config(port, vec![]);
     let (_signal, exit) = exit_future::signal();
     let executor =
         environment::TaskExecutor::new(tokio::runtime::Handle::current(), exit, log.clone());
@@ -144,7 +144,7 @@ async fn test_secio_noise_fallback() {
         .1;
 
     let port = common::unused_port("tcp").unwrap();
-    let secio_config = common::build_config(port, vec![common::get_enr(&noisy_node)], None);
+    let secio_config = common::build_config(port, vec![common::get_enr(&noisy_node)]);
 
     // Building a custom Libp2pService from outside the crate isn't possible because of
     // private fields in the Libp2pService struct. A swarm is good enough for testing

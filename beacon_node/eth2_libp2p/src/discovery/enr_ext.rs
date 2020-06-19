@@ -15,6 +15,9 @@ pub trait EnrExt {
 
     /// Returns the multiaddr with the `PeerId` prepended.
     fn multiaddr_p2p(&self) -> Vec<Multiaddr>;
+
+    /// Returns any multiaddrs that contain the TCP protocol.
+    fn multiaddr_tcp(&self) -> Vec<Multiaddr>;
 }
 
 /// Extend ENR CombinedPublicKey for libp2p types.
@@ -102,6 +105,27 @@ impl EnrExt for Enr {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Tcp(tcp6));
                 multiaddr.push(Protocol::P2p(peer_id.into()));
+                multiaddrs.push(multiaddr);
+            }
+        }
+        multiaddrs
+    }
+
+    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
+    /// The vector remains empty if these fields are not defined.
+    fn multiaddr_tcp(&self) -> Vec<Multiaddr> {
+        let mut multiaddrs: Vec<Multiaddr> = Vec::new();
+        if let Some(ip) = self.ip() {
+            if let Some(tcp) = self.tcp() {
+                let mut multiaddr: Multiaddr = ip.into();
+                multiaddr.push(Protocol::Tcp(tcp));
+                multiaddrs.push(multiaddr);
+            }
+        }
+        if let Some(ip6) = self.ip6() {
+            if let Some(tcp6) = self.tcp6() {
+                let mut multiaddr: Multiaddr = ip6.into();
+                multiaddr.push(Protocol::Tcp(tcp6));
                 multiaddrs.push(multiaddr);
             }
         }

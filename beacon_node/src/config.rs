@@ -102,7 +102,7 @@ pub fn get_config<E: EthSpec>(
         client_config.network.listen_address = listen_address;
     }
 
-    if let Some(max_peers_str) = cli_args.value_of("maxpeers") {
+    if let Some(max_peers_str) = cli_args.value_of("max-peers") {
         client_config.network.max_peers = max_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
@@ -206,24 +206,6 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("disable_enr_auto_update") {
         client_config.network.discv5_config.enr_update = false;
-    }
-
-    if let Some(p2p_priv_key) = cli_args.value_of("p2p-priv-key") {
-        client_config.network.secret_key_hex = Some(p2p_priv_key.to_string());
-    }
-
-    // Define a percentage of messages that should be propogated, useful for simulating bad network
-    // conditions.
-    //
-    // WARNING: setting this to anything less than 100 will cause bad behaviour.
-    if let Some(propagation_percentage_string) = cli_args.value_of("random-propagation") {
-        let percentage = propagation_percentage_string
-            .parse::<u8>()
-            .map_err(|_| "Unable to parse the propagation percentage".to_string())?;
-        if percentage > 100 {
-            return Err("Propagation percentage greater than 100".to_string());
-        }
-        client_config.network.propagation_percentage = Some(percentage);
     }
 
     /*
