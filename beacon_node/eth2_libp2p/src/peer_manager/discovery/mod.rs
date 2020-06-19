@@ -584,7 +584,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         match self.event_stream {
             EventStream::Awaiting(ref mut fut) => {
                 // Still awaiting the event stream, poll it
-                futures::pin_mut!(fut);
                 if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
                     match event_stream {
                         Ok(stream) => self.event_stream = EventStream::Present(stream),
@@ -597,6 +596,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
             EventStream::Failed => {} // ignore checking the stream
             EventStream::Present(ref mut stream) => {
+
                 while let Ok(event) = stream.try_recv() {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
