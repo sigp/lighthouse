@@ -110,7 +110,7 @@ impl Default for Config {
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
             .enable_packet_filter()
-            .session_cache_capacity(100)
+            .session_cache_capacity(1000)
             .request_timeout(Duration::from_secs(4))
             .request_retries(2)
             .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
