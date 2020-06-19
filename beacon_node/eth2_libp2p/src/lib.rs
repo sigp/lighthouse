@@ -20,6 +20,7 @@ pub use discv5;
 pub use libp2p::gossipsub::{MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
+pub use metrics::scrape_discovery_metrics;
 pub use peer_manager::discovery;
 pub use peer_manager::{
     client::Client,
@@ -27,4 +28,3 @@ pub use peer_manager::{
     PeerDB, PeerInfo, PeerSyncStatus, SyncInfo,
 };
 pub use service::{Libp2pEvent, Service, NETWORK_KEY_FILENAME};
-pub use metrics::scrape_discovery_metrics;

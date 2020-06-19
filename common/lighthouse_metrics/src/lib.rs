@@ -57,7 +57,8 @@
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 pub use prometheus::{
-    Encoder, Gauge, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result, TextEncoder, GaugeVec,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result,
+    TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
