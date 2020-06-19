@@ -10,10 +10,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         will simply run the discv5 service and assist nodes on the network to discover each other.
         This is the recommended way to provide a network boot-node since it has a reduced attack
         surface compared to a full beacon node.")
-        .settings(&[clap::AppSettings::ArgsNegateSubcommands, clap::AppSettings::SubcommandsNegateReqs, clap::AppSettings::ColoredHelp])
+        .settings(&[clap::AppSettings::ColoredHelp])
         .arg(
             Arg::with_name("boot-node-enr-address")
-                .value_name("ENR-ADDRESS")
+                .value_name("IP-ADDRESS")
                 .help("The external IP address/ DNS address to broadcast to other peers on how to reach this node. \
                 If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
                 does not auto-update based on PONG responses in discovery.")
@@ -26,15 +26,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("The UDP port to listen on.")
                 .default_value("9000")
                 .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("debug-level")
-                .long("debug-level")
-                .value_name("LEVEL")
-                .help("The verbosity level for emitting logs.")
-                .takes_value(true)
-                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("info"),
         )
         .arg(
             Arg::with_name("listen-address")
@@ -65,6 +56,5 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enable-enr-auto-update")
                 .help("Discovery can automatically update the node's local ENR with an external IP address and port as seen by other peers on the network. \
                 This enables this feature.")
-                .takes_value(true),
         )
 }

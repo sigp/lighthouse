@@ -39,6 +39,13 @@ fn main() {
                 .default_value("mainnet"),
         )
         .arg(
+            Arg::with_name("env_log")
+                .short("l")
+                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                )
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("logfile")
                 .long("logfile")
                 .value_name("FILE")
@@ -62,6 +69,7 @@ fn main() {
                 .help("The verbosity level for emitting logs.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .global(true)
                 .default_value("info"),
         )
         .arg(
@@ -93,13 +101,20 @@ fn main() {
         .get_matches();
 
     // boot node subcommand circumvents the environment
-    if let Some(matches) = matches.subcommand_matches("boot_node") {
-        boot_node::run(matches);
+    if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
+        // The bootnode uses the main debug-level flag
+        let debug_info = matches
+            .value_of("debug-level")
+            .expect("Debug-level must be present")
+            .into();
+        boot_node::run(bootnode_matches, debug_info);
         return;
     }
 
     // Debugging output for libp2p and external crates.
-    Builder::from_env(Env::default()).init();
+    if matches.is_present("env_log") {
+        Builder::from_env(Env::default()).init();
+    }
 
     macro_rules! run_with_spec {
         ($env_builder: expr) => {

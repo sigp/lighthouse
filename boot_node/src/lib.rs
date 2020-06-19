@@ -11,9 +11,8 @@ pub use cli::cli_app;
 use config::BootNodeConfig;
 
 /// Run the bootnode given the CLI configuration.
-pub fn run(matches: &ArgMatches<'_>) {
-    // set up the logging and run the main function
-    let debug_level = match matches.value_of("debug-level").unwrap_or_else(|| "info") {
+pub fn run(matches: &ArgMatches<'_>, debug_level: String) {
+    let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
         "debug" => log::Level::Debug,
         "info" => log::Level::Info,
