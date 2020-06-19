@@ -15,7 +15,7 @@ exit-future = "0.2.0"
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
-eth2-libp2p =  { path = "../eth2-libp2p" }
+eth2_libp2p =  { path = "../eth2_libp2p" }
 hashset_delay = { path = "../../common/hashset_delay" }
 rest_types = { path = "../../common/rest_types" }
 types = { path = "../../consensus/types" }
