@@ -102,7 +102,7 @@ pub fn get_config<E: EthSpec>(
         client_config.network.listen_address = listen_address;
     }
 
-    if let Some(max_peers_str) = cli_args.value_of("maxpeers") {
+    if let Some(max_peers_str) = cli_args.value_of("max-peers") {
         client_config.network.max_peers = max_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
