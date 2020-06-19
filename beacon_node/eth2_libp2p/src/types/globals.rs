@@ -4,7 +4,7 @@ use crate::rpc::methods::MetaData;
 use crate::types::SyncState;
 use crate::Client;
 use crate::EnrExt;
-use crate::{discovery::enr::Eth2Enr, Enr, GossipTopic, Multiaddr, PeerId};
+use crate::{Enr, Eth2Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU16, Ordering};

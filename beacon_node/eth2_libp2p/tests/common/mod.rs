@@ -115,7 +115,7 @@ pub fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    let enr = node.swarm.discovery().local_enr().clone();
+    let enr = node.swarm.local_enr().clone();
     enr
 }
 
@@ -153,7 +153,7 @@ pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInsta
     let mut sender = build_libp2p_instance(vec![], None, sender_log);
     let mut receiver = build_libp2p_instance(vec![], None, receiver_log);
 
-    let receiver_multiaddr = receiver.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
+    let receiver_multiaddr = receiver.swarm.local_enr().multiaddr()[1].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {

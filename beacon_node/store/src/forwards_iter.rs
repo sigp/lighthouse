@@ -1,14 +1,15 @@
 use crate::chunked_iter::ChunkedVectorIter;
 use crate::chunked_vector::BlockRoots;
+use crate::errors::{Error, Result};
 use crate::iter::BlockRootsIterator;
-use crate::{HotColdDB, Store};
-use slog::error;
+use crate::{HotColdDB, ItemStore};
+use itertools::process_results;
 use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 /// Forwards block roots iterator that makes use of the `block_roots` table in the freezer DB.
-pub struct FrozenForwardsBlockRootsIterator<E: EthSpec> {
-    inner: ChunkedVectorIter<BlockRoots, E>,
+pub struct FrozenForwardsBlockRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    inner: ChunkedVectorIter<BlockRoots, E, Hot, Cold>,
 }
 
 /// Forwards block roots iterator that reverses a backwards iterator (only good for short ranges).
@@ -18,9 +19,9 @@ pub struct SimpleForwardsBlockRootsIterator {
 }
 
 /// Fusion of the above two approaches to forwards iteration. Fast and efficient.
-pub enum HybridForwardsBlockRootsIterator<E: EthSpec> {
+pub enum HybridForwardsBlockRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     PreFinalization {
-        iter: Box<FrozenForwardsBlockRootsIterator<E>>,
+        iter: Box<FrozenForwardsBlockRootsIterator<E, Hot, Cold>>,
         /// Data required by the `PostFinalization` iterator when we get to it.
         continuation_data: Box<Option<(BeaconState<E>, Hash256)>>,
     },
@@ -29,9 +30,11 @@ pub enum HybridForwardsBlockRootsIterator<E: EthSpec> {
     },
 }
 
-impl<E: EthSpec> FrozenForwardsBlockRootsIterator<E> {
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    FrozenForwardsBlockRootsIterator<E, Hot, Cold>
+{
     pub fn new(
-        store: Arc<HotColdDB<E>>,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
         start_slot: Slot,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,
@@ -47,7 +50,9 @@ impl<E: EthSpec> FrozenForwardsBlockRootsIterator<E> {
     }
 }
 
-impl<E: EthSpec> Iterator for FrozenForwardsBlockRootsIterator<E> {
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for FrozenForwardsBlockRootsIterator<E, Hot, Cold>
+{
     type Item = (Hash256, Slot);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -58,43 +63,49 @@ impl<E: EthSpec> Iterator for FrozenForwardsBlockRootsIterator<E> {
 }
 
 impl SimpleForwardsBlockRootsIterator {
-    pub fn new<S: Store<E>, E: EthSpec>(
-        store: Arc<S>,
+    pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+        store: Arc<HotColdDB<E, Hot, Cold>>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
-    ) -> Self {
+    ) -> Result<Self> {
         // Iterate backwards from the end state, stopping at the start slot.
-        let iter = std::iter::once((end_block_root, end_state.slot))
-            .chain(BlockRootsIterator::owned(store, end_state));
-        Self {
-            values: iter.take_while(|(_, slot)| *slot >= start_slot).collect(),
-        }
+        let values = process_results(
+            std::iter::once(Ok((end_block_root, end_state.slot)))
+                .chain(BlockRootsIterator::owned(store, end_state)),
+            |iter| {
+                iter.take_while(|(_, slot)| *slot >= start_slot)
+                    .collect::<Vec<_>>()
+            },
+        )?;
+        Ok(Self { values: values })
     }
 }
 
 impl Iterator for SimpleForwardsBlockRootsIterator {
-    type Item = (Hash256, Slot);
+    type Item = Result<(Hash256, Slot)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Pop from the end of the vector to get the block roots in slot-ascending order.
-        self.values.pop()
+        Ok(self.values.pop()).transpose()
     }
 }
 
-impl<E: EthSpec> HybridForwardsBlockRootsIterator<E> {
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    HybridForwardsBlockRootsIterator<E, Hot, Cold>
+{
     pub fn new(
-        store: Arc<HotColdDB<E>>,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Self {
+    ) -> Result<Self> {
         use HybridForwardsBlockRootsIterator::*;
 
         let latest_restore_point_slot = store.get_latest_restore_point_slot();
 
-        if start_slot < latest_restore_point_slot {
+        let result = if start_slot < latest_restore_point_slot {
             PreFinalization {
                 iter: Box::new(FrozenForwardsBlockRootsIterator::new(
                     store,
@@ -111,16 +122,14 @@ impl<E: EthSpec> HybridForwardsBlockRootsIterator<E> {
                     start_slot,
                     end_state,
                     end_block_root,
-                ),
+                )?,
             }
-        }
+        };
+
+        Ok(result)
     }
-}
 
-impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
-    type Item = (Hash256, Slot);
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn do_next(&mut self) -> Result<Option<(Hash256, Slot)>> {
         use HybridForwardsBlockRootsIterator::*;
 
         match self {
@@ -129,19 +138,13 @@ impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
                 continuation_data,
             } => {
                 match iter.next() {
-                    Some(x) => Some(x),
+                    Some(x) => Ok(Some(x)),
                     // Once the pre-finalization iterator is consumed, transition
                     // to a post-finalization iterator beginning from the last slot
                     // of the pre iterator.
                     None => {
                         let (end_state, end_block_root) =
-                            continuation_data.take().or_else(|| {
-                                error!(
-                                    iter.inner.store.log,
-                                    "HybridForwardsBlockRootsIterator: logic error"
-                                );
-                                None
-                            })?;
+                            continuation_data.take().ok_or(Error::NoContinuationData)?;
 
                         *self = PostFinalization {
                             iter: SimpleForwardsBlockRootsIterator::new(
@@ -149,13 +152,23 @@ impl<E: EthSpec> Iterator for HybridForwardsBlockRootsIterator<E> {
                                 Slot::from(iter.inner.end_vindex),
                                 end_state,
                                 end_block_root,
-                            ),
+                            )?,
                         };
-                        self.next()
+                        self.do_next()
                     }
                 }
             }
-            PostFinalization { iter } => iter.next(),
+            PostFinalization { iter } => iter.next().transpose(),
         }
+    }
+}
+
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for HybridForwardsBlockRootsIterator<E, Hot, Cold>
+{
+    type Item = Result<(Hash256, Slot)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.do_next().transpose()
     }
 }

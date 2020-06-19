@@ -6,6 +6,7 @@
     * [Building from Source](./become-a-validator-source.md)
 * [Installation](./installation.md)
     * [Docker](./docker.md)
+    * [Raspberry Pi 4](./pi.md)
 * [Key Management](./key-managment.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)

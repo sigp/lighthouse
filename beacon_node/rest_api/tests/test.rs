@@ -759,6 +759,7 @@ fn get_genesis_state_root() {
         .expect("should have beacon chain")
         .rev_iter_state_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .find(|(_cur_root, cur_slot)| slot == *cur_slot)
         .map(|(cur_root, _)| cur_root)
         .expect("chain should have state root at slot");
@@ -786,6 +787,7 @@ fn get_genesis_block_root() {
         .expect("should have beacon chain")
         .rev_iter_block_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .find(|(_cur_root, cur_slot)| slot == *cur_slot)
         .map(|(cur_root, _)| cur_root)
         .expect("chain should have state root at slot");

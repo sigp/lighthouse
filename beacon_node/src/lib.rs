@@ -11,7 +11,8 @@ pub use config::{get_data_dir, get_eth2_testnet_config, get_testnet_dir};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;
-use beacon_chain::migrate::{BackgroundMigrator, HotColdDB};
+use beacon_chain::migrate::BackgroundMigrator;
+use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };
@@ -25,12 +26,13 @@ use types::EthSpec;
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> = Client<
     Witness<
-        HotColdDB<E>,
-        BackgroundMigrator<E>,
+        BackgroundMigrator<E, LevelDB<E>, LevelDB<E>>,
         SystemTimeSlotClock,
-        CachingEth1Backend<E, HotColdDB<E>>,
+        CachingEth1Backend<E>,
         E,
         TeeEventHandler<E>,
+        LevelDB<E>,
+        LevelDB<E>,
     >,
 >;
 
@@ -80,6 +82,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let db_path = client_config.create_db_path()?;
         let freezer_db_path_res = client_config.create_freezer_db_path();
 
+        let executor = context.executor.clone();
+
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
@@ -116,6 +120,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let (builder, events) = builder
             .system_time_slot_clock()?
             .tee_event_handler(client_config.websocket_server.clone())?;
+
+        // Inject the executor into the discv5 network config.
+        client_config.network.discv5_config.executor = Some(Box::new(executor));
 
         let builder = builder
             .build_beacon_chain()?

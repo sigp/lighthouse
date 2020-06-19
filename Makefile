@@ -72,6 +72,10 @@ audit:
 	cargo install --force cargo-audit
 	cargo audit
 
+# Runs `cargo udeps` to check for unused dependencies
+udeps:
+	cargo +nightly udeps --tests --all-targets --release
+
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:
 	cargo clean

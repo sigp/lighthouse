@@ -8,15 +8,16 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
-    rpc::{RPCResponseErrorCode, RequestId, SubstreamId},
-    Libp2pEvent, PubsubMessage, Request, Response,
+    rpc::{RPCResponseErrorCode, RequestId},
+    Libp2pEvent, PeerRequestId, PubsubMessage, Request, Response,
 };
-use eth2_libp2p::{BehaviourEvent, Enr, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{BehaviourEvent, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
 use slog::{debug, error, info, o, trace};
 use std::sync::Arc;
 use std::time::Duration;
+use store::HotColdDB;
 use tokio::sync::mpsc;
 use tokio::time::Delay;
 use types::EthSpec;
@@ -40,7 +41,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
     /// A reference to lighthouse's database to persist the DHT.
-    store: Arc<T::Store>,
+    store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// A delay that expires when a new fork takes place.
@@ -78,7 +79,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (network_globals, mut libp2p) =
             LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log)?;
 
-        for enr in load_dht::<T::Store, T::EthSpec>(store.clone()) {
+        for enr in load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone()) {
             libp2p.swarm.add_enr(enr);
         }
 
@@ -135,14 +136,14 @@ fn spawn_service<T: BeaconChainTypes>(
                 // handle network shutdown
                 _ = (&mut exit_rx) => {
                     // network thread is terminating
-                    let enrs: Vec<Enr> = service.libp2p.swarm.enr_entries().cloned().collect();
+                    let enrs = service.libp2p.swarm.enr_entries();
                     debug!(
                         service.log,
                         "Persisting DHT to store";
                         "Number of peers" => format!("{}", enrs.len()),
                     );
 
-                    match persist_dht::<T::Store, T::EthSpec>(service.store.clone(), enrs) {
+                    match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(service.store.clone(), enrs) {
                         Err(e) => error!(
                             service.log,
                             "Failed to persist DHT on drop";
@@ -163,11 +164,11 @@ fn spawn_service<T: BeaconChainTypes>(
                         NetworkMessage::SendRequest{ peer_id, request, request_id } => {
                             service.libp2p.send_request(peer_id, request_id, request);
                         }
-                        NetworkMessage::SendResponse{ peer_id, response, stream_id } => {
-                            service.libp2p.send_response(peer_id, stream_id, response);
+                        NetworkMessage::SendResponse{ peer_id, response, id } => {
+                            service.libp2p.send_response(peer_id, id, response);
                         }
-                        NetworkMessage::SendError{ peer_id, error, substream_id, reason } => {
-                            service.libp2p.respond_with_error(peer_id, substream_id, error, reason);
+                        NetworkMessage::SendError{ peer_id, error, id, reason } => {
+                            service.libp2p.respond_with_error(peer_id, id, error, reason);
                         }
                         NetworkMessage::Propagate {
                             propagation_source,
@@ -279,7 +280,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 };
                                 let _ = service
                                     .router_send
-                                    .send(RouterMessage::RPCRequestReceived{peer_id, stream_id:id, request})
+                                    .send(RouterMessage::RPCRequestReceived{peer_id, id, request})
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
@@ -287,7 +288,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             BehaviourEvent::ResponseReceived{peer_id, id, response} => {
                                 let _ = service
                                     .router_send
-                                    .send(RouterMessage::RPCResponseReceived{ peer_id, request_id:id, response })
+                                    .send(RouterMessage::RPCResponseReceived{ peer_id, request_id: id, response })
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
@@ -296,7 +297,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             BehaviourEvent::RPCFailed{id, peer_id, error} => {
                                 let _ = service
                                     .router_send
-                                    .send(RouterMessage::RPCFailed{ peer_id, request_id:id, error })
+                                    .send(RouterMessage::RPCFailed{ peer_id, request_id: id, error })
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });
@@ -424,7 +425,7 @@ pub enum NetworkMessage<T: EthSpec> {
     SendResponse {
         peer_id: PeerId,
         response: Response<T>,
-        stream_id: SubstreamId,
+        id: PeerRequestId,
     },
     /// Respond to a peer's request with an error.
     SendError {
@@ -433,7 +434,7 @@ pub enum NetworkMessage<T: EthSpec> {
         peer_id: PeerId,
         error: RPCResponseErrorCode,
         reason: String,
-        substream_id: SubstreamId,
+        id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },

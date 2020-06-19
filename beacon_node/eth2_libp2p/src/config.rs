@@ -109,14 +109,15 @@ impl Default for Config {
 
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
+            .enable_packet_filter()
+            .session_cache_capacity(100)
             .request_timeout(Duration::from_secs(4))
             .request_retries(2)
-            .enr_update(true) // update IP based on PONG responses
             .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
             .query_parallelism(5)
             .query_timeout(Duration::from_secs(60))
             .query_peer_timeout(Duration::from_secs(2))
-            .ip_limit(false) // limits /24 IP's in buckets. Enable for mainnet
+            .ip_limit() // limits /24 IP's in buckets.
             .ping_interval(Duration::from_secs(300))
             .build();
 
