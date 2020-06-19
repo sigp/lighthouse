@@ -104,6 +104,7 @@ pub fn get_prometheus<T: BeaconChainTypes>(
     slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&beacon_chain.slot_clock);
     store::scrape_for_metrics(&db_path, &freezer_db_path);
     beacon_chain::scrape_for_metrics(&beacon_chain);
+    eth2_libp2p::scrape_discovery_metrics();
 
     // This will silently fail if we are unable to observe the health. This is desired behaviour
     // since we don't support `Health` for all platforms.

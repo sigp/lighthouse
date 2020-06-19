@@ -12,9 +12,8 @@ use crate::{error, Enr, NetworkConfig, NetworkGlobals};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
-use libp2p::core::PeerId;
-// use libp2p::multiaddr::Protocol;
 use futures::stream::FuturesUnordered;
+use libp2p::core::PeerId;
 use lru::LruCache;
 use slog::{crit, debug, info, trace, warn};
 use ssz::{Decode, Encode};
@@ -197,11 +196,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             });
         }
 
-        // start the discv5 service.
+        // Start the discv5 service.
         discv5.start(listen_socket);
         debug!(log, "Discovery service started");
 
-        // obtain the event stream
+        // Obtain the event stream
         let event_stream = EventStream::Awaiting(Box::pin(discv5.event_stream()));
 
         Ok(Self {
@@ -224,6 +223,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
     pub fn discover_peers(&mut self) {
+        // If we are in the process of a query, don't bother queuing a new one.
+        if self.find_peer_active {
+            return;
+        }
         // If there is not already a find peer's query queued, add one
         let query = QueryType::FindPeers;
         if !self.queued_queries.contains(&query) {
@@ -426,6 +429,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 None => {} // Queue is empty
             }
         }
+        // Update the queue metric
+        metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
     }
 
     // Returns a boolean indicating if we are currently processing the maximum number of
