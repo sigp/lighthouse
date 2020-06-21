@@ -71,11 +71,7 @@ pub fn unused_port(transport: &str) -> Result<u16, String> {
     Ok(local_addr.port())
 }
 
-pub fn build_config(
-    port: u16,
-    mut boot_nodes: Vec<Enr>,
-    secret_key: Option<String>,
-) -> NetworkConfig {
+pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
     let path = TempDir::new(&format!("libp2p_test{}", port)).unwrap();
 
@@ -85,7 +81,6 @@ pub fn build_config(
     config.enr_udp_port = Some(port);
     config.enr_address = Some("127.0.0.1".parse().unwrap());
     config.boot_nodes.append(&mut boot_nodes);
-    config.secret_key_hex = secret_key;
     config.network_dir = path.into_path();
     // Reduce gossipsub heartbeat parameters
     config.gs_config.heartbeat_initial_delay = Duration::from_millis(500);
@@ -93,13 +88,9 @@ pub fn build_config(
     config
 }
 
-pub fn build_libp2p_instance(
-    boot_nodes: Vec<Enr>,
-    secret_key: Option<String>,
-    log: slog::Logger,
-) -> Libp2pInstance {
+pub fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> Libp2pInstance {
     let port = unused_port("tcp").unwrap();
-    let config = build_config(port, boot_nodes, secret_key);
+    let config = build_config(port, boot_nodes);
     // launch libp2p service
 
     let (signal, exit) = exit_future::signal();
@@ -115,7 +106,7 @@ pub fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    let enr = node.swarm.discovery().local_enr().clone();
+    let enr = node.swarm.local_enr().clone();
     enr
 }
 
@@ -123,7 +114,7 @@ pub fn get_enr(node: &LibP2PService<E>) -> Enr {
 #[allow(dead_code)]
 pub fn build_full_mesh(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
     let mut nodes: Vec<_> = (0..n)
-        .map(|_| build_libp2p_instance(vec![], None, log.clone()))
+        .map(|_| build_libp2p_instance(vec![], log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
@@ -150,10 +141,10 @@ pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInsta
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
-    let mut sender = build_libp2p_instance(vec![], None, sender_log);
-    let mut receiver = build_libp2p_instance(vec![], None, receiver_log);
+    let mut sender = build_libp2p_instance(vec![], sender_log);
+    let mut receiver = build_libp2p_instance(vec![], receiver_log);
 
-    let receiver_multiaddr = receiver.swarm.discovery().local_enr().clone().multiaddr()[1].clone();
+    let receiver_multiaddr = receiver.swarm.local_enr().multiaddr()[1].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {
@@ -192,7 +183,7 @@ pub async fn build_node_pair(log: &slog::Logger) -> (Libp2pInstance, Libp2pInsta
 #[allow(dead_code)]
 pub fn build_linear(log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
     let mut nodes: Vec<_> = (0..n)
-        .map(|_| build_libp2p_instance(vec![], None, log.clone()))
+        .map(|_| build_libp2p_instance(vec![], log.clone()))
         .collect();
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()

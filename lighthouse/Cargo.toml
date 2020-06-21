@@ -19,6 +19,7 @@ logging = { path = "../common/logging" }
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 environment = { path = "./environment" }
+boot_node = { path = "../boot_node" }
 futures = "0.3.5"
 validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }

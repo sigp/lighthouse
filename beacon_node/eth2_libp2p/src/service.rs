@@ -90,11 +90,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         trace!(log, "Libp2p Service starting");
 
         // initialise the node's ID
-        let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {
-            keypair_from_hex(hex_bytes)?
-        } else {
-            load_private_key(config, &log)
-        };
+        let local_keypair = load_private_key(config, &log);
 
         // Create an ENR or load from disk if appropriate
         let enr =
@@ -340,7 +336,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                             debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
                         }
                         SwarmEvent::Dialing(peer_id) => {
-                            debug!(self.log, "Dialing peer"; "peer" => peer_id.to_string());
                             self.swarm.peer_manager().dialing_peer(&peer_id);
                         }
                     }
@@ -392,6 +387,8 @@ fn build_transport(
         .boxed())
 }
 
+// Useful helper functions for debugging. Currently not used in the client.
+#[allow(dead_code)]
 fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
     let hex_bytes = if hex_bytes.starts_with("0x") {
         hex_bytes[2..].to_string()
@@ -404,6 +401,7 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
         .and_then(keypair_from_bytes)
 }
 
+#[allow(dead_code)]
 fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
     libp2p::core::identity::secp256k1::SecretKey::from_bytes(&mut bytes)
         .map(|secret| {

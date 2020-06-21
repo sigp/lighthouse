@@ -10,7 +10,7 @@ bls = { path = "../../crypto/bls" }
 rest_types = { path = "../../common/rest_types" }
 beacon_chain = { path = "../beacon_chain" }
 network = { path = "../network" }
-eth2-libp2p = { path = "../eth2-libp2p" }
+eth2_libp2p = { path = "../eth2_libp2p" }
 store = { path = "../store" }
 version = { path = "../version" }
 serde = { version = "1.0.110", features = ["derive"] }

@@ -289,8 +289,8 @@ dependencies = [
  "ctrlc",
  "dirs",
  "environment",
- "eth2-libp2p",
  "eth2_config",
+ "eth2_libp2p",
  "eth2_ssz",
  "eth2_testnet_config",
  "exit-future",
@@ -400,6 +400,25 @@ dependencies = [
  "serde_hex",
  "tree_hash",
  "zeroize",
+]
+
+[[package]]
+name = "boot_node"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "discv5",
+ "eth2_libp2p",
+ "futures 0.3.5",
+ "log 0.4.8",
+ "logging",
+ "slog",
+ "slog-async",
+ "slog-scope",
+ "slog-stdlog",
+ "slog-term",
+ "sloggers",
+ "tokio 0.2.21",
 ]
 
 [[package]]
@@ -581,8 +600,8 @@ dependencies = [
  "environment",
  "error-chain",
  "eth1",
- "eth2-libp2p",
  "eth2_config",
+ "eth2_libp2p",
  "eth2_ssz",
  "futures 0.3.5",
  "genesis",
@@ -999,8 +1018,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "discv5"
-version = "0.1.0-alpha.2"
-source = "git+https://github.com/sigp/discv5?rev=7b3bd40591b62b8c002ffdb85de008aa9f82e2e5#7b3bd40591b62b8c002ffdb85de008aa9f82e2e5"
+version = "0.1.0-alpha.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66319abef3e2f4dc434bf0c9bcb5dee5907d7fece3327dfd7da82db905d02441"
 dependencies = [
  "arrayvec 0.5.1",
  "digest",
@@ -1009,10 +1029,15 @@ dependencies = [
  "futures 0.3.5",
  "hex 0.4.2",
  "hkdf",
+ "lazy_static",
+ "libp2p-core",
  "libsecp256k1",
  "log 0.4.8",
+ "lru_time_cache",
+ "multihash",
  "net2",
  "openssl",
+ "parking_lot 0.10.2",
  "rand 0.7.3",
  "rlp",
  "sha2",
@@ -1121,6 +1146,7 @@ name = "environment"
 version = "0.1.2"
 dependencies = [
  "ctrlc",
+ "discv5",
  "eth2_config",
  "eth2_testnet_config",
  "exit-future",
@@ -1190,49 +1216,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eth2-libp2p"
-version = "0.1.2"
-dependencies = [
- "base64 0.12.1",
- "dirs",
- "discv5",
- "environment",
- "error-chain",
- "eth2_ssz",
- "eth2_ssz_derive",
- "eth2_ssz_types",
- "exit-future",
- "fnv",
- "futures 0.3.5",
- "hashset_delay",
- "hex 0.4.2",
- "lazy_static",
- "libp2p",
- "libp2p-tcp",
- "lighthouse_metrics",
- "lru 0.5.1",
- "parking_lot 0.10.2",
- "serde",
- "serde_derive",
- "sha2",
- "slog",
- "slog-async",
- "slog-stdlog",
- "slog-term",
- "smallvec 1.4.0",
- "snap",
- "tempdir",
- "tiny-keccak 2.0.2",
- "tokio 0.2.21",
- "tokio-io-timeout",
- "tokio-util",
- "types",
- "unsigned-varint 0.3.3 (git+https://github.com/sigp/unsigned-varint?branch=latest-codecs)",
- "version",
- "void",
-]
-
-[[package]]
 name = "eth2_config"
 version = "0.2.0"
 dependencies = [
@@ -1296,6 +1279,49 @@ dependencies = [
  "tempfile",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "eth2_libp2p"
+version = "0.1.2"
+dependencies = [
+ "base64 0.12.1",
+ "dirs",
+ "discv5",
+ "environment",
+ "error-chain",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "eth2_ssz_types",
+ "exit-future",
+ "fnv",
+ "futures 0.3.5",
+ "hashset_delay",
+ "hex 0.4.2",
+ "lazy_static",
+ "libp2p",
+ "libp2p-tcp",
+ "lighthouse_metrics",
+ "lru 0.5.1",
+ "parking_lot 0.10.2",
+ "serde",
+ "serde_derive",
+ "sha2",
+ "slog",
+ "slog-async",
+ "slog-stdlog",
+ "slog-term",
+ "smallvec 1.4.0",
+ "snap",
+ "tempdir",
+ "tiny-keccak 2.0.2",
+ "tokio 0.2.21",
+ "tokio-io-timeout",
+ "tokio-util",
+ "types",
+ "unsigned-varint 0.3.3 (git+https://github.com/sigp/unsigned-varint?branch=latest-codecs)",
+ "version",
+ "void",
 ]
 
 [[package]]
@@ -2216,8 +2242,8 @@ dependencies = [
  "deposit_contract",
  "dirs",
  "environment",
- "eth2-libp2p",
  "eth2_keystore",
+ "eth2_libp2p",
  "eth2_ssz",
  "eth2_testnet_config",
  "futures 0.3.5",
@@ -2559,6 +2585,7 @@ version = "0.1.2"
 dependencies = [
  "account_manager",
  "beacon_node",
+ "boot_node",
  "clap",
  "clap_utils",
  "env_logger",
@@ -2654,6 +2681,12 @@ checksum = "31e24f1ad8321ca0e8a1e0ac13f23cb668e6f5466c2c57319f6a5cf1cc8e3b1c"
 dependencies = [
  "linked-hash-map",
 ]
+
+[[package]]
+name = "lru_time_cache"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adb241df5c4caeb888755363fc95f8a896618dc0d435e9e775f7930cb099beab"
 
 [[package]]
 name = "mach"
@@ -2896,7 +2929,7 @@ dependencies = [
  "beacon_chain",
  "environment",
  "error-chain",
- "eth2-libp2p",
+ "eth2_libp2p",
  "eth2_ssz",
  "eth2_ssz_types",
  "exit-future",
@@ -3768,8 +3801,8 @@ dependencies = [
  "bls",
  "bus",
  "environment",
- "eth2-libp2p",
  "eth2_config",
+ "eth2_libp2p",
  "eth2_ssz",
  "eth2_ssz_derive",
  "futures 0.3.5",
@@ -5683,7 +5716,8 @@ dependencies = [
 [[package]]
 name = "web3"
 version = "0.11.0"
-source = "git+https://github.com/tomusdrw/rust-web3#69d5746f124033dee922d7d36acef9321c1df0b0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a681e8d15deced7c510db88c59133d2eafa7b6298b6e91b545e2a3fed93b3fe"
 dependencies = [
  "arrayvec 0.5.1",
  "base64 0.12.1",

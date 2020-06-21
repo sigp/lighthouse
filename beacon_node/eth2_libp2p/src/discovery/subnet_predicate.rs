@@ -5,7 +5,7 @@ use super::*;
 pub fn subnet_predicate<TSpec>(
     subnet_id: SubnetId,
     log: &slog::Logger,
-) -> impl Fn(&Enr) -> bool + Send + 'static + Clone
+) -> impl Fn(&Enr) -> bool + Send
 where
     TSpec: EthSpec,
 {
