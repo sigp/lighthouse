@@ -87,6 +87,62 @@ pub enum HotColdDBError {
     RestorePointBlockHashError(BeaconStateError),
 }
 
+impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+    pub fn open_ephemeral(
+        config: StoreConfig,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+
+        let db = HotColdDB {
+            split: RwLock::new(Split::default()),
+            cold_db: MemoryStore::open(),
+            hot_db: MemoryStore::open(),
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            config,
+            spec,
+            log,
+            _phantom: PhantomData,
+        };
+
+        Ok(db)
+    }
+}
+
+impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
+    /// Open a new or existing database, with the given paths to the hot and cold DBs.
+    ///
+    /// The `slots_per_restore_point` parameter must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
+    pub fn open(
+        hot_path: &Path,
+        cold_path: &Path,
+        config: StoreConfig,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<HotColdDB<E, LevelDB<E>, LevelDB<E>>, Error> {
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+
+        let db = HotColdDB {
+            split: RwLock::new(Split::default()),
+            cold_db: LevelDB::open(cold_path)?,
+            hot_db: LevelDB::open(hot_path)?,
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            config,
+            spec,
+            log,
+            _phantom: PhantomData,
+        };
+
+        // Load the previous split slot from the database (if any). This ensures we can
+        // stop and restart correctly.
+        if let Some(split) = db.load_split()? {
+            *db.split.write() = split;
+        }
+        Ok(db)
+    }
+}
+
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Store a block and update the LRU cache.
     pub fn put_block(
@@ -312,65 +368,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         Ok(())
     }
-}
-
-impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
-    pub fn open_ephemeral(
-        config: StoreConfig,
-        spec: ChainSpec,
-        log: Logger,
-    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
-        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
-
-        let db = HotColdDB {
-            split: RwLock::new(Split::default()),
-            cold_db: MemoryStore::open(),
-            hot_db: MemoryStore::open(),
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            config,
-            spec,
-            log,
-            _phantom: PhantomData,
-        };
-
-        Ok(db)
-    }
-}
-
-impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
-    /// Open a new or existing database, with the given paths to the hot and cold DBs.
-    ///
-    /// The `slots_per_restore_point` parameter must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
-    pub fn open(
-        hot_path: &Path,
-        cold_path: &Path,
-        config: StoreConfig,
-        spec: ChainSpec,
-        log: Logger,
-    ) -> Result<HotColdDB<E, LevelDB<E>, LevelDB<E>>, Error> {
-        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
-
-        let db = HotColdDB {
-            split: RwLock::new(Split::default()),
-            cold_db: LevelDB::open(cold_path)?,
-            hot_db: LevelDB::open(hot_path)?,
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            config,
-            spec,
-            log,
-            _phantom: PhantomData,
-        };
-
-        // Load the previous split slot from the database (if any). This ensures we can
-        // stop and restart correctly.
-        if let Some(split) = db.load_split()? {
-            *db.split.write() = split;
-        }
-        Ok(db)
-    }
-}
-
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
     /// Store a post-finalization state efficiently in the hot database.
     ///
     /// On an epoch boundary, store a full state. On an intermediate slot, store
