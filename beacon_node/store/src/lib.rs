@@ -61,8 +61,11 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     result
 }
 
-
-pub fn put_block_op<E: EthSpec>(hash: SignedBeaconBlockHash, block: &SignedBeaconBlock<E>, ops: &mut Vec<KeyValueStoreOp>) {
+pub fn put_block_op<E: EthSpec>(
+    hash: SignedBeaconBlockHash,
+    block: &SignedBeaconBlock<E>,
+    ops: &mut Vec<KeyValueStoreOp>,
+) {
     let column = SignedBeaconBlock::<E>::db_column().into();
     let untyped_hash: Hash256 = hash.into();
     let key = get_key_for_col(column, untyped_hash.as_bytes());
@@ -70,17 +73,16 @@ pub fn put_block_op<E: EthSpec>(hash: SignedBeaconBlockHash, block: &SignedBeaco
     ops.push(op)
 }
 
-
-pub fn put_state_summary_op(hash: BeaconStateHash, summary: &HotStateSummary, ops: &mut Vec<KeyValueStoreOp>) {
+pub fn put_state_summary_op(
+    hash: BeaconStateHash,
+    summary: &HotStateSummary,
+    ops: &mut Vec<KeyValueStoreOp>,
+) {
     let untyped_hash: Hash256 = hash.into();
-    let key = get_key_for_col(
-        DBColumn::BeaconStateSummary.into(),
-        untyped_hash.as_bytes(),
-    );
+    let key = get_key_for_col(DBColumn::BeaconStateSummary.into(), untyped_hash.as_bytes());
     let op = KeyValueStoreOp::PutKeyValue(key, summary.as_store_bytes());
     ops.push(op);
 }
-
 
 pub enum KeyValueStoreOp {
     PutKeyValue(Vec<u8>, Vec<u8>),

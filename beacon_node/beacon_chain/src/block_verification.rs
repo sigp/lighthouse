@@ -62,7 +62,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
-use store::{Error as DBError, StoreOp, HotStateSummary};
+use store::{Error as DBError, HotStateSummary, StoreOp};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
@@ -579,7 +579,10 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 let op = if state.slot % T::EthSpec::slots_per_epoch() == 0 {
                     StoreOp::PutState(state_root.into(), Cow::Owned(state.clone()))
                 } else {
-                    StoreOp::PutStateSummary(state_root.into(), HotStateSummary::new(&state_root, &state)?)
+                    StoreOp::PutStateSummary(
+                        state_root.into(),
+                        HotStateSummary::new(&state_root, &state)?,
+                    )
                 };
                 intermediate_states.push(op);
                 state_root

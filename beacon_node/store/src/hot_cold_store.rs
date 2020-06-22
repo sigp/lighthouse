@@ -9,8 +9,8 @@ use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metrics;
 use crate::{
-    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
-    StoreOp, put_block_op, put_state_summary_op,
+    get_key_for_col, put_block_op, put_state_summary_op, DBColumn, Error, ItemStore,
+    KeyValueStoreOp, PartialBeaconState, StoreItem, StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -484,7 +484,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // 3. Store restore point.
         let restore_point_index = state.slot.as_u64() / self.config.slots_per_restore_point;
-        self.store_restore_point_hash(restore_point_index, *state_root)?;
+        self.store_restore_point_hash(restore_point_index, *state_root, &mut ops);
 
         Ok(())
     }
@@ -706,13 +706,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         restore_point_index: u64,
         state_root: Hash256,
-    ) -> Result<KeyValueStoreOp, Error> {
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
         let key = get_key_for_col(
             DBColumn::BeaconRestorePoint.into(),
             Self::restore_point_key(restore_point_index).as_bytes(),
         );
         let value = &RestorePointHash { state_root };
-        Ok(KeyValueStoreOp::PutKeyValue(key, value.as_store_bytes()))
+        let op = KeyValueStoreOp::PutKeyValue(key, value.as_store_bytes());
+        ops.push(op);
     }
 
     /// Convert a `restore_point_index` into a database key.
