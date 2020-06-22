@@ -21,7 +21,6 @@ mod leveldb_store;
 mod memory_store;
 mod metrics;
 mod partial_beacon_state;
-mod state_batch;
 
 pub mod iter;
 
@@ -35,7 +34,6 @@ pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
-pub use state_batch::StateBatch;
 pub use types::*;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
