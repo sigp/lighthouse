@@ -7,20 +7,8 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
-/// A peer's reputation (perceived potential usefulness)
-pub type Rep = u8;
-
-/// Reputation change (positive or negative)
-pub struct RepChange {
-    is_good: bool,
-    diff: Rep,
-}
-
 /// Max number of disconnected nodes to remember
 const MAX_DC_PEERS: usize = 30;
-
-/// The default starting reputation for an unknown peer.
-pub const DEFAULT_REPUTATION: Rep = 50;
 
 /// Storage of known peers, their reputation and information
 pub struct PeerDB<TSpec: EthSpec> {
@@ -32,26 +20,6 @@ pub struct PeerDB<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-impl RepChange {
-    pub fn good(diff: Rep) -> Self {
-        RepChange {
-            is_good: true,
-            diff,
-        }
-    }
-    pub fn bad(diff: Rep) -> Self {
-        RepChange {
-            is_good: false,
-            diff,
-        }
-    }
-    pub const fn worst() -> Self {
-        RepChange {
-            is_good: false,
-            diff: Rep::max_value(),
-        }
-    }
-}
 
 impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn new(log: &slog::Logger) -> Self {
@@ -65,10 +33,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /* Getters */
 
     /// Gives the reputation of a peer, or DEFAULT_REPUTATION if it is unknown.
-    pub fn reputation(&self, peer_id: &PeerId) -> Rep {
+    pub fn score(&self, peer_id: &PeerId) -> Rep {
         self.peers
             .get(peer_id)
-            .map_or(DEFAULT_REPUTATION, |info| info.reputation)
+            .map_or(DEFAULT_SCORE, |info| info.score)
     }
 
     /// Returns an iterator over all peers in the db.

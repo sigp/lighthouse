@@ -30,9 +30,6 @@ mod peerdb;
 
 pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
-/// The minimum reputation before a peer is disconnected.
-// Most likely this needs tweaking.
-const _MIN_REP_BEFORE_BAN: Rep = 10;
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
 /// The time in seconds between PING events. We do not send a ping if the other peer as PING'd us within
@@ -61,44 +58,6 @@ pub struct PeerManager<TSpec: EthSpec> {
     heartbeat: tokio::time::Interval,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
-}
-
-/// A collection of actions a peer can perform which will adjust its reputation.
-/// Each variant has an associated reputation change.
-// To easily assess the behaviour of reputation changes the number of variants should stay low, and
-// somewhat generic.
-pub enum PeerAction {
-    /// We should not communicate more with this peer.
-    /// This action will cause the peer to get banned.
-    Fatal,
-    /// An error occurred with this peer but it is not necessarily malicious.
-    /// We have high tolerance for this actions: several occurrences are needed for a peer to get
-    /// kicked.
-    /// NOTE: ~15 occurrences will get the peer banned
-    HighToleranceError,
-    /// An error occurred with this peer but it is not necessarily malicious.
-    /// We have high tolerance for this actions: several occurrences are needed for a peer to get
-    /// kicked.
-    /// NOTE: ~10 occurrences will get the peer banned
-    MidToleranceError,
-    /// This peer's action is not malicious but will not be tolerated. A few occurrences will cause
-    /// the peer to get kicked.
-    /// NOTE: ~5 occurrences will get the peer banned
-    LowToleranceError,
-    /// Received an expected message.
-    _ValidMessage,
-}
-
-impl PeerAction {
-    fn rep_change(&self) -> RepChange {
-        match self {
-            PeerAction::Fatal => RepChange::worst(),
-            PeerAction::LowToleranceError => RepChange::bad(60),
-            PeerAction::MidToleranceError => RepChange::bad(25),
-            PeerAction::HighToleranceError => RepChange::bad(15),
-            PeerAction::_ValidMessage => RepChange::good(20),
-        }
-    }
 }
 
 /// The events that the `PeerManager` outputs (requests).
