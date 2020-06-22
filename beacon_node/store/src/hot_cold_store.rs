@@ -10,7 +10,7 @@ use crate::memory_store::MemoryStore;
 use crate::metrics;
 use crate::{
     get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
-    StoreOp,
+    StoreOp, put_block_op, put_state_summary_op,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -247,12 +247,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.exists::<I>(key)
     }
 
-    pub fn do_atomically(&self, batch: &[StoreOp]) -> Result<(), Error> {
+    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
         let mut guard = self.block_cache.lock();
 
         let mut key_value_batch: Vec<KeyValueStoreOp> = Vec::with_capacity(batch.len());
-        for op in batch {
+        for op in &batch {
             match op {
+                StoreOp::PutBlock(block_hash, block) => {
+                    put_block_op(*block_hash, block, &mut key_value_batch);
+                }
+
+                StoreOp::PutState(state_hash, state) => {
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    self.store_hot_state(&untyped_hash, state, &mut key_value_batch)?;
+                }
+
+                StoreOp::PutStateSummary(state_hash, summary) => {
+                    put_state_summary_op(*state_hash, &summary, &mut key_value_batch);
+                }
+
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
                     let key =
@@ -278,12 +291,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         self.hot_db.do_atomically(&key_value_batch)?;
 
-        for op in batch {
+        for op in &batch {
             match op {
+                StoreOp::PutBlock(block_hash, block) => {
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    guard.put(untyped_hash, block.clone());
+                }
+
+                StoreOp::PutState(_, _) => (),
+
+                StoreOp::PutStateSummary(_, _) => (),
+
                 StoreOp::DeleteBlock(block_hash) => {
                     let untyped_hash: Hash256 = (*block_hash).into();
                     guard.pop(&untyped_hash);
                 }
+
                 StoreOp::DeleteState(_, _) => (),
             }
         }

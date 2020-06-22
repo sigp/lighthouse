@@ -25,6 +25,8 @@ mod state_batch;
 
 pub mod iter;
 
+use std::borrow::Cow;
+
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary};
 pub use self::leveldb_store::LevelDB;
@@ -58,6 +60,27 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     result.extend_from_slice(key);
     result
 }
+
+
+pub fn put_block_op<E: EthSpec>(hash: SignedBeaconBlockHash, block: &SignedBeaconBlock<E>, ops: &mut Vec<KeyValueStoreOp>) {
+    let column = SignedBeaconBlock::<E>::db_column().into();
+    let untyped_hash: Hash256 = hash.into();
+    let key = get_key_for_col(column, untyped_hash.as_bytes());
+    let op = KeyValueStoreOp::PutKeyValue(key, block.as_store_bytes());
+    ops.push(op)
+}
+
+
+pub fn put_state_summary_op(hash: BeaconStateHash, summary: &HotStateSummary, ops: &mut Vec<KeyValueStoreOp>) {
+    let untyped_hash: Hash256 = hash.into();
+    let key = get_key_for_col(
+        DBColumn::BeaconStateSummary.into(),
+        untyped_hash.as_bytes(),
+    );
+    let op = KeyValueStoreOp::PutKeyValue(key, summary.as_store_bytes());
+    ops.push(op);
+}
+
 
 pub enum KeyValueStoreOp {
     PutKeyValue(Vec<u8>, Vec<u8>),
@@ -104,7 +127,10 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
-pub enum StoreOp {
+pub enum StoreOp<'a, E: EthSpec> {
+    PutBlock(SignedBeaconBlockHash, SignedBeaconBlock<E>),
+    PutState(BeaconStateHash, Cow<'a, BeaconState<E>>),
+    PutStateSummary(BeaconStateHash, HotStateSummary),
     DeleteBlock(SignedBeaconBlockHash),
     DeleteState(BeaconStateHash, Slot),
 }
