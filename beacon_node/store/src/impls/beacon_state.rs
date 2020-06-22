@@ -7,7 +7,8 @@ use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
 pub fn store_full_state<E: EthSpec>(
     state_root: &Hash256,
     state: &BeaconState<E>,
-) -> Result<KeyValueStoreOp, Error> {
+    ops: &mut Vec<KeyValueStoreOp>,
+) -> Result<(), Error> {
     let bytes = {
         let _overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_OVERHEAD_TIMES);
         StorageContainer::new(state).as_ssz_bytes()
@@ -15,7 +16,8 @@ pub fn store_full_state<E: EthSpec>(
     metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as i64);
     metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
     let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
-    Ok(KeyValueStoreOp::PutKeyValue(key, bytes))
+    ops.push(KeyValueStoreOp::PutKeyValue(key, bytes));
+    Ok(())
 }
 
 pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(

@@ -141,10 +141,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         if state.slot < self.get_split_slot() {
-            let ops = self.store_cold_state(state_root, &state)?;
+            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+            self.store_cold_state(state_root, &state, &mut ops)?;
             self.cold_db.do_atomically(&ops)
         } else {
-            let ops = self.store_hot_state(state_root, state)?;
+            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+            self.store_hot_state(state_root, state, &mut ops)?;
             self.hot_db.do_atomically(&ops)
         }
     }
@@ -354,9 +356,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
         state: &BeaconState<E>,
-    ) -> Result<Vec<KeyValueStoreOp>, Error> {
-        let mut ops: Vec<KeyValueStoreOp> = Vec::new();
-
+        mut ops: &mut Vec<KeyValueStoreOp>,
+    ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
         if state.slot % E::slots_per_epoch() == 0 {
             trace!(
@@ -365,7 +366,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "slot" => state.slot.as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
-            ops.push(store_full_state(state_root, &state)?);
+            store_full_state(state_root, &state, &mut ops)?;
         }
 
         // Store a summary of the state.
@@ -379,7 +380,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             hot_state_summary.as_store_bytes(),
         ));
 
-        Ok(ops)
+        Ok(())
     }
 
     /// Load a post-finalization state from the hot database.
@@ -423,9 +424,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
         state: &BeaconState<E>,
-    ) -> Result<Vec<KeyValueStoreOp>, Error> {
-        let mut ops: Vec<KeyValueStoreOp> = Vec::new();
-
+        mut ops: &mut Vec<KeyValueStoreOp>,
+    ) -> Result<(), Error> {
         if state.slot % self.config.slots_per_restore_point != 0 {
             warn!(
                 self.log,
@@ -433,7 +433,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "slot" => state.slot.as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
-            return Ok(vec![]);
+            return Ok(());
         }
 
         trace!(
@@ -454,21 +454,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // 2. Store updated vector entries.
         let db = &self.cold_db;
-        ops.extend(store_updated_vector(BlockRoots, db, state, &self.spec)?);
-        ops.extend(store_updated_vector(StateRoots, db, state, &self.spec)?);
-        ops.extend(store_updated_vector(
-            HistoricalRoots,
-            db,
-            state,
-            &self.spec,
-        )?);
-        ops.extend(store_updated_vector(RandaoMixes, db, state, &self.spec)?);
+        store_updated_vector(BlockRoots, db, state, &self.spec, &mut ops)?;
+        store_updated_vector(StateRoots, db, state, &self.spec, &mut ops)?;
+        store_updated_vector(HistoricalRoots, db, state, &self.spec, &mut ops)?;
+        store_updated_vector(RandaoMixes, db, state, &self.spec, &mut ops)?;
 
         // 3. Store restore point.
         let restore_point_index = state.slot.as_u64() / self.config.slots_per_restore_point;
-        ops.push(self.store_restore_point_hash(restore_point_index, *state_root)?);
+        self.store_restore_point_hash(restore_point_index, *state_root)?;
 
-        Ok(ops)
+        Ok(())
     }
 
     /// Try to load a pre-finalization state from the freezer database.
@@ -799,7 +794,8 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
                 .ok_or_else(|| HotColdDBError::MissingStateToFreeze(state_root))?;
 
-            let ops = store.store_cold_state(&state_root, &state)?;
+            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+            store.store_cold_state(&state_root, &state, &mut ops)?;
             store.cold_db.do_atomically(&ops)?;
         }
 

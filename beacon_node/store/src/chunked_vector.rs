@@ -195,7 +195,8 @@ pub trait Field<E: EthSpec>: Copy {
     fn check_and_store_genesis_value<S: KeyValueStore<E>>(
         store: &S,
         value: Self::Value,
-    ) -> Result<Vec<KeyValueStoreOp>, Error> {
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) -> Result<(), Error> {
         let key = &genesis_value_key()[..];
 
         if let Some(existing_chunk) = Chunk::<Self::Value>::load(store, Self::column(), key)? {
@@ -214,12 +215,12 @@ pub trait Field<E: EthSpec>: Copy {
                 }
                 .into())
             } else {
-                Ok(vec![])
+                Ok(())
             }
         } else {
             let chunk = Chunk::new(vec![value]);
-            let op = chunk.store(Self::column(), &genesis_value_key()[..])?;
-            Ok(vec![op])
+            chunk.store(Self::column(), &genesis_value_key()[..], ops)?;
+            Ok(())
         }
     }
 
@@ -334,8 +335,8 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
     store: &S,
     state: &BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<Vec<KeyValueStoreOp>, Error> {
-    let mut ops: Vec<KeyValueStoreOp> = Vec::new();
+    ops: &mut Vec<KeyValueStoreOp>,
+) -> Result<(), Error> {
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(state.slot, spec);
     let start_cindex = start_vindex / chunk_size;
@@ -344,14 +345,13 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
     // Store the genesis value if we have access to it, and it hasn't been stored already.
     if F::slot_needs_genesis_value(state.slot, spec) {
         let genesis_value = F::extract_genesis_value(state, spec)?;
-        ops.extend(F::check_and_store_genesis_value(store, genesis_value)?);
+        F::check_and_store_genesis_value(store, genesis_value, ops)?;
     }
 
     // Start by iterating backwards from the last chunk, storing new chunks in the database.
     // Stop once a chunk in the database matches what we were about to store, this indicates
     // that a previously stored state has already filled-in a portion of the indices covered.
-    let mut full_range_checked = false;
-    ops.extend(store_range(
+    let full_range_checked = store_range(
         field,
         (start_cindex..=end_cindex).rev(),
         start_vindex,
@@ -359,14 +359,14 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
         store,
         state,
         spec,
-        Some(&mut full_range_checked),
-    )?);
+        ops,
+    )?;
 
     // If the previous `store_range` did not check the entire range, it may be the case that the
     // state's vector includes elements at low vector indices that are not yet stored in the
     // database, so run another `store_range` to ensure these values are also stored.
     if !full_range_checked {
-        ops.extend(store_range(
+        store_range(
             field,
             start_cindex..end_cindex,
             start_vindex,
@@ -374,11 +374,11 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
             store,
             state,
             spec,
-            None,
-        )?);
+            ops,
+        )?;
     }
 
-    Ok(ops)
+    Ok(())
 }
 
 fn store_range<F, E, S, I>(
@@ -389,19 +389,14 @@ fn store_range<F, E, S, I>(
     store: &S,
     state: &BeaconState<E>,
     spec: &ChainSpec,
-    mut full_range_checked: Option<&mut bool>,
-) -> Result<Vec<KeyValueStoreOp>, Error>
+    ops: &mut Vec<KeyValueStoreOp>,
+) -> Result<bool, Error>
 where
     F: Field<E>,
     E: EthSpec,
     S: KeyValueStore<E>,
     I: Iterator<Item = usize>,
 {
-    let mut ops: Vec<KeyValueStoreOp> = Vec::new();
-
-    if let Some(ref mut full_range_checked) = full_range_checked {
-        **full_range_checked = false;
-    }
     for chunk_index in range {
         let chunk_key = &chunk_key(chunk_index as u64)[..];
 
@@ -418,16 +413,13 @@ where
         )?;
 
         if new_chunk == existing_chunk {
-            return Ok(ops);
+            return Ok(false);
         }
 
-        ops.push(new_chunk.store(F::column(), chunk_key)?);
+        new_chunk.store(F::column(), chunk_key, ops)?;
     }
 
-    if let Some(full_range_checked) = full_range_checked {
-        *full_range_checked = true;
-    }
-    Ok(ops)
+    Ok(true)
 }
 
 // Chunks at the end index are included.
@@ -600,9 +592,15 @@ where
             .transpose()
     }
 
-    pub fn store(&self, column: DBColumn, key: &[u8]) -> Result<KeyValueStoreOp, Error> {
+    pub fn store(
+        &self,
+        column: DBColumn,
+        key: &[u8],
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) -> Result<(), Error> {
         let db_key = get_key_for_col(column.into(), key);
-        Ok(KeyValueStoreOp::PutKeyValue(db_key, self.encode()?))
+        ops.push(KeyValueStoreOp::PutKeyValue(db_key, self.encode()?));
+        Ok(())
     }
 
     /// Attempt to decode a single chunk.
