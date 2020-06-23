@@ -69,7 +69,7 @@ pub(crate) enum ScoreState {
 ///
 /// This simplistic version consists of a global score per peer which decays to 0 over time. The
 /// decay rate applies equally to positive and negative scores.
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+#[derive(Copy, PartialEq, Clone, Debug, Serialize)]
 pub struct Score {
     /// The global score.
     // NOTE: In the future we may separate this into sub-scores involving the RPC, Gossipsub and
@@ -89,20 +89,29 @@ impl Default for Score {
     }
 }
 
+impl Eq for Score {}
+
+impl PartialOrd for Score {
+    fn partial_cmp(&self, other: &Score) -> Option<std::cmp::Ordering> {
+        self.score
+            .partial_cmp(&other.score)
+            .or_else(|| self.last_updated.partial_cmp(&other.last_updated))
+    }
+}
+
+impl Ord for Score {
+    fn cmp(&self, other: &Score) -> std::cmp::Ordering {
+        self.partial_cmp(other)
+            .unwrap_or_else(|| std::cmp::Ordering::Equal)
+    }
+}
+
 impl From<f64> for Score {
     fn from(f: f64) -> Self {
         Score {
             score: f,
             last_updated: Instant::now(),
         }
-    }
-}
-
-impl std::ops::Deref for Score {
-    type Target = f64;
-
-    fn deref(&self) -> &f64 {
-        &self.score
     }
 }
 
@@ -123,6 +132,11 @@ impl std::fmt::Display for ScoreState {
 }
 
 impl Score {
+    /// Access to the underlying score.
+    pub fn score(&self) -> f64 {
+        self.score
+    }
+
     /// Modifies the score based on a peer's action.
     pub fn apply_peer_action(&mut self, peer_action: PeerAction) {
         match peer_action {
@@ -201,24 +215,24 @@ mod tests {
         //
         let change = 0.0;
         score.add(change);
-        assert_eq!(*score, DEFAULT_SCORE);
+        assert_eq!(score.score(), DEFAULT_SCORE);
 
         // underflowing change is capped
         let mut score = Score::default();
         let change = MIN_SCORE - 50.0;
         score.add(change);
-        assert_eq!(*score, MIN_SCORE);
+        assert_eq!(score.score(), MIN_SCORE);
 
         // overflowing change is capped
         let mut score = Score::default();
         let change = MAX_SCORE + 50.0;
         score.add(change);
-        assert_eq!(*score, MAX_SCORE);
+        assert_eq!(score.score(), MAX_SCORE);
 
         // Score adjusts
         let mut score = Score::default();
         let change = 1.32;
         score.add(change);
-        assert_eq!(*score, DEFAULT_SCORE + change);
+        assert_eq!(score.score(), DEFAULT_SCORE + change);
     }
 }

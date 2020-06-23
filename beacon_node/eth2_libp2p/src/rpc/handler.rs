@@ -40,19 +40,19 @@ const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
-/// An error encoutered by the handler.
+/// An error encountered by the handler.
 pub enum HandlerErr {
-    /// An error ocurred for this peer's request. This can occurr during protocol negotiation,
-    /// message passing, or if the handler identifies that we are sending an error reponse to the peer.
+    /// An error occurred for this peer's request. This can occur during protocol negotiation,
+    /// message passing, or if the handler identifies that we are sending an error response to the peer.
     Inbound {
         /// Id of the peer's request for which an error occurred.
         id: SubstreamId,
         /// Information of the negotiated protocol.
         proto: Protocol,
-        /// The error that ocurred.
+        /// The error that occurred.
         error: RPCError,
     },
-    /// An error ocurred for this request. Such error can occurr during protocol negotiation,
+    /// An error occurred for this request. Such error can occur during protocol negotiation,
     /// message passing, or if we successfully received a response from the peer, but this response
     /// indicates an error.
     Outbound {
@@ -60,7 +60,7 @@ pub enum HandlerErr {
         id: RequestId,
         /// Information of the protocol.
         proto: Protocol,
-        /// The error that ocurred.
+        /// The error that occurred.
         error: RPCError,
     },
 }

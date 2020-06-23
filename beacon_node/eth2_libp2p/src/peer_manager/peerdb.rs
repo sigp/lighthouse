@@ -152,7 +152,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns a vector containing peers (their ids and info), sorted by
-    /// reputation from highest to lowest, and filtered using `is_status`
+    /// score from highest to lowest, and filtered using `is_status`
     pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<TSpec>)>
     where
         F: Fn(&PeerConnectionStatus) -> bool,
@@ -162,13 +162,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .iter()
             .filter(|(_, info)| is_status(&info.connection_status))
             .collect::<Vec<_>>();
-        by_status.sort_by(|(_, info_a), (_, info_b)| {
-            info_a
-                .score
-                .partial_cmp(&info_b.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        by_status
+        by_status.sort_by_key(|(_, info)| info.score);
+        by_status.into_iter().rev().collect()
     }
 
     /// Returns the peer with highest reputation that satisfies `is_status`
@@ -179,12 +174,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(|(_, info)| is_status(&info.connection_status))
-            .max_by(|(_, info_a), (_, info_b)| {
-                info_a
-                    .score
-                    .partial_cmp(&info_b.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+            .max_by_key(|(_, info)| info.score)
             .map(|(id, _)| id)
     }
 
@@ -315,6 +305,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerInfo::default()
         });
 
+        if info.connection_status.is_disconnected() {
+            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        }
         if !info.connection_status.is_banned() {
             info.connection_status.ban();
             self.banned_peers += 1;
@@ -453,7 +446,7 @@ mod tests {
         // this is the only peer
         assert_eq!(pdb.peers().count(), 1);
         // the peer has the default reputation
-        assert_eq!(pdb.score(&random_peer), Score::default());
+        assert_eq!(pdb.score(&random_peer).score(), Score::default().score());
         // it should be connected, and therefore not counted as disconnected
         assert_eq!(pdb.disconnected_peers, 0);
         assert!(peer_info.unwrap().connection_status.is_connected());
@@ -511,10 +504,12 @@ mod tests {
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
 
-        let best_peers = pdb.best_peers_by_status(PeerConnectionStatus::is_connected);
-        assert!(vec![&p1, &p0, &p2]
-            .into_iter()
-            .eq(best_peers.into_iter().map(|p| p.0)));
+        let best_peers: Vec<&PeerId> = pdb
+            .best_peers_by_status(PeerConnectionStatus::is_connected)
+            .iter()
+            .map(|p| p.0)
+            .collect();
+        assert_eq!(vec![&p1, &p0, &p2], best_peers);
     }
 
     #[test]
@@ -535,7 +530,7 @@ mod tests {
         assert!(the_best.is_some());
         // Consistency check
         let best_peers = pdb.best_peers_by_status(PeerConnectionStatus::is_connected);
-        assert_eq!(the_best, best_peers.into_iter().map(|p| p.0).next());
+        assert_eq!(the_best, best_peers.iter().next().map(|p| p.0));
     }
 
     #[test]
@@ -546,26 +541,35 @@ mod tests {
 
         pdb.connect_ingoing(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
 
         pdb.connect_ingoing(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
         pdb.disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
 
         pdb.connect_outgoing(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
         pdb.disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
 
         pdb.ban(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
         pdb.disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
 
         pdb.disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
         pdb.disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        dbg!("1");
     }
 
     #[test]
