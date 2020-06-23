@@ -80,7 +80,7 @@ impl ForkChoiceTestDefinition {
                             finalized_epoch,
                             &justified_state_balances,
                         )
-                        .expect(&format!(
+                        .unwrap_or_else(|_| panic!(
                             "find_head op at index {} returned error",
                             op_index
                         ));
@@ -129,7 +129,7 @@ impl ForkChoiceTestDefinition {
                             justified_epoch,
                             finalized_epoch,
                         )
-                        .expect(&format!(
+                        .unwrap_or_else(|_| panic!(
                             "process_block op at index {} returned error",
                             op_index
                         ));
@@ -142,7 +142,7 @@ impl ForkChoiceTestDefinition {
                 } => {
                     fork_choice
                         .process_attestation(validator_index, block_root, target_epoch)
-                        .expect(&format!(
+                        .unwrap_or_else(|_| panic!(
                             "process_attestation op at index {} returned error",
                             op_index
                         ));

@@ -91,7 +91,7 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
         justified_epoch: Epoch::new(2),
         justified_root: get_hash(3),
         finalized_epoch: Epoch::new(1),
-        justified_state_balances: balances.clone(),
+        justified_state_balances: balances,
         expected_head: get_hash(3),
     });
 
@@ -421,7 +421,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_epoch: Epoch::new(3),
         justified_root: get_hash(2),
         finalized_epoch: Epoch::new(0),
-        justified_state_balances: balances.clone(),
+        justified_state_balances: balances,
     });
 
     // END OF TESTS

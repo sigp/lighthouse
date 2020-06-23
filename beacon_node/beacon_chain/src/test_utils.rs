@@ -605,7 +605,7 @@ where
                             selection_proof.is_aggregator(bc.committee.len(), spec).unwrap_or(false)
                         })
                         .copied()
-                        .expect(&format!(
+                        .unwrap_or_else(|| panic!(
                             "Committee {} at slot {} with {} attesting validators does not have any aggregators",
                             bc.index, state.slot, bc.committee.len()
                         ));

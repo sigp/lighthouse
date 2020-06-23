@@ -221,7 +221,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 if let Some(gossip_verified) =
                     self.processor.verify_aggregated_attestation_for_gossip(
                         peer_id.clone(),
-                        *aggregate_and_proof.clone(),
+                        *aggregate_and_proof,
                     )
                 {
                     self.propagate_message(id, peer_id.clone());

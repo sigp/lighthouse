@@ -191,7 +191,7 @@ impl<'a> Builder<'a> {
                         .write(true)
                         .read(true)
                         .create(true)
-                        .open(path.clone())
+                        .open(path)
                         .map_err(Error::UnableToSaveDepositData)?
                         .write_all(hex.as_bytes())
                         .map_err(Error::UnableToSaveDepositData)?
@@ -208,7 +208,7 @@ impl<'a> Builder<'a> {
                         .write(true)
                         .read(true)
                         .create(true)
-                        .open(path.clone())
+                        .open(path)
                         .map_err(Error::UnableToSaveDepositAmount)?
                         .write_all(format!("{}", amount).as_bytes())
                         .map_err(Error::UnableToSaveDepositAmount)?
@@ -257,7 +257,7 @@ fn write_keystore_to_file(path: PathBuf, keystore: &Keystore) -> Result<(), Erro
             .write(true)
             .read(true)
             .create_new(true)
-            .open(path.clone())
+            .open(path)
             .map_err(Error::UnableToSaveKeystore)?;
 
         keystore.to_json_writer(file).map_err(Into::into)

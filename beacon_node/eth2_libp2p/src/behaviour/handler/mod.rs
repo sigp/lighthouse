@@ -42,7 +42,7 @@ pub enum BehaviourHandlerIn<TSpec: EthSpec> {
 }
 
 pub enum BehaviourHandlerOut<TSpec: EthSpec> {
-    Delegate(DelegateOut<TSpec>),
+    Delegate(Box<DelegateOut<TSpec>>),
     // TODO: replace custom with events to send
     Custom,
 }
@@ -119,7 +119,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
         match self.delegate.poll(cx) {
             Poll::Ready(ProtocolsHandlerEvent::Custom(event)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Custom(
-                    BehaviourHandlerOut::Delegate(event),
+                    BehaviourHandlerOut::Delegate(Box::new(event)),
                 ))
             }
             Poll::Ready(ProtocolsHandlerEvent::Close(err)) => {
