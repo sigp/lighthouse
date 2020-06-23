@@ -120,7 +120,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
-        // TODO: Remove duplicate code  - This is duplicated in the update_reputation
+        // TODO: Remove duplicate code  - This is duplicated in the update_peer_scores()
         // function.
 
         // Variables to update the PeerDb if required.
@@ -202,14 +202,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /* Notifications from the Swarm */
 
-    /// Dialing of a peer failed.
-    pub fn dial_failed(&mut self, peer_id: &PeerId) {
-        self.network_globals.peers.write().disconnect(peer_id);
-    }
-
     /// Updates the state of the peer as disconnected.
+    ///
+    /// This is also called when dialing a peer fails.
     pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
-        //self.update_reputations();
         self.network_globals.peers.write().disconnect(peer_id);
 
         // remove the ping and status timer for the peer
