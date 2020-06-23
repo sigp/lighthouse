@@ -1225,14 +1225,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        while !filtered_chain_segment.is_empty() {
+        while let Some((_root, block)) = filtered_chain_segment.first() {
             // Determine the epoch of the first block in the remaining segment.
-            let start_epoch = filtered_chain_segment
-                .first()
-                .map(|(_root, block)| block)
-                .expect("chain_segment cannot be empty")
-                .slot()
-                .epoch(T::EthSpec::slots_per_epoch());
+            let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
             // The `last_index` indicates the position of the last block that is in the current
             // epoch of `start_epoch`.
