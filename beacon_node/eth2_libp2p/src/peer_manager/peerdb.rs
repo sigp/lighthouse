@@ -1,42 +1,47 @@
 use super::peer_info::{PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
+use super::score::Score;
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use slog::{crit, debug, trace, warn};
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::HashMap;
 use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
-/// Max number of disconnected nodes to remember
-const MAX_DC_PEERS: usize = 30;
+/// Max number of disconnected nodes to remember.
+const MAX_DC_PEERS: usize = 100;
+/// The maximum number of banned nodes to remember.
+const MAX_BANNED_PEERS: usize = 300;
 
 /// Storage of known peers, their reputation and information
 pub struct PeerDB<TSpec: EthSpec> {
     /// The collection of known connected peers, their status and reputation
     peers: HashMap<PeerId, PeerInfo<TSpec>>,
-    /// Tracking of number of disconnected nodes
-    n_dc: usize,
+    /// The number of disconnected nodes in the database.
+    disconnected_peers: usize,
+    /// The number of banned peers in the database.
+    banned_peers: usize,
     /// PeerDB's logger
     log: slog::Logger,
 }
-
 
 impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn new(log: &slog::Logger) -> Self {
         Self {
             log: log.clone(),
-            n_dc: 0,
+            disconnected_peers: 0,
+            banned_peers: 0,
             peers: HashMap::new(),
         }
     }
 
     /* Getters */
 
-    /// Gives the reputation of a peer, or DEFAULT_REPUTATION if it is unknown.
-    pub fn score(&self, peer_id: &PeerId) -> Rep {
+    /// Gives the score of a peer, or default score if it is unknown.
+    pub fn score(&self, peer_id: &PeerId) -> Score {
         self.peers
             .get(peer_id)
-            .map_or(DEFAULT_SCORE, |info| info.score)
+            .map_or(Score::default(), |info| info.score)
     }
 
     /// Returns an iterator over all peers in the db.
@@ -45,7 +50,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns an iterator over all peers in the db.
-    pub(super) fn _peers_mut(&mut self) -> impl Iterator<Item = (&PeerId, &mut PeerInfo<TSpec>)> {
+    pub(super) fn peers_mut(&mut self) -> impl Iterator<Item = (&PeerId, &mut PeerInfo<TSpec>)> {
         self.peers.iter_mut()
     }
 
@@ -157,7 +162,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .iter()
             .filter(|(_, info)| is_status(&info.connection_status))
             .collect::<Vec<_>>();
-        by_status.sort_by_key(|(_, info)| Rep::max_value() - info.reputation);
+        by_status.sort_by(|(_, info_a), (_, info_b)| {
+            info_a
+                .score
+                .partial_cmp(&info_b.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         by_status
     }
 
@@ -169,7 +179,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(|(_, info)| is_status(&info.connection_status))
-            .max_by_key(|(_, info)| info.reputation)
+            .max_by(|(_, info_a), (_, info_b)| {
+                info_a
+                    .score
+                    .partial_cmp(&info_b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|(id, _)| id)
     }
 
@@ -204,7 +219,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
-            self.n_dc = self.n_dc.saturating_sub(1);
+            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        }
+        if info.connection_status.is_banned() {
+            self.banned_peers = self.banned_peers.saturating_sub(1);
         }
         info.connection_status = PeerConnectionStatus::Dialing {
             since: Instant::now(),
@@ -252,7 +270,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
-            self.n_dc = self.n_dc.saturating_sub(1);
+            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        }
+        if info.connection_status.is_banned() {
+            self.banned_peers = self.banned_peers.saturating_sub(1);
         }
         info.connection_status.connect_ingoing();
     }
@@ -262,7 +283,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let info = self.peers.entry(peer_id.clone()).or_default();
 
         if info.connection_status.is_disconnected() {
-            self.n_dc = self.n_dc.saturating_sub(1);
+            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        }
+        if info.connection_status.is_banned() {
+            self.banned_peers = self.banned_peers.saturating_sub(1);
         }
         info.connection_status.connect_outgoing();
     }
@@ -277,40 +301,88 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         });
         if !info.connection_status.is_disconnected() && !info.connection_status.is_banned() {
             info.connection_status.disconnect();
-            self.n_dc += 1;
+            self.disconnected_peers += 1;
         }
         self.shrink_to_fit();
     }
 
-    /// Drops the peers with the lowest reputation so that the number of
-    /// disconnected peers is less than MAX_DC_PEERS
-    pub fn shrink_to_fit(&mut self) {
-        // for caution, but the difference should never be > 1
-        while self.n_dc > MAX_DC_PEERS {
-            let to_drop = self
-                .peers
-                .iter()
-                .filter(|(_, info)| info.connection_status.is_disconnected())
-                .min_by_key(|(_, info)| info.reputation)
-                .map(|(id, _)| id.clone())
-                .unwrap(); // should be safe since n_dc > MAX_DC_PEERS > 0
-            self.peers.remove(&to_drop);
-            self.n_dc = self.n_dc.saturating_sub(1);
-        }
-    }
-
-    /// Sets a peer as banned
+    /// Marks a peer as banned.
     pub fn ban(&mut self, peer_id: &PeerId) {
         let log_ref = &self.log;
         let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
             warn!(log_ref, "Banning unknown peer";
-                    "peer_id" => peer_id.to_string());
+                "peer_id" => peer_id.to_string());
             PeerInfo::default()
         });
-        if info.connection_status.is_disconnected() {
-            self.n_dc = self.n_dc.saturating_sub(1);
+
+        if !info.connection_status.is_banned() {
+            info.connection_status.ban();
+            self.banned_peers += 1;
         }
-        info.connection_status.ban();
+        self.shrink_to_fit();
+    }
+
+    /// Unbans a peer.
+    pub fn unban(&mut self, peer_id: &PeerId) {
+        let log_ref = &self.log;
+        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
+            warn!(log_ref, "UnBanning unknown peer";
+                "peer_id" => peer_id.to_string());
+            PeerInfo::default()
+        });
+
+        if info.connection_status.is_banned() {
+            info.connection_status.unban();
+            self.banned_peers = self.banned_peers.saturating_sub(1);
+        }
+        self.shrink_to_fit();
+    }
+
+    /// Removes banned and disconnected peers from the DB if we have reached any of our limits.
+    /// Drops the peers with the lowest reputation so that the number of
+    /// disconnected peers is less than MAX_DC_PEERS
+    pub fn shrink_to_fit(&mut self) {
+        // Remove excess baned peers
+        while self.banned_peers > MAX_BANNED_PEERS {
+            if let Some(to_drop) = self
+                .peers
+                .iter()
+                .filter(|(_, info)| info.connection_status.is_banned())
+                .min_by(|(_, info_a), (_, info_b)| {
+                    info_a
+                        .score
+                        .partial_cmp(&info_b.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(id, _)| id.clone())
+            {
+                self.peers.remove(&to_drop);
+            }
+            // If there is no minimum, this is a coding error. For safety we decrease
+            // the count to avoid a potential infinite loop.
+            self.banned_peers = self.banned_peers.saturating_sub(1);
+        }
+
+        // Remove excess disconnected peers
+        while self.disconnected_peers > MAX_DC_PEERS {
+            if let Some(to_drop) = self
+                .peers
+                .iter()
+                .filter(|(_, info)| info.connection_status.is_disconnected())
+                .min_by(|(_, info_a), (_, info_b)| {
+                    info_a
+                        .score
+                        .partial_cmp(&info_b.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(id, _)| id.clone())
+            {
+                self.peers.remove(&to_drop);
+            }
+            // If there is no minimum, this is a coding error. For safety we decrease
+            // the count to avoid a potential infinite loop.
+            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        }
     }
 
     /// Add the meta data of a peer.
@@ -322,16 +394,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
     }
 
-    /// Sets the reputation of peer.
-    #[allow(dead_code)]
-    pub(super) fn set_reputation(&mut self, peer_id: &PeerId, rep: Rep) {
-        if let Some(peer_info) = self.peers.get_mut(peer_id) {
-            peer_info.reputation = rep;
-        } else {
-            crit!(self.log, "Tried to modify reputation for an unknown peer"; "peer_id" => peer_id.to_string());
-        }
-    }
-
     /// Sets the syncing status of a peer.
     pub fn set_sync_status(&mut self, peer_id: &PeerId, sync_status: PeerSyncStatus) {
         if let Some(peer_info) = self.peers.get_mut(peer_id) {
@@ -339,26 +401,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         } else {
             crit!(self.log, "Tried to the sync status for an unknown peer"; "peer_id" => peer_id.to_string());
         }
-    }
-
-    /// Adds to a peer's reputation by `change`. If the reputation exceeds Rep's
-    /// upper (lower) bounds, it stays at the maximum (minimum) value.
-    pub(super) fn add_reputation(&mut self, peer_id: &PeerId, change: RepChange) {
-        let log_ref = &self.log;
-        let info = match self.peers.entry(peer_id.clone()) {
-            Entry::Vacant(_) => {
-                warn!(log_ref, "Peer is unknown, no reputation change made";
-                        "peer_id" => peer_id.to_string());
-                return;
-            }
-            Entry::Occupied(e) => e.into_mut(),
-        };
-
-        info.reputation = if change.is_good {
-            info.reputation.saturating_add(change.diff)
-        } else {
-            info.reputation.saturating_sub(change.diff)
-        };
     }
 }
 
@@ -378,6 +420,12 @@ mod tests {
             slog::Logger::root(drain.filter_level(level).fuse(), o!())
         } else {
             slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
+    }
+
+    fn add_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId, score: f64) {
+        if let Some(info) = db.peer_info_mut(peer_id) {
+            info.score.add(score);
         }
     }
 
@@ -405,58 +453,14 @@ mod tests {
         // this is the only peer
         assert_eq!(pdb.peers().count(), 1);
         // the peer has the default reputation
-        assert_eq!(pdb.reputation(&random_peer), DEFAULT_REPUTATION);
+        assert_eq!(pdb.score(&random_peer), Score::default());
         // it should be connected, and therefore not counted as disconnected
-        assert_eq!(pdb.n_dc, 0);
+        assert_eq!(pdb.disconnected_peers, 0);
         assert!(peer_info.unwrap().connection_status.is_connected());
         assert_eq!(
             peer_info.unwrap().connection_status.connections(),
             (n_in, n_out)
         );
-    }
-
-    #[test]
-    fn test_set_reputation() {
-        let mut pdb = get_db();
-        let random_peer = PeerId::random();
-        pdb.connect_ingoing(&random_peer);
-
-        let mut rep = Rep::min_value();
-        pdb.set_reputation(&random_peer, rep);
-        assert_eq!(pdb.reputation(&random_peer), rep);
-
-        rep = Rep::max_value();
-        pdb.set_reputation(&random_peer, rep);
-        assert_eq!(pdb.reputation(&random_peer), rep);
-
-        rep = Rep::max_value() / 100;
-        pdb.set_reputation(&random_peer, rep);
-        assert_eq!(pdb.reputation(&random_peer), rep);
-    }
-
-    #[test]
-    fn test_reputation_change() {
-        let mut pdb = get_db();
-
-        // 0 change does not change de reputation
-        let random_peer = PeerId::random();
-        let change = RepChange::good(0);
-        pdb.connect_ingoing(&random_peer);
-        pdb.add_reputation(&random_peer, change);
-        assert_eq!(pdb.reputation(&random_peer), DEFAULT_REPUTATION);
-
-        // overflowing change is capped
-        let random_peer = PeerId::random();
-        let change = RepChange::worst();
-        pdb.connect_ingoing(&random_peer);
-        pdb.add_reputation(&random_peer, change);
-        assert_eq!(pdb.reputation(&random_peer), Rep::min_value());
-
-        let random_peer = PeerId::random();
-        let change = RepChange::good(Rep::max_value());
-        pdb.connect_ingoing(&random_peer);
-        pdb.add_reputation(&random_peer, change);
-        assert_eq!(pdb.reputation(&random_peer), Rep::max_value());
     }
 
     #[test]
@@ -467,13 +471,30 @@ mod tests {
             let p = PeerId::random();
             pdb.connect_ingoing(&p);
         }
-        assert_eq!(pdb.n_dc, 0);
+        assert_eq!(pdb.disconnected_peers, 0);
 
         for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
             pdb.disconnect(&p);
         }
 
-        assert_eq!(pdb.n_dc, MAX_DC_PEERS);
+        assert_eq!(pdb.disconnected_peers, MAX_DC_PEERS);
+    }
+
+    #[test]
+    fn test_banned_are_bounded() {
+        let mut pdb = get_db();
+
+        for _ in 0..MAX_BANNED_PEERS + 1 {
+            let p = PeerId::random();
+            pdb.connect_ingoing(&p);
+        }
+        assert_eq!(pdb.banned_peers, 0);
+
+        for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
+            pdb.ban(&p);
+        }
+
+        assert_eq!(pdb.banned_peers, MAX_BANNED_PEERS);
     }
 
     #[test]
@@ -486,9 +507,9 @@ mod tests {
         pdb.connect_ingoing(&p0);
         pdb.connect_ingoing(&p1);
         pdb.connect_ingoing(&p2);
-        pdb.set_reputation(&p0, 70);
-        pdb.set_reputation(&p1, 100);
-        pdb.set_reputation(&p2, 50);
+        add_score(&mut pdb, &p0, 70.0);
+        add_score(&mut pdb, &p1, 100.0);
+        add_score(&mut pdb, &p2, 50.0);
 
         let best_peers = pdb.best_peers_by_status(PeerConnectionStatus::is_connected);
         assert!(vec![&p1, &p0, &p2]
@@ -506,9 +527,9 @@ mod tests {
         pdb.connect_ingoing(&p0);
         pdb.connect_ingoing(&p1);
         pdb.connect_ingoing(&p2);
-        pdb.set_reputation(&p0, 70);
-        pdb.set_reputation(&p1, 100);
-        pdb.set_reputation(&p2, 50);
+        add_score(&mut pdb, &p0, 70.0);
+        add_score(&mut pdb, &p1, 100.0);
+        add_score(&mut pdb, &p2, 50.0);
 
         let the_best = pdb.best_by_status(PeerConnectionStatus::is_connected);
         assert!(the_best.is_some());
@@ -524,26 +545,77 @@ mod tests {
         let random_peer = PeerId::random();
 
         pdb.connect_ingoing(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
         pdb.connect_ingoing(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.disconnect(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
         pdb.connect_outgoing(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.disconnect(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
         pdb.ban(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.disconnect(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
         pdb.disconnect(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.disconnect(&random_peer);
-        assert_eq!(pdb.n_dc, pdb.disconnected_peers().count());
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+    }
+
+    #[test]
+    fn test_disconnected_ban_consistency() {
+        let mut pdb = get_db();
+
+        let random_peer = PeerId::random();
+        let random_peer1 = PeerId::random();
+        let random_peer2 = PeerId::random();
+        let random_peer3 = PeerId::random();
+
+        pdb.connect_ingoing(&random_peer);
+        pdb.connect_ingoing(&random_peer1);
+        pdb.connect_ingoing(&random_peer2);
+        pdb.connect_ingoing(&random_peer3);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+
+        pdb.connect_ingoing(&random_peer);
+        pdb.disconnect(&random_peer1);
+        pdb.ban(&random_peer2);
+        pdb.connect_ingoing(&random_peer3);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+        pdb.ban(&random_peer1);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+
+        pdb.connect_outgoing(&random_peer2);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+        pdb.ban(&random_peer3);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+
+        pdb.ban(&random_peer3);
+        pdb.connect_ingoing(&random_peer1);
+        pdb.disconnect(&random_peer2);
+        pdb.ban(&random_peer3);
+        pdb.connect_ingoing(&random_peer);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+        pdb.disconnect(&random_peer);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+
+        pdb.disconnect(&random_peer);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        assert_eq!(pdb.banned_peers, pdb.banned_peers().count());
+        pdb.ban(&random_peer);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
     }
 }

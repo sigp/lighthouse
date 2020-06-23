@@ -340,7 +340,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                             debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
                         }
                         SwarmEvent::Dialing(peer_id) => {
-                            self.swarm.peer_manager().dialing_peer(&peer_id);
+                            debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
                         }
                     }
                 }
