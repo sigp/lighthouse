@@ -157,7 +157,9 @@ impl<TSpec: EthSpec> Service<TSpec> {
         };
 
         // helper closure for dialing peers
-        let mut dial_addr = |multiaddr: &Multiaddr| {
+        let mut dial_addr = |mut multiaddr: Multiaddr| {
+            // strip the p2p protocol if it exists
+            strip_peer_id(&mut multiaddr);
             match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
                 Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => format!("{}", multiaddr)),
                 Err(err) => debug!(
@@ -169,7 +171,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
         // attempt to connect to user-input libp2p nodes
         for multiaddr in &config.libp2p_nodes {
-            dial_addr(multiaddr);
+            dial_addr(multiaddr.clone());
         }
 
         // attempt to connect to any specified boot-nodes
@@ -189,7 +191,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     .read()
                     .is_connected_or_dialing(&bootnode_enr.peer_id())
                 {
-                    dial_addr(multiaddr);
+                    dial_addr(multiaddr.clone());
                 }
             }
         }
@@ -500,4 +502,15 @@ fn generate_noise_config(
         .into_authentic(identity_keypair)
         .expect("signing can fail only once during starting a node");
     noise::NoiseConfig::xx(static_dh_keys).into_authenticated()
+}
+
+/// For a multiaddr that ends with a peer id, this strips this suffix. Rust-libp2p
+/// only supports dialing to an address without providing the peer id.
+fn strip_peer_id(addr: &mut Multiaddr) {
+    let last = addr.pop();
+    match last {
+        Some(Protocol::P2p(_)) => {}
+        Some(other) => addr.push(other),
+        _ => {}
+    }
 }

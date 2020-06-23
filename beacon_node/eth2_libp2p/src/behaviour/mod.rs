@@ -67,169 +67,6 @@ pub struct Behaviour<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-/// Calls the given function with the given args on all sub behaviours.
-macro_rules! delegate_to_behaviours {
-    ($self: ident, $fn: ident, $($arg: ident), *) => {
-        $self.gossipsub.$fn($($arg),*);
-        $self.eth2_rpc.$fn($($arg),*);
-        $self.identify.$fn($($arg),*);
-    };
-}
-
-impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
-    type ProtocolsHandler = BehaviourHandler<TSpec>;
-    type OutEvent = BehaviourEvent<TSpec>;
-
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        BehaviourHandler::new(&mut self.gossipsub, &mut self.eth2_rpc, &mut self.identify)
-    }
-
-    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        self.peer_manager.addresses_of_peer(peer_id)
-    }
-
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        delegate_to_behaviours!(self, inject_connected, peer_id);
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        delegate_to_behaviours!(self, inject_disconnected, peer_id);
-    }
-
-    fn inject_connection_established(
-        &mut self,
-        peer_id: &PeerId,
-        conn_id: &ConnectionId,
-        endpoint: &ConnectedPoint,
-    ) {
-        delegate_to_behaviours!(
-            self,
-            inject_connection_established,
-            peer_id,
-            conn_id,
-            endpoint
-        );
-    }
-
-    fn inject_connection_closed(
-        &mut self,
-        peer_id: &PeerId,
-        conn_id: &ConnectionId,
-        endpoint: &ConnectedPoint,
-    ) {
-        delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
-    }
-
-    fn inject_addr_reach_failure(
-        &mut self,
-        peer_id: Option<&PeerId>,
-        addr: &Multiaddr,
-        error: &dyn std::error::Error,
-    ) {
-        delegate_to_behaviours!(self, inject_addr_reach_failure, peer_id, addr, error);
-    }
-
-    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
-        delegate_to_behaviours!(self, inject_dial_failure, peer_id);
-    }
-
-    fn inject_new_listen_addr(&mut self, addr: &Multiaddr) {
-        delegate_to_behaviours!(self, inject_new_listen_addr, addr);
-    }
-
-    fn inject_expired_listen_addr(&mut self, addr: &Multiaddr) {
-        delegate_to_behaviours!(self, inject_expired_listen_addr, addr);
-    }
-
-    fn inject_new_external_addr(&mut self, addr: &Multiaddr) {
-        delegate_to_behaviours!(self, inject_new_external_addr, addr);
-    }
-
-    fn inject_listener_error(&mut self, id: ListenerId, err: &(dyn std::error::Error + 'static)) {
-        delegate_to_behaviours!(self, inject_listener_error, id, err);
-    }
-    fn inject_listener_closed(&mut self, id: ListenerId, reason: Result<(), &std::io::Error>) {
-        delegate_to_behaviours!(self, inject_listener_closed, id, reason);
-    }
-
-    fn inject_event(
-        &mut self,
-        peer_id: PeerId,
-        conn_id: ConnectionId,
-        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
-    ) {
-        match event {
-            // Events comming from the handler, redirected to each behaviour
-            BehaviourHandlerOut::Delegate(delegate) => match delegate {
-                DelegateOut::Gossipsub(ev) => self.gossipsub.inject_event(peer_id, conn_id, ev),
-                DelegateOut::RPC(ev) => self.eth2_rpc.inject_event(peer_id, conn_id, ev),
-                DelegateOut::Identify(ev) => self.identify.inject_event(peer_id, conn_id, ev),
-            },
-            /* Custom events sent BY the handler */
-            BehaviourHandlerOut::Custom => {
-                // TODO: implement
-            }
-        }
-    }
-
-    fn poll(
-        &mut self,
-        cx: &mut Context,
-        poll_params: &mut impl PollParameters,
-    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
-        // TODO: move where it's less distracting
-        macro_rules! poll_behaviour {
-            /* $behaviour:  The sub-behaviour being polled.
-             * $on_event_fn:  Function to call if we get an event from the sub-behaviour.
-             * $notify_handler_event_closure:  Closure mapping the received event type to
-             *     the one that the handler should get.
-             */
-            ($behaviour: ident, $on_event_fn: ident, $notify_handler_event_closure: expr) => {
-                loop {
-                    // poll the sub-behaviour
-                    match self.$behaviour.poll(cx, poll_params) {
-                        Poll::Ready(action) => match action {
-                            // call the designated function to handle the event from sub-behaviour
-                            NBAction::GenerateEvent(event) => self.$on_event_fn(event),
-                            NBAction::DialAddress { address } => {
-                                return Poll::Ready(NBAction::DialAddress { address })
-                            }
-                            NBAction::DialPeer { peer_id, condition } => {
-                                return Poll::Ready(NBAction::DialPeer { peer_id, condition })
-                            }
-                            NBAction::NotifyHandler {
-                                peer_id,
-                                handler,
-                                event,
-                            } => {
-                                return Poll::Ready(NBAction::NotifyHandler {
-                                    peer_id,
-                                    handler,
-                                    // call the closure mapping the received event to the needed one
-                                    // in order to notify the handler
-                                    event: BehaviourHandlerIn::Delegate(
-                                        $notify_handler_event_closure(event),
-                                    ),
-                                });
-                            }
-                            NBAction::ReportObservedAddr { address } => {
-                                return Poll::Ready(NBAction::ReportObservedAddr { address })
-                            }
-                        },
-                        Poll::Pending => break,
-                    }
-                }
-            };
-        }
-
-        poll_behaviour!(gossipsub, on_gossip_event, DelegateIn::Gossipsub);
-        poll_behaviour!(eth2_rpc, on_rpc_event, DelegateIn::RPC);
-        poll_behaviour!(identify, on_identify_event, DelegateIn::Identify);
-
-        self.custom_poll(cx)
-    }
-}
-
 /// Implements the combined behaviour for the libp2p service.
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub fn new(
@@ -275,6 +112,16 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             enr_fork_id,
             log: behaviour_log,
         })
+    }
+
+    /// Attempts to connect to a libp2p peer.
+    ///
+    /// This MUST be used over Swarm::dial() as this keeps track of the peer in the peer manager.
+    ///
+    /// All external dials, dial a multiaddr. This is currently unused but kept here in case any
+    /// part of lighthouse needs to connect to a peer_id in the future.
+    pub fn _dial(&mut self, peer_id: &PeerId) {
+        self.peer_manager.dial_peer(peer_id);
     }
 
     /// Returns the local ENR of the node.
@@ -829,6 +676,169 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             IdentifyEvent::Sent { .. } => {}
             IdentifyEvent::Error { .. } => {}
         }
+    }
+}
+
+/// Calls the given function with the given args on all sub behaviours.
+macro_rules! delegate_to_behaviours {
+    ($self: ident, $fn: ident, $($arg: ident), *) => {
+        $self.gossipsub.$fn($($arg),*);
+        $self.eth2_rpc.$fn($($arg),*);
+        $self.identify.$fn($($arg),*);
+    };
+}
+
+impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
+    type ProtocolsHandler = BehaviourHandler<TSpec>;
+    type OutEvent = BehaviourEvent<TSpec>;
+
+    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+        BehaviourHandler::new(&mut self.gossipsub, &mut self.eth2_rpc, &mut self.identify)
+    }
+
+    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
+        self.peer_manager.addresses_of_peer(peer_id)
+    }
+
+    fn inject_connected(&mut self, peer_id: &PeerId) {
+        delegate_to_behaviours!(self, inject_connected, peer_id);
+    }
+
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        delegate_to_behaviours!(self, inject_disconnected, peer_id);
+    }
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &ConnectionId,
+        endpoint: &ConnectedPoint,
+    ) {
+        delegate_to_behaviours!(
+            self,
+            inject_connection_established,
+            peer_id,
+            conn_id,
+            endpoint
+        );
+    }
+
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &ConnectionId,
+        endpoint: &ConnectedPoint,
+    ) {
+        delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
+    }
+
+    fn inject_addr_reach_failure(
+        &mut self,
+        peer_id: Option<&PeerId>,
+        addr: &Multiaddr,
+        error: &dyn std::error::Error,
+    ) {
+        delegate_to_behaviours!(self, inject_addr_reach_failure, peer_id, addr, error);
+    }
+
+    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+        delegate_to_behaviours!(self, inject_dial_failure, peer_id);
+    }
+
+    fn inject_new_listen_addr(&mut self, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_new_listen_addr, addr);
+    }
+
+    fn inject_expired_listen_addr(&mut self, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_expired_listen_addr, addr);
+    }
+
+    fn inject_new_external_addr(&mut self, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_new_external_addr, addr);
+    }
+
+    fn inject_listener_error(&mut self, id: ListenerId, err: &(dyn std::error::Error + 'static)) {
+        delegate_to_behaviours!(self, inject_listener_error, id, err);
+    }
+    fn inject_listener_closed(&mut self, id: ListenerId, reason: Result<(), &std::io::Error>) {
+        delegate_to_behaviours!(self, inject_listener_closed, id, reason);
+    }
+
+    fn inject_event(
+        &mut self,
+        peer_id: PeerId,
+        conn_id: ConnectionId,
+        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
+        match event {
+            // Events comming from the handler, redirected to each behaviour
+            BehaviourHandlerOut::Delegate(delegate) => match delegate {
+                DelegateOut::Gossipsub(ev) => self.gossipsub.inject_event(peer_id, conn_id, ev),
+                DelegateOut::RPC(ev) => self.eth2_rpc.inject_event(peer_id, conn_id, ev),
+                DelegateOut::Identify(ev) => self.identify.inject_event(peer_id, conn_id, ev),
+            },
+            /* Custom events sent BY the handler */
+            BehaviourHandlerOut::Custom => {
+                // TODO: implement
+            }
+        }
+    }
+
+    fn poll(
+        &mut self,
+        cx: &mut Context,
+        poll_params: &mut impl PollParameters,
+    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
+        // TODO: move where it's less distracting
+        macro_rules! poll_behaviour {
+            /* $behaviour:  The sub-behaviour being polled.
+             * $on_event_fn:  Function to call if we get an event from the sub-behaviour.
+             * $notify_handler_event_closure:  Closure mapping the received event type to
+             *     the one that the handler should get.
+             */
+            ($behaviour: ident, $on_event_fn: ident, $notify_handler_event_closure: expr) => {
+                loop {
+                    // poll the sub-behaviour
+                    match self.$behaviour.poll(cx, poll_params) {
+                        Poll::Ready(action) => match action {
+                            // call the designated function to handle the event from sub-behaviour
+                            NBAction::GenerateEvent(event) => self.$on_event_fn(event),
+                            NBAction::DialAddress { address } => {
+                                return Poll::Ready(NBAction::DialAddress { address })
+                            }
+                            NBAction::DialPeer { peer_id, condition } => {
+                                return Poll::Ready(NBAction::DialPeer { peer_id, condition })
+                            }
+                            NBAction::NotifyHandler {
+                                peer_id,
+                                handler,
+                                event,
+                            } => {
+                                return Poll::Ready(NBAction::NotifyHandler {
+                                    peer_id,
+                                    handler,
+                                    // call the closure mapping the received event to the needed one
+                                    // in order to notify the handler
+                                    event: BehaviourHandlerIn::Delegate(
+                                        $notify_handler_event_closure(event),
+                                    ),
+                                });
+                            }
+                            NBAction::ReportObservedAddr { address } => {
+                                return Poll::Ready(NBAction::ReportObservedAddr { address })
+                            }
+                        },
+                        Poll::Pending => break,
+                    }
+                }
+            };
+        }
+
+        poll_behaviour!(gossipsub, on_gossip_event, DelegateIn::Gossipsub);
+        poll_behaviour!(eth2_rpc, on_rpc_event, DelegateIn::RPC);
+        poll_behaviour!(identify, on_identify_event, DelegateIn::Identify);
+
+        self.custom_poll(cx)
     }
 }
 
