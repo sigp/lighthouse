@@ -199,11 +199,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if state.slot < self.get_split_slot() {
             let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             self.store_cold_state(state_root, &state, &mut ops)?;
-            self.cold_db.do_atomically(&ops)
+            self.cold_db.do_atomically(ops)
         } else {
             let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             self.store_hot_state(state_root, state, &mut ops)?;
-            self.hot_db.do_atomically(&ops)
+            self.hot_db.do_atomically(ops)
         }
     }
 
@@ -345,7 +345,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
             }
         }
-        self.hot_db.do_atomically(&key_value_batch)?;
+        self.hot_db.do_atomically(key_value_batch)?;
 
         for op in &batch {
             match op {
@@ -818,7 +818,7 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
             let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             store.store_cold_state(&state_root, &state, &mut ops)?;
-            store.cold_db.do_atomically(&ops)?;
+            store.cold_db.do_atomically(ops)?;
         }
 
         // Store a pointer from this state root to its slot, so we can later reconstruct states
