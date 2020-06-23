@@ -195,6 +195,11 @@ pub fn get_config<E: EthSpec>(
         client_config.network.discv5_config.enr_update = false;
     }
 
+    if cli_args.is_present("disable-discovery") {
+        client_config.network.disable_discovery = true;
+        slog::warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
     /*
      * Http server
      */

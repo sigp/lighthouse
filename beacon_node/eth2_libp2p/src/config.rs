@@ -56,6 +56,9 @@ pub struct Config {
     /// Client version
     pub client_version: String,
 
+    /// Disables the discovery protocol from starting.
+    pub disable_discovery: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -104,7 +107,7 @@ impl Default for Config {
             .request_retries(2)
             .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
             .query_parallelism(5)
-            .query_timeout(Duration::from_secs(60))
+            .query_timeout(Duration::from_secs(30))
             .query_peer_timeout(Duration::from_secs(2))
             .ip_limit() // limits /24 IP's in buckets.
             .ping_interval(Duration::from_secs(300))
@@ -125,6 +128,7 @@ impl Default for Config {
             boot_nodes: vec![],
             libp2p_nodes: vec![],
             client_version: version::version(),
+            disable_discovery: false,
             topics,
         }
     }

@@ -112,10 +112,12 @@ enum EventStream {
     ),
     /// The future has completed.
     Present(mpsc::Receiver<Discv5Event>),
-    // The future has failed, there are no events from discv5.
-    Failed,
+    // The future has failed or discv5 has been disabled. There are no events from discv5.
+    InActive,
 }
 
+/// The main discovery service. This can be disabled via CLI arguements. When disabled the
+/// underlying processes are not started, but this struct still maintains our current ENR.
 pub struct Discovery<TSpec: EthSpec> {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
     cached_enrs: LruCache<PeerId, Enr>,
@@ -144,6 +146,10 @@ pub struct Discovery<TSpec: EthSpec> {
 
     /// The discv5 event stream.
     event_stream: EventStream,
+
+    /// Indicates if the discovery service has been started. When the service is disabled, this is
+    /// always false.
+    started: bool,
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
@@ -196,12 +202,16 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             });
         }
 
-        // Start the discv5 service.
-        discv5.start(listen_socket);
-        debug!(log, "Discovery service started");
+        // Start the discv5 service and obtain an event stream
+        let event_stream = if !config.disable_discovery {
+            discv5.start(listen_socket);
+            debug!(log, "Discovery service started");
+            EventStream::Awaiting(Box::pin(discv5.event_stream()))
+        } else {
+            EventStream::InActive
+        };
 
         // Obtain the event stream
-        let event_stream = EventStream::Awaiting(Box::pin(discv5.event_stream()));
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
@@ -211,6 +221,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             active_queries: FuturesUnordered::new(),
             discv5,
             event_stream,
+            started: !config.disable_discovery,
             log,
             enr_dir,
         })
@@ -223,10 +234,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
     pub fn discover_peers(&mut self) {
-        // If we are in the process of a query, don't bother queuing a new one.
-        if self.find_peer_active {
+        // If the discv5 service isn't running or we are in the process of a query, don't bother queuing a new one.
+        if !self.started || self.find_peer_active {
             return;
         }
+
         // If there is not already a find peer's query queued, add one
         let query = QueryType::FindPeers;
         if !self.queued_queries.contains(&query) {
@@ -239,54 +251,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Processes a request to search for more peers on a subnet.
     pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
-        self.add_subnet_query(subnet_id, min_ttl, 0);
-    }
-
-    /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
-    /// updates the min_ttl field.
-    fn add_subnet_query(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>, retries: usize) {
-        // remove the entry and complete the query if greater than the maximum search count
-        if retries >= MAX_DISCOVERY_RETRY {
-            debug!(
-                self.log,
-                "Subnet peer discovery did not find sufficient peers. Reached max retry limit"
-            );
+        // If the discv5 service isn't running, ignore queries
+        if !self.started {
             return;
         }
-
-        // Search through any queued requests and update the timeout if a query for this subnet
-        // already exists
-        let mut found = false;
-        for query in self.queued_queries.iter_mut() {
-            if let QueryType::Subnet {
-                subnet_id: ref mut q_subnet_id,
-                min_ttl: ref mut q_min_ttl,
-                retries: ref mut q_retries,
-            } = query
-            {
-                if *q_subnet_id == subnet_id {
-                    if *q_min_ttl < min_ttl {
-                        *q_min_ttl = min_ttl;
-                    }
-                    // update the number of retries
-                    *q_retries = retries;
-                    // mimic an `Iter::Find()` and short-circuit the loop
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if !found {
-            // Set up the query and add it to the queue
-            let query = QueryType::Subnet {
-                subnet_id,
-                min_ttl,
-                retries,
-            };
-            // update the metrics and insert into the queue.
-            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
-            self.queued_queries.push_back(query);
-        }
+        self.add_subnet_query(subnet_id, min_ttl, 0);
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.
@@ -295,7 +264,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.cached_enrs.put(enr.peer_id(), enr.clone());
 
         if let Err(e) = self.discv5.add_enr(enr) {
-            warn!(
+            debug!(
                 self.log,
                 "Could not add peer to the local routing table";
                 "error" => format!("{}", e)
@@ -395,6 +364,53 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /* Internal Functions */
+
+    /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
+    /// updates the min_ttl field.
+    fn add_subnet_query(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>, retries: usize) {
+        // remove the entry and complete the query if greater than the maximum search count
+        if retries >= MAX_DISCOVERY_RETRY {
+            debug!(
+                self.log,
+                "Subnet peer discovery did not find sufficient peers. Reached max retry limit"
+            );
+            return;
+        }
+
+        // Search through any queued requests and update the timeout if a query for this subnet
+        // already exists
+        let mut found = false;
+        for query in self.queued_queries.iter_mut() {
+            if let QueryType::Subnet {
+                subnet_id: ref mut q_subnet_id,
+                min_ttl: ref mut q_min_ttl,
+                retries: ref mut q_retries,
+            } = query
+            {
+                if *q_subnet_id == subnet_id {
+                    if *q_min_ttl < min_ttl {
+                        *q_min_ttl = min_ttl;
+                    }
+                    // update the number of retries
+                    *q_retries = retries;
+                    // mimic an `Iter::Find()` and short-circuit the loop
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if !found {
+            // Set up the query and add it to the queue
+            let query = QueryType::Subnet {
+                subnet_id,
+                min_ttl,
+                retries,
+            };
+            // update the metrics and insert into the queue.
+            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            self.queued_queries.push_back(query);
+        }
+    }
 
     /// Consume the discovery queue and initiate queries when applicable.
     ///
@@ -572,6 +588,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     // Main execution loop to be driven by the peer manager.
     pub fn poll(&mut self, cx: &mut Context) -> Poll<DiscoveryEvent> {
+        if !self.started {
+            return Poll::Pending;
+        }
+
         // Process the query queue
         self.process_queue();
 
@@ -594,12 +614,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         Ok(stream) => self.event_stream = EventStream::Present(stream),
                         Err(e) => {
                             slog::crit!(self.log, "Discv5 event stream failed"; "error" => e.to_string());
-                            self.event_stream = EventStream::Failed;
+                            self.event_stream = EventStream::InActive;
                         }
                     }
                 }
             }
-            EventStream::Failed => {} // ignore checking the stream
+            EventStream::InActive => {} // ignore checking the stream
             EventStream::Present(ref mut stream) => {
                 while let Ok(event) = stream.try_recv() {
                     match event {

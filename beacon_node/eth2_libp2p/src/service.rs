@@ -110,7 +110,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
         ));
 
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", enr.peer_id()));
-        debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => config.discovery_port);
+        let discovery_string = if config.disable_discovery {
+            "None".into()
+        } else {
+            config.discovery_port.to_string()
+        };
+        debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
         let mut swarm = {
             // Set up the transport - tcp/ws with noise/secio and mplex/yamux
