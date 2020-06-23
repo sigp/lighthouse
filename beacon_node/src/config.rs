@@ -7,14 +7,11 @@ use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec};
 
-pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
 
@@ -72,17 +69,7 @@ pub fn get_config<E: EthSpec>(
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => format!("{}",log_dir.into_os_string().into_string().expect("Datadir should be a valid os string")));
 
-    // Load the client config, if it exists .
-    let config_file_path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
-    let config_file_existed = config_file_path.exists();
-    if config_file_existed {
-        client_config = read_from_file(config_file_path.clone())
-            .map_err(|e| format!("Unable to parse {:?} file: {:?}", config_file_path, e))?
-            .ok_or_else(|| format!("{:?} file does not exist", config_file_path))?;
-    } else {
-        client_config.spec_constants = spec_constants.into();
-    }
-
+    client_config.spec_constants = spec_constants.into();
     client_config.testnet_dir = get_testnet_dir(cli_args);
 
     /*
@@ -351,10 +338,6 @@ pub fn get_config<E: EthSpec>(
         client_config.genesis = ClientGenesis::DepositContract;
     }
 
-    if !config_file_existed {
-        write_to_file(config_file_path, &client_config)?;
-    }
-
     Ok(client_config)
 }
 
@@ -434,43 +417,4 @@ pub fn unused_port(transport: &str) -> Result<u16, String> {
         _ => return Err("Invalid transport to find unused port".into()),
     };
     Ok(local_addr.port())
-}
-
-/// Write a configuration to file.
-pub fn write_to_file<T>(path: PathBuf, config: &T) -> Result<(), String>
-where
-    T: Default + serde::de::DeserializeOwned + serde::Serialize,
-{
-    if let Ok(mut file) = File::create(path.clone()) {
-        let toml_encoded = toml::to_string(&config).map_err(|e| {
-            format!(
-                "Failed to write configuration to {:?}. Error: {:?}",
-                path, e
-            )
-        })?;
-        file.write_all(toml_encoded.as_bytes())
-            .unwrap_or_else(|_| panic!("Unable to write to {:?}", path));
-    }
-
-    Ok(())
-}
-
-/// Loads a `ClientConfig` from file. If unable to load from file, generates a default
-/// configuration and saves that as a sample file.
-pub fn read_from_file<T>(path: PathBuf) -> Result<Option<T>, String>
-where
-    T: Default + serde::de::DeserializeOwned + serde::Serialize,
-{
-    if let Ok(mut file) = File::open(path.clone()) {
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)
-            .map_err(|e| format!("Unable to read {:?}. Error: {:?}", path, e))?;
-
-        let config = toml::from_str(&contents)
-            .map_err(|e| format!("Unable to parse {:?}: {:?}", path, e))?;
-
-        Ok(Some(config))
-    } else {
-        Ok(None)
-    }
 }
