@@ -342,7 +342,9 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
 
         match self.identify_handler.poll(cx) {
             Poll::Ready(ProtocolsHandlerEvent::Custom(event)) => {
-                return Poll::Ready(ProtocolsHandlerEvent::Custom(DelegateOut::Identify(Box::new(event))));
+                return Poll::Ready(ProtocolsHandlerEvent::Custom(DelegateOut::Identify(
+                    Box::new(event),
+                )));
             }
             Poll::Ready(ProtocolsHandlerEvent::Close(event)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Identify(event)));

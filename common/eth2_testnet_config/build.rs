@@ -10,7 +10,8 @@ const TESTNET_ID: &str = "witti-v0-11-3";
 
 fn main() {
     if !base_dir().exists() {
-        std::fs::create_dir_all(base_dir()).unwrap_or_else(|_| panic!("Unable to create {:?}", base_dir()));
+        std::fs::create_dir_all(base_dir())
+            .unwrap_or_else(|_| panic!("Unable to create {:?}", base_dir()));
 
         match get_all_files() {
             Ok(()) => (),
