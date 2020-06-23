@@ -1,6 +1,9 @@
-use crate::{is_synced::is_synced, validator_store::ValidatorStore};
+use crate::{
+    block_service::BlockServiceNotification, is_synced::is_synced, validator_store::ValidatorStore,
+};
 use environment::RuntimeContext;
-use futures::StreamExt;
+use futures::channel::mpsc::Sender;
+use futures::{SinkExt, StreamExt};
 use parking_lot::RwLock;
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use rest_types::{ValidatorDuty, ValidatorDutyBytes, ValidatorSubscription};
@@ -135,6 +138,8 @@ enum InsertOutcome {
     NewEpoch,
     /// The duties were identical to some already in the store.
     Identical,
+    /// The duties informed us of new proposal slots but were otherwise identical.
+    NewProposalSlots,
     /// There were duties for this validator and epoch in the store that were different to the ones
     /// provided. The existing duties were replaced.
     Replaced { should_resubscribe: bool },
@@ -147,10 +152,10 @@ impl InsertOutcome {
     pub fn is_subscription_candidate(self) -> bool {
         match self {
             InsertOutcome::Replaced { should_resubscribe } => should_resubscribe,
-            InsertOutcome::NewValidator => true,
-            InsertOutcome::NewEpoch => true,
-            InsertOutcome::Identical => false,
-            InsertOutcome::Invalid => false,
+            InsertOutcome::NewValidator | InsertOutcome::NewEpoch => true,
+            InsertOutcome::Identical | InsertOutcome::Invalid | InsertOutcome::NewProposalSlots => {
+                false
+            }
         }
     }
 }
@@ -169,8 +174,14 @@ impl DutiesStore {
             .filter(|(_validator_pubkey, validator_map)| {
                 validator_map
                     .get(&epoch)
-                    .map(|duties| !duties.duty.block_proposal_slots.is_empty())
-                    .unwrap_or_else(|| false)
+                    .map(|duties| {
+                        duties
+                            .duty
+                            .block_proposal_slots
+                            .as_ref()
+                            .map_or(false, |proposal_slots| !proposal_slots.is_empty())
+                    })
+                    .unwrap_or(false)
             })
             .count()
     }
@@ -189,7 +200,7 @@ impl DutiesStore {
             .count()
     }
 
-    fn block_producers(&self, slot: Slot, slots_per_epoch: u64) -> Vec<PublicKey> {
+    fn block_proposers(&self, slot: Slot, slots_per_epoch: u64) -> Vec<PublicKey> {
         self.store
             .read()
             .iter()
@@ -199,7 +210,7 @@ impl DutiesStore {
                 let epoch = slot.epoch(slots_per_epoch);
 
                 validator_map.get(&epoch).and_then(|duties| {
-                    if duties.duty.block_proposal_slots.contains(&slot) {
+                    if duties.duty.block_proposal_slots.as_ref()?.contains(&slot) {
                         Some(duties.duty.validator_pubkey.clone())
                     } else {
                         None
@@ -258,8 +269,15 @@ impl DutiesStore {
 
         if let Some(validator_map) = store.get_mut(&duties.duty.validator_pubkey) {
             if let Some(known_duties) = validator_map.get_mut(&epoch) {
-                if known_duties.duty == duties.duty {
-                    Ok(InsertOutcome::Identical)
+                if known_duties.duty.eq_ignoring_proposal_slots(&duties.duty) {
+                    if known_duties.duty.block_proposal_slots == duties.duty.block_proposal_slots {
+                        Ok(InsertOutcome::Identical)
+                    } else if duties.duty.block_proposal_slots.is_some() {
+                        known_duties.duty.block_proposal_slots = duties.duty.block_proposal_slots;
+                        Ok(InsertOutcome::NewProposalSlots)
+                    } else {
+                        Ok(InsertOutcome::Invalid)
+                    }
                 } else {
                     // Compute the selection proof.
                     duties.compute_selection_proof(validator_store)?;
@@ -428,8 +446,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     ///
     /// It is possible that multiple validators have an identical proposal slot, however that is
     /// likely the result of heavy forking (lol) or inconsistent beacon node connections.
-    pub fn block_producers(&self, slot: Slot) -> Vec<PublicKey> {
-        self.store.block_producers(slot, E::slots_per_epoch())
+    pub fn block_proposers(&self, slot: Slot) -> Vec<PublicKey> {
+        self.store.block_proposers(slot, E::slots_per_epoch())
     }
 
     /// Returns all `ValidatorDuty` for the given `slot`.
@@ -438,7 +456,11 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Start the service that periodically polls the beacon node for validator duties.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(
+        self,
+        mut block_service_tx: Sender<BlockServiceNotification>,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -454,17 +476,19 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         };
 
         // Run an immediate update before starting the updater service.
+        let duties_service = self.clone();
+        let mut block_service_tx_clone = block_service_tx.clone();
         self.inner
             .context
             .executor
             .runtime_handle()
-            .spawn(self.clone().do_update());
+            .spawn(async move { duties_service.do_update(&mut block_service_tx_clone).await });
 
         let executor = self.inner.context.executor.clone();
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
-                self.clone().do_update().await.ok();
+                self.clone().do_update(&mut block_service_tx).await.ok();
             }
         };
 
@@ -474,7 +498,10 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
-    async fn do_update(self) -> Result<(), ()> {
+    async fn do_update(
+        self,
+        block_service_tx: &mut Sender<BlockServiceNotification>,
+    ) -> Result<(), ()> {
         let log = self.context.log();
 
         if !is_synced(&self.beacon_node, &self.slot_clock, None).await
@@ -483,30 +510,24 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             return Ok(());
         }
 
-        let current_epoch = self
-            .slot_clock
-            .now()
-            .ok_or_else(|| {
-                error!(log, "Duties manager failed to read slot clock");
-            })
-            .map(|slot| {
-                let epoch = slot.epoch(E::slots_per_epoch());
+        let slot = self.slot_clock.now().ok_or_else(|| {
+            error!(log, "Duties manager failed to read slot clock");
+        })?;
 
-                if slot % E::slots_per_epoch() == 0 {
-                    let prune_below = epoch - PRUNE_DEPTH;
+        let current_epoch = slot.epoch(E::slots_per_epoch());
 
-                    trace!(
-                        log,
-                        "Pruning duties cache";
-                        "pruning_below" => prune_below.as_u64(),
-                        "current_epoch" => epoch.as_u64(),
-                    );
+        if slot % E::slots_per_epoch() == 0 {
+            let prune_below = current_epoch - PRUNE_DEPTH;
 
-                    self.store.prune(prune_below);
-                }
+            trace!(
+                log,
+                "Pruning duties cache";
+                "pruning_below" => prune_below.as_u64(),
+                "current_epoch" => current_epoch.as_u64(),
+            );
 
-                epoch
-            })?;
+            self.store.prune(prune_below);
+        }
 
         let result = self.clone().update_epoch(current_epoch).await;
         if let Err(e) = result {
@@ -520,11 +541,26 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         self.clone()
             .update_epoch(current_epoch + 1)
             .await
-            .map_err(move |e| {
+            .map_err(|e| {
                 error!(
                     log,
                     "Failed to get next epoch duties";
                     "http_error" => format!("{:?}", e)
+                );
+            })?;
+
+        // Notify the block service to produce a block.
+        block_service_tx
+            .send(BlockServiceNotification {
+                slot,
+                block_proposers: self.block_proposers(slot),
+            })
+            .await
+            .map_err(|e| {
+                error!(
+                    log,
+                    "Failed to notify block service";
+                    "error" => format!("{:?}", e)
                 );
             })?;
 
@@ -546,6 +582,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         let mut new_validator = 0;
         let mut new_epoch = 0;
+        let mut new_proposal_slots = 0;
         let mut identical = 0;
         let mut replaced = 0;
         let mut invalid = 0;
@@ -594,6 +631,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         );
                         new_validator += 1;
                     }
+                    InsertOutcome::NewProposalSlots => new_proposal_slots += 1,
                     InsertOutcome::NewEpoch => new_epoch += 1,
                     InsertOutcome::Identical => identical += 1,
                     InsertOutcome::Replaced { .. } => replaced += 1,
@@ -631,6 +669,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             "Performed duties update";
             "identical" => identical,
             "new_epoch" => new_epoch,
+            "new_proposal_slots" => new_proposal_slots,
             "new_validator" => new_validator,
             "replaced" => replaced,
             "epoch" => format!("{}", epoch)
@@ -640,7 +679,8 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             warn!(
                 log,
                 "Duties changed during routine update";
-                "info" => "Chain re-org likely occurred"
+                "info" => "Chain re-org likely occurred",
+                "replaced" => replaced,
             )
         }
 
@@ -685,8 +725,9 @@ fn duties_match_epoch(duties: &ValidatorDuty, epoch: Epoch, slots_per_epoch: u64
     duties
         .attestation_slot
         .map_or(true, |slot| slot.epoch(slots_per_epoch) == epoch)
-        && duties
-            .block_proposal_slots
-            .iter()
-            .all(|slot| slot.epoch(slots_per_epoch) == epoch)
+        && duties.block_proposal_slots.as_ref().map_or(true, |slots| {
+            slots
+                .iter()
+                .all(|slot| slot.epoch(slots_per_epoch) == epoch)
+        })
 }
