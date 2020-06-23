@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_until, Instant};
+use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -121,8 +122,18 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let checks_fut = async {
             delay_until(genesis_instant).await;
 
-            // Check that the chain finalizes at the first given opportunity.
-            checks::verify_first_finalization(network.clone(), slot_duration).await?;
+            let (finalization, block_prod) = futures::join!(
+                // Check that the chain finalizes at the first given opportunity.
+                checks::verify_first_finalization(network.clone(), slot_duration),
+                // Check that a block is produced at every slot.
+                checks::verify_full_block_production_up_to(
+                    network.clone(),
+                    Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
+                    slot_duration,
+                )
+            );
+            finalization?;
+            block_prod?;
 
             Ok::<(), String>(())
         };

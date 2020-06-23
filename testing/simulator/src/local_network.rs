@@ -11,9 +11,9 @@ const BOOTNODE_PORT: u16 = 42424;
 
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
-    context: RuntimeContext<E>,
-    beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
-    validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
+    pub context: RuntimeContext<E>,
+    pub beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
+    pub validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
 }
 
 /// Represents a set of interconnected `LocalBeaconNode` and `LocalValidatorClient`.

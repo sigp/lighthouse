@@ -126,3 +126,23 @@ async fn verify_validator_count<E: EthSpec>(
         Ok(())
     }
 }
+
+/// Verifies that there's been a block produced at every slot up to and including `slot`.
+pub async fn verify_full_block_production_up_to<E: EthSpec>(
+    network: LocalNetwork<E>,
+    slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(slot, slot_duration).await;
+    let beacon_nodes = network.beacon_nodes.read();
+    let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
+    let chain_dump = beacon_chain.chain_dump().unwrap();
+    if chain_dump.len() != slot.as_usize() + 1 {
+        return Err(format!(
+            "There wasn't a block produced at every slot, got: {}, expected: {}",
+            chain_dump.len(),
+            slot.as_usize() + 1
+        ));
+    }
+    Ok(())
+}
