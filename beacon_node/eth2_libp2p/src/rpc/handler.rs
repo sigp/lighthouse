@@ -326,7 +326,7 @@ where
         if matches!(self.state, HandlerState::Active) {
             debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
             // we now drive to completion communications already dialed/established
-            for (id, req) in self.dial_queue.pop() {
+            while let Some((id, req)) = self.dial_queue.pop() {
                 self.pending_errors.push(HandlerErr::Outbound {
                     id,
                     proto: req.protocol(),
