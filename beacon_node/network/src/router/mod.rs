@@ -2,7 +2,7 @@
 //!
 //! It routes the messages to appropriate services.
 //! It handles requests at the application layer in its associated processor and directs
-//! syncing-related responses to the Sync manager.  
+//! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
 pub mod processor;
