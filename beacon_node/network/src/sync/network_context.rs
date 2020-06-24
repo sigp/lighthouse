@@ -95,7 +95,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.len(),
             "peer" => format!("{:?}", peer_id)
         );
         self.send_rpc_request(peer_id, Request::BlocksByRoot(request))

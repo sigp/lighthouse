@@ -9,7 +9,6 @@ use crate::rpc::{
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
 use libp2p::bytes::{BufMut, Bytes, BytesMut};
 use ssz::{Decode, Encode};
-use ssz_types::VariableList;
 use std::marker::PhantomData;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{EthSpec, SignedBeaconBlock};
@@ -124,9 +123,9 @@ impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
                         if packet.len() >= *BLOCKS_BY_ROOT_REQUEST_MIN
                             && packet.len() <= *BLOCKS_BY_ROOT_REQUEST_MAX
                         {
-                            Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                                block_roots: VariableList::from_ssz_bytes(&packet)?,
-                            })))
+                            Ok(Some(RPCRequest::BlocksByRoot(
+                                BlocksByRootRequest::from_ssz_bytes(&packet)?,
+                            )))
                         } else {
                             Err(RPCError::InvalidData)
                         }
@@ -192,7 +191,7 @@ impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZOutboundCodec<TSpec> {
             RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
-            RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            RPCRequest::BlocksByRoot(req) => req.as_ssz_bytes(),
             RPCRequest::Ping(req) => req.as_ssz_bytes(),
             RPCRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };

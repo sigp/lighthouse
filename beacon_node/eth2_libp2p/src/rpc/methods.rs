@@ -188,11 +188,7 @@ pub struct BlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BlocksByRootRequest {
-    /// The list of beacon block bodies being requested.
-    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
-}
+pub type BlocksByRootRequest = VariableList<Hash256, MaxRequestBlocks>;
 
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages

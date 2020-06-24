@@ -11,7 +11,6 @@ use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
-use ssz_types::VariableList;
 use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
@@ -165,9 +164,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             if decoded_buffer.len() >= *BLOCKS_BY_ROOT_REQUEST_MIN
                                 && decoded_buffer.len() <= *BLOCKS_BY_ROOT_REQUEST_MAX
                             {
-                                Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                                    block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                                })))
+                                Ok(Some(RPCRequest::BlocksByRoot(
+                                    BlocksByRootRequest::from_ssz_bytes(&decoded_buffer)?,
+                                )))
                             } else {
                                 Err(RPCError::InvalidData)
                             }
@@ -242,7 +241,7 @@ impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec
             RPCRequest::Status(req) => req.as_ssz_bytes(),
             RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
             RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
-            RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            RPCRequest::BlocksByRoot(req) => req.as_ssz_bytes(),
             RPCRequest::Ping(req) => req.as_ssz_bytes(),
             RPCRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };

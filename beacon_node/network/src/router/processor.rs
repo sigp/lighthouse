@@ -290,7 +290,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         request: BlocksByRootRequest,
     ) {
         let mut send_block_count = 0;
-        for root in request.block_roots.iter() {
+        for root in request.iter() {
             if let Ok(Some(block)) = self.chain.store.get_block(root) {
                 self.network.send_response(
                     peer_id.clone(),
@@ -311,7 +311,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             self.log,
             "Received BlocksByRoot Request";
             "peer" => format!("{:?}", peer_id),
-            "requested" => request.block_roots.len(),
+            "requested" => request.len(),
             "returned" => send_block_count,
         );
 

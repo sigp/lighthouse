@@ -43,18 +43,14 @@ lazy_static! {
     }
     .as_ssz_bytes()
     .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize = BlocksByRootRequest {
-        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
-    }
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize = BlocksByRootRequest::from(Vec::<Hash256>::new())
     .as_ssz_bytes()
     .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize = BlocksByRootRequest {
-        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(vec![
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize = BlocksByRootRequest::from(vec![
             Hash256::zero();
             MAX_REQUEST_BLOCKS
                 as usize
         ])
-    }
     .as_ssz_bytes()
     .len();
 }
@@ -330,7 +326,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
             RPCRequest::Status(_) => 1,
             RPCRequest::Goodbye(_) => 0,
             RPCRequest::BlocksByRange(req) => req.count as usize,
-            RPCRequest::BlocksByRoot(req) => req.block_roots.len(),
+            RPCRequest::BlocksByRoot(req) => req.len(),
             RPCRequest::Ping(_) => 1,
             RPCRequest::MetaData(_) => 1,
         }
