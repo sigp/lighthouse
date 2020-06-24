@@ -276,6 +276,26 @@ fn spawn_service<T: BeaconChainTypes>(
                     // poll the swarm
                     match libp2p_event {
                         Libp2pEvent::Behaviour(event) => match event {
+
+                            BehaviourEvent::PeerDialed(peer_id) => {
+                                    let _ = service
+                                        .router_send
+                                        .send(RouterMessage::PeerDialed(peer_id))
+                                        .map_err(|_| {
+                                            debug!(service.log, "Failed to send peer dialed to router"); });
+                            },
+                            BehaviourEvent::PeerConnected(_peer_id) => {
+                                // A peer has connected to us
+                                // We currently do not perform any action here.
+                            },
+                            BehaviourEvent::PeerDisconnected(_peer_id) => {
+                            let _ = service
+                                .router_send
+                                .send(RouterMessage::PeerDisconnected(peer_id))
+                                .map_err(|_| {
+                                    debug!(service.log, "Failed to send peer disconnect to router");
+                                });
+                            },
                             BehaviourEvent::RequestReceived{peer_id, id, request} => {
                                 let _ = service
                                     .router_send
@@ -356,25 +376,6 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
-                        }
-                        Libp2pEvent::PeerConnected{ peer_id, endpoint,} => {
-                            debug!(service.log, "Peer Connected"; "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                            if let eth2_libp2p::ConnectedPoint::Dialer { .. } = endpoint {
-                                let _ = service
-                                    .router_send
-                                    .send(RouterMessage::PeerDialed(peer_id))
-                                    .map_err(|_| {
-                                        debug!(service.log, "Failed to send peer dialed to router"); });
-                            }
-                        }
-                        Libp2pEvent::PeerDisconnected{ peer_id, endpoint,} => {
-                            debug!(service.log, "Peer Disconnected";  "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::PeerDisconnected(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send peer disconnect to router");
-                                });
                         }
                     }
                 }

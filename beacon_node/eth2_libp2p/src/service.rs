@@ -41,13 +41,6 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
     Behaviour(BehaviourEvent<TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
-    /// A peer has established at least one connection.
-    PeerConnected {
-        /// The peer that connected.
-        peer_id: PeerId,
-        /// Whether the peer was a dialer or listener.
-        endpoint: ConnectedPoint,
-    },
     /// A peer no longer has any connections, i.e is disconnected.
     PeerDisconnected {
         /// The peer the disconnected.
@@ -65,9 +58,6 @@ pub struct Service<TSpec: EthSpec> {
 
     /// This node's PeerId.
     pub local_peer_id: PeerId,
-
-    /// Used for managing the state of peers.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
 
     /// The libp2p logger handle.
     pub log: slog::Logger,
@@ -199,7 +189,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
         let service = Service {
             local_peer_id,
             swarm,
-            network_globals: network_globals.clone(),
             log,
         };
 
@@ -245,28 +234,9 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         SwarmEvent::Behaviour(behaviour) => {
                             return Libp2pEvent::Behaviour(behaviour)
                         }
-                        SwarmEvent::ConnectionEstablished {
-                            peer_id,
-                            endpoint,
-                            num_established,
-                        } => {
-                            debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connections" => num_established.get());
-                            // if this is the first connection inform the network layer a new connection
-                            // has been established and update the db
-                            if num_established.get() == 1 {
-                                // update the peerdb
-                                match endpoint {
-                                    ConnectedPoint::Listener { .. } => {
-                                        self.swarm.peer_manager().connect_ingoing(&peer_id);
-                                    }
-                                    ConnectedPoint::Dialer { .. } => self
-                                        .network_globals
-                                        .peers
-                                        .write()
-                                        .connect_outgoing(&peer_id),
-                                }
-                                return Libp2pEvent::PeerConnected { peer_id, endpoint };
-                            }
+                        SwarmEvent::ConnectionEstablished { .. } => {
+                            // A connection could be established with a banned peer. This is
+                            // handled inside the behaviour.
                         }
                         SwarmEvent::ConnectionClosed {
                             peer_id,
@@ -274,6 +244,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
                             endpoint,
                             num_established,
                         } => {
+                            // TODO: Shift to behaviour. This is currently fine as is, but better
+                            // to localise code logic
                             debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string(), "connections" => num_established);
                             if num_established == 0 {
                                 // update the peer_db
@@ -305,7 +277,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                             peer_id,
                             endpoint: _,
                         } => {
-                            debug!(self.log, "Attempted to dial a banned peer"; "peer_id" => peer_id.to_string())
+                            // We do not ban peers at the swarm layer, so this should never occur.
                         }
                         SwarmEvent::UnreachableAddr {
                             peer_id,
@@ -314,7 +286,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                             attempts_remaining,
                         } => {
                             debug!(self.log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining);
-                            self.swarm.peer_manager().notify_disconnect(&peer_id);
                         }
                         SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
                             debug!(self.log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string());

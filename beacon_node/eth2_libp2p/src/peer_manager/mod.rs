@@ -258,6 +258,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         true
     }
 
+    /// Reports if a peer is banned or not. 
+    ///
+    /// This is used to determine if we should accept incoming connections.
+    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
+        self.network_globals.peers.read().peer_banned(peer_id)
+    }
+
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
@@ -502,9 +509,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.connection_status(peer_id).map(|c| c.is_banned()) == Some(true) {
                 // don't connect if the peer is banned
-                // TODO: Handle this case. If peer is banned this shouldn't be reached. It will put
-                // our connection/disconnection out of sync with libp2p
-                // return false;
+                slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => peer_id.to_string());
             }
 
             match connection {
