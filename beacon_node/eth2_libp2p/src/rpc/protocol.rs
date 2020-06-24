@@ -9,14 +9,13 @@ use crate::rpc::{
         InboundCodec, OutboundCodec,
     },
     methods::ResponseTermination,
-    MaxRequestBlocks, MAX_REQUEST_BLOCKS,
+    MAX_REQUEST_BLOCKS,
 };
 use futures::future::Ready;
 use futures::prelude::*;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
 use ssz::Encode;
-use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
 use std::pin::Pin;
