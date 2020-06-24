@@ -946,7 +946,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     }
 
     /// Reports a peer's action, adjusting the peer's score.
-    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
+    pub fn _report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
         self.inform_network(NetworkMessage::ReportPeer { peer_id, action });
     }
 
