@@ -444,7 +444,7 @@ where
         };
 
         let sk = &self.keypairs[proposer_index].sk;
-        let fork = &state.fork.clone();
+        let fork = &state.fork;
 
         let randao_reveal = {
             let epoch = slot.epoch(E::slots_per_epoch());

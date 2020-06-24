@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
                     );
                     self.network
-                        .downvote_peer(parent_request.last_submitted_peer.clone());
+                        .downvote_peer(parent_request.last_submitted_peer);
                     return;
                 }
                 Err(e) => {
@@ -677,7 +677,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
                     );
                     self.network
-                        .downvote_peer(parent_request.last_submitted_peer.clone());
+                        .downvote_peer(parent_request.last_submitted_peer);
                     return;
                 }
             }
