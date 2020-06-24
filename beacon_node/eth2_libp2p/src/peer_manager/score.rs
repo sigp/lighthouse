@@ -31,6 +31,7 @@ const BANNED_BEFORE_DECAY: u64 = 1800;
 /// Each variant has an associated score change.
 // To easily assess the behaviour of scores changes the number of variants should stay low, and
 // somewhat generic.
+#[derive(Debug, Clone, Copy)]
 pub enum PeerAction {
     /// We should not communicate more with this peer.
     /// This action will cause the peer to get banned.
@@ -118,6 +119,18 @@ impl From<f64> for Score {
 impl std::fmt::Display for Score {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:.2}", self.score)
+    }
+}
+
+impl std::fmt::Display for PeerAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PeerAction::Fatal => write!(f, "Fatal"),
+            PeerAction::LowToleranceError => write!(f, "Low Tolerance Error"),
+            PeerAction::MidToleranceError => write!(f, "Mid Tolerance Error"),
+            PeerAction::HighToleranceError => write!(f, "High Tolerance Error"),
+            PeerAction::_ValidMessage => write!(f, "Valid Message"),
+        }
     }
 }
 

@@ -8,7 +8,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, BlockProcessingOutcome, GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{NetworkGlobals, PeerId, PeerRequestId, Request, Response};
+use eth2_libp2p::{NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response};
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
@@ -191,7 +191,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             );
 
             self.network
-                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
+                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.head_slot
             > self.chain.slot().unwrap_or_else(|_| Slot::from(0u64)) + FUTURE_SLOT_TOLERANCE
         {
@@ -207,7 +207,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             "reason" => "different system clocks or genesis time"
             );
             self.network
-                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
+                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch <= local.finalized_epoch
             && remote.finalized_root != Hash256::zero()
             && local.finalized_root != Hash256::zero()
@@ -227,7 +227,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 "reason" => "different finalized chain"
             );
             self.network
-                .disconnect(peer_id, GoodbyeReason::IrrelevantNetwork);
+                .goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
         } else if remote.finalized_epoch < local.finalized_epoch {
             // The node has a lower finalized epoch, their chain is not useful to us. There are two
             // cases where a node can have a lower finalized epoch:
@@ -337,7 +337,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             warn!(self.log,
                 "Peer sent invalid range request";
                 "error" => "Step sent was 0");
-            self.network.disconnect(peer_id, GoodbyeReason::Fault);
+            self.network.goodbye_peer(peer_id, GoodbyeReason::Fault);
             return;
         }
 
@@ -933,23 +933,24 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         Self { network_send, log }
     }
 
+    /// Sends a message to the network task.
     fn inform_network(&mut self, msg: NetworkMessage<T>) {
         self.network_send
             .send(msg)
             .unwrap_or_else(|_| warn!(self.log, "Could not send message to the network service"))
     }
 
-    pub fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        warn!(
-            &self.log,
-            "Disconnecting peer (RPC)";
-            "reason" => format!("{:?}", reason),
-            "peer_id" => format!("{:?}", peer_id),
-        );
-        self.send_processor_request(peer_id.clone(), Request::Goodbye(reason));
-        self.inform_network(NetworkMessage::Disconnect { peer_id });
+    /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
+    pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        self.inform_network(NetworkMessage::GoodbyePeer { peer_id, reason });
     }
 
+    /// Reports a peer's action, adjusting the peer's score.
+    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
+        self.inform_network(NetworkMessage::ReportPeer { peer_id, action });
+    }
+
+    /// Sends a request to the network task.
     pub fn send_processor_request(&mut self, peer_id: PeerId, request: Request) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
@@ -958,6 +959,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         })
     }
 
+    /// Sends a response to the network task.
     pub fn send_response(&mut self, peer_id: PeerId, response: Response<T>, id: PeerRequestId) {
         self.inform_network(NetworkMessage::SendResponse {
             peer_id,
@@ -965,6 +967,8 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             response,
         })
     }
+
+    /// Sends an error response to the network task.
     pub fn _send_error_response(
         &mut self,
         peer_id: PeerId,

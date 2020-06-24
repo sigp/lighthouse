@@ -3,7 +3,7 @@ use crate::sync::block_processor::{spawn_block_processor, BatchProcessResult, Pr
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::{RequestId, SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::PeerId;
+use eth2_libp2p::{PeerAction, PeerId};
 use rand::prelude::*;
 use slog::{crit, debug, warn};
 use std::collections::HashSet;
@@ -14,7 +14,7 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
 /// already requested slots. There is a timeout for each batch request. If this value is too high,
-/// we will downvote peers with poor bandwidth. This can be set arbitrarily high, in which case the
+/// we will negatively report peers with poor bandwidth. This can be set arbitrarily high, in which case the
 /// responder will fill the response up to the max request size, assuming they have the bandwidth
 /// to do so.
 pub const EPOCHS_PER_BATCH: u64 = 2;
@@ -27,7 +27,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 
 /// Invalid batches are attempted to be re-downloaded from other peers. If they cannot be processed
 /// after `INVALID_BATCH_LOOKUP_ATTEMPTS` times, the chain is considered faulty and all peers will
-/// be downvoted.
+/// be reported negatively.
 const INVALID_BATCH_LOOKUP_ATTEMPTS: u8 = 3;
 
 #[derive(PartialEq)]
@@ -192,7 +192,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 warn!(self.log, "BlocksByRange response returned out of range blocks";
                           "response_initial_slot" => first_slot,
                           "requested_initial_slot" => batch.start_slot);
-                network.downvote_peer(batch.current_peer);
+                // This is a pretty bad error. We don't consider this fatal, but we don't tolerate
+                // this much either.
+                network.report_peer(batch.current_peer, PeerAction::LowToleranceError);
                 self.to_be_processed_id = batch.id; // reset the id back to here, when incrementing, it will check against completed batches
                 return;
             }
@@ -363,14 +365,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
                 // check that we have not exceeded the re-process retry counter
                 if batch.reprocess_retries > INVALID_BATCH_LOOKUP_ATTEMPTS {
-                    // if a batch has exceeded the invalid batch lookup attempts limit, it means
+                    // If a batch has exceeded the invalid batch lookup attempts limit, it means
                     // that it is likely all peers in this chain are are sending invalid batches
                     // repeatedly and are either malicious or faulty. We drop the chain and
-                    // downvote all peers.
-                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers";
+                    // report all peers.
+                    // There are some edge cases with forks that could land us in this situation.
+                    // This should be unlikely, so we tolerate these errors, but not often.
+                    let action = PeerAction::LowToleranceError;
+                    warn!(self.log, "Batch failed to download. Dropping chain scoring peers";
+                        "score_adjustment" => action.to_string(),
                         "chain_id" => self.id, "id"=> *batch.id);
                     for peer_id in self.peer_pool.drain() {
-                        network.downvote_peer(peer_id);
+                        network.report_peer(peer_id, action);
                     }
                     ProcessingResult::RemoveChain
                 } else {
@@ -389,14 +395,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
                 // check that we have not exceeded the re-process retry counter
                 if batch.reprocess_retries > INVALID_BATCH_LOOKUP_ATTEMPTS {
-                    // if a batch has exceeded the invalid batch lookup attempts limit, it means
+                    // If a batch has exceeded the invalid batch lookup attempts limit, it means
                     // that it is likely all peers in this chain are are sending invalid batches
                     // repeatedly and are either malicious or faulty. We drop the chain and
                     // downvote all peers.
-                    warn!(self.log, "Batch failed to download. Dropping chain and downvoting peers";
+                    let action = PeerAction::LowToleranceError;
+                    warn!(self.log, "Batch failed to download. Dropping chain scoring peers";
+                        "score_adjustment" => action.to_string(),
                         "chain_id" => self.id, "id"=> *batch.id);
                     for peer_id in self.peer_pool.drain() {
-                        network.downvote_peer(peer_id);
+                        network.report_peer(peer_id, action);
                     }
                     ProcessingResult::RemoveChain
                 } else {
@@ -437,18 +445,30 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // The re-downloaded version was different
                     if processed_batch.current_peer != processed_batch.original_peer {
                         // A new peer sent the correct batch, the previous peer did not
-                        // downvote the original peer
-                        //
-                        // If the same peer corrected it's mistake, we allow it.... for
-                        // now.
+                        // We negatively score the original peer.
+                        let action = PeerAction::LowToleranceError;
                         debug!(
-                            self.log, "Re-processed batch validated. Downvoting original peer";
+                            self.log, "Re-processed batch validated. Scoring original peer";
                                 "chain_id" => self.id,
                                 "batch_id" => *processed_batch.id,
+                                "score_adjustment" => action.to_string(),
                                 "original_peer" => format!("{}",processed_batch.original_peer),
                                 "new_peer" => format!("{}", processed_batch.current_peer)
                         );
-                        network.downvote_peer(processed_batch.original_peer);
+                        network.report_peer(processed_batch.original_peer, action);
+                    } else {
+                        // The same peer corrected it's previous mistake. There was an error, so we
+                        // negative score the original peer.
+                        let action = PeerAction::MidToleranceError;
+                        debug!(
+                            self.log, "Re-processed batch validated by the same peer.";
+                                "chain_id" => self.id,
+                                "batch_id" => *processed_batch.id,
+                                "score_adjustment" => action.to_string(),
+                                "original_peer" => format!("{}",processed_batch.original_peer),
+                                "new_peer" => format!("{}", processed_batch.current_peer)
+                        );
+                        network.report_peer(processed_batch.original_peer, action);
                     }
                 }
             }

@@ -1,10 +1,10 @@
 use crate::behaviour::{Behaviour, BehaviourEvent, PeerRequestId, Request, Response};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{RPCResponseErrorCode, RequestId};
+use crate::rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId};
 use crate::types::{error, GossipKind};
 use crate::EnrExt;
-use crate::{NetworkConfig, NetworkGlobals};
+use crate::{NetworkConfig, NetworkGlobals, PeerAction};
 use futures::prelude::*;
 use libp2p::core::{
     identity::Keypair,
@@ -16,7 +16,7 @@ use libp2p::core::{
 };
 use libp2p::{
     core, noise, secio,
-    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
+    swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
 use slog::{crit, debug, info, o, trace, warn};
@@ -26,13 +26,9 @@ use std::io::{Error, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::DelayQueue;
 use types::{EnrForkId, EthSpec};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
-/// The time in milliseconds to wait before banning a peer. This allows for any Goodbye messages to be
-/// flushed and protocols to be negotiated.
-const BAN_PEER_WAIT_TIMEOUT: u64 = 200;
 /// The maximum simultaneous libp2p connections per peer.
 const MAX_CONNECTIONS_PER_PEER: usize = 1;
 
@@ -72,12 +68,6 @@ pub struct Service<TSpec: EthSpec> {
 
     /// Used for managing the state of peers.
     network_globals: Arc<NetworkGlobals<TSpec>>,
-
-    /// A current list of peers to ban after a given timeout.
-    peers_to_ban: DelayQueue<PeerId>,
-
-    /// A list of timeouts after which peers become unbanned.
-    peer_ban_timeout: DelayQueue<PeerId>,
 
     /// The libp2p logger handle.
     pub log: slog::Logger,
@@ -210,22 +200,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             local_peer_id,
             swarm,
             network_globals: network_globals.clone(),
-            peers_to_ban: DelayQueue::new(),
-            peer_ban_timeout: DelayQueue::new(),
             log,
         };
 
         Ok((network_globals, service))
-    }
-
-    /// Adds a peer to be banned for a period of time, specified by a timeout.
-    pub fn disconnect_and_ban_peer(&mut self, peer_id: PeerId, timeout: Duration) {
-        warn!(self.log, "Disconnecting and banning peer"; "peer_id" => peer_id.to_string(), "timeout" => format!("{:?}", timeout));
-        self.peers_to_ban.insert(
-            peer_id.clone(),
-            Duration::from_millis(BAN_PEER_WAIT_TIMEOUT),
-        );
-        self.peer_ban_timeout.insert(peer_id, timeout);
     }
 
     /// Sends a request to a peer, with a given Id.
@@ -242,6 +220,16 @@ impl<TSpec: EthSpec> Service<TSpec> {
         reason: String,
     ) {
         self.swarm._send_error_reponse(peer_id, id, error, reason);
+    }
+
+    /// Report a peer's action.
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
+        self.swarm.report_peer(peer_id, action);
+    }
+
+    // Disconnect and ban a peer, providing a reason.
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
+        self.swarm.goodbye_peer(peer_id, reason);
     }
 
     /// Sends a response to a peer's request.
@@ -300,7 +288,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         SwarmEvent::NewListenAddr(multiaddr) => {
                             return Libp2pEvent::NewListenAddr(multiaddr)
                         }
-
                         SwarmEvent::IncomingConnection {
                             local_addr,
                             send_back_addr,
@@ -345,21 +332,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                             debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
                         }
                     }
-                }
-                Some(Ok(peer_to_ban)) = self.peers_to_ban.next() => {
-                    let peer_id = peer_to_ban.into_inner();
-                    Swarm::ban_peer_id(&mut self.swarm, peer_id.clone());
-                    // TODO: Correctly notify protocols of the disconnect
-                    // TODO: Also remove peer from the DHT: https://github.com/sigp/lighthouse/issues/629
-                    self.swarm.inject_disconnected(&peer_id);
-                    // inform the behaviour that the peer has been banned
-                    self.swarm.peer_banned(peer_id);
-                }
-                Some(Ok(peer_to_unban)) = self.peer_ban_timeout.next() => {
-                    debug!(self.log, "Peer has been unbanned"; "peer" => format!("{:?}", peer_to_unban));
-                    let unban_peer = peer_to_unban.into_inner();
-                    self.swarm.peer_unbanned(&unban_peer);
-                    Swarm::unban_peer_id(&mut self.swarm, unban_peer);
                 }
             }
         }

@@ -1,4 +1,4 @@
-use crate::peer_manager::{PeerManager, PeerManagerEvent};
+use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::Eth2Enr;
@@ -258,13 +258,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /* Peer management functions */
 
-    /// Notify discovery that the peer has been banned.
-    // TODO: Remove this and integrate all disconnection/banning logic inside the peer manager.
-    pub fn peer_banned(&mut self, _peer_id: PeerId) {}
+    /// Report a peer's action.
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction) {
+        self.peer_manager.report_peer(peer_id, action)
+    }
 
-    /// Notify discovery that the peer has been unbanned.
-    // TODO: Remove this and integrate all disconnection/banning logic inside the peer manager.
-    pub fn peer_unbanned(&mut self, _peer_id: &PeerId) {}
+    /// Disconnects from a peer providing a reason.
+    ///
+    /// This will send a goodbye, disconnect and then ban the peer.
+    /// This is fatal for a peer, and should be used in unrecoverable circumstances.
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
+        self.peer_manager.goodbye_peer(peer_id, reason);
+    }
 
     /// Returns an iterator over all enr entries in the DHT.
     pub fn enr_entries(&mut self) -> Vec<Enr> {
@@ -524,11 +529,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // let the peer manager know this peer is in the process of disconnecting
                         self.peer_manager._disconnecting_peer(&peer_id);
                         // queue for disconnection without a goodbye message
-                        debug!(self.log, "Received a Goodbye, queueing for disconnection";
-                            "peer_id" => peer_id.to_string());
+                        debug!(
+                            self.log, "Peer sent Goodbye";
+                            "peer_id" => peer_id.to_string(),
+                            "reason" => reason.to_string(),
+                            "client" => self.network_globals.client(&peer_id).to_string(),
+                        );
                         self.peers_to_dc.push(peer_id.clone());
-                        // TODO: do not propagate
-                        self.propagate_request(peer_request_id, peer_id, Request::Goodbye(reason));
+                        // NOTE: We currently do not inform the application that we are
+                        // disconnecting here.
+                        // The actual disconnection event will be relayed to the application. Ideally
+                        // this time difference is short, but we may need to introduce a message to
+                        // inform the application layer early.
                     }
                     /* Protocols propagated to the Network */
                     RPCRequest::Status(msg) => {
@@ -620,7 +632,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     PeerManagerEvent::MetaData(peer_id) => {
                         self.send_meta_data_request(peer_id);
                     }
-                    PeerManagerEvent::DisconnectPeer(peer_id) => {
+                    PeerManagerEvent::DisconnectPeer(peer_id, reason) => {
                         debug!(self.log, "PeerManager requested to disconnect a peer";
                             "peer_id" => peer_id.to_string());
                         // queue for disabling
@@ -631,7 +643,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             handler: NotifyHandler::Any,
                             event: BehaviourHandlerIn::Shutdown(Some((
                                 RequestId::Behaviour,
-                                RPCRequest::Goodbye(GoodbyeReason::Fault),
+                                RPCRequest::Goodbye(reason),
                             ))),
                         });
                     }
@@ -847,14 +859,12 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
 /// The type of RPC requests the Behaviour informs it has received and allows for sending.
 ///
 // NOTE: This is an application-level wrapper over the lower network leve requests that can be
-//       sent. The main difference is the absense of the Ping and Metadata protocols, which don't
+//       sent. The main difference is the absence of the Ping, Metadata and Goodbye protocols, which don't
 //       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Request {
     /// A Status message.
     Status(StatusMessage),
-    /// A Goobye message.
-    Goodbye(GoodbyeReason),
     /// A blocks by range request.
     BlocksByRange(BlocksByRangeRequest),
     /// A request blocks root request.
@@ -866,7 +876,6 @@ impl<TSpec: EthSpec> std::convert::From<Request> for RPCRequest<TSpec> {
         match req {
             Request::BlocksByRoot(r) => RPCRequest::BlocksByRoot(r),
             Request::BlocksByRange(r) => RPCRequest::BlocksByRange(r),
-            Request::Goodbye(r) => RPCRequest::Goodbye(r),
             Request::Status(s) => RPCRequest::Status(s),
         }
     }

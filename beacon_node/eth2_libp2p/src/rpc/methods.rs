@@ -72,6 +72,9 @@ pub enum GoodbyeReason {
     /// Error/fault in the RPC.
     Fault = 3,
 
+    /// Scored poorly.
+    BadScore = 17,
+
     /// Unknown reason.
     Unknown = 0,
 }
@@ -82,6 +85,7 @@ impl From<u64> for GoodbyeReason {
             1 => GoodbyeReason::ClientShutdown,
             2 => GoodbyeReason::IrrelevantNetwork,
             3 => GoodbyeReason::Fault,
+            17 => GoodbyeReason::BadScore,
             _ => GoodbyeReason::Unknown,
         }
     }
@@ -337,6 +341,7 @@ impl std::fmt::Display for GoodbyeReason {
             GoodbyeReason::ClientShutdown => write!(f, "Client Shutdown"),
             GoodbyeReason::IrrelevantNetwork => write!(f, "Irrelevant Network"),
             GoodbyeReason::Fault => write!(f, "Fault"),
+            GoodbyeReason::BadScore => write!(f, "Bad Score"),
             GoodbyeReason::Unknown => write!(f, "Unknown Reason"),
         }
     }

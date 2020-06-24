@@ -2,7 +2,7 @@
 
 pub use self::peerdb::*;
 use crate::discovery::{Discovery, DiscoveryEvent};
-use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
 use crate::{Enr, EnrExt, NetworkConfig, NetworkGlobals, PeerId};
 use futures::prelude::*;
@@ -75,7 +75,7 @@ pub enum PeerManagerEvent {
     /// Request METADATA from a peer.
     MetaData(PeerId),
     /// The peer should be disconnected.
-    DisconnectPeer(PeerId),
+    DisconnectPeer(PeerId, GoodbyeReason),
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
@@ -116,6 +116,24 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.connect_peer(peer_id, ConnectingType::Dialing)
     }
 
+    /// The application layer wants to disconnect from a peer for a particular reason.
+    ///
+    /// All instant disconnections are fatal and we ban the associated peer.
+    ///
+    /// This will send a goodbye and disconnect the peer if it is connected or dialing.
+    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
+        // get the peer info
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+            debug!(self.log, "Sending goodbye to peer"; "peer_id" => peer_id.to_string(), "reason" => reason.to_string(), "score" => info.score.to_string());
+            // Goodbye's are fatal
+            info.score.apply_peer_action(PeerAction::Fatal);
+            if info.connection_status.is_connected_or_dialing() {
+                self.events
+                    .push(PeerManagerEvent::DisconnectPeer(peer_id.clone(), reason));
+            }
+        }
+    }
+
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
@@ -136,8 +154,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string());
                         ban_peer = Some(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
-                            self.events
-                                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
+                            self.events.push(PeerManagerEvent::DisconnectPeer(
+                                peer_id.clone(),
+                                GoodbyeReason::BadScore,
+                            ));
                         }
                     }
                     ScoreState::Disconnect => {
@@ -145,8 +165,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         // disconnect the peer if it's currently connected or dialing
                         unban_peer = Some(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
-                            self.events
-                                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
+                            self.events.push(PeerManagerEvent::DisconnectPeer(
+                                peer_id.clone(),
+                                GoodbyeReason::BadScore,
+                            ));
                         }
                         // TODO: Update the peer manager to inform that the peer is disconnecting.
                     }
@@ -580,8 +602,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         debug!(self.log, "Peer has been banned"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string());
                         to_ban_peers.push(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
-                            self.events
-                                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
+                            self.events.push(PeerManagerEvent::DisconnectPeer(
+                                peer_id.clone(),
+                                GoodbyeReason::BadScore,
+                            ));
                         }
                     }
                     ScoreState::Disconnect => {
@@ -589,8 +613,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         // disconnect the peer if it's currently connected or dialing
                         to_unban_peers.push(peer_id.clone());
                         if info.connection_status.is_connected_or_dialing() {
-                            self.events
-                                .push(PeerManagerEvent::DisconnectPeer(peer_id.clone()));
+                            self.events.push(PeerManagerEvent::DisconnectPeer(
+                                peer_id.clone(),
+                                GoodbyeReason::BadScore,
+                            ));
                         }
                         // TODO: Update peer manager to report that it's disconnecting.
                     }
