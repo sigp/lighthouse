@@ -26,6 +26,7 @@ use slot_clock::SystemTimeSlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
 use types::EthSpec;
+use validator_dir::Manager as ValidatorManager;
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -58,13 +59,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
     pub async fn new(mut context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
-        let log_1 = context.log().clone();
-        let log_2 = context.log().clone();
-        let log_3 = context.log().clone();
-        let log_4 = context.log().clone();
+        let log = context.log().clone();
 
         info!(
-            log_1,
+            log,
             "Starting validator client";
             "beacon_node" => &config.http_server,
             "datadir" => format!("{:?}", config.data_dir),
@@ -72,18 +70,29 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         if !config.data_dir.join(SLASHING_PROTECTION_FILENAME).exists() && !config.auto_register {
             warn!(
-                log_1,
+                log,
                 "Will not register any validators";
                 "msg" => "strongly consider using --auto-register on the first use",
             );
         }
+
+        let validators = ValidatorManager::open(&config.data_dir)
+            .map_err(|e| format!("unable to read data_dir: {:?}", e))?
+            .decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
+            .map_err(|e| format!("unable to decrypt all validator directories: {:?}", e))?;
+
+        info!(
+            log,
+            "Decrypted validator keystores";
+            "count" => validators.len(),
+        );
 
         let beacon_node =
             RemoteBeaconNode::new_with_timeout(config.http_server.clone(), HTTP_TIMEOUT)
                 .map_err(|e| format!("Unable to init beacon node http client: {}", e))?;
 
         // TODO: check if all logs in wait_for_node are produed while awaiting
-        let beacon_node = wait_for_node(beacon_node, log_2).await?;
+        let beacon_node = wait_for_node(beacon_node, &log).await?;
         let eth2_config = beacon_node
             .http
             .spec()
@@ -99,7 +108,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| format!("Unable to read system time: {:?}", e))?;
-        let log = log_3.clone();
         let genesis = Duration::from_secs(genesis_time);
 
         // If the time now is less than (prior to) genesis, then delay until the
@@ -133,7 +141,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     e
                 )
             })?;
-        let log = log_4.clone();
 
         // Do not permit a connection to a beacon node using different spec constants.
         if context.eth2_config.spec_constants != eth2_config.spec_constants {
@@ -164,14 +171,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("fork".into()))
             .build()?;
 
-        let validator_store: ValidatorStore<SystemTimeSlotClock, T> =
-            ValidatorStore::load_from_disk(
-                &config,
-                genesis_validators_root,
-                context.eth2_config.spec.clone(),
-                fork_service.clone(),
-                log.clone(),
-            )?;
+        let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
+            validators,
+            &config,
+            genesis_validators_root,
+            context.eth2_config.spec.clone(),
+            fork_service.clone(),
+            log.clone(),
+        )?;
 
         info!(
             log,
@@ -250,7 +257,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 /// has been contacted.
 async fn wait_for_node<E: EthSpec>(
     beacon_node: RemoteBeaconNode<E>,
-    log: Logger,
+    log: &Logger,
 ) -> Result<RemoteBeaconNode<E>, String> {
     // Try to get the version string from the node, looping until success is returned.
     loop {
