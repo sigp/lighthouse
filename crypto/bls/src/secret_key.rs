@@ -1,68 +1,94 @@
-extern crate rand;
+use crate::{
+    public_key::{PublicKey, TPublicKey},
+    signature::{Signature, TSignature},
+    Error, Hash256,
+};
+use ssz::{Decode, Encode};
+use std::marker::PhantomData;
+use tree_hash::TreeHash;
 
-use crate::SecretHash;
-use milagro_bls::SecretKey as RawSecretKey;
-use ssz::DecodeError;
+pub const SECRET_KEY_BYTES_LEN: usize = 32;
 
-/// A single BLS signature.
-///
-/// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
-/// serialization).
-#[derive(Clone)]
-pub struct SecretKey(RawSecretKey);
+pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
+    fn random() -> Self;
 
-impl SecretKey {
-    /// Generate a new `Self` using `rand::thread_rng`.
+    fn sign(&self, msg: Hash256) -> SignaturePoint;
+
+    fn public_key(&self) -> PublicKeyPoint;
+
+    fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN];
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
+}
+
+// TODO: remove partial eq for security reasons.
+// TODO: clear memory on drop.
+// Make it harder to encode.
+#[derive(Clone, PartialEq)]
+pub struct SecretKey<Sig, Pub, Sec> {
+    point: Sec,
+    _phantom_signature: PhantomData<Sig>,
+    _phantom_public_key: PhantomData<Pub>,
+}
+
+impl<Sig, Pub, Sec> SecretKey<Sig, Pub, Sec>
+where
+    Sig: TSignature<Pub>,
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+{
     pub fn random() -> Self {
-        SecretKey(RawSecretKey::random(&mut rand::thread_rng()))
+        Self {
+            point: Sec::random(),
+            _phantom_signature: PhantomData,
+            _phantom_public_key: PhantomData,
+        }
     }
 
-    pub fn from_raw(raw: RawSecretKey) -> Self {
-        Self(raw)
+    pub fn public_key(&self) -> PublicKey<Pub> {
+        PublicKey::from_point(self.point.public_key())
     }
 
-    /// Returns the secret key as a byte array (wrapped in `SecretHash` wrapper so it is zeroized on
-    /// `Drop`).
-    ///
-    /// Extreme care should be taken not to leak these bytes as they are the unencrypted secret
-    /// key.
-    pub fn as_bytes(&self) -> SecretHash {
-        self.as_raw().as_bytes().into()
+    pub fn sign(&self, msg: Hash256) -> Signature<Pub, Sig> {
+        Signature::from_point(self.point.sign(msg))
     }
 
-    /// Instantiate a SecretKey from existing bytes.
-    ///
-    /// Note: this is _not_ SSZ decoding.
-    pub fn from_bytes(bytes: &[u8]) -> Result<SecretKey, DecodeError> {
-        Ok(SecretKey(RawSecretKey::from_bytes(bytes).map_err(|e| {
-            DecodeError::BytesInvalid(format!(
-                "Invalid SecretKey bytes: {:?} Error: {:?}",
-                bytes, e
-            ))
-        })?))
+    pub fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
+        self.point.serialize()
     }
 
-    /// Returns the underlying secret key.
-    pub(crate) fn as_raw(&self) -> &RawSecretKey {
-        &self.0
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self {
+            point: Sec::deserialize(bytes)?,
+            _phantom_signature: PhantomData,
+            _phantom_public_key: PhantomData,
+        })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl<Sig, Pub, Sec> Encode for SecretKey<Sig, Pub, Sec>
+where
+    Sig: TSignature<Pub>,
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+{
+    impl_ssz_encode!(SECRET_KEY_BYTES_LEN);
+}
 
-    #[test]
-    pub fn test_ssz_round_trip() {
-        let byte_key = [
-            3, 211, 210, 129, 231, 69, 162, 234, 16, 15, 244, 214, 126, 201, 0, 85, 28, 239, 82,
-            121, 208, 190, 223, 6, 169, 202, 86, 236, 197, 218, 3, 69,
-        ];
-        let original = SecretKey::from_bytes(&byte_key).unwrap();
+impl<Sig, Pub, Sec> Decode for SecretKey<Sig, Pub, Sec>
+where
+    Sig: TSignature<Pub>,
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+{
+    impl_ssz_decode!(SECRET_KEY_BYTES_LEN);
+}
 
-        let bytes = original.as_bytes();
-        let decoded = SecretKey::from_bytes(bytes.as_ref()).unwrap();
-
-        assert!(original.as_bytes().as_ref().to_vec() == decoded.as_bytes().as_ref().to_vec());
-    }
+impl<Sig, Pub, Sec> TreeHash for SecretKey<Sig, Pub, Sec>
+where
+    Sig: TSignature<Pub>,
+    Pub: TPublicKey,
+    Sec: TSecretKey<Sig, Pub>,
+{
+    impl_tree_hash!(SECRET_KEY_BYTES_LEN);
 }

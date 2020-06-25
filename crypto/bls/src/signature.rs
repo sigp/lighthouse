@@ -1,174 +1,147 @@
-use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
-use milagro_bls::Signature as RawSignature;
+use crate::{
+    public_key::{PublicKey, TPublicKey},
+    Error, Hash256,
+};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use ssz::{Decode, Encode};
+use std::borrow::Cow;
+use std::fmt;
+use std::marker::PhantomData;
+use tree_hash::TreeHash;
 
-/// A single BLS signature.
-///
-/// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
-/// serialization).
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub struct Signature {
-    signature: RawSignature,
-    is_empty: bool,
+pub const SIGNATURE_BYTES_LEN: usize = 96;
+pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
+
+pub trait TSignature<PublicKey>: Sized {
+    fn zero() -> Self;
+
+    fn add_assign(&mut self, other: &Self);
+
+    fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
+
+    fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool;
+
+    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[Hash256]) -> bool;
 }
 
-impl Signature {
-    /// Instantiate a new Signature from a message and a SecretKey.
-    pub fn new(msg: &[u8], sk: &SecretKey) -> Self {
-        Signature {
-            signature: RawSignature::new(msg, sk.as_raw()),
-            is_empty: false,
-        }
-    }
-
-    /// Verify the Signature against a PublicKey.
-    pub fn verify(&self, msg: &[u8], pk: &PublicKey) -> bool {
-        if self.is_empty {
-            return false;
-        }
-        self.signature.verify(msg, pk.as_raw())
-    }
-
-    /// Returns the underlying signature.
-    pub fn as_raw(&self) -> &RawSignature {
-        &self.signature
-    }
-
-    /// Returns a new empty signature.
-    pub fn empty_signature() -> Self {
-        // Set RawSignature = infinity
-        let mut empty = [0u8; BLS_SIG_BYTE_SIZE];
-        empty[0] += u8::pow(2, 6) + u8::pow(2, 7);
-        Signature {
-            signature: RawSignature::from_bytes(&empty).unwrap(),
-            is_empty: true,
-        }
-    }
-
-    // Converts a BLS Signature to bytes
-    pub fn as_bytes(&self) -> [u8; BLS_SIG_BYTE_SIZE] {
-        if self.is_empty {
-            return [0u8; BLS_SIG_BYTE_SIZE];
-        }
-        self.signature.as_bytes()
-    }
-
-    // Convert bytes to BLS Signature
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        for byte in bytes {
-            if *byte != 0 {
-                let raw_signature = RawSignature::from_bytes(&bytes).map_err(|_| {
-                    DecodeError::BytesInvalid(format!("Invalid Signature bytes: {:?}", bytes))
-                })?;
-                return Ok(Signature {
-                    signature: raw_signature,
-                    is_empty: false,
-                });
-            }
-        }
-        Ok(Signature::empty_signature())
-    }
-
-    // Check for empty Signature
-    pub fn is_empty(&self) -> bool {
-        self.is_empty
-    }
-
-    /// Display a signature as a hex string of its bytes.
-    #[cfg(test)]
-    pub fn as_hex_string(&self) -> String {
-        hex_encode(self.as_ssz_bytes())
-    }
+#[derive(Clone, PartialEq)]
+pub struct Signature<Pub, Sig> {
+    point: Option<Sig>,
+    _phantom: PhantomData<Pub>,
 }
 
-impl_ssz!(Signature, BLS_SIG_BYTE_SIZE, "Signature");
+impl<Pub, Sig> Signature<Pub, Sig>
+where
+    Sig: TSignature<Pub>,
+{
+    pub fn zero() -> Self {
+        Self {
+            point: Some(Sig::zero()),
+            _phantom: PhantomData,
+        }
+    }
 
-impl_tree_hash!(Signature, BLS_SIG_BYTE_SIZE);
+    pub fn none() -> Self {
+        Self {
+            point: None,
+            _phantom: PhantomData,
+        }
+    }
 
-impl Serialize for Signature {
-    /// Serde serialization is compliant the Ethereum YAML test format.
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&hex_encode(ssz_encode(self)))
+    pub(crate) fn from_point(point: Sig) -> Self {
+        Self {
+            point: Some(point),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub(crate) fn point(&self) -> Option<&Sig> {
+        self.point.as_ref()
+    }
+
+    pub fn add_assign(&mut self, other: &Self) {
+        match (&mut self.point, &other.point) {
+            (Some(a), Some(b)) => a.add_assign(b),
+            _ => {}
+        }
+    }
+
+    pub fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
+        if let Some(point) = &self.point {
+            point.serialize()
+        } else {
+            NONE_SIGNATURE
+        }
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        let point = if bytes == &NONE_SIGNATURE[..] {
+            None
+        } else {
+            Some(Sig::deserialize(bytes)?)
+        };
+
+        Ok(Self {
+            point,
+            _phantom: PhantomData,
+        })
     }
 }
 
-impl<'de> Deserialize<'de> for Signature {
-    /// Serde serialization is compliant the Ethereum YAML test format.
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes = deserializer.deserialize_str(PrefixedHexVisitor)?;
-        let signature = Self::from_ssz_bytes(&bytes[..])
-            .map_err(|e| serde::de::Error::custom(format!("invalid ssz ({:?})", e)))?;
-        Ok(signature)
-    }
-}
-
-#[cfg(feature = "arbitrary")]
-impl arbitrary::Arbitrary for Signature {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
-        let mut bytes = [0u8; BLS_SIG_BYTE_SIZE];
-        u.fill_buffer(&mut bytes)?;
-        Self::from_bytes(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::Keypair;
-    use super::*;
-    use ssz::ssz_encode;
-
-    #[test]
-    pub fn test_ssz_round_trip() {
-        let keypair = Keypair::random();
-
-        let original = Signature::new(&[42, 42], &keypair.sk);
-
-        let bytes = ssz_encode(&original);
-        let decoded = Signature::from_ssz_bytes(&bytes).unwrap();
-
-        assert_eq!(original, decoded);
-    }
-
-    #[test]
-    pub fn test_byte_size() {
-        let keypair = Keypair::random();
-
-        let signature = Signature::new(&[42, 42], &keypair.sk);
-        let bytes = ssz_encode(&signature);
-        assert_eq!(bytes.len(), BLS_SIG_BYTE_SIZE);
-    }
-
-    #[test]
-    pub fn test_infinity_signature() {
-        let sig = Signature::empty_signature();
-
-        let sig_as_bytes = sig.as_raw().as_bytes();
-
-        assert_eq!(sig_as_bytes.len(), BLS_SIG_BYTE_SIZE);
-        for (i, one_byte) in sig_as_bytes.iter().enumerate() {
-            if i == 0 {
-                assert_eq!(*one_byte, u8::pow(2, 6) + u8::pow(2, 7));
-            } else {
-                assert_eq!(*one_byte, 0);
-            }
+impl<Pub, Sig> Signature<Pub, Sig>
+where
+    Sig: TSignature<Pub>,
+    Pub: TPublicKey + Clone,
+{
+    pub fn verify(&self, pubkey: &PublicKey<Pub>, msg: Hash256) -> bool {
+        if let Some(point) = &self.point {
+            point.verify(pubkey.point(), msg)
+        } else {
+            false
         }
     }
 
-    #[test]
-    pub fn test_empty_signature() {
-        let sig = Signature::empty_signature();
+    pub fn fast_aggregate_verify<'a>(
+        &'a self,
+        signed_messages: impl Iterator<Item = (Cow<'a, PublicKey<Pub>>, Hash256)>,
+    ) -> bool {
+        if let Some(point) = &self.point {
+            let (pubkeys, msgs): (Vec<_>, Vec<_>) = signed_messages
+                .into_iter()
+                .map(|(pubkey, msg)| (pubkey.point().clone(), msg))
+                .unzip();
 
-        let sig_as_bytes = sig.as_bytes().to_vec();
-
-        assert_eq!(sig_as_bytes, vec![0u8; BLS_SIG_BYTE_SIZE]);
+            point.fast_aggregate_verify(&pubkeys[..], &msgs)
+        } else {
+            false
+        }
     }
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> Encode for Signature<PublicKey, T> {
+    impl_ssz_encode!(SIGNATURE_BYTES_LEN);
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> Decode for Signature<PublicKey, T> {
+    impl_ssz_decode!(SIGNATURE_BYTES_LEN);
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> TreeHash for Signature<PublicKey, T> {
+    impl_tree_hash!(SIGNATURE_BYTES_LEN);
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> Serialize for Signature<PublicKey, T> {
+    impl_serde_serialize!();
+}
+
+impl<'de, PublicKey, T: TSignature<PublicKey>> Deserialize<'de> for Signature<PublicKey, T> {
+    impl_serde_deserialize!();
+}
+
+impl<PublicKey, T: TSignature<PublicKey>> fmt::Debug for Signature<PublicKey, T> {
+    impl_debug!();
 }
