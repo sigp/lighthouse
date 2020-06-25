@@ -227,7 +227,9 @@ mod tests {
             Eth2TestnetConfig::<E>::hard_coded().expect("should decode hard_coded params")
         {
             assert!(dir.boot_enr.is_some());
-            assert!(dir.genesis_state.is_some());
+            // TODO: add once we know the genesis state for Altona.
+            //
+            // assert!(dir.genesis_state.is_some());
             assert!(dir.yaml_config.is_some());
         }
     }
