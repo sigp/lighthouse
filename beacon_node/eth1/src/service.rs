@@ -200,6 +200,14 @@ impl Service {
         self.inner.block_cache.read().lowest_block_number()
     }
 
+    /// Returns the highest block that is present in both the deposit and block caches.
+    pub fn highest_safe_block(&self) -> Option<u64> {
+        let block_cache = self.blocks().read().highest_block_number()?;
+        let deposit_cache = self.deposits().read().last_processed_block?;
+
+        Some(std::cmp::min(block_cache, deposit_cache))
+    }
+
     /// Returns the number of currently cached blocks.
     pub fn block_cache_len(&self) -> usize {
         self.blocks().read().len()
@@ -208,6 +216,25 @@ impl Service {
     /// Returns the number deposits available in the deposit cache.
     pub fn deposit_cache_len(&self) -> usize {
         self.deposits().read().cache.len()
+    }
+
+    /// Returns the number of deposits with valid signatures that have been observed.
+    pub fn get_valid_signature_count(&self) -> Option<usize> {
+        self.deposits()
+            .read()
+            .cache
+            .get_valid_signature_count(self.highest_safe_block()?)
+    }
+
+    /// Returns the number of deposits with valid signatures that have been observed up to and
+    /// including the block at `block_number`.
+    ///
+    /// Returns `None` if the `block_number` is zero or prior to contract deployment.
+    pub fn get_valid_signature_count_at_block(&self, block_number: u64) -> Option<usize> {
+        self.deposits()
+            .read()
+            .cache
+            .get_valid_signature_count(block_number)
     }
 
     /// Read the service's configuration.
