@@ -60,12 +60,12 @@ The example assumes that the `wally` wallet was generated from the
 [wallet](./wallet-create.md) example.
 
 ```bash
-lighthouse account wallet validator --name wally --wallet-password wally.pass
+lighthouse account validator create --wallet-name wally --wallet-password wally.pass --count 1
 ```
 
 This command will:
 
-- Derive a new BLS keypair from `wally`, updating it so that it generates a
+- Derive a single new BLS keypair from `wally`, updating it so that it generates a
     new key next time.
 - Create a new directory in `~/.lighthouse/validators` containing:
     - An encrypted keystore containing the validators voting keypair.
