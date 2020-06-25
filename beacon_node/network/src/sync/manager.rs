@@ -529,7 +529,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // otherwise, this is a range sync issue, notify the range sync
         self.range_sync
-            .inject_error(&mut self.network, peer_id.clone(), request_id);
+            .inject_error(&mut self.network, peer_id, request_id);
     }
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
                     );
                     self.network
-                        .downvote_peer(parent_request.last_submitted_peer.clone());
+                        .downvote_peer(parent_request.last_submitted_peer);
                     return;
                 }
                 Err(e) => {
@@ -677,7 +677,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
                     );
                     self.network
-                        .downvote_peer(parent_request.last_submitted_peer.clone());
+                        .downvote_peer(parent_request.last_submitted_peer);
                     return;
                 }
             }

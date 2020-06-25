@@ -83,12 +83,12 @@ impl<T: EthSpec> BeaconBlock<T> {
         };
         let proposer_slashing = ProposerSlashing {
             signed_header_1: signed_header.clone(),
-            signed_header_2: signed_header.clone(),
+            signed_header_2: signed_header,
         };
 
         let attester_slashing = AttesterSlashing {
             attestation_1: indexed_attestation.clone(),
-            attestation_2: indexed_attestation.clone(),
+            attestation_2: indexed_attestation,
         };
 
         let attestation: Attestation<T> = Attestation {

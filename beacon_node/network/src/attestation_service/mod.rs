@@ -237,7 +237,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         _message_id: &MessageId,
         peer_id: &PeerId,
-        subnet: &SubnetId,
+        subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
         // verify the attestation is on the correct subnet
@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             }
         };
 
-        if expected_subnet != *subnet {
+        if expected_subnet != subnet {
             warn!(self.log, "Received an attestation on the wrong subnet"; "subnet_received" => format!("{:?}", subnet), "subnet_expected" => format!("{:?}",expected_subnet), "peer_id" => format!("{}", peer_id));
             return false;
         }

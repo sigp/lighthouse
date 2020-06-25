@@ -300,7 +300,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                         if service.attestation_service.should_process_attestation(
                                             &id,
                                             &source,
-                                            subnet,
+                                            *subnet,
                                             attestation,
                                         ) {
                                             let _ = service
