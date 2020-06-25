@@ -40,7 +40,7 @@ pub fn get_all_files() -> Result<(), String> {
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/sigp/witti/d7faabf4bad43beb822de71149c932fbc95c91aa/altona/lighthouse/{}",
+        "https://raw.githubusercontent.com/sigp/witti/ff9ff43ba4f15fe50838d832daabd284ab1124df/altona/lighthouse/{}",
         filename
     );
 
