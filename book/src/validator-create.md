@@ -17,7 +17,7 @@ lighthouse account validator create --help
 Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key-derivation scheme.
 
 USAGE:
-    lighthouse account_manager validator create [FLAGS] [OPTIONS] --wallet-name <WALLET_NAME> --wallet-passphrase <WALLET_PASSWORD_PATH>
+    lighthouse account_manager validator create [FLAGS] [OPTIONS] --wallet-name <WALLET_NAME> --wallet-password <WALLET_PASSWORD_PATH>
 
 FLAGS:
     -h, --help                         Prints help information
@@ -50,7 +50,7 @@ OPTIONS:
             The path where the validator directories will be created. Defaults to ~/.lighthouse/validators
 
         --wallet-name <WALLET_NAME>                   Use the wallet identified by this name
-        --wallet-passphrase <WALLET_PASSWORD_PATH>
+        --wallet-password <WALLET_PASSWORD_PATH>
             A path to a file containing the password which will unlock the wallet.
 ```
 
