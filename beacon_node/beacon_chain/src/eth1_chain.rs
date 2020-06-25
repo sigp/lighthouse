@@ -143,9 +143,10 @@ where
         ssz_container: &SszEth1,
         config: Eth1Config,
         log: &Logger,
+        spec: ChainSpec,
     ) -> Result<Self, String> {
         let backend =
-            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone())?;
+            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone(), spec)?;
         Ok(Self {
             use_dummy_backend: ssz_container.use_dummy_backend,
             backend,
@@ -191,7 +192,12 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     fn as_bytes(&self) -> Vec<u8>;
 
     /// Create a `Eth1ChainBackend` instance given encoded bytes.
-    fn from_bytes(bytes: &[u8], config: Eth1Config, log: Logger) -> Result<Self, String>;
+    fn from_bytes(
+        bytes: &[u8],
+        config: Eth1Config,
+        log: Logger,
+        spec: ChainSpec,
+    ) -> Result<Self, String>;
 }
 
 /// Provides a simple, testing-only backend that generates deterministic, meaningless eth1 data.
@@ -234,7 +240,12 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     }
 
     /// Create dummy eth1 backend.
-    fn from_bytes(_bytes: &[u8], _config: Eth1Config, _log: Logger) -> Result<Self, String> {
+    fn from_bytes(
+        _bytes: &[u8],
+        _config: Eth1Config,
+        _log: Logger,
+        _spec: ChainSpec,
+    ) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
 }
@@ -389,8 +400,13 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
     }
 
     /// Recover the cached backend from encoded bytes.
-    fn from_bytes(bytes: &[u8], config: Eth1Config, log: Logger) -> Result<Self, String> {
-        let inner = HttpService::from_bytes(bytes, config, log.clone())?;
+    fn from_bytes(
+        bytes: &[u8],
+        config: Eth1Config,
+        log: Logger,
+        spec: ChainSpec,
+    ) -> Result<Self, String> {
+        let inner = HttpService::from_bytes(bytes, config, log.clone(), spec)?;
         Ok(Self {
             core: inner,
             log,
@@ -571,6 +587,7 @@ mod test {
                 deposit_data,
                 block_number: i,
                 index: i,
+                signature_is_valid: true,
             }
         }
 

@@ -425,6 +425,8 @@ mod deposit_tree {
     async fn cache_consistency() {
         let n = 8;
 
+        let spec = &MainnetEthSpec::default_spec();
+
         let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
         let eth1 = GanacheEth1Instance::new()
@@ -462,7 +464,7 @@ mod deposit_tree {
         let logs: Vec<_> = blocking_deposit_logs(&eth1, 0..block_number)
             .await
             .iter()
-            .map(|raw| DepositLog::from_log(raw).expect("should parse deposit log"))
+            .map(|raw| DepositLog::from_log(raw, spec).expect("should parse deposit log"))
             .inspect(|log| {
                 tree.insert_log(log.clone())
                     .expect("should add consecutive logs")
@@ -745,7 +747,8 @@ mod persist {
         // Drop service and recover from bytes
         drop(service);
 
-        let recovered_service = Service::from_bytes(&eth1_bytes, config, log).unwrap();
+        let recovered_service =
+            Service::from_bytes(&eth1_bytes, config, log, MainnetEthSpec::default_spec()).unwrap();
         assert_eq!(
             recovered_service.block_cache_len(),
             block_count,

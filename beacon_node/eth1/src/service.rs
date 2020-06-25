@@ -14,6 +14,7 @@ use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{interval_at, Duration, Instant};
+use types::ChainSpec;
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
@@ -149,8 +150,13 @@ impl Service {
     }
 
     /// Recover the deposit and block caches from encoded bytes.
-    pub fn from_bytes(bytes: &[u8], config: Config, log: Logger) -> Result<Self, String> {
-        let inner = Inner::from_bytes(bytes, config)?;
+    pub fn from_bytes(
+        bytes: &[u8],
+        config: Config,
+        log: Logger,
+        spec: ChainSpec,
+    ) -> Result<Self, String> {
+        let inner = Inner::from_bytes(bytes, config, spec)?;
         Ok(Self {
             inner: Arc::new(inner),
             log,
@@ -402,9 +408,11 @@ impl Service {
             log_chunk
                 .into_iter()
                 .map(|raw_log| {
-                    DepositLog::from_log(&raw_log).map_err(|error| Error::FailedToParseDepositLog {
-                        block_range: block_range.clone(),
-                        error,
+                    DepositLog::from_log(&raw_log, service.inner.spec()).map_err(|error| {
+                        Error::FailedToParseDepositLog {
+                            block_range: block_range.clone(),
+                            error,
+                        }
                     })
                 })
                 // Return early if any of the logs cannot be parsed.

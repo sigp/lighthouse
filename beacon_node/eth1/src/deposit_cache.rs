@@ -291,15 +291,18 @@ pub mod tests {
     use super::*;
     use crate::deposit_log::tests::EXAMPLE_LOG;
     use crate::http::Log;
+    use types::{EthSpec, MainnetEthSpec};
 
     pub const TREE_DEPTH: usize = 32;
 
     fn example_log() -> DepositLog {
+        let spec = MainnetEthSpec::default_spec();
+
         let log = Log {
             block_number: 42,
             data: EXAMPLE_LOG.to_vec(),
         };
-        DepositLog::from_log(&log).expect("should decode log")
+        DepositLog::from_log(&log, &spec).expect("should decode log")
     }
 
     #[test]

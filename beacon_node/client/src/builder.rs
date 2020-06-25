@@ -625,6 +625,10 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+        let spec = self
+            .chain_spec
+            .clone()
+            .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;
@@ -648,6 +652,7 @@ where
                         &persisted,
                         config.clone(),
                         &context.log().clone(),
+                        spec,
                     )
                     .map(|chain| chain.into_backend())
                 })
