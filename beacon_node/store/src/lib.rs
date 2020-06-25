@@ -59,29 +59,6 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     result
 }
 
-pub fn put_block_op<E: EthSpec>(
-    hash: SignedBeaconBlockHash,
-    block: &SignedBeaconBlock<E>,
-    ops: &mut Vec<KeyValueStoreOp>,
-) {
-    let column = SignedBeaconBlock::<E>::db_column().into();
-    let untyped_hash: Hash256 = hash.into();
-    let key = get_key_for_col(column, untyped_hash.as_bytes());
-    let op = KeyValueStoreOp::PutKeyValue(key, block.as_store_bytes());
-    ops.push(op)
-}
-
-pub fn put_state_summary_op(
-    hash: BeaconStateHash,
-    summary: &HotStateSummary,
-    ops: &mut Vec<KeyValueStoreOp>,
-) {
-    let untyped_hash: Hash256 = hash.into();
-    let key = get_key_for_col(DBColumn::BeaconStateSummary.into(), untyped_hash.as_bytes());
-    let op = KeyValueStoreOp::PutKeyValue(key, summary.as_store_bytes());
-    ops.push(op);
-}
-
 pub enum KeyValueStoreOp {
     PutKeyValue(Vec<u8>, Vec<u8>),
     DeleteKey(Vec<u8>),
@@ -192,6 +169,11 @@ pub trait StoreItem: Sized {
     ///
     /// Return an instance of the type and the number of bytes that were read.
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
+
+    fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
+        let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
+        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
+    }
 }
 
 #[cfg(test)]

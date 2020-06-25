@@ -9,8 +9,8 @@ use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metrics;
 use crate::{
-    get_key_for_col, put_block_op, put_state_summary_op, DBColumn, Error, ItemStore,
-    KeyValueStoreOp, PartialBeaconState, StoreItem, StoreOp,
+    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
+    StoreOp,
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
@@ -310,7 +310,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in &batch {
             match op {
                 StoreOp::PutBlock(block_hash, block) => {
-                    put_block_op(*block_hash, block, &mut key_value_batch);
+                    let untyped_hash: Hash256 = (*block_hash).into();
+                    key_value_batch.push(block.as_kv_store_op(untyped_hash));
                 }
 
                 StoreOp::PutState(state_hash, state) => {
@@ -319,7 +320,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::PutStateSummary(state_hash, summary) => {
-                    put_state_summary_op(*state_hash, &summary, &mut key_value_batch);
+                    let untyped_hash: Hash256 = (*state_hash).into();
+                    key_value_batch.push(summary.as_kv_store_op(untyped_hash));
                 }
 
                 StoreOp::DeleteBlock(block_hash) => {
@@ -376,7 +378,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
         state: &BeaconState<E>,
-        mut ops: &mut Vec<KeyValueStoreOp>,
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
         if state.slot % E::slots_per_epoch() == 0 {
@@ -386,19 +388,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "slot" => state.slot.as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
-            store_full_state(state_root, &state, &mut ops)?;
+            store_full_state(state_root, &state, ops)?;
         }
 
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
         let hot_state_summary = HotStateSummary::new(state_root, state)?;
-        let state_summary_key =
-            get_key_for_col(DBColumn::BeaconStateSummary.into(), state_root.as_bytes());
-        ops.push(KeyValueStoreOp::PutKeyValue(
-            state_summary_key,
-            hot_state_summary.as_store_bytes(),
-        ));
+        let op = hot_state_summary.as_kv_store_op(*state_root);
+        ops.push(op);
 
         Ok(())
     }
@@ -444,7 +442,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
         state: &BeaconState<E>,
-        mut ops: &mut Vec<KeyValueStoreOp>,
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         if state.slot % self.config.slots_per_restore_point != 0 {
             warn!(
@@ -465,23 +463,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // 1. Convert to PartialBeaconState and store that in the DB.
         let partial_state = PartialBeaconState::from_state_forgetful(state);
-        let partial_state_column = <PartialBeaconState<E> as StoreItem>::db_column();
-        let partial_state_key = get_key_for_col(partial_state_column.into(), state_root.as_bytes());
-        ops.push(KeyValueStoreOp::PutKeyValue(
-            partial_state_key,
-            partial_state.as_store_bytes(),
-        ));
+        let op = partial_state.as_kv_store_op(*state_root);
+        ops.push(op);
 
         // 2. Store updated vector entries.
         let db = &self.cold_db;
-        store_updated_vector(BlockRoots, db, state, &self.spec, &mut ops)?;
-        store_updated_vector(StateRoots, db, state, &self.spec, &mut ops)?;
-        store_updated_vector(HistoricalRoots, db, state, &self.spec, &mut ops)?;
-        store_updated_vector(RandaoMixes, db, state, &self.spec, &mut ops)?;
+        store_updated_vector(BlockRoots, db, state, &self.spec, ops)?;
+        store_updated_vector(StateRoots, db, state, &self.spec, ops)?;
+        store_updated_vector(HistoricalRoots, db, state, &self.spec, ops)?;
+        store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
 
         // 3. Store restore point.
         let restore_point_index = state.slot.as_u64() / self.config.slots_per_restore_point;
-        self.store_restore_point_hash(restore_point_index, *state_root, &mut ops);
+        self.store_restore_point_hash(restore_point_index, *state_root, ops);
 
         Ok(())
     }
@@ -705,12 +699,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: Hash256,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let key = get_key_for_col(
-            DBColumn::BeaconRestorePoint.into(),
-            Self::restore_point_key(restore_point_index).as_bytes(),
-        );
         let value = &RestorePointHash { state_root };
-        let op = KeyValueStoreOp::PutKeyValue(key, value.as_store_bytes());
+        let op = value.as_kv_store_op(Self::restore_point_key(restore_point_index));
         ops.push(op);
     }
 
