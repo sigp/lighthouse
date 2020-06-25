@@ -1,10 +1,11 @@
 use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
 };
+use eth2_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
+use ssz::Encode;
 use std::cmp;
 use std::convert::TryInto;
-use tree_hash::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone)]
@@ -46,7 +47,7 @@ impl SelectionProof {
     }
 
     pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {
-        let signature_hash = self.0.tree_hash_root();
+        let signature_hash = hash(&self.0.as_ssz_bytes());
         let signature_hash_int = u64::from_le_bytes(
             signature_hash[0..8]
                 .as_ref()
