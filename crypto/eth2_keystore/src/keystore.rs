@@ -9,13 +9,16 @@ use crate::json_keystore::{
 use crate::PlainText;
 use crate::Uuid;
 use aes_ctr::stream_cipher::generic_array::GenericArray;
-use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
+use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher};
 use aes_ctr::Aes128Ctr as AesCtr;
 use bls::{Keypair, PublicKey, SecretKey};
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::prelude::*;
-use scrypt::{scrypt, ScryptParams};
+use scrypt::{
+    errors::{InvalidOutputLen, InvalidParams},
+    scrypt, ScryptParams,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ssz::DecodeError;
@@ -65,6 +68,8 @@ pub enum Error {
     InvalidPbkdf2Param,
     InvalidScryptParam,
     IncorrectIvSize { expected: usize, len: usize },
+    ScryptInvalidParams(InvalidParams),
+    ScryptInvaidOutputLen(InvalidOutputLen),
 }
 
 /// Constructs a `Keystore`.
@@ -323,16 +328,15 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
     let mut plain_text = PlainText::from(cipher_message.as_bytes().to_vec());
     match &crypto.cipher.params {
         Cipher::Aes128Ctr(params) => {
+            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             // NOTE: we do not check the size of the `iv` as there is no guidance about
             // this on EIP-2335.
             //
             // Reference:
             //
             // - https://github.com/ethereum/EIPs/issues/2339#issuecomment-623865023
-            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
             let mut cipher = AesCtr::new(&key, &nonce);
-            cipher.seek(0);
             cipher.apply_keystream(plain_text.as_mut_bytes());
         }
     };
@@ -405,10 +409,10 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
                 password,
                 params.salt.as_bytes(),
                 &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p)
-                    .expect("Invalid params for scrypt private key decryption."),
+                    .map_err(|e| Error::ScryptInvalidParams(e))?,
                 dk.as_mut_bytes(),
             )
-            .expect("Could not decrypt private key using scrypt.");
+            .map_err(|e| Error::ScryptInvaidOutputLen(e))?;
         }
     }
 
