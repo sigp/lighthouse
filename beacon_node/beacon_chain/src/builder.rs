@@ -573,7 +573,8 @@ where
             .as_ref()
             .ok_or_else(|| "dummy_eth1_backend requires a log".to_string())?;
 
-        let backend = CachingEth1Backend::new(Eth1Config::default(), log.clone());
+        let backend =
+            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
 
         let mut eth1_chain = Eth1Chain::new(backend);
         eth1_chain.use_dummy_backend = true;

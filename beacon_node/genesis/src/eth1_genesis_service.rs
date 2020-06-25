@@ -43,7 +43,7 @@ impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
     ///
     /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
-    pub fn new(config: Eth1Config, log: Logger) -> Self {
+    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
         let config = Eth1Config {
             // Truncating the block cache makes searching for genesis more
             // complicated.
@@ -65,7 +65,7 @@ impl Eth1GenesisService {
         };
 
         Self {
-            eth1_service: Eth1Service::new(config, log),
+            eth1_service: Eth1Service::new(config, log, spec),
             stats: Arc::new(Statistics {
                 highest_processed_block: AtomicU64::new(0),
                 active_validator_count: AtomicUsize::new(0),

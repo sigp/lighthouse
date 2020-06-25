@@ -99,6 +99,7 @@ async fn get_block_number(web3: &Web3<Http>) -> u64 {
 
 mod eth1_cache {
     use super::*;
+    use types::{EthSpec, MainnetEthSpec};
 
     #[tokio::test]
     async fn simple_scenario() {
@@ -122,6 +123,7 @@ mod eth1_cache {
                     ..Config::default()
                 },
                 log.clone(),
+                MainnetEthSpec::default_spec(),
             );
 
             // Create some blocks and then consume them, performing the test `rounds` times.
@@ -194,6 +196,7 @@ mod eth1_cache {
                 ..Config::default()
             },
             log,
+            MainnetEthSpec::default_spec(),
         );
 
         let blocks = cache_len * 2;
@@ -240,6 +243,7 @@ mod eth1_cache {
                 ..Config::default()
             },
             log,
+            MainnetEthSpec::default_spec(),
         );
 
         for _ in 0..4u8 {
@@ -282,6 +286,7 @@ mod eth1_cache {
                 ..Config::default()
             },
             log,
+            MainnetEthSpec::default_spec(),
         );
 
         for _ in 0..n {
@@ -328,6 +333,7 @@ mod deposit_tree {
                 ..Config::default()
             },
             log,
+            MainnetEthSpec::default_spec(),
         );
 
         for round in 0..3 {
@@ -401,6 +407,7 @@ mod deposit_tree {
                 ..Config::default()
             },
             log,
+            MainnetEthSpec::default_spec(),
         );
 
         let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
@@ -641,6 +648,7 @@ mod fast {
                 ..Config::default()
             },
             log,
+            MainnetEthSpec::default_spec(),
         );
         let n = 10;
         let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
@@ -710,7 +718,7 @@ mod persist {
             block_cache_truncation: None,
             ..Config::default()
         };
-        let service = Service::new(config.clone(), log.clone());
+        let service = Service::new(config.clone(), log.clone(), MainnetEthSpec::default_spec());
         let n = 10;
         let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
         for deposit in &deposits {

@@ -272,9 +272,9 @@ impl<T: EthSpec> CachingEth1Backend<T> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger) -> Self {
+    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
         Self {
-            core: HttpService::new(config, log.clone()),
+            core: HttpService::new(config, log.clone(), spec),
             log,
             _phantom: PhantomData,
         }
@@ -565,7 +565,10 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
-        use types::test_utils::{generate_deterministic_keypair, TestingDepositBuilder};
+        use types::{
+            test_utils::{generate_deterministic_keypair, TestingDepositBuilder},
+            EthSpec, MainnetEthSpec,
+        };
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
             let eth1_config = Eth1Config {
@@ -573,7 +576,11 @@ mod test {
             };
 
             let log = null_logger().unwrap();
-            Eth1Chain::new(CachingEth1Backend::new(eth1_config, log))
+            Eth1Chain::new(CachingEth1Backend::new(
+                eth1_config,
+                log,
+                MainnetEthSpec::default_spec(),
+            ))
         }
 
         fn get_deposit_log(i: u64, spec: &ChainSpec) -> DepositLog {

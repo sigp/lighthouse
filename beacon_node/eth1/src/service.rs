@@ -131,14 +131,15 @@ pub struct Service {
 
 impl Service {
     /// Creates a new service. Does not attempt to connect to the eth1 node.
-    pub fn new(config: Config, log: Logger) -> Self {
+    pub fn new(config: Config, log: Logger, spec: ChainSpec) -> Self {
         Self {
             inner: Arc::new(Inner {
+                block_cache: <_>::default(),
                 deposit_cache: RwLock::new(DepositUpdater::new(
                     config.deposit_contract_deploy_block,
                 )),
                 config: RwLock::new(config),
-                ..Inner::default()
+                spec,
             }),
             log,
         }
