@@ -113,7 +113,8 @@ impl Eth1GenesisService {
         );
 
         loop {
-            let update_result = Eth1Service::update_deposit_cache(eth1_service.clone())
+            let update_result = eth1_service
+                .update_deposit_cache()
                 .await
                 .map_err(|e| format!("{:?}", e));
 
@@ -154,8 +155,7 @@ impl Eth1GenesisService {
             }
 
             // Download new eth1 blocks into the cache.
-            let blocks_imported = match Eth1Service::update_block_cache(eth1_service.clone()).await
-            {
+            let blocks_imported = match eth1_service.update_block_cache().await {
                 Ok(outcome) => {
                     debug!(
                         log,
