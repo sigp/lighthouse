@@ -283,7 +283,7 @@ impl<E: EthSpec> Environment<E> {
             executor: TaskExecutor {
                 exit: self.exit.clone(),
                 handle: self.runtime().handle().clone(),
-                log: self.log.new(o!("service" => service_name.clone())),
+                log: self.log.new(o!("service" => service_name)),
             },
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),

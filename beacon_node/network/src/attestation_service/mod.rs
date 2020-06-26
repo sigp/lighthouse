@@ -260,7 +260,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// verification, re-propagates and returns false.
     pub fn should_process_attestation(
         &mut self,
-        subnet: &SubnetId,
+        subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
         let exact_subnet = ExactSubnet {

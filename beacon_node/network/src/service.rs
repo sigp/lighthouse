@@ -294,7 +294,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 match message {
                                     // attestation information gets processed in the attestation service
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
-                                        let subnet = &subnet_and_attestation.0;
+                                        let subnet = subnet_and_attestation.0;
                                         let attestation = &subnet_and_attestation.1;
                                         // checks if we have an aggregator for the slot. If so, we process
                                         // the attestation

@@ -10,20 +10,8 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(
-    Derivative,
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-)]
-#[derivative(Hash(bound = "T: EthSpec"))]
+#[derive(Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
 pub struct AttesterSlashing<T: EthSpec> {
     pub attestation_1: IndexedAttestation<T>,

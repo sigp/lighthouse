@@ -482,6 +482,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
 
 /// Processes an unaggregrated attestation that was included in a list of attestations with the
 /// index `i`.
+#[allow(clippy::redundant_clone)] // false positives in this function.
 fn process_unaggregated_attestation<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     network_chan: NetworkChannel<T::EthSpec>,
@@ -549,6 +550,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
+#[allow(clippy::redundant_clone)] // false positives in this function.
 pub async fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
@@ -596,6 +598,7 @@ pub async fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
 
 /// Processes an aggregrated attestation that was included in a list of attestations with the index
 /// `i`.
+#[allow(clippy::redundant_clone)] // false positives in this function.
 fn process_aggregated_attestation<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     network_chan: NetworkChannel<T::EthSpec>,

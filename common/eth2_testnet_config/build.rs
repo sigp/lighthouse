@@ -10,12 +10,13 @@ const TESTNET_ID: &str = "altona";
 
 fn main() {
     if !base_dir().exists() {
-        std::fs::create_dir_all(base_dir()).expect(&format!("Unable to create {:?}", base_dir()));
+        std::fs::create_dir_all(base_dir())
+            .unwrap_or_else(|_| panic!("Unable to create {:?}", base_dir()));
 
         match get_all_files() {
             Ok(()) => (),
             Err(e) => {
-                std::fs::remove_dir_all(base_dir()).expect(&format!(
+                std::fs::remove_dir_all(base_dir()).unwrap_or_else(|_| panic!(
                     "{}. Failed to remove {:?}, please remove the directory manually because it may contains incomplete testnet data.",
                     e,
                     base_dir(),

@@ -190,7 +190,7 @@ fn dequeue_attestations(
         queued_attestations
             .iter()
             .position(|a| a.slot >= current_slot)
-            .unwrap_or(queued_attestations.len()),
+            .unwrap_or_else(|| queued_attestations.len()),
     );
 
     std::mem::replace(queued_attestations, remaining)
@@ -286,6 +286,7 @@ where
     /// Equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_ancestor
+    #[allow(clippy::if_same_then_else)]
     fn get_ancestor(
         &self,
         block_root: Hash256,

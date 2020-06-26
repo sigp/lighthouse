@@ -305,7 +305,6 @@ dependencies = [
  "slog-term",
  "store",
  "tokio 0.2.21",
- "toml",
  "types",
  "version",
 ]

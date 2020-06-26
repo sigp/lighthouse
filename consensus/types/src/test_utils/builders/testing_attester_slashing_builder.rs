@@ -47,11 +47,11 @@ impl TestingAttesterSlashingBuilder {
         };
 
         let data_2 = if test_task == AttesterSlashingTestTask::NotSlashable {
-            AttestationData { ..data_1.clone() }
+            data_1.clone()
         } else {
             AttestationData {
                 target: checkpoint_2,
-                ..data_1.clone()
+                ..data_1
             }
         };
 
