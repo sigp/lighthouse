@@ -6,6 +6,7 @@ use crate::{
 use parking_lot::RwLock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use types::ChainSpec;
 
 #[derive(Default)]
 pub struct DepositUpdater {
@@ -28,6 +29,7 @@ pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
     pub config: RwLock<Config>,
+    pub spec: ChainSpec,
 }
 
 impl Inner {
@@ -47,10 +49,15 @@ impl Inner {
     }
 
     /// Recover `Inner` given byte representation of eth1 deposit and block caches.
-    pub fn from_bytes(bytes: &[u8], config: Config) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8], config: Config, spec: ChainSpec) -> Result<Self, String> {
         let ssz_cache = SszEth1Cache::from_ssz_bytes(bytes)
             .map_err(|e| format!("Ssz decoding error: {:?}", e))?;
-        Ok(ssz_cache.to_inner(config)?)
+        Ok(ssz_cache.to_inner(config, spec)?)
+    }
+
+    /// Returns a reference to the specification.
+    pub fn spec(&self) -> &ChainSpec {
+        &self.spec
     }
 }
 
@@ -72,7 +79,7 @@ impl SszEth1Cache {
         }
     }
 
-    pub fn to_inner(&self, config: Config) -> Result<Inner, String> {
+    pub fn to_inner(&self, config: Config, spec: ChainSpec) -> Result<Inner, String> {
         Ok(Inner {
             block_cache: RwLock::new(self.block_cache.clone()),
             deposit_cache: RwLock::new(DepositUpdater {
@@ -80,6 +87,7 @@ impl SszEth1Cache {
                 last_processed_block: self.last_processed_block,
             }),
             config: RwLock::new(config),
+            spec,
         })
     }
 }

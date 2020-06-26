@@ -53,6 +53,7 @@ fn basic() {
                 ..Eth1Config::default()
             },
             log,
+            spec.clone(),
         );
 
         // NOTE: this test is sensitive to the response speed of the external web3 server. If
