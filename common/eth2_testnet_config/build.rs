@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TESTNET_ID: &str = "witti-v0-11-3";
+const TESTNET_ID: &str = "altona";
 
 fn main() {
     if !base_dir().exists() {
@@ -31,14 +31,16 @@ pub fn get_all_files() -> Result<(), String> {
     get_file("config.yaml")?;
     get_file("deploy_block.txt")?;
     get_file("deposit_contract.txt")?;
-    get_file("genesis.ssz")?;
+    // TODO: add once we know the genesis state for Altona.
+    //
+    // get_file("genesis.ssz")?;
 
     Ok(())
 }
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/sigp/witti/6d079b0f10f6bed75cd003e5f0ea5ecbe2044455/lighthouse/{}",
+        "https://raw.githubusercontent.com/sigp/witti/ff9ff43ba4f15fe50838d832daabd284ab1124df/altona/lighthouse/{}",
         filename
     );
 

@@ -23,14 +23,15 @@ pub const YAML_CONFIG_FILE: &str = "config.yaml";
 /// The name of the testnet to hardcode.
 ///
 /// Should be set to `None` when no existing testnet is compatible with the codebase.
-pub const HARDCODED_TESTNET: Option<&str> = None;
+pub const HARDCODED_TESTNET: Option<&str> = Some("altona");
 
-pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../witti-v0-11-3/config.yaml");
-pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../witti-v0-11-3/deploy_block.txt");
-pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] =
-    include_bytes!("../witti-v0-11-3/deposit_contract.txt");
-pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../witti-v0-11-3/genesis.ssz");
-pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../witti-v0-11-3/boot_enr.yaml");
+pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../altona/config.yaml");
+pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../altona/deploy_block.txt");
+pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../altona/deposit_contract.txt");
+// TODO: add once we know the genesis state for Altona.
+//
+// pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../altona/genesis.ssz");
+pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../altona/boot_enr.yaml");
 
 /// Specifies an Eth2 testnet.
 ///
@@ -61,10 +62,15 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
                     serde_yaml::from_reader(HARDCODED_BOOT_ENR)
                         .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
                 ),
+                genesis_state: None,
+                /*
+                 * TODO: add once we know the genesis state for Altona.
+                 *
                 genesis_state: Some(
                     BeaconState::from_ssz_bytes(HARDCODED_GENESIS_STATE)
                         .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
                 ),
+                 */
                 yaml_config: Some(
                     serde_yaml::from_reader(HARDCODED_YAML_CONFIG)
                         .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
@@ -221,7 +227,9 @@ mod tests {
             Eth2TestnetConfig::<E>::hard_coded().expect("should decode hard_coded params")
         {
             assert!(dir.boot_enr.is_some());
-            assert!(dir.genesis_state.is_some());
+            // TODO: add once we know the genesis state for Altona.
+            //
+            // assert!(dir.genesis_state.is_some());
             assert!(dir.yaml_config.is_some());
         }
     }
