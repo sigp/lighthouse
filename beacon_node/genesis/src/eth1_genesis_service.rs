@@ -299,7 +299,7 @@ impl Eth1GenesisService {
                     log,
                     "Insufficient valid signatures";
                     "genesis_delay" => spec.genesis_delay,
-                    "valid_siganture_count" => valid_signature_count,
+                    "valid_signature_count" => valid_signature_count,
                     "min_validator_count" => spec.min_genesis_active_validator_count,
                     "eth1_block_number" => block.number,
                 );
