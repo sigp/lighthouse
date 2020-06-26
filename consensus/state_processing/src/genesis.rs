@@ -52,9 +52,13 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 ///
 /// Spec v0.12.1
 pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
-    state.genesis_time >= spec.min_genesis_time
-        && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
-            >= spec.min_genesis_active_validator_count
+    let active_validators = state.get_active_validator_indices(T::genesis_epoch(), spec);
+    if active_validators.is_err() {
+        false
+    } else {
+        state.genesis_time >= spec.min_genesis_time
+            && active_validators.unwrap().len() as u64 >= spec.min_genesis_active_validator_count
+    }
 }
 
 /// Activate genesis validators, if their balance is acceptable.
