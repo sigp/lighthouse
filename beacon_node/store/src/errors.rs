@@ -1,7 +1,7 @@
 use crate::chunked_vector::ChunkError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
-use types::{BeaconStateError, Hash256};
+use types::{BeaconStateError, Hash256, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -16,6 +16,7 @@ pub enum Error {
     RlpError(String),
     BlockNotFound(Hash256),
     NoContinuationData,
+    SplitPointModified(Slot, Slot),
 }
 
 impl From<DecodeError> for Error {

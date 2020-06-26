@@ -51,6 +51,15 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
+    fn put_bytes_sync(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+        self.put_bytes(col, key, val)
+    }
+
+    fn sync(&self) -> Result<(), Error> {
+        // no-op
+        Ok(())
+    }
+
     /// Return true if some key exists in some column.
     fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
         let column_key = Self::get_key_for_col(col, key);

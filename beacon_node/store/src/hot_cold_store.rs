@@ -14,7 +14,7 @@ use crate::{
 };
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
-use slog::{debug, trace, warn, Logger};
+use slog::{debug, error, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -676,13 +676,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(split)
     }
 
-    /// Store the split point on disk.
-    fn store_split(&self) -> Result<(), Error> {
-        let key = Hash256::from_slice(SPLIT_DB_KEY.as_bytes());
-        self.hot_db.put(&key, &*self.split.read())?;
-        Ok(())
-    }
-
     /// Load the state root of a restore point.
     fn load_restore_point_hash(&self, restore_point_index: u64) -> Result<Hash256, Error> {
         let key = Self::restore_point_key(restore_point_index);
@@ -715,13 +708,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .cold_db
             .get(state_root)?
             .map(|s: ColdStateSummary| s.slot))
-    }
-
-    /// Store the slot of a frozen state.
-    fn store_cold_state_slot(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
-        self.cold_db
-            .put(state_root, &ColdStateSummary { slot })
-            .map_err(Into::into)
     }
 
     /// Load a hot state's summary, given its root.
@@ -778,7 +764,7 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // 0. Check that the migration is sensible.
     // The new frozen head must increase the current split slot, and lie on an epoch
     // boundary (in order for the hot state summary scheme to work).
-    let current_split_slot = store.get_split_slot();
+    let current_split_slot = store.split.read().slot;
 
     if frozen_head.slot < current_split_slot {
         return Err(HotColdDBError::FreezeSlotError {
@@ -792,44 +778,92 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot).into());
     }
 
+    let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
+
     // 1. Copy all of the states between the head and the split slot, from the hot DB
     // to the cold DB.
     let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
-
-    let mut to_delete = vec![];
     for maybe_pair in state_root_iter.take_while(|result| match result {
         Ok((_, slot)) => slot >= &current_split_slot,
         Err(_) => true,
     }) {
         let (state_root, slot) = maybe_pair?;
+
+        let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
+
         if slot % store.config.slots_per_restore_point == 0 {
             let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
                 .ok_or_else(|| HotColdDBError::MissingStateToFreeze(state_root))?;
 
-            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
-            store.store_cold_state(&state_root, &state, &mut ops)?;
-            store.cold_db.do_atomically(ops)?;
+            store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
         }
 
         // Store a pointer from this state root to its slot, so we can later reconstruct states
         // from their state root alone.
-        store.store_cold_state_slot(&state_root, slot)?;
+        let cold_state_summary = ColdStateSummary { slot };
+        let op = cold_state_summary.as_kv_store_op(state_root);
+        cold_db_ops.push(op);
+
+        // There are data dependencies between calls to `store_cold_state()` that prevent us from
+        // doing one big call to `store.cold_db.do_atomically()` at end of the loop.
+        store.cold_db.do_atomically(cold_db_ops)?;
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
-        to_delete.push((state_root, slot));
+        hot_db_ops.push(StoreOp::DeleteState(state_root.into(), slot));
     }
 
-    // 2. Update the split slot
-    *store.split.write() = Split {
-        slot: frozen_head.slot,
-        state_root: frozen_head_root,
-    };
-    store.store_split()?;
+    // Warning: Critical section.  We have to take care not to put any of the two databases in an
+    //          inconsistent state if the OS process dies at any point during the freezeing
+    //          procedure.
+    //
+    // Since it is pretty much impossible to be atomic across more than one database, we trade
+    // losing track of states to delete, for consistency.  In other words: We should be safe to die
+    // at any point below but it may happen that some states won't be deleted from the hot database
+    // and will remain there forever.  Since dying in these particular few lines should be an
+    // exceedingly rare event, this should be an acceptable tradeoff.
 
-    // 3. Delete from the hot DB
-    for (state_root, slot) in to_delete {
-        store.delete_state(&state_root, slot)?;
+    // Flush to disk all the states that have just been migrated to the cold store.
+    store.cold_db.sync()?;
+
+    {
+        let mut split_guard = store.split.write();
+        let latest_split_slot = split_guard.slot;
+
+        // Detect a sitation where the split point is (erroneously) changed from more than one
+        // place in code.
+        if latest_split_slot != current_split_slot {
+            error!(
+                store.log,
+                "Race condition detected: Split point changed while moving states to the freezer";
+                "previous split slot" => current_split_slot,
+                "current split slot" => latest_split_slot,
+            );
+
+            // Assume the freezing procedure will be retried in case this happens.
+            return Err(Error::SplitPointModified(
+                current_split_slot,
+                latest_split_slot,
+            ));
+        }
+
+        // Before updating the in-memory split value, we flush it to disk first, so that should the
+        // OS process die at this point, we pick up from the right place after a restart.
+        let split = Split {
+            slot: frozen_head.slot,
+            state_root: frozen_head_root,
+        };
+        store
+            .hot_db
+            .put_sync(&Hash256::from_slice(SPLIT_DB_KEY.as_bytes()), &split)?;
+
+        // Split point is now persisted in the hot database on disk.  The in-memory split point
+        // hasn't been modified elsewhere since we keep a write lock on it.  It's safe to update
+        // the in-memory split point now.
+        *split_guard = split;
     }
+
+    // Delete the states from the hot database if we got this far.
+    store.do_atomically(hot_db_ops)?;
 
     debug!(
         store.log,
@@ -842,7 +876,7 @@ pub fn process_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
 /// Struct for storing the split slot and state root in the database.
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
-struct Split {
+pub struct Split {
     slot: Slot,
     state_root: Hash256,
 }
