@@ -2,6 +2,7 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
+use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::GossipKind, NetworkGlobals};
 use futures::prelude::*;
@@ -191,6 +192,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
         for subscription in subscriptions {
+            metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
             // Registers the validator with the attestation service.
@@ -237,6 +239,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // TODO: Implement
 
             if subscription.is_aggregator {
+                metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
                 // set the subscription timer to subscribe to the next subnet if required
                 if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
                     warn!(self.log,
