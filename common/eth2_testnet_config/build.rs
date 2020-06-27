@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TESTNET_ID: &str = "altona";
+const TESTNET_ID: &str = "altona-v2";
 
 fn main() {
     if !base_dir().exists() {
@@ -32,16 +32,14 @@ pub fn get_all_files() -> Result<(), String> {
     get_file("config.yaml")?;
     get_file("deploy_block.txt")?;
     get_file("deposit_contract.txt")?;
-    // TODO: add once we know the genesis state for Altona.
-    //
-    // get_file("genesis.ssz")?;
+    get_file("genesis.ssz")?;
 
     Ok(())
 }
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/sigp/witti/a48ea2d68a87db93aa7fd482461418496ed4347d/altona/lighthouse/{}",
+        "https://raw.githubusercontent.com/sigp/witti/2bab01c2c18aea9f571e79d646acfd34704cbfde/altona/lighthouse/{}",
         filename
     );
 
