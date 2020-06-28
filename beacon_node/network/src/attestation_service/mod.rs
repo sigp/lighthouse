@@ -131,6 +131,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// This is a set of validator indices.
     known_validators: HashSetDelay<u64>,
 
+    /// The waker for the current thread.
+    waker: Option<std::task::Waker>,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -171,6 +174,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
             known_validators: HashSetDelay::new(last_seen_val_timeout),
+            waker: None,
             log,
         }
     }
@@ -255,6 +259,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     );
                 }
             }
+        }
+
+        // pre-emptively wake the thread to check for new events
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
         }
         Ok(())
     }
@@ -713,6 +722,15 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
     type Item = AttServiceMessage;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // update the waker if needed
+        if let Some(waker) = &self.waker {
+            if waker.will_wake(cx.waker()) {
+                self.waker = Some(cx.waker().clone());
+            }
+        } else {
+            self.waker = Some(cx.waker().clone());
+        }
+
         // process any peer discovery events
         match self.discover_peers.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_discover_peers(exact_subnet),
