@@ -7,15 +7,11 @@ use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals};
 use futures::prelude::*;
 use libp2p::core::{
-    identity::Keypair,
-    multiaddr::Multiaddr,
-    muxing::StreamMuxerBox,
-    transport::boxed::Boxed,
-    upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::boxed::Boxed,
     ConnectedPoint,
 };
 use libp2p::{
-    core, noise, secio,
+    core, noise,
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
@@ -118,7 +114,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
         let mut swarm = {
-            // Set up the transport - tcp/ws with noise/secio and mplex/yamux
+            // Set up the transport - tcp/ws with noise and yamux/mplex
             let transport = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
@@ -369,8 +365,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 }
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption
-/// layer, and mplex or yamux as the multiplexing layer.
+/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
+/// yamux or mplex as the multiplexing layer.
 fn build_transport(
     local_private_key: Keypair,
 ) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
@@ -382,47 +378,18 @@ fn build_transport(
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
     // Authentication
-    let transport = transport
-        .and_then(move |stream, endpoint| {
-            let upgrade = core::upgrade::SelectUpgrade::new(
-                generate_noise_config(&local_private_key),
-                secio::SecioConfig::new(local_private_key),
-            );
-            core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1).and_then(
-                |out| async move {
-                    match out {
-                        // Noise was negotiated
-                        core::either::EitherOutput::First((remote_id, out)) => {
-                            Ok((core::either::EitherOutput::First(out), remote_id))
-                        }
-                        // Secio was negotiated
-                        core::either::EitherOutput::Second((remote_id, out)) => {
-                            Ok((core::either::EitherOutput::Second(out), remote_id))
-                        }
-                    }
-                },
-            )
-        })
-        .timeout(Duration::from_secs(20));
-
-    // Multiplexing
-    let transport = transport
-        .and_then(move |(stream, peer_id), endpoint| {
-            let peer_id2 = peer_id.clone();
-            let upgrade = core::upgrade::SelectUpgrade::new(
-                libp2p::yamux::Config::default(),
-                libp2p::mplex::MplexConfig::new(),
-            )
-            .map_inbound(move |muxer| (peer_id, muxer))
-            .map_outbound(move |muxer| (peer_id2, muxer));
-
-            core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1)
-                .map_ok(|(id, muxer)| (id, core::muxing::StreamMuxerBox::new(muxer)))
-        })
+    Ok(transport
+        .upgrade(core::upgrade::Version::V1)
+        .authenticate(generate_noise_config(&local_private_key))
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            libp2p::yamux::Config::default(),
+            libp2p::mplex::MplexConfig::new(),
+        ))
+        .map(|(peer, muxer), _| (peer, core::muxing::StreamMuxerBox::new(muxer)))
+        .timeout(Duration::from_secs(20))
         .timeout(Duration::from_secs(20))
         .map_err(|err| Error::new(ErrorKind::Other, err))
-        .boxed();
-    Ok(transport)
+        .boxed())
 }
 
 // Useful helper functions for debugging. Currently not used in the client.

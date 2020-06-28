@@ -2,7 +2,7 @@ mod ffg_updates;
 mod no_votes;
 mod votes;
 
-use crate::proto_array_fork_choice::ProtoArrayForkChoice;
+use crate::proto_array_fork_choice::{Block, ProtoArrayForkChoice};
 use serde_derive::{Deserialize, Serialize};
 use types::{Epoch, Hash256, Slot};
 
@@ -55,7 +55,7 @@ pub struct ForkChoiceTestDefinition {
 
 impl ForkChoiceTestDefinition {
     pub fn run(self) {
-        let fork_choice = ProtoArrayForkChoice::new(
+        let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
             self.justified_epoch,
@@ -119,18 +119,21 @@ impl ForkChoiceTestDefinition {
                     justified_epoch,
                     finalized_epoch,
                 } => {
-                    fork_choice
-                        .process_block(
-                            slot,
-                            root,
-                            parent_root,
-                            Hash256::zero(),
-                            justified_epoch,
-                            finalized_epoch,
+                    let block = Block {
+                        slot,
+                        root,
+                        parent_root: Some(parent_root),
+                        state_root: Hash256::zero(),
+                        target_root: Hash256::zero(),
+                        justified_epoch,
+                        finalized_epoch,
+                    };
+                    fork_choice.process_block(block).unwrap_or_else(|e| {
+                        panic!(
+                            "process_block op at index {} returned error: {:?}",
+                            op_index, e
                         )
-                        .unwrap_or_else(|_| {
-                            panic!("process_block op at index {} returned error", op_index)
-                        });
+                    });
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProcessAttestation {

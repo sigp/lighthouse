@@ -1,6 +1,6 @@
 use crate::{
     test_utils::TestRandom, BeaconBlock, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
-    SignedRoot, SigningRoot, Slot,
+    SignedRoot, SigningData, Slot,
 };
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "E: EthSpec")]
@@ -69,7 +69,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         );
 
         let message = if let Some(object_root) = object_root_opt {
-            SigningRoot {
+            SigningData {
                 object_root,
                 domain,
             }
@@ -98,7 +98,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
 
     /// Returns the `tree_hash_root` of the block.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.message.tree_hash_root()[..])
     }

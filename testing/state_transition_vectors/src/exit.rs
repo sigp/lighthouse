@@ -7,8 +7,8 @@ use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
-// Epoch that the state will be transitioned to by default, equal to PERSISTENT_COMMITTEE_PERIOD.
-pub const STATE_EPOCH: Epoch = Epoch::new(2048);
+// Epoch that the state will be transitioned to by default, equal to SHARD_COMMITTEE_PERIOD.
+pub const STATE_EPOCH: Epoch = Epoch::new(256);
 
 struct ExitTest {
     validator_index: u64,
@@ -62,7 +62,7 @@ impl ExitTest {
     fn run(self) -> BeaconState<E> {
         let spec = &E::default_spec();
         let expected = self.expected.clone();
-        assert_eq!(STATE_EPOCH, spec.persistent_committee_period);
+        assert_eq!(STATE_EPOCH, spec.shard_committee_period);
 
         let (block, mut state) = self.block_and_pre_state();
 
@@ -121,7 +121,7 @@ vectors_and_tests!(
     },
     // Tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // validator = state.validators[voluntary_exit.validator_index]
@@ -139,7 +139,7 @@ vectors_and_tests!(
     },
     // Tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // # Verify exit has not been initiated
@@ -159,7 +159,7 @@ vectors_and_tests!(
     },
     // Tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // # Verify the validator is active
@@ -179,7 +179,7 @@ vectors_and_tests!(
     },
     // Also tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // # Verify the validator is active
@@ -211,7 +211,7 @@ vectors_and_tests!(
     },
     // Tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // # Exits must specify an epoch when they become valid; they are not
@@ -232,7 +232,7 @@ vectors_and_tests!(
     },
     // Tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // # Verify the validator has been active long enough
@@ -253,7 +253,7 @@ vectors_and_tests!(
     },
     // Also tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // # Verify the validator has been active long enough
@@ -274,7 +274,7 @@ vectors_and_tests!(
     },
     // Tests the following line of the spec:
     //
-    // v0.11.2
+    // Spec v0.12.1
     //
     // ```ignore
     // # Verify signature

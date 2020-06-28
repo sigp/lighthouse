@@ -9,11 +9,14 @@ use crate::rpc::{
         InboundCodec, OutboundCodec,
     },
     methods::ResponseTermination,
+    MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::Ready;
 use futures::prelude::*;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
+use ssz::Encode;
+use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -23,7 +26,38 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use types::EthSpec;
+use types::{BeaconBlock, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock};
+
+lazy_static! {
+    // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
+    // same across different `EthSpec` implementations.
+    pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec> {
+        message: BeaconBlock::empty(&MainnetEthSpec::default_spec()),
+        signature: Signature::empty_signature(),
+    }
+    .as_ssz_bytes()
+    .len();
+    pub static ref SIGNED_BEACON_BLOCK_MAX: usize = SignedBeaconBlock::<MainnetEthSpec> {
+        message: BeaconBlock::full(&MainnetEthSpec::default_spec()),
+        signature: Signature::empty_signature(),
+    }
+    .as_ssz_bytes()
+    .len();
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize = BlocksByRootRequest {
+        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
+    }
+    .as_ssz_bytes()
+    .len();
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize = BlocksByRootRequest {
+        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(vec![
+            Hash256::zero();
+            MAX_REQUEST_BLOCKS
+                as usize
+        ])
+    }
+    .as_ssz_bytes()
+    .len();
+}
 
 /// The maximum bytes that can be sent across the RPC.
 const MAX_RPC_SIZE: usize = 1_048_576; // 1M

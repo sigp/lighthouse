@@ -1,5 +1,5 @@
+use crate::beacon_chain::ForkChoiceError;
 use crate::eth1_chain::Error as Eth1ChainError;
-use crate::fork_choice::Error as ForkChoiceError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_attestations::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
@@ -10,8 +10,12 @@ use ssz::DecodeError;
 use ssz_types::Error as SszTypesError;
 use state_processing::{
     block_signature_verifier::Error as BlockSignatureVerifierError,
-    per_block_processing::errors::AttestationValidationError,
-    signature_sets::Error as SignatureSetError, BlockProcessingError, SlotProcessingError,
+    per_block_processing::errors::{
+        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
+    },
+    signature_sets::Error as SignatureSetError,
+    BlockProcessingError, SlotProcessingError,
 };
 use std::time::Duration;
 use types::*;
@@ -50,6 +54,9 @@ pub enum BeaconChainError {
     },
     CannotAttestToFutureState,
     AttestationValidationError(AttestationValidationError),
+    ExitValidationError(ExitValidationError),
+    ProposerSlashingValidationError(ProposerSlashingValidationError),
+    AttesterSlashingValidationError(AttesterSlashingValidationError),
     StateSkipTooLarge {
         start_slot: Slot,
         requested_slot: Slot,
@@ -78,6 +85,9 @@ pub enum BeaconChainError {
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
+easy_from_to!(ExitValidationError, BeaconChainError);
+easy_from_to!(ProposerSlashingValidationError, BeaconChainError);
+easy_from_to!(AttesterSlashingValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
 easy_from_to!(OpPoolError, BeaconChainError);
 easy_from_to!(NaiveAggregationError, BeaconChainError);

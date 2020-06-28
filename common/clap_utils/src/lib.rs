@@ -20,10 +20,11 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 pub fn parse_testnet_dir_with_hardcoded_default<E: EthSpec>(
     matches: &ArgMatches,
     name: &'static str,
-) -> Result<Eth2TestnetConfig<E>, String> {
+) -> Result<Option<Eth2TestnetConfig<E>>, String> {
     if let Some(path) = parse_optional::<PathBuf>(matches, name)? {
         Eth2TestnetConfig::load(path.clone())
             .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
+            .map(Some)
     } else {
         Eth2TestnetConfig::hard_coded()
             .map_err(|e| format!("{} Error : {}", BAD_TESTNET_DIR_MESSAGE, e))

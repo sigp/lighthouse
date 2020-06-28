@@ -23,7 +23,7 @@
 //!              -------------------------------------
 //!                                |
 //!                                ▼
-//!                  ForkChoiceVerifiedAttestation
+//!                  impl SignatureVerifiedAttestation
 //! ```
 
 use crate::{
@@ -52,7 +52,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
-    RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot,
+    RelativeEpoch, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 
 /// Returned when an attestation was not successfully verified. It might not have been verified for
@@ -123,6 +123,11 @@ pub enum Error {
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     AttestsToFutureBlock { block: Slot, attestation: Slot },
+    /// The attestation was received on an invalid attestation subnet.
+    InvalidSubnetId {
+        received: SubnetId,
+        expected: SubnetId,
+    },
     /// The attestation failed the `state_processing` verification stage.
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
@@ -158,65 +163,21 @@ impl<T: BeaconChainTypes> Clone for VerifiedUnaggregatedAttestation<T> {
     }
 }
 
-/// Wraps an `indexed_attestation` that is valid for application to fork choice. The
-/// `indexed_attestation` will have been generated via the `VerifiedAggregatedAttestation` or
-/// `VerifiedUnaggregatedAttestation` wrappers.
-pub struct ForkChoiceVerifiedAttestation<'a, T: BeaconChainTypes> {
-    indexed_attestation: &'a IndexedAttestation<T::EthSpec>,
-}
-
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
-pub trait IntoForkChoiceVerifiedAttestation<'a, T: BeaconChainTypes> {
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<'a, T>, Error>;
+pub trait SignatureVerifiedAttestation<T: BeaconChainTypes> {
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
 }
 
-impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
-    for VerifiedAggregatedAttestation<T>
-{
-    /// Progresses the `VerifiedAggregatedAttestation` to a stage where it is valid for application
-    /// to the fork-choice rule (or not).
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            &self.indexed_attestation,
-            chain,
-        )
+impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedAggregatedAttestation<T> {
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
     }
 }
 
-impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
-    for VerifiedUnaggregatedAttestation<T>
-{
-    /// Progresses the `Attestation` to a stage where it is valid for application to the
-    /// fork-choice rule (or not).
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        ForkChoiceVerifiedAttestation::from_signature_verified_components(
-            &self.indexed_attestation,
-            chain,
-        )
-    }
-}
-
-impl<'a, T: BeaconChainTypes> IntoForkChoiceVerifiedAttestation<'a, T>
-    for ForkChoiceVerifiedAttestation<'a, T>
-{
-    /// Simply returns itself.
-    fn into_fork_choice_verified_attestation(
-        &'a self,
-        _: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        Ok(Self {
-            indexed_attestation: self.indexed_attestation,
-        })
+impl<T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedUnaggregatedAttestation<T> {
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
     }
 }
 
@@ -235,12 +196,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         // We do not queue future attestations for later processing.
         verify_propagation_slot_range(chain, attestation)?;
 
-        // Ensure the aggregated attestation has not already been seen locally.
-        //
-        // TODO: this part of the code is not technically to spec, however I have raised a PR to
-        // change it:
-        //
-        // https://github.com/ethereum/eth2.0-specs/pull/1749
+        // Ensure the valid aggregated attestation has not already been seen locally.
         let attestation_root = attestation.tree_hash_root();
         if chain
             .observed_attestations
@@ -278,56 +234,36 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         // attestation and do not delay consideration for later.
         verify_head_block_is_known(chain, &attestation)?;
 
-        let indexed_attestation = map_attestation_committee(chain, attestation, |committee| {
-            // Note: this clones the signature which is known to be a relatively slow operation.
-            //
-            // Future optimizations should remove this clone.
-            let selection_proof =
-                SelectionProof::from(signed_aggregate.message.selection_proof.clone());
-
-            if !selection_proof
-                .is_aggregator(committee.committee.len(), &chain.spec)
-                .map_err(|e| Error::BeaconChainError(e.into()))?
-            {
-                return Err(Error::InvalidSelectionProof { aggregator_index });
-            }
-
-            /*
-             * I have raised a PR that will likely get merged in v0.12.0:
-             *
-             * https://github.com/ethereum/eth2.0-specs/pull/1732
-             *
-             * If this PR gets merged, uncomment this code and remove the code below.
-             *
-            if !committee
-                .committee
-                .iter()
-                .any(|validator_index| *validator_index as u64 == aggregator_index)
-            {
-                return Err(Error::AggregatorNotInCommittee { aggregator_index });
-            }
-            */
-
-            get_indexed_attestation(committee.committee, &attestation)
-                .map_err(|e| BeaconChainError::from(e).into())
-        })?;
-
-        // Ensure the aggregator is in the attestation.
-        //
-        // I've raised an issue with this here:
-        //
-        // https://github.com/ethereum/eth2.0-specs/pull/1732
-        //
-        // I suspect PR my will get merged in v0.12 and we'll need to delete this code and
-        // uncomment the code above.
-        if !indexed_attestation
-            .attesting_indices
-            .iter()
-            .any(|validator_index| *validator_index as u64 == aggregator_index)
-        {
-            return Err(Error::AggregatorNotInCommittee { aggregator_index });
+        // Ensure that the attestation has participants.
+        if attestation.aggregation_bits.is_zero() {
+            return Err(Error::EmptyAggregationBitfield);
         }
 
+        let indexed_attestation =
+            map_attestation_committee(chain, attestation, |(committee, _)| {
+                // Note: this clones the signature which is known to be a relatively slow operation.
+                //
+                // Future optimizations should remove this clone.
+                let selection_proof =
+                    SelectionProof::from(signed_aggregate.message.selection_proof.clone());
+
+                if !selection_proof
+                    .is_aggregator(committee.committee.len(), &chain.spec)
+                    .map_err(|e| Error::BeaconChainError(e.into()))?
+                {
+                    return Err(Error::InvalidSelectionProof { aggregator_index });
+                }
+
+                // Ensure the aggregator is a member of the committee for which it is aggregating.
+                if !committee.committee.contains(&(aggregator_index as usize)) {
+                    return Err(Error::AggregatorNotInCommittee { aggregator_index });
+                }
+
+                get_indexed_attestation(committee.committee, &attestation)
+                    .map_err(|e| BeaconChainError::from(e).into())
+            })?;
+
+        // Ensure that all signatures are valid.
         if !verify_signed_aggregate_signatures(chain, &signed_aggregate, &indexed_attestation)? {
             return Err(Error::InvalidSignature);
         }
@@ -370,14 +306,6 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         chain.add_to_block_inclusion_pool(self)
     }
 
-    /// A helper function to add this aggregate to `beacon_chain.fork_choice`.
-    pub fn add_to_fork_choice(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<ForkChoiceVerifiedAttestation<T>, Error> {
-        chain.apply_attestation_to_fork_choice(self)
-    }
-
     /// Returns the underlying `attestation` for the `signed_aggregate`.
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
@@ -387,8 +315,12 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     /// Returns `Ok(Self)` if the `attestation` is valid to be (re)published on the gossip
     /// network.
+    ///
+    /// `subnet_id` is the subnet from which we received this attestation. This function will
+    /// verify that it was received on the correct subnet.
     pub fn verify(
         attestation: Attestation<T::EthSpec>,
+        subnet_id: SubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // Ensure attestation is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
@@ -408,7 +340,23 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         // attestation and do not delay consideration for later.
         verify_head_block_is_known(chain, &attestation)?;
 
-        let indexed_attestation = obtain_indexed_attestation(chain, &attestation)?;
+        let (indexed_attestation, committees_per_slot) =
+            obtain_indexed_attestation_and_committees_per_slot(chain, &attestation)?;
+
+        let expected_subnet_id = SubnetId::compute_subnet_for_attestation_data::<T::EthSpec>(
+            &indexed_attestation.data,
+            committees_per_slot,
+            &chain.spec,
+        )
+        .map_err(BeaconChainError::from)?;
+
+        // Ensure the attestation is from the correct subnet.
+        if subnet_id != expected_subnet_id {
+            return Err(Error::InvalidSubnetId {
+                received: subnet_id,
+                expected: expected_subnet_id,
+            });
+        }
 
         let validator_index = *indexed_attestation
             .attesting_indices
@@ -475,114 +423,6 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     }
 }
 
-impl<'a, T: BeaconChainTypes> ForkChoiceVerifiedAttestation<'a, T> {
-    /// Returns `Ok(Self)` if the `attestation` is valid to be applied to the beacon chain fork
-    /// choice.
-    ///
-    /// The supplied `indexed_attestation` MUST have a valid signature, this function WILL NOT
-    /// CHECK THE SIGNATURE. Use the `VerifiedAggregatedAttestation` or
-    /// `VerifiedUnaggregatedAttestation` structs to do signature verification.
-    fn from_signature_verified_components(
-        indexed_attestation: &'a IndexedAttestation<T::EthSpec>,
-        chain: &BeaconChain<T>,
-    ) -> Result<Self, Error> {
-        // There is no point in processing an attestation with an empty bitfield. Reject
-        // it immediately.
-        //
-        // This is not in the specification, however it should be transparent to other nodes. We
-        // return early here to avoid wasting precious resources verifying the rest of it.
-        if indexed_attestation.attesting_indices.len() == 0 {
-            return Err(Error::EmptyAggregationBitfield);
-        }
-
-        let slot_now = chain.slot()?;
-        let epoch_now = slot_now.epoch(T::EthSpec::slots_per_epoch());
-        let target = indexed_attestation.data.target.clone();
-
-        // Attestation must be from the current or previous epoch.
-        if target.epoch > epoch_now {
-            return Err(Error::FutureEpoch {
-                attestation_epoch: target.epoch,
-                current_epoch: epoch_now,
-            });
-        } else if target.epoch + 1 < epoch_now {
-            return Err(Error::PastEpoch {
-                attestation_epoch: target.epoch,
-                current_epoch: epoch_now,
-            });
-        }
-
-        if target.epoch
-            != indexed_attestation
-                .data
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch())
-        {
-            return Err(Error::BadTargetEpoch);
-        }
-
-        // Attestation target must be for a known block.
-        if !chain.fork_choice.contains_block(&target.root) {
-            return Err(Error::UnknownTargetRoot(target.root));
-        }
-
-        // TODO: we're not testing an assert from the spec:
-        //
-        // `assert get_current_slot(store) >= compute_start_slot_at_epoch(target.epoch)`
-        //
-        // I think this check is redundant and I've raised an issue here:
-        //
-        // https://github.com/ethereum/eth2.0-specs/pull/1755
-        //
-        // To resolve this todo, observe the outcome of the above PR.
-
-        // Load the slot and state root for `attestation.data.beacon_block_root`.
-        //
-        // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
-        // choice. Any known, non-finalized block should be in fork choice, so this check
-        // immediately filters out attestations that attest to a block that has not been processed.
-        //
-        // Attestations must be for a known block. If the block is unknown, we simply drop the
-        // attestation and do not delay consideration for later.
-        let (block_slot, _state_root) = chain
-            .fork_choice
-            .block_slot_and_state_root(&indexed_attestation.data.beacon_block_root)
-            .ok_or_else(|| Error::UnknownHeadBlock {
-                beacon_block_root: indexed_attestation.data.beacon_block_root,
-            })?;
-
-        // TODO: currently we do not check the FFG source/target. This is what the spec dictates
-        // but it seems wrong.
-        //
-        // I have opened an issue on the specs repo for this:
-        //
-        // https://github.com/ethereum/eth2.0-specs/issues/1636
-        //
-        // We should revisit this code once that issue has been resolved.
-
-        // Attestations must not be for blocks in the future. If this is the case, the attestation
-        // should not be considered.
-        if block_slot > indexed_attestation.data.slot {
-            return Err(Error::AttestsToFutureBlock {
-                block: block_slot,
-                attestation: indexed_attestation.data.slot,
-            });
-        }
-
-        // Note: we're not checking the "attestations can only affect the fork choice of subsequent
-        // slots" part of the spec, we do this upstream.
-
-        Ok(Self {
-            indexed_attestation,
-        })
-    }
-
-    /// Returns the wrapped `IndexedAttestation`.
-    pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
-        &self.indexed_attestation
-    }
-}
-
 /// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
 ///
 /// The block root may not be known for two reasons:
@@ -599,6 +439,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     if chain
         .fork_choice
+        .read()
         .contains_block(&attestation.data.beacon_block_root)
     {
         Ok(())
@@ -691,8 +532,8 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
 /// includes three signatures:
 ///
 /// - `signed_aggregate.signature`
-/// - `signed_aggregate.signature.message.selection proof`
-/// - `signed_aggregate.signature.message.aggregate.signature`
+/// - `signed_aggregate.message.selection_proof`
+/// - `signed_aggregate.message.aggregate.signature`
 ///
 /// # Returns
 ///
@@ -751,19 +592,23 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     Ok(verify_signature_sets(signature_sets))
 }
 
-/// Returns the `indexed_attestation` for the `attestation` using the public keys cached in the
-/// `chain`.
-pub fn obtain_indexed_attestation<T: BeaconChainTypes>(
+/// Assists in readability.
+type CommitteesPerSlot = u64;
+
+/// Returns the `indexed_attestation` and committee count per slot for the `attestation` using the
+/// public keys cached in the `chain`.
+pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
-) -> Result<IndexedAttestation<T::EthSpec>, Error> {
-    map_attestation_committee(chain, attestation, |committee| {
+) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
+    map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
         get_indexed_attestation(committee.committee, &attestation)
+            .map(|attestation| (attestation, committees_per_slot))
             .map_err(|e| BeaconChainError::from(e).into())
     })
 }
 
-/// Runs the `map_fn` with the committee for the given `attestation`.
+/// Runs the `map_fn` with the committee and committee count per slot for the given `attestation`.
 ///
 /// This function exists in this odd "map" pattern because efficiently obtaining the committee for
 /// an attestation can be complex. It might involve reading straight from the
@@ -779,7 +624,7 @@ pub fn map_attestation_committee<'a, T, F, R>(
 ) -> Result<R, Error>
 where
     T: BeaconChainTypes,
-    F: Fn(BeaconCommittee) -> Result<R, Error>,
+    F: Fn((BeaconCommittee, CommitteesPerSlot)) -> Result<R, Error>,
 {
     let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
     let target = &attestation.data.target;
@@ -791,9 +636,10 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    let (target_block_slot, target_block_state_root) = chain
+    let target_block = chain
         .fork_choice
-        .block_slot_and_state_root(&target.root)
+        .read()
+        .get_block(&target.root)
         .ok_or_else(|| Error::UnknownTargetRoot(target.root))?;
 
     // Obtain the shuffling cache, timing how long we wait.
@@ -808,9 +654,10 @@ where
     metrics::stop_timer(cache_wait_timer);
 
     if let Some(committee_cache) = shuffling_cache.get(attestation_epoch, target.root) {
+        let committees_per_slot = committee_cache.committees_per_slot();
         committee_cache
             .get_beacon_committee(attestation.data.slot, attestation.data.index)
-            .map(map_fn)
+            .map(|committee| map_fn((committee, committees_per_slot)))
             .unwrap_or_else(|| {
                 Err(Error::NoCommitteeForSlotAndIndex {
                     slot: attestation.data.slot,
@@ -826,15 +673,15 @@ where
             chain.log,
             "Attestation processing cache miss";
             "attn_epoch" => attestation_epoch.as_u64(),
-            "target_block_epoch" => target_block_slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
+            "target_block_epoch" => target_block.slot.epoch(T::EthSpec::slots_per_epoch()).as_u64(),
         );
 
         let state_read_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
         let mut state = chain
-            .get_state(&target_block_state_root, Some(target_block_slot))?
-            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block_state_root))?;
+            .get_state(&target_block.state_root, Some(target_block.slot))?
+            .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block.state_root))?;
 
         metrics::stop_timer(state_read_timer);
         let state_skip_timer =
@@ -873,9 +720,10 @@ where
 
         metrics::stop_timer(committee_building_timer);
 
+        let committees_per_slot = committee_cache.committees_per_slot();
         committee_cache
             .get_beacon_committee(attestation.data.slot, attestation.data.index)
-            .map(map_fn)
+            .map(|committee| map_fn((committee, committees_per_slot)))
             .unwrap_or_else(|| {
                 Err(Error::NoCommitteeForSlotAndIndex {
                     slot: attestation.data.slot,

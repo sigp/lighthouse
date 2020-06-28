@@ -40,7 +40,7 @@ libp2p-tcp = { version = "0.19.1", default-features = false, features = ["tokio"
 [dependencies.libp2p]
 version = "0.19.1"
 default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "secio", "gossipsub", "dns"]
+features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns"]
 
 
 [dev-dependencies]

@@ -30,6 +30,7 @@ impl RangeSyncType {
         if remote_info.finalized_epoch > local_info.finalized_epoch
             && !chain
                 .fork_choice
+                .read()
                 .contains_block(&remote_info.finalized_root)
         {
             RangeSyncType::Finalized

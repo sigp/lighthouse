@@ -9,7 +9,7 @@ use std::boxed::Box;
 use types::SubnetId;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, VoluntaryExit,
+    SignedBeaconBlock, SignedVoluntaryExit,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,7 +21,7 @@ pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
     Attestation(Box<(SubnetId, Attestation<T>)>),
     /// Gossipsub message providing notification of a voluntary exit.
-    VoluntaryExit(Box<VoluntaryExit>),
+    VoluntaryExit(Box<SignedVoluntaryExit>),
     /// Gossipsub message providing notification of a new proposer slashing.
     ProposerSlashing(Box<ProposerSlashing>),
     /// Gossipsub message providing notification of a new attester slashing.
@@ -41,7 +41,7 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
-                GossipKind::CommitteeIndex(attestation_data.0)
+                GossipKind::Attestation(attestation_data.0)
             }
             PubsubMessage::VoluntaryExit(_) => GossipKind::VoluntaryExit,
             PubsubMessage::ProposerSlashing(_) => GossipKind::ProposerSlashing,
@@ -68,41 +68,37 @@ impl<T: EthSpec> PubsubMessage<T> {
                     continue;
                 }
                 Ok(gossip_topic) => {
-                    let mut decompressed_data: Vec<u8> = Vec::new();
-                    let data = match gossip_topic.encoding() {
-                        // group each part by encoding type
+                    let ref decompressed_data = match gossip_topic.encoding() {
                         GossipEncoding::SSZSnappy => {
+                            // Exit early if uncompressed data is > GOSSIP_MAX_SIZE
                             match decompress_len(data) {
                                 Ok(n) if n > GOSSIP_MAX_SIZE => {
                                     return Err("ssz_snappy decoded data > GOSSIP_MAX_SIZE".into());
                                 }
-                                Ok(n) => decompressed_data.resize(n, 0),
+                                Ok(_) => {}
                                 Err(e) => {
                                     return Err(format!("{}", e));
                                 }
                             };
                             let mut decoder = Decoder::new();
-                            match decoder.decompress(data, &mut decompressed_data) {
-                                Ok(n) => {
-                                    decompressed_data.truncate(n);
-                                    &decompressed_data
-                                }
+                            match decoder.decompress_vec(data) {
+                                Ok(decompressed_data) => decompressed_data,
                                 Err(e) => return Err(format!("{}", e)),
                             }
                         }
-                        GossipEncoding::SSZ => data,
                     };
                     // the ssz decoders
                     match gossip_topic.kind() {
                         GossipKind::BeaconAggregateAndProof => {
-                            let agg_and_proof = SignedAggregateAndProof::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                            let agg_and_proof =
+                                SignedAggregateAndProof::from_ssz_bytes(decompressed_data)
+                                    .map_err(|e| format!("{:?}", e))?;
                             return Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                 agg_and_proof,
                             )));
                         }
-                        GossipKind::CommitteeIndex(subnet_id) => {
-                            let attestation = Attestation::from_ssz_bytes(data)
+                        GossipKind::Attestation(subnet_id) => {
+                            let attestation = Attestation::from_ssz_bytes(decompressed_data)
                                 .map_err(|e| format!("{:?}", e))?;
                             return Ok(PubsubMessage::Attestation(Box::new((
                                 *subnet_id,
@@ -110,25 +106,28 @@ impl<T: EthSpec> PubsubMessage<T> {
                             ))));
                         }
                         GossipKind::BeaconBlock => {
-                            let beacon_block = SignedBeaconBlock::from_ssz_bytes(data)
+                            let beacon_block = SignedBeaconBlock::from_ssz_bytes(decompressed_data)
                                 .map_err(|e| format!("{:?}", e))?;
                             return Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)));
                         }
                         GossipKind::VoluntaryExit => {
-                            let voluntary_exit = VoluntaryExit::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                            let voluntary_exit =
+                                SignedVoluntaryExit::from_ssz_bytes(decompressed_data)
+                                    .map_err(|e| format!("{:?}", e))?;
                             return Ok(PubsubMessage::VoluntaryExit(Box::new(voluntary_exit)));
                         }
                         GossipKind::ProposerSlashing => {
-                            let proposer_slashing = ProposerSlashing::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                            let proposer_slashing =
+                                ProposerSlashing::from_ssz_bytes(decompressed_data)
+                                    .map_err(|e| format!("{:?}", e))?;
                             return Ok(PubsubMessage::ProposerSlashing(Box::new(
                                 proposer_slashing,
                             )));
                         }
                         GossipKind::AttesterSlashing => {
-                            let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                            let attester_slashing =
+                                AttesterSlashing::from_ssz_bytes(decompressed_data)
+                                    .map_err(|e| format!("{:?}", e))?;
                             return Ok(PubsubMessage::AttesterSlashing(Box::new(
                                 attester_slashing,
                             )));
@@ -152,13 +151,6 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
         };
         match encoding {
-            GossipEncoding::SSZ => {
-                if data.len() > GOSSIP_MAX_SIZE {
-                    return Err("ssz encoded data > GOSSIP_MAX_SIZE".into());
-                } else {
-                    Ok(data)
-                }
-            }
             GossipEncoding::SSZSnappy => {
                 let mut encoder = Encoder::new();
                 match encoder.compress_vec(&data) {

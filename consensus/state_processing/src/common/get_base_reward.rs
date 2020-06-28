@@ -4,7 +4,7 @@ use types::*;
 
 /// Returns the base reward for some validator.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn get_base_reward<T: EthSpec>(
     state: &BeaconState<T>,
     index: usize,

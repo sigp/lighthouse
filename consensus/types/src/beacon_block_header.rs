@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 /// A header of a `BeaconBlock`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct BeaconBlockHeader {
@@ -25,14 +25,14 @@ impl SignedRoot for BeaconBlockHeader {}
 impl BeaconBlockHeader {
     /// Returns the `tree_hash_root` of the header.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn canonical_root(&self) -> Hash256 {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
     /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn into_block<T: EthSpec>(self, body: BeaconBlockBody<T>) -> BeaconBlock<T> {
         BeaconBlock {
             slot: self.slot,

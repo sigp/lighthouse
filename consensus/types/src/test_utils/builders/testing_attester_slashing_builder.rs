@@ -13,10 +13,6 @@ impl TestingAttesterSlashingBuilder {
     ///
     /// - `validator_index: u64`
     /// - `message: &[u8]`
-    /// - `epoch: Epoch`
-    /// - `domain: Domain`
-    ///
-    /// Where domain is a domain "constant" (e.g., `spec.domain_attestation`).
     pub fn double_vote<F, T: EthSpec>(
         test_task: AttesterSlashingTestTask,
         validator_indices: &[u64],
@@ -51,11 +47,11 @@ impl TestingAttesterSlashingBuilder {
         };
 
         let data_2 = if test_task == AttesterSlashingTestTask::NotSlashable {
-            AttestationData { ..data_1.clone() }
+            data_1.clone()
         } else {
             AttestationData {
                 target: checkpoint_2,
-                ..data_1.clone()
+                ..data_1
             }
         };
 

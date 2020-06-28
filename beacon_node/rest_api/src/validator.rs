@@ -2,8 +2,8 @@ use crate::helpers::{check_content_type_for_json, publish_beacon_block_to_networ
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, NetworkChannel, UrlQuery};
 use beacon_chain::{
-    attestation_verification::Error as AttnError, BeaconChain, BeaconChainTypes, BlockError,
-    StateSkipConfig,
+    attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BlockError, ForkChoiceError, StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{
     Attestation, AttestationData, BeaconState, Epoch, RelativeEpoch, SelectionProof,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
 };
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -220,6 +220,16 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ))
                     })?;
 
+                let committee_count_at_slot = duties
+                    .map(|d| state.get_committee_count_at_slot(d.slot))
+                    .transpose()
+                    .map_err(|e| {
+                        ApiError::ServerError(format!(
+                            "Unable to find committee count at slot: {:?}",
+                            e
+                        ))
+                    })?;
+
                 let aggregator_modulo = duties
                     .map(|duties| SelectionProof::modulo(duties.committee_len, &beacon_chain.spec))
                     .transpose()
@@ -238,6 +248,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     validator_index: Some(validator_index as u64),
                     attestation_slot: duties.map(|d| d.slot),
                     attestation_committee_index: duties.map(|d| d.index),
+                    committee_count_at_slot,
                     attestation_committee_position: duties.map(|d| d.committee_position),
                     block_proposal_slots,
                     aggregator_modulo,
@@ -249,6 +260,7 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     attestation_slot: None,
                     attestation_committee_index: None,
                     attestation_committee_position: None,
+                    committee_count_at_slot: None,
                     block_proposal_slots: vec![],
                     aggregator_modulo: None,
                 })
@@ -443,21 +455,24 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
             ))
         })
         // Process all of the aggregates _without_ exiting early if one fails.
-        .map(move |attestations: Vec<Attestation<T::EthSpec>>| {
-            attestations
-                .into_par_iter()
-                .enumerate()
-                .map(|(i, attestation)| {
-                    process_unaggregated_attestation(
-                        &beacon_chain,
-                        network_chan.clone(),
-                        attestation,
-                        i,
-                        &log,
-                    )
-                })
-                .collect::<Vec<Result<_, _>>>()
-        })
+        .map(
+            move |attestations: Vec<(Attestation<T::EthSpec>, SubnetId)>| {
+                attestations
+                    .into_par_iter()
+                    .enumerate()
+                    .map(|(i, (attestation, subnet_id))| {
+                        process_unaggregated_attestation(
+                            &beacon_chain,
+                            network_chan.clone(),
+                            attestation,
+                            subnet_id,
+                            i,
+                            &log,
+                        )
+                    })
+                    .collect::<Vec<Result<_, _>>>()
+            },
+        )
         // Iterate through all the results and return on the first `Err`.
         //
         // Note: this will only provide info about the _first_ failure, not all failures.
@@ -472,6 +487,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     network_chan: NetworkChannel<T::EthSpec>,
     attestation: Attestation<T::EthSpec>,
+    subnet_id: SubnetId,
     i: usize,
     log: &Logger,
 ) -> Result<(), ApiError> {
@@ -479,7 +495,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
 
     // Verify that the attestation is valid to included on the gossip network.
     let verified_attestation = beacon_chain
-        .verify_unaggregated_attestation_for_gossip(attestation.clone())
+        .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id)
         .map_err(|e| {
             handle_attestation_error(
                 e,
@@ -492,9 +508,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
     // Publish the attestation to the network
     if let Err(e) = network_chan.send(NetworkMessage::Publish {
         messages: vec![PubsubMessage::Attestation(Box::new((
-            attestation
-                .subnet_id(&beacon_chain.spec)
-                .map_err(|e| ApiError::ServerError(format!("Unable to get subnet id: {:?}", e)))?,
+            subnet_id,
             attestation,
         )))],
     }) {
@@ -507,7 +521,7 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
     beacon_chain
         .apply_attestation_to_fork_choice(&verified_attestation)
         .map_err(|e| {
-            handle_attestation_error(
+            handle_fork_choice_error(
                 e,
                 &format!(
                     "unaggregated attestation {} was unable to be added to fork choice",
@@ -648,7 +662,7 @@ fn process_aggregated_attestation<T: BeaconChainTypes>(
     beacon_chain
         .apply_attestation_to_fork_choice(&verified_attestation)
         .map_err(|e| {
-            handle_attestation_error(
+            handle_fork_choice_error(
                 e,
                 &format!(
                     "aggregated attestation {} was unable to be added to fork choice",
@@ -715,6 +729,51 @@ fn handle_attestation_error(
 
             ApiError::ProcessingError(format!(
                 "Invalid local attestation. Error: {:?} Detail: {}",
+                e, detail
+            ))
+        }
+    }
+}
+
+/// Common handler for `ForkChoiceError` during attestation verification.
+fn handle_fork_choice_error(
+    e: BeaconChainError,
+    detail: &str,
+    data: &AttestationData,
+    log: &Logger,
+) -> ApiError {
+    match e {
+        BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
+            error!(
+                log,
+                "Local attestation invalid for fork choice";
+                "detail" => detail,
+                "reason" => format!("{:?}", e),
+                "target" => data.target.epoch,
+                "source" => data.source.epoch,
+                "index" => data.index,
+                "slot" => data.slot,
+            );
+
+            ApiError::ProcessingError(format!(
+                "Invalid local attestation. Error: {:?} Detail: {}",
+                e, detail
+            ))
+        }
+        e => {
+            error!(
+                log,
+                "Internal error applying attn to fork choice";
+                "detail" => detail,
+                "error" => format!("{:?}", e),
+                "target" => data.target.epoch,
+                "source" => data.source.epoch,
+                "index" => data.index,
+                "slot" => data.slot,
+            );
+
+            ApiError::ServerError(format!(
+                "Internal error verifying local attestation. Error: {:?}. Detail: {}",
                 e, detail
             ))
         }

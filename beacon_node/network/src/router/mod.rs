@@ -232,6 +232,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     self.processor.verify_unaggregated_attestation_for_gossip(
                         peer_id.clone(),
                         subnet_attestation.1.clone(),
+                        subnet_attestation.0,
                     )
                 {
                     self.propagate_message(id, peer_id.clone());
@@ -254,23 +255,45 @@ impl<T: BeaconChainTypes> Router<T> {
                     }
                 }
             }
-            PubsubMessage::VoluntaryExit(_exit) => {
-                // TODO: Apply more sophisticated validation
-                self.propagate_message(id, peer_id.clone());
-                // TODO: Handle exits
-                debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id) );
+            PubsubMessage::VoluntaryExit(exit) => {
+                debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id));
+                if let Some(verified_exit) = self
+                    .processor
+                    .verify_voluntary_exit_for_gossip(&peer_id, *exit)
+                {
+                    self.propagate_message(id, peer_id.clone());
+                    self.processor.import_verified_voluntary_exit(verified_exit);
+                }
             }
-            PubsubMessage::ProposerSlashing(_proposer_slashing) => {
-                // TODO: Apply more sophisticated validation
-                self.propagate_message(id, peer_id.clone());
-                // TODO: Handle proposer slashings
-                debug!(self.log, "Received a proposer slashing"; "peer_id" => format!("{}", peer_id) );
+            PubsubMessage::ProposerSlashing(proposer_slashing) => {
+                debug!(
+                    self.log,
+                    "Received a proposer slashing";
+                    "peer_id" => format!("{}", peer_id)
+                );
+                if let Some(verified_proposer_slashing) = self
+                    .processor
+                    .verify_proposer_slashing_for_gossip(&peer_id, *proposer_slashing)
+                {
+                    self.propagate_message(id, peer_id.clone());
+                    self.processor
+                        .import_verified_proposer_slashing(verified_proposer_slashing);
+                }
             }
-            PubsubMessage::AttesterSlashing(_attester_slashing) => {
-                // TODO: Apply more sophisticated validation
-                self.propagate_message(id, peer_id.clone());
-                // TODO: Handle attester slashings
-                debug!(self.log, "Received an attester slashing"; "peer_id" => format!("{}", peer_id) );
+            PubsubMessage::AttesterSlashing(attester_slashing) => {
+                debug!(
+                    self.log,
+                    "Received a attester slashing";
+                    "peer_id" => format!("{}", peer_id)
+                );
+                if let Some(verified_attester_slashing) = self
+                    .processor
+                    .verify_attester_slashing_for_gossip(&peer_id, *attester_slashing)
+                {
+                    self.propagate_message(id, peer_id.clone());
+                    self.processor
+                        .import_verified_attester_slashing(verified_attester_slashing);
+                }
             }
         }
     }

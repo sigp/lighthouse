@@ -43,7 +43,7 @@ impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
     ///
     /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
-    pub fn new(config: Eth1Config, log: Logger) -> Self {
+    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
         let config = Eth1Config {
             // Truncating the block cache makes searching for genesis more
             // complicated.
@@ -65,7 +65,7 @@ impl Eth1GenesisService {
         };
 
         Self {
-            eth1_service: Eth1Service::new(config, log),
+            eth1_service: Eth1Service::new(config, log, spec),
             stats: Arc::new(Statistics {
                 highest_processed_block: AtomicU64::new(0),
                 active_validator_count: AtomicUsize::new(0),
@@ -161,7 +161,7 @@ impl Eth1GenesisService {
                         log,
                         "Imported eth1 blocks";
                         "latest_block_timestamp" => eth1_service.latest_block_timestamp(),
-                        "cache_head" => self.highest_safe_block(),
+                        "cache_head" => eth1_service.highest_safe_block(),
                         "count" => outcome.blocks_imported,
                     );
                     outcome.blocks_imported
@@ -205,15 +205,16 @@ impl Eth1GenesisService {
                         log,
                         "Waiting for more validators";
                         "min_genesis_active_validators" => spec.min_genesis_active_validator_count,
-                        "total_deposits" => total_deposit_count,
                         "active_validators" => active_validator_count,
+                        "total_deposits" => total_deposit_count,
+                        "valid_deposits" => eth1_service.get_valid_signature_count().unwrap_or(0),
                     );
                 }
             } else {
                 info!(
                     log,
                     "Waiting for adequate eth1 timestamp";
-                    "ming_genesis_delay" => spec.min_genesis_delay,
+                    "genesis_delay" => spec.genesis_delay,
                     "genesis_time" => spec.min_genesis_time,
                     "latest_eth1_timestamp" => latest_timestamp,
                 );
@@ -255,7 +256,10 @@ impl Eth1GenesisService {
             //
             // Don't update the highest processed block since we want to come back and process this
             // again later.
-            if self.highest_safe_block().map_or(true, |n| block.number > n) {
+            if eth1_service
+                .highest_safe_block()
+                .map_or(true, |n| block.number > n)
+            {
                 continue;
             }
 
@@ -279,9 +283,24 @@ impl Eth1GenesisService {
                 trace!(
                     log,
                     "Insufficient block timestamp";
-                    "min_genesis_delay" => spec.min_genesis_delay,
+                    "genesis_delay" => spec.genesis_delay,
                     "min_genesis_time" => spec.min_genesis_time,
                     "eth1_block_timestamp" => block.timestamp,
+                    "eth1_block_number" => block.number,
+                );
+                continue;
+            }
+
+            let valid_signature_count = eth1_service
+                .get_valid_signature_count_at_block(block.number)
+                .unwrap_or(0);
+            if (valid_signature_count as u64) < spec.min_genesis_active_validator_count {
+                trace!(
+                    log,
+                    "Insufficient valid signatures";
+                    "genesis_delay" => spec.genesis_delay,
+                    "valid_signature_count" => valid_signature_count,
+                    "min_validator_count" => spec.min_genesis_active_validator_count,
                     "eth1_block_number" => block.number,
                 );
                 continue;
@@ -414,14 +433,6 @@ impl Eth1GenesisService {
             .map_err(|e| format!("Error whilst processing activations: {:?}", e))?;
 
         Ok(state)
-    }
-
-    /// Returns the highest block that is present in both the deposit and block caches.
-    fn highest_safe_block(&self) -> Option<u64> {
-        let block_cache = self.eth1_service.blocks().read().highest_block_number()?;
-        let deposit_cache = self.eth1_service.deposits().read().last_processed_block?;
-
-        Some(std::cmp::min(block_cache, deposit_cache))
     }
 
     /// Returns all deposit logs included in `block_number` and all prior blocks.

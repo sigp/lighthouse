@@ -90,12 +90,13 @@ impl DutyAndProof {
 
     /// Returns the information required for an attesting validator, if they are scheduled to
     /// attest.
-    pub fn attestation_duties(&self) -> Option<(Slot, CommitteeIndex, usize, u64)> {
+    pub fn attestation_duties(&self) -> Option<(Slot, CommitteeIndex, usize, u64, u64)> {
         Some((
             self.duty.attestation_slot?,
             self.duty.attestation_committee_index?,
             self.duty.attestation_committee_position?,
             self.duty.validator_index?,
+            self.duty.committee_count_at_slot?,
         ))
     }
 
@@ -116,6 +117,7 @@ impl TryInto<DutyAndProof> for ValidatorDutyBytes {
             attestation_slot: self.attestation_slot,
             attestation_committee_index: self.attestation_committee_index,
             attestation_committee_position: self.attestation_committee_position,
+            committee_count_at_slot: self.committee_count_at_slot,
             block_proposal_slots: self.block_proposal_slots,
             aggregator_modulo: self.aggregator_modulo,
         };
@@ -609,6 +611,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                         validator_index: remote_duties.validator_index?,
                         attestation_committee_index: remote_duties.attestation_committee_index?,
                         slot: remote_duties.attestation_slot?,
+                        committee_count_at_slot: remote_duties.committee_count_at_slot?,
                         is_aggregator,
                     })
                 } else {

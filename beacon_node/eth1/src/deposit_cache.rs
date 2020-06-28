@@ -243,36 +243,38 @@ impl DepositCache {
         }
     }
 
-    /// Gets the deposit count at block height = block_number.
+    /// Returns the number of deposits with valid signatures that have been observed up to and
+    /// including the block at `block_number`.
     ///
-    /// Fetches the `DepositLog` that was emitted at or just before `block_number`
-    /// and returns the deposit count as `index + 1`.
-    ///
-    /// Returns `None` if block number queried is 0 or less than deposit_contract_deployed block.
-    pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
-        // Contract cannot be deployed in 0'th block
-        if block_number == 0 {
-            return None;
-        }
-        if block_number < self.deposit_contract_deploy_block {
-            return None;
-        }
-        // Return 0 if block_num queried is before first deposit
-        if let Some(first_deposit) = self.logs.first() {
-            if first_deposit.block_number > block_number {
-                return Some(0);
-            }
-        }
-        let index = self
-            .logs
-            .binary_search_by(|deposit| deposit.block_number.cmp(&block_number));
-        match index {
-            Ok(index) => self.logs.get(index).map(|x| x.index + 1),
-            Err(next) => Some(
+    /// Returns `None` if the `block_number` is zero or prior to contract deployment.
+    pub fn get_valid_signature_count(&self, block_number: u64) -> Option<usize> {
+        if block_number == 0 || block_number < self.deposit_contract_deploy_block {
+            None
+        } else {
+            Some(
                 self.logs
-                    .get(next.saturating_sub(1))
-                    .map_or(0, |x| x.index + 1),
-            ),
+                    .iter()
+                    .take_while(|deposit| deposit.block_number <= block_number)
+                    .filter(|deposit| deposit.signature_is_valid)
+                    .count(),
+            )
+        }
+    }
+
+    /// Returns the number of deposits that have been observed up to and
+    /// including the block at `block_number`.
+    ///
+    /// Returns `None` if the `block_number` is zero or prior to contract deployment.
+    pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
+        if block_number == 0 || block_number < self.deposit_contract_deploy_block {
+            None
+        } else {
+            Some(
+                self.logs
+                    .iter()
+                    .take_while(|deposit| deposit.block_number <= block_number)
+                    .count() as u64,
+            )
         }
     }
 
@@ -291,15 +293,18 @@ pub mod tests {
     use super::*;
     use crate::deposit_log::tests::EXAMPLE_LOG;
     use crate::http::Log;
+    use types::{EthSpec, MainnetEthSpec};
 
     pub const TREE_DEPTH: usize = 32;
 
     fn example_log() -> DepositLog {
+        let spec = MainnetEthSpec::default_spec();
+
         let log = Log {
             block_number: 42,
             data: EXAMPLE_LOG.to_vec(),
         };
-        DepositLog::from_log(&log).expect("should decode log")
+        DepositLog::from_log(&log, &spec).expect("should decode log")
     }
 
     #[test]

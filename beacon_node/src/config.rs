@@ -374,13 +374,14 @@ pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
 pub fn get_eth2_testnet_config<E: EthSpec>(
     testnet_dir: &Option<PathBuf>,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    Ok(if let Some(testnet_dir) = testnet_dir {
+    if let Some(testnet_dir) = testnet_dir {
         Eth2TestnetConfig::load(testnet_dir.clone())
-            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))
     } else {
         Eth2TestnetConfig::hard_coded()
-            .map_err(|e| format!("{} Error : {}", BAD_TESTNET_DIR_MESSAGE, e))?
-    })
+            .map_err(|e| format!("Error parsing hardcoded testnet: {}", e))?
+            .ok_or_else(|| format!("{}", BAD_TESTNET_DIR_MESSAGE))
+    }
 }
 
 /// A bit of hack to find an unused port.

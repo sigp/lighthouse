@@ -455,6 +455,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             if chain.target_head_slot <= local_finalized_slot
                 || beacon_chain
                     .fork_choice
+                    .read()
                     .contains_block(&chain.target_head_root)
             {
                 debug!(log_ref, "Purging out of finalized chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
@@ -468,6 +469,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             if chain.target_head_slot <= local_finalized_slot
                 || beacon_chain
                     .fork_choice
+                    .read()
                     .contains_block(&chain.target_head_root)
             {
                 debug!(log_ref, "Purging out of date head chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);

@@ -35,7 +35,8 @@ members = [
 
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",
-    "consensus/proto_array_fork_choice",
+    "consensus/fork_choice",
+    "consensus/proto_array",
     "consensus/safe_arith",
     "consensus/ssz",
     "consensus/ssz_derive",
