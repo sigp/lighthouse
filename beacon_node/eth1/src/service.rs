@@ -436,7 +436,7 @@ impl Service {
             log_chunk
                 .into_iter()
                 .map(|raw_log| {
-                    DepositLog::from_log(&raw_log, service.inner.spec()).map_err(|error| {
+                    DepositLog::from_log(&raw_log, self.inner.spec()).map_err(|error| {
                         Error::FailedToParseDepositLog {
                             block_range: block_range.clone(),
                             error,
