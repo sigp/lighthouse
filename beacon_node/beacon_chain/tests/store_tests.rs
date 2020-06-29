@@ -3,6 +3,11 @@
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
+
+use crate::slog::Drain;
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
@@ -10,7 +15,6 @@ use beacon_chain::test_utils::{
 use beacon_chain::BeaconSnapshot;
 use beacon_chain::StateSkipConfig;
 use rand::Rng;
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -40,7 +44,11 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
-    let log = NullLoggerBuilder.build().expect("logger should build");
+
+    let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
+    let drain = slog_term::FullFormat::new(decorator).build();
+    let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+
     Arc::new(
         HotColdDB::open(&hot_path, &cold_path, config, spec, log)
             .expect("disk store should initialize"),
