@@ -1,7 +1,7 @@
 use crate::{Error as ValidatorDirError, ValidatorDir};
 use bls::Keypair;
 use rayon::prelude::*;
-use slog::{info, Logger};
+use slog::{info, warn, Logger};
 use std::collections::HashMap;
 use std::fs::read_dir;
 use std::io;
@@ -78,6 +78,50 @@ impl Manager {
         self.iter_dir()?
             .into_iter()
             .map(|path| ValidatorDir::open(path).map_err(Error::ValidatorDirError))
+            .collect()
+    }
+
+    /// Opens all the validator directories in `self` and decrypts the validator keypairs,
+    /// regardless if a lockfile exists or not.
+    ///
+    /// If `log.is_some()`, an `info` log will be generated for each decrypted validator.
+    /// Additionally, a warning log will be created if a lockfile existed already.
+    ///
+    /// ## Errors
+    ///
+    /// Returns an error if any of the directories is unable to be opened.
+    pub fn force_decrypt_all_validators(
+        &self,
+        secrets_dir: PathBuf,
+        log_opt: Option<&Logger>,
+    ) -> Result<Vec<(Keypair, ValidatorDir)>, Error> {
+        self.iter_dir()?
+            .into_par_iter()
+            .map(|path| {
+                ValidatorDir::force_open(path)
+                    .and_then(|(v, existed)| {
+                        v.voting_keypair(&secrets_dir).map(|kp| (kp, v, existed))
+                    })
+                    .map(|(kp, v, lockfile_existed)| {
+                        if let Some(log) = log_opt {
+                            info!(
+                                log,
+                                "Decrypted validator keystore";
+                                "voting_pubkey" => kp.pk.as_hex_string()
+                            );
+                            if lockfile_existed {
+                                warn!(
+                                    log,
+                                    "Lockfile already existed";
+                                    "msg" => "ensure no other validator client is running on this host",
+                                    "voting_pubkey" => kp.pk.as_hex_string()
+                                );
+                            }
+                        }
+                        (kp, v)
+                    })
+                    .map_err(Error::ValidatorDirError)
+            })
             .collect()
     }
 

@@ -93,6 +93,37 @@ impl ValidatorDir {
         Ok(Self { dir })
     }
 
+    /// Open `dir`, regardless or not if a lockfile exists.
+    ///
+    /// Returns `(validator_dir, lockfile_existed)`, where `lockfile_existed == true` if a lockfile
+    /// was already present before opening. Creates a lockfile if one did not already exist.
+    ///
+    /// ## Errors
+    ///
+    /// If there is a filesystem error.
+    pub fn force_open<P: AsRef<Path>>(dir: P) -> Result<(Self, bool), Error> {
+        let dir: &Path = dir.as_ref();
+        let dir: PathBuf = dir.into();
+
+        if !dir.exists() {
+            return Err(Error::DirectoryDoesNotExist(dir));
+        }
+
+        let lockfile = dir.join(LOCK_FILE);
+
+        let lockfile_exists = lockfile.exists();
+
+        if !lockfile_exists {
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(lockfile)
+                .map_err(Error::UnableToCreateLockfile)?;
+        }
+
+        Ok((Self { dir }, lockfile_exists))
+    }
+
     /// Returns the `dir` provided to `Self::open`.
     pub fn dir(&self) -> &PathBuf {
         &self.dir
