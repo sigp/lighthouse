@@ -34,8 +34,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        enabling the same signing key on multiple validator clients WILL lead to \
                        that validator getting slashed. Only use this flag the first time you run \
                        the validator client, or if you're certain there are no other \
-                       nodes using the same key.",
+                       nodes using the same key. Automatically enabled unless `--strict` is specified",
         ))
+        .arg(
+            Arg::with_name("strict")
+            .long("strict")
+            .help(
+                "If present, require that validator keypairs are unlocked and that auto-register \
+                is explicit before new validators are allowed to be used."
+            )
+        )
         .arg(
             Arg::with_name("allow-unsynced")
                 .long("allow-unsynced")

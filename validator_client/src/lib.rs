@@ -76,9 +76,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             );
         }
 
-        let validators = ValidatorManager::open(&config.data_dir)
-            .map_err(|e| format!("unable to read data_dir: {:?}", e))?
-            .decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
+        let validator_manager = ValidatorManager::open(&config.data_dir)
+            .map_err(|e| format!("unable to read data_dir: {:?}", e))?;
+
+        let validators_result = if config.strict {
+            validator_manager.decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
+        } else {
+            validator_manager.force_decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
+        };
+
+        let validators = validators_result
             .map_err(|e| format!("unable to decrypt all validator directories: {:?}", e))?;
 
         info!(
