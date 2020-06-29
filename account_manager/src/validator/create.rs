@@ -1,6 +1,6 @@
 use crate::{
-    common::{ensure_dir_exists, random_password, strip_off_newlines},
-    SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
+    common::{base_wallet_dir, ensure_dir_exists, random_password, strip_off_newlines},
+    BASE_DIR_FLAG, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
 };
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
@@ -12,7 +12,6 @@ use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
 pub const CMD: &str = "create";
-pub const BASE_DIR_FLAG: &str = "base-dir";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
 pub const WALLET_PASSPHRASE_FLAG: &str = "wallet-passphrase";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
@@ -25,6 +24,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .about(
             "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
             derivation scheme.",
+        )
+        .arg(
+            Arg::with_name(BASE_DIR_FLAG)
+                .long(BASE_DIR_FLAG)
+                .value_name("BASE_DIRECTORY")
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/wallets")
+                .takes_value(true),
         )
         .arg(
             Arg::with_name(WALLET_NAME_FLAG)
@@ -102,11 +108,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches,
-    mut env: Environment<T>,
-    wallet_base_dir: PathBuf,
-) -> Result<(), String> {
+pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Result<(), String> {
+    let wallet_base_dir = base_wallet_dir(matches, BASE_DIR_FLAG)?;
     let spec = env.core_context().eth2_config.spec;
 
     let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;

@@ -98,6 +98,24 @@ impl ValidatorDir {
         &self.dir
     }
 
+    /// Returns the path to the file that should contain a password to decrypt the voting keystore.
+    pub fn voting_keypair_password_path<P: AsRef<Path>>(
+        &self,
+        password_dir: P,
+    ) -> Result<PathBuf, Error> {
+        let keystore = open_keystore(&self.dir.clone(), VOTING_KEYSTORE_FILE)?;
+        Ok(keystore_password_path(&keystore, password_dir))
+    }
+
+    /// Returns the path to the file that should contain a password to decrypt the withdrawal keystore.
+    pub fn withdrawal_keypair_password_path<P: AsRef<Path>>(
+        &self,
+        password_dir: P,
+    ) -> Result<PathBuf, Error> {
+        let keystore = open_keystore(&self.dir.clone(), WITHDRAWAL_KEYSTORE_FILE)?;
+        Ok(keystore_password_path(&keystore, password_dir))
+    }
+
     /// Attempts to read the keystore in `self.dir` and decrypt the keypair using a password file
     /// in `password_dir`.
     ///
@@ -214,24 +232,34 @@ impl Drop for ValidatorDir {
     }
 }
 
+/// Attempts to load a keystore, without decrypting it.
+fn open_keystore(keystore_dir: &PathBuf, filename: &str) -> Result<Keystore, Error> {
+    Keystore::from_json_reader(
+        &mut OpenOptions::new()
+            .read(true)
+            .create(false)
+            .open(keystore_dir.join(filename))
+            .map_err(Error::UnableToOpenKeystore)?,
+    )
+    .map_err(Error::UnableToReadKeystore)
+}
+
+/// Returns the path to the file that should contain a password to decrypt `keystore`.
+fn keystore_password_path<P: AsRef<Path>>(keystore: &Keystore, password_dir: P) -> PathBuf {
+    password_dir
+        .as_ref()
+        .join(format!("0x{}", keystore.pubkey()))
+}
+
 /// Attempts to load and decrypt a keystore.
 fn unlock_keypair<P: AsRef<Path>>(
     keystore_dir: &PathBuf,
     filename: &str,
     password_dir: P,
 ) -> Result<Keypair, Error> {
-    let keystore = Keystore::from_json_reader(
-        &mut OpenOptions::new()
-            .read(true)
-            .create(false)
-            .open(keystore_dir.clone().join(filename))
-            .map_err(Error::UnableToOpenKeystore)?,
-    )
-    .map_err(Error::UnableToReadKeystore)?;
+    let keystore = open_keystore(keystore_dir, filename)?;
+    let password_path = keystore_password_path(&keystore, password_dir);
 
-    let password_path = password_dir
-        .as_ref()
-        .join(format!("0x{}", keystore.pubkey()));
     let password: PlainText = read(&password_path)
         .map_err(|_| Error::UnableToReadPassword(password_path.into()))?
         .into();
