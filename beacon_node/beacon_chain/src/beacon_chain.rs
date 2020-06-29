@@ -45,6 +45,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB};
+use types::utils::GRAFFITI_BYTES_LEN;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -1620,7 +1621,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
-        let mut graffiti: [u8; 32] = [0; 32];
+        let mut graffiti = [0u8; GRAFFITI_BYTES_LEN];
         graffiti.copy_from_slice(GRAFFITI.as_bytes());
 
         let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
