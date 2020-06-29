@@ -35,13 +35,13 @@ tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
 discv5 = { version = "0.1.0-alpha.5", features = ["libp2p"] }
 tiny-keccak = "2.0.2"
 environment = { path = "../../lighthouse/environment" }
-libp2p-tcp = { version = "0.19.1", default-features = false, features = ["tokio"] }
 
 [dependencies.libp2p]
-version = "0.19.1"
+#version = "0.19.1"
+git = "https://github.com/sigp/rust-libp2p"
+rev = "a6232506278b9e686248f8d04b79400861b143c2"
 default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns"]
-
+features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "secio", "tcp-tokio"] 
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["full"] }
