@@ -14,7 +14,7 @@ use eth2_libp2p::{
 use eth2_libp2p::{BehaviourEvent, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use rest_types::ValidatorSubscription;
-use slog::{debug, error, info, o, trace};
+use slog::{debug, error, info, o, trace, warn};
 use std::sync::Arc;
 use std::time::Duration;
 use store::HotColdDB;
@@ -48,8 +48,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_fork_update: Option<Delay>,
     /// The logger for the network service.
     log: slog::Logger,
-    /// A probability of propagation.
-    propagation_percentage: Option<u8>,
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -67,8 +65,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // get a reference to the beacon chain store
         let store = beacon_chain.store.clone();
 
-        let propagation_percentage = config.propagation_percentage;
-
         // build the current enr_fork_id for adding to our local ENR
         let enr_fork_id = beacon_chain.enr_fork_id();
 
@@ -79,8 +75,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (network_globals, mut libp2p) =
             LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log)?;
 
-        for enr in load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone()) {
-            libp2p.swarm.add_enr(enr);
+        // Repopulate the DHT with stored ENR's.
+        let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
+        debug!(
+            network_log,
+            "Loading peers into the routing table"; "peers" => enrs_to_load.len()
+        );
+        for enr in enrs_to_load {
+            libp2p.swarm.add_enr(enr.clone());
         }
 
         // launch derived network services
@@ -110,7 +112,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_globals: network_globals.clone(),
             next_fork_update,
             log: network_log,
-            propagation_percentage,
         };
 
         spawn_service(executor, network_service)?;
@@ -174,20 +175,6 @@ fn spawn_service<T: BeaconChainTypes>(
                             propagation_source,
                             message_id,
                         } => {
-                            // TODO: Remove this for mainnet
-                            // randomly prevents propagation
-                            let mut should_send = true;
-                            if let Some(percentage) = service.propagation_percentage {
-                                // not exact percentage but close enough
-                                let rand = rand::random::<u8>() % 100;
-                                if rand > percentage {
-                                    // don't propagate
-                                    should_send = false;
-                                }
-                            }
-                            if !should_send {
-                                info!(service.log, "Random filter did not propagate message");
-                            } else {
                                 trace!(service.log, "Propagating gossipsub message";
                                     "propagation_peer" => format!("{:?}", propagation_source),
                                     "message_id" => message_id.to_string(),
@@ -196,23 +183,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                     .libp2p
                                     .swarm
                                     .propagate_message(&propagation_source, message_id);
-                            }
                         }
                         NetworkMessage::Publish { messages } => {
-                            // TODO: Remove this for mainnet
-                            // randomly prevents propagation
-                            let mut should_send = true;
-                            if let Some(percentage) = service.propagation_percentage {
-                                // not exact percentage but close enough
-                                let rand = rand::random::<u8>() % 100;
-                                if rand > percentage {
-                                    // don't propagate
-                                    should_send = false;
-                                }
-                            }
-                            if !should_send {
-                                info!(service.log, "Random filter did not publish messages");
-                            } else {
                                 let mut topic_kinds = Vec::new();
                                 for message in &messages {
                                     if !topic_kinds.contains(&message.kind()) {
@@ -227,7 +199,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                 );
                                 expose_publish_metrics(&messages);
                                 service.libp2p.swarm.publish(messages);
-                            }
                         }
                         NetworkMessage::Disconnect { peer_id } => {
                             service.libp2p.disconnect_and_ban_peer(
@@ -236,10 +207,11 @@ fn spawn_service<T: BeaconChainTypes>(
                             );
                         }
                         NetworkMessage::Subscribe { subscriptions } => {
-                            // the result is dropped as it used solely for ergonomics
-                            let _ = service
+                            if let Err(e) = service
                                 .attestation_service
-                                .validator_subscriptions(subscriptions);
+                                .validator_subscriptions(subscriptions) {
+                                    warn!(service.log, "Validator subscription failed"; "error" => e);
+                                }
                         }
                     }
                 }
@@ -322,13 +294,11 @@ fn spawn_service<T: BeaconChainTypes>(
                                 match message {
                                     // attestation information gets processed in the attestation service
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
-                                        let subnet = &subnet_and_attestation.0;
+                                        let subnet = subnet_and_attestation.0;
                                         let attestation = &subnet_and_attestation.1;
                                         // checks if we have an aggregator for the slot. If so, we process
                                         // the attestation
                                         if service.attestation_service.should_process_attestation(
-                                            &id,
-                                            &source,
                                             subnet,
                                             attestation,
                                         ) {

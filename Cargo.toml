@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "account_manager",
+
     "beacon_node",
     "beacon_node/beacon_chain",
     "beacon_node/client",
@@ -12,6 +13,8 @@ members = [
     "beacon_node/timer",
     "beacon_node/version",
     "beacon_node/websocket_server",
+
+	"boot_node",
 
     "common/clap_utils",
     "common/compare_fields",
@@ -32,7 +35,8 @@ members = [
 
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",
-    "consensus/proto_array_fork_choice",
+    "consensus/fork_choice",
+    "consensus/proto_array",
     "consensus/safe_arith",
     "consensus/ssz",
     "consensus/ssz_derive",
@@ -72,3 +76,4 @@ eth2_ssz = { path = "consensus/ssz" }
 eth2_ssz_derive = { path = "consensus/ssz_derive" }
 eth2_ssz_types = { path = "consensus/ssz_types" }
 eth2_hashing = { path = "crypto/eth2_hashing" }
+leveldb-sys = { git = "https://github.com/michaelsproul/leveldb-sys", branch = "v2.0.6-cmake" }

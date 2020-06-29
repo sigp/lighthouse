@@ -15,7 +15,7 @@ use libp2p::core::{
     ConnectedPoint,
 };
 use libp2p::{
-    core, noise, secio,
+    core, noise,
     swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
@@ -94,11 +94,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         trace!(log, "Libp2p Service starting");
 
         // initialise the node's ID
-        let local_keypair = if let Some(hex_bytes) = &config.secret_key_hex {
-            keypair_from_hex(hex_bytes)?
-        } else {
-            load_private_key(config, &log)
-        };
+        let local_keypair = load_private_key(config, &log);
 
         // Create an ENR or load from disk if appropriate
         let enr =
@@ -114,10 +110,15 @@ impl<TSpec: EthSpec> Service<TSpec> {
         ));
 
         info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", enr.peer_id()));
-        debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => config.discovery_port);
+        let discovery_string = if config.disable_discovery {
+            "None".into()
+        } else {
+            config.discovery_port.to_string()
+        };
+        debug!(log, "Attempting to open listening ports"; "address" => format!("{}", config.listen_address), "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
         let mut swarm = {
-            // Set up the transport - tcp/ws with noise/secio and mplex/yamux
+            // Set up the transport - tcp/ws with noise and yamux/mplex
             let transport = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
@@ -344,7 +345,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                             debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
                         }
                         SwarmEvent::Dialing(peer_id) => {
-                            debug!(self.log, "Dialing peer"; "peer" => peer_id.to_string());
                             self.swarm.peer_manager().dialing_peer(&peer_id);
                         }
                     }
@@ -369,12 +369,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 }
 
-/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise/secio as the encryption
-/// layer, and mplex or yamux as the multiplexing layer.
+/// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
+/// yamux or mplex as the multiplexing layer.
+
 fn build_transport(
     local_private_key: Keypair,
 ) -> Result<Boxed<(PeerId, StreamMuxerBox), Error>, Error> {
-    let transport = libp2p_tcp::TokioTcpConfig::new().nodelay(true);
+    let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
     let transport = libp2p::dns::DnsConfig::new(transport)?;
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
@@ -385,17 +386,17 @@ fn build_transport(
     let transport = transport
         .and_then(move |stream, endpoint| {
             let upgrade = core::upgrade::SelectUpgrade::new(
+                libp2p::secio::SecioConfig::new(local_private_key.clone()),
                 generate_noise_config(&local_private_key),
-                secio::SecioConfig::new(local_private_key),
             );
             core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1).and_then(
                 |out| async move {
                     match out {
-                        // Noise was negotiated
+                        // Secio was negotiated
                         core::either::EitherOutput::First((remote_id, out)) => {
                             Ok((core::either::EitherOutput::First(out), remote_id))
                         }
-                        // Secio was negotiated
+                        // Noise was negotiated
                         core::either::EitherOutput::Second((remote_id, out)) => {
                             Ok((core::either::EitherOutput::Second(out), remote_id))
                         }
@@ -410,8 +411,8 @@ fn build_transport(
         .and_then(move |(stream, peer_id), endpoint| {
             let peer_id2 = peer_id.clone();
             let upgrade = core::upgrade::SelectUpgrade::new(
-                libp2p::yamux::Config::default(),
                 libp2p::mplex::MplexConfig::new(),
+                libp2p::yamux::Config::default(),
             )
             .map_inbound(move |muxer| (peer_id, muxer))
             .map_outbound(move |muxer| (peer_id2, muxer));
@@ -425,6 +426,8 @@ fn build_transport(
     Ok(transport)
 }
 
+// Useful helper functions for debugging. Currently not used in the client.
+#[allow(dead_code)]
 fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
     let hex_bytes = if hex_bytes.starts_with("0x") {
         hex_bytes[2..].to_string()
@@ -437,6 +440,7 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
         .and_then(keypair_from_bytes)
 }
 
+#[allow(dead_code)]
 fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
     libp2p::core::identity::secp256k1::SecretKey::from_bytes(&mut bytes)
         .map(|secret| {

@@ -7,11 +7,12 @@ use tree_hash_derive::TreeHash;
 
 /// Casper FFG checkpoint, used in attestations.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     Default,

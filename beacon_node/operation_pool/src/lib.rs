@@ -9,29 +9,27 @@ use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use max_cover::maximum_cover;
 use parking_lot::RwLock;
-use state_processing::per_block_processing::errors::{
-    AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-    ProposerSlashingValidationError,
-};
+use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices_modular, verify_attestation_for_block_inclusion,
-    verify_attester_slashing, verify_exit, verify_exit_time_independent_only,
-    verify_proposer_slashing, VerifySignatures,
+    get_slashable_indices, get_slashable_indices_modular, verify_attestation_for_block_inclusion,
+    verify_exit, VerifySignatures,
 };
+use state_processing::SigVerifiedOp;
 use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    EthSpec, Fork, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator,
+    EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit,
+    Validator,
 };
 
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
-    /// Map from two attestation IDs to a slashing for those IDs.
-    attester_slashings: RwLock<HashMap<(AttestationId, AttestationId), AttesterSlashing<T>>>,
+    /// Set of attester slashings, and the fork version they were verified against.
+    attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
     /// Map from proposer index to slashing.
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
@@ -175,54 +173,23 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert a proposer slashing into the pool.
     pub fn insert_proposer_slashing(
         &self,
-        slashing: ProposerSlashing,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Result<(), ProposerSlashingValidationError> {
-        // TODO: should maybe insert anyway if the proposer is unknown in the validator index,
-        // because they could *become* known later
-        verify_proposer_slashing(&slashing, state, VerifySignatures::True, spec)?;
+        verified_proposer_slashing: SigVerifiedOp<ProposerSlashing>,
+    ) {
+        let slashing = verified_proposer_slashing.into_inner();
         self.proposer_slashings
             .write()
             .insert(slashing.signed_header_1.message.proposer_index, slashing);
-        Ok(())
-    }
-
-    /// Compute the tuple ID that is used to identify an attester slashing.
-    ///
-    /// Depends on the fork field of the state, but not on the state's epoch.
-    fn attester_slashing_id(
-        slashing: &AttesterSlashing<T>,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> (AttestationId, AttestationId) {
-        (
-            AttestationId::from_data(
-                &slashing.attestation_1.data,
-                &state.fork,
-                state.genesis_validators_root,
-                spec,
-            ),
-            AttestationId::from_data(
-                &slashing.attestation_2.data,
-                &state.fork,
-                state.genesis_validators_root,
-                spec,
-            ),
-        )
     }
 
     /// Insert an attester slashing into the pool.
     pub fn insert_attester_slashing(
         &self,
-        slashing: AttesterSlashing<T>,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Result<(), AttesterSlashingValidationError> {
-        verify_attester_slashing(state, &slashing, VerifySignatures::True, spec)?;
-        let id = Self::attester_slashing_id(&slashing, state, spec);
-        self.attester_slashings.write().insert(id, slashing);
-        Ok(())
+        verified_slashing: SigVerifiedOp<AttesterSlashing<T>>,
+        fork: Fork,
+    ) {
+        self.attester_slashings
+            .write()
+            .insert((verified_slashing.into_inner(), fork.current_version));
     }
 
     /// Get proposer and attester slashings for inclusion in a block.
@@ -233,7 +200,6 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_slashings(
         &self,
         state: &BeaconState<T>,
-        spec: &ChainSpec,
     ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing<T>>) {
         let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.read().values(),
@@ -258,11 +224,11 @@ impl<T: EthSpec> OperationPool<T> {
             .attester_slashings
             .read()
             .iter()
-            .filter(|(id, slashing)| {
-                // Check the fork.
-                Self::attester_slashing_id(slashing, state, spec) == **id
-            })
-            .filter(|(_, slashing)| {
+            .filter(|(slashing, fork)| {
+                if *fork != state.fork.previous_version && *fork != state.fork.current_version {
+                    return false;
+                }
+
                 // Take all slashings that will slash 1 or more validators.
                 let slashed_validators =
                     get_slashable_indices_modular(state, slashing, |index, validator| {
@@ -279,7 +245,7 @@ impl<T: EthSpec> OperationPool<T> {
                 }
             })
             .take(T::MaxAttesterSlashings::to_usize())
-            .map(|(_, slashing)| slashing.clone())
+            .map(|(slashing, _)| slashing.clone())
             .collect();
 
         (proposer_slashings, attester_slashings)
@@ -298,17 +264,20 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
-        self.attester_slashings.write().retain(|id, slashing| {
-            let fork_ok = &Self::attester_slashing_id(slashing, finalized_state, spec) == id;
-            let curr_epoch = finalized_state.current_epoch();
-            let slashing_ok =
-                get_slashable_indices_modular(finalized_state, slashing, |_, validator| {
-                    validator.slashed || validator.is_withdrawable_at(curr_epoch)
-                })
-                .is_ok();
-            fork_ok && slashing_ok
-        });
+    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<T>, head_fork: Fork) {
+        self.attester_slashings
+            .write()
+            .retain(|(slashing, fork_version)| {
+                // Any slashings for forks older than the finalized state's previous fork can be
+                // discarded. We allow the head_fork's current version too in case a fork has
+                // occurred between the finalized state and the head.
+                let fork_ok = *fork_version == finalized_state.fork.previous_version
+                    || *fork_version == finalized_state.fork.current_version
+                    || *fork_version == head_fork.current_version;
+                // Slashings that don't slash any validators can also be dropped.
+                let slashing_ok = get_slashable_indices(finalized_state, slashing).is_ok();
+                fork_ok && slashing_ok
+            });
     }
 
     /// Total number of attester slashings in the pool.
@@ -321,18 +290,12 @@ impl<T: EthSpec> OperationPool<T> {
         self.proposer_slashings.read().len()
     }
 
-    /// Insert a voluntary exit, validating it almost-entirely (future exits are permitted).
-    pub fn insert_voluntary_exit(
-        &self,
-        exit: SignedVoluntaryExit,
-        state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Result<(), ExitValidationError> {
-        verify_exit_time_independent_only(state, &exit, VerifySignatures::True, spec)?;
+    /// Insert a voluntary exit that has previously been checked elsewhere.
+    pub fn insert_voluntary_exit(&self, verified_exit: SigVerifiedOp<SignedVoluntaryExit>) {
+        let exit = verified_exit.into_inner();
         self.voluntary_exits
             .write()
             .insert(exit.message.validator_index, exit);
-        Ok(())
     }
 
     /// Get a list of voluntary exits for inclusion in a block.
@@ -357,11 +320,11 @@ impl<T: EthSpec> OperationPool<T> {
         );
     }
 
-    /// Prune all types of transactions given the latest finalized state.
-    pub fn prune_all(&self, finalized_state: &BeaconState<T>, spec: &ChainSpec) {
+    /// Prune all types of transactions given the latest finalized state and head fork.
+    pub fn prune_all(&self, finalized_state: &BeaconState<T>, head_fork: Fork) {
         self.prune_attestations(finalized_state);
         self.prune_proposer_slashings(finalized_state);
-        self.prune_attester_slashings(finalized_state, spec);
+        self.prune_attester_slashings(finalized_state, head_fork);
         self.prune_voluntary_exits(finalized_state);
     }
 
@@ -424,7 +387,10 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
-    use state_processing::common::{get_attesting_indices, get_base_reward};
+    use state_processing::{
+        common::{get_attesting_indices, get_base_reward},
+        VerifyOperation,
+    };
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
     use types::test_utils::*;
@@ -895,43 +861,99 @@ mod release_tests {
         }
     }
 
+    struct TestContext {
+        spec: ChainSpec,
+        state: BeaconState<MainnetEthSpec>,
+        keypairs: Vec<Keypair>,
+        op_pool: OperationPool<MainnetEthSpec>,
+    }
+
+    impl TestContext {
+        fn new() -> Self {
+            let spec = MainnetEthSpec::default_spec();
+            let num_validators = 32;
+            let mut state_builder =
+                TestingBeaconStateBuilder::<MainnetEthSpec>::from_deterministic_keypairs(
+                    num_validators,
+                    &spec,
+                );
+            state_builder.build_caches(&spec).unwrap();
+            let (state, keypairs) = state_builder.build();
+            let op_pool = OperationPool::new();
+
+            TestContext {
+                spec,
+                state,
+                keypairs,
+                op_pool,
+            }
+        }
+
+        fn proposer_slashing(&self, proposer_index: u64) -> ProposerSlashing {
+            TestingProposerSlashingBuilder::double_vote::<MainnetEthSpec>(
+                ProposerSlashingTestTask::Valid,
+                proposer_index,
+                &self.keypairs[proposer_index as usize].sk,
+                &self.state.fork,
+                self.state.genesis_validators_root,
+                &self.spec,
+            )
+        }
+
+        fn attester_slashing(&self, slashed_indices: &[u64]) -> AttesterSlashing<MainnetEthSpec> {
+            let signer =
+                |idx: u64, message: &[u8]| Signature::new(message, &self.keypairs[idx as usize].sk);
+            TestingAttesterSlashingBuilder::double_vote(
+                AttesterSlashingTestTask::Valid,
+                slashed_indices,
+                signer,
+                &self.state.fork,
+                self.state.genesis_validators_root,
+                &self.spec,
+            )
+        }
+    }
+
     /// Insert two slashings for the same proposer and ensure only one is returned.
     #[test]
     fn duplicate_proposer_slashing() {
-        let spec = MainnetEthSpec::default_spec();
-        let num_validators = 32;
-        let mut state_builder =
-            TestingBeaconStateBuilder::<MainnetEthSpec>::from_deterministic_keypairs(
-                num_validators,
-                &spec,
-            );
-        state_builder.build_caches(&spec).unwrap();
-        let (state, keypairs) = state_builder.build();
-        let op_pool = OperationPool::new();
-
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
         let proposer_index = 0;
-        let slashing1 = TestingProposerSlashingBuilder::double_vote::<MainnetEthSpec>(
-            ProposerSlashingTestTask::Valid,
-            proposer_index,
-            &keypairs[proposer_index as usize].sk,
-            &state.fork,
-            state.genesis_validators_root,
-            &spec,
-        );
+        let slashing1 = ctxt.proposer_slashing(proposer_index);
         let slashing2 = ProposerSlashing {
             signed_header_1: slashing1.signed_header_2.clone(),
             signed_header_2: slashing1.signed_header_1.clone(),
         };
 
-        // Both slashings should be accepted by the pool.
-        op_pool
-            .insert_proposer_slashing(slashing1.clone(), &state, &spec)
-            .unwrap();
-        op_pool
-            .insert_proposer_slashing(slashing2.clone(), &state, &spec)
-            .unwrap();
+        // Both slashings should be valid and accepted by the pool.
+        op_pool.insert_proposer_slashing(slashing1.clone().validate(state, spec).unwrap());
+        op_pool.insert_proposer_slashing(slashing2.clone().validate(state, spec).unwrap());
 
         // Should only get the second slashing back.
-        assert_eq!(op_pool.get_slashings(&state, &spec).0, vec![slashing2]);
+        assert_eq!(op_pool.get_slashings(state).0, vec![slashing2]);
+    }
+
+    // Sanity check on the pruning of proposer slashings
+    #[test]
+    fn prune_proposer_slashing_noop() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+        let slashing = ctxt.proposer_slashing(0);
+        op_pool.insert_proposer_slashing(slashing.clone().validate(state, spec).unwrap());
+        op_pool.prune_proposer_slashings(state);
+        assert_eq!(op_pool.get_slashings(state).0, vec![slashing]);
+    }
+
+    // Sanity check on the pruning of attester slashings
+    #[test]
+    fn prune_attester_slashing_noop() {
+        let ctxt = TestContext::new();
+        let (op_pool, state, spec) = (&ctxt.op_pool, &ctxt.state, &ctxt.spec);
+        let slashing = ctxt.attester_slashing(&[1, 3, 5, 7, 9]);
+        op_pool
+            .insert_attester_slashing(slashing.clone().validate(state, spec).unwrap(), state.fork);
+        op_pool.prune_attester_slashings(state, state.fork);
+        assert_eq!(op_pool.get_slashings(state).1, vec![slashing]);
     }
 }

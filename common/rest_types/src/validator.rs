@@ -22,6 +22,8 @@ pub struct ValidatorDutyBase<T> {
     pub attestation_committee_index: Option<CommitteeIndex>,
     /// The position of the validator in the committee.
     pub attestation_committee_position: Option<usize>,
+    /// The committee count at `attestation_slot`.
+    pub committee_count_at_slot: Option<u64>,
     /// The slots in which a validator must propose a block (can be empty).
     pub block_proposal_slots: Vec<Slot>,
     /// This provides the modulo: `max(1, len(committee) // TARGET_AGGREGATORS_PER_COMMITTEE)`
@@ -66,6 +68,8 @@ pub struct ValidatorSubscription {
     pub attestation_committee_index: CommitteeIndex,
     /// The slot in which to subscribe.
     pub slot: Slot,
+    /// Committee count at slot to subscribe.
+    pub committee_count_at_slot: u64,
     /// If true, the validator is an aggregator and the beacon node should aggregate attestations
     /// for this slot.
     pub is_aggregator: bool,

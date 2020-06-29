@@ -2,7 +2,7 @@ use types::*;
 
 /// Returns validator indices which participated in the attestation, sorted by increasing index.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn get_attesting_indices<T: EthSpec>(
     committee: &[usize],
     bitlist: &BitList<T::MaxValidatorsPerCommittee>,

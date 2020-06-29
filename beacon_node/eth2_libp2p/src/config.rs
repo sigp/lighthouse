@@ -39,12 +39,6 @@ pub struct Config {
     /// Target number of connected peers.
     pub max_peers: usize,
 
-    /// A secp256k1 secret key, as bytes in ASCII-encoded hex.
-    ///
-    /// With or without `0x` prefix.
-    #[serde(skip)]
-    pub secret_key_hex: Option<String>,
-
     /// Gossipsub configuration parameters.
     #[serde(skip)]
     pub gs_config: GossipsubConfig,
@@ -62,13 +56,11 @@ pub struct Config {
     /// Client version
     pub client_version: String,
 
+    /// Disables the discovery protocol from starting.
+    pub disable_discovery: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
-
-    /// Introduces randomization in network propagation of messages. This should only be set for
-    /// testing purposes and will likely be removed in future versions.
-    // TODO: Remove this functionality for mainnet
-    pub propagation_percentage: Option<u8>,
 }
 
 impl Default for Config {
@@ -110,12 +102,12 @@ impl Default for Config {
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
             .enable_packet_filter()
-            .session_cache_capacity(100)
+            .session_cache_capacity(1000)
             .request_timeout(Duration::from_secs(4))
             .request_retries(2)
             .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
             .query_parallelism(5)
-            .query_timeout(Duration::from_secs(60))
+            .query_timeout(Duration::from_secs(30))
             .query_peer_timeout(Duration::from_secs(2))
             .ip_limit() // limits /24 IP's in buckets.
             .ping_interval(Duration::from_secs(300))
@@ -131,14 +123,13 @@ impl Default for Config {
             enr_udp_port: None,
             enr_tcp_port: None,
             max_peers: 50,
-            secret_key_hex: None,
             gs_config,
             discv5_config,
             boot_nodes: vec![],
             libp2p_nodes: vec![],
             client_version: version::version(),
+            disable_discovery: false,
             topics,
-            propagation_percentage: None,
         }
     }
 }

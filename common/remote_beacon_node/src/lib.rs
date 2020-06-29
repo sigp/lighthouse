@@ -12,12 +12,12 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex,
     Epoch, EthSpec, Fork, Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
 };
 use url::Url;
 
 pub use operation_pool::PersistedOperationPool;
-pub use proto_array_fork_choice::core::ProtoArray;
+pub use proto_array::core::ProtoArray;
 pub use rest_types::{
     CanonicalHeadResponse, Committee, HeadBeaconBlock, Health, IndividualVotesRequest,
     IndividualVotesResponse, SyncingResponse, ValidatorDutiesRequest, ValidatorDutyBytes,
@@ -227,7 +227,7 @@ impl<E: EthSpec> Validator<E> {
     /// Posts a list of attestations to the beacon node, expecting it to verify it and publish it to the network.
     pub async fn publish_attestations(
         &self,
-        attestation: Vec<Attestation<E>>,
+        attestation: Vec<(Attestation<E>, SubnetId)>,
     ) -> Result<PublishStatus, Error> {
         let client = self.0.clone();
         let url = self.url("attestations")?;

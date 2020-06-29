@@ -23,15 +23,15 @@ impl From<ethabi::Error> for DecodeError {
 
 pub const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
 pub const DEPOSIT_GAS: usize = 400_000;
-pub const ABI: &[u8] = include_bytes!("../contracts/v0.11.1_validator_registration.json");
-pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.11.1_validator_registration.bytecode");
+pub const ABI: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.json");
+pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.bytecode");
 pub const DEPOSIT_DATA_LEN: usize = 420; // lol
 
 pub mod testnet {
     pub const ABI: &[u8] =
-        include_bytes!("../contracts/v0.11.1_testnet_validator_registration.json");
+        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.json");
     pub const BYTECODE: &[u8] =
-        include_bytes!("../contracts/v0.11.1_testnet_validator_registration.bytecode");
+        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.bytecode");
 }
 
 pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {

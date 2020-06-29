@@ -57,7 +57,8 @@
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 pub use prometheus::{
-    Encoder, Gauge, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result, TextEncoder,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result,
+    TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
@@ -127,6 +128,19 @@ pub fn try_create_int_gauge_vec(
     Ok(counter_vec)
 }
 
+/// Attempts to crate a `GaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_float_gauge_vec(
+    name: &str,
+    help: &str,
+    label_names: &[&str],
+) -> Result<GaugeVec> {
+    let opts = Opts::new(name, help);
+    let counter_vec = GaugeVec::new(opts, label_names)?;
+    prometheus::register(Box::new(counter_vec.clone()))?;
+    Ok(counter_vec)
+}
+
 pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Option<IntGauge> {
     if let Ok(int_gauge_vec) = int_gauge_vec {
         Some(int_gauge_vec.get_metric_with_label_values(name).ok()?)
@@ -177,6 +191,12 @@ pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     }
 }
 
+pub fn set_float_gauge(gauge: &Result<Gauge>, value: f64) {
+    if let Ok(gauge) = gauge {
+        gauge.set(value);
+    }
+}
+
 pub fn inc_gauge(gauge: &Result<IntGauge>) {
     if let Ok(gauge) = gauge {
         gauge.inc();
@@ -192,12 +212,6 @@ pub fn dec_gauge(gauge: &Result<IntGauge>) {
 pub fn maybe_set_gauge(gauge: &Result<IntGauge>, value_opt: Option<i64>) {
     if let Some(value) = value_opt {
         set_gauge(gauge, value)
-    }
-}
-
-pub fn set_float_gauge(gauge: &Result<Gauge>, value: f64) {
-    if let Ok(gauge) = gauge {
-        gauge.set(value);
     }
 }
 

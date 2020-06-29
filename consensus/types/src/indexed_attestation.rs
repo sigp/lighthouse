@@ -1,7 +1,9 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
-
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use std::hash::{Hash, Hasher};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -9,9 +11,10 @@ use tree_hash_derive::TreeHash;
 ///
 /// To be included in an `AttesterSlashing`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derivative(PartialEq, Eq)] // to satisfy Clippy's lint about `Hash`
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
@@ -23,17 +26,30 @@ pub struct IndexedAttestation<T: EthSpec> {
 impl<T: EthSpec> IndexedAttestation<T> {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn is_double_vote(&self, other: &Self) -> bool {
         self.data.target.epoch == other.data.target.epoch && self.data != other.data
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn is_surround_vote(&self, other: &Self) -> bool {
         self.data.source.epoch < other.data.source.epoch
             && other.data.target.epoch < self.data.target.epoch
+    }
+}
+
+/// Implementation of non-crypto-secure `Hash`, for use with `HashMap` and `HashSet`.
+///
+/// Guarantees `att1 == att2 -> hash(att1) == hash(att2)`.
+///
+/// Used in the operation pool.
+impl<T: EthSpec> Hash for IndexedAttestation<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.attesting_indices.hash(state);
+        self.data.hash(state);
+        self.signature.as_ssz_bytes().hash(state);
     }
 }
 

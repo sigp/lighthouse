@@ -1,6 +1,7 @@
 //! Implementation of a Lighthouse's peer management system.
 
 pub use self::peerdb::*;
+use crate::discovery::{Discovery, DiscoveryEvent};
 use crate::rpc::{MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
 use crate::{Enr, EnrExt, NetworkConfig, NetworkGlobals, PeerId};
@@ -23,12 +24,9 @@ use types::{EthSpec, SubnetId};
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
 pub mod client;
-pub mod discovery;
 mod peer_info;
 mod peer_sync_status;
 mod peerdb;
-
-use discovery::{Discovery, DiscoveryEvent};
 
 pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
@@ -424,7 +422,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
     /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
     /// proves resource constraining, we should switch to multiaddr dialling here.
-    fn peers_discovered(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
+    fn peers_discovered(&mut self, peers: &[Enr], min_ttl: Option<Instant>) {
         for enr in peers {
             let peer_id = enr.peer_id();
 
@@ -625,7 +623,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             match event {
                 DiscoveryEvent::SocketUpdated(socket_addr) => self.socket_updated(socket_addr),
                 DiscoveryEvent::QueryResult(min_ttl, peers) => {
-                    self.peers_discovered(*peers, min_ttl)
+                    self.peers_discovered(&peers, min_ttl)
                 }
             }
         }

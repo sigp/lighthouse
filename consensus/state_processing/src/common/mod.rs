@@ -17,7 +17,7 @@ use types::{BeaconState, EthSpec};
 
 /// Increase the balance of a validator, erroring upon overflow, as per the spec.
 ///
-/// Spec v0.11.2
+/// Spec v0.12.1
 pub fn increase_balance<E: EthSpec>(
     state: &mut BeaconState<E>,
     index: usize,
@@ -28,7 +28,7 @@ pub fn increase_balance<E: EthSpec>(
 
 /// Decrease the balance of a validator, saturating upon overflow, as per the spec.
 ///
-/// Spec v0.11.2
+/// Spec v0.12.1
 pub fn decrease_balance<E: EthSpec>(state: &mut BeaconState<E>, index: usize, delta: u64) {
     state.balances[index] = state.balances[index].saturating_sub(delta);
 }

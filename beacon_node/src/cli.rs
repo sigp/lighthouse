@@ -61,8 +61,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("maxpeers")
-                .long("maxpeers")
+            Arg::with_name("max-peers")
+                .long("max-peers")
                 .help("The maximum number of peers.")
                 .default_value("50")
                 .takes_value(true),
@@ -126,23 +126,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("p2p-priv-key")
-                .long("p2p-priv-key")
-                .value_name("HEX")
-                .help("A secp256k1 secret key, represented as ASCII-encoded hex bytes (with or \
-                       without 0x prefix). Default is either loaded from disk or generated \
-                       automatically.")
-                .takes_value(true),
+            Arg::with_name("disable-discovery")
+                .long("disable-discovery")
+                .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
+                .takes_value(false),
         )
-        .arg(
-            Arg::with_name("random-propagation")
-                .long("random-propagation")
-                .value_name("INTEGER")
-                .takes_value(true)
-                .help("Specifies (as a percentage) the likelihood of propagating blocks and \
-                       attestations. This should only be used for testing networking elements. The \
-                       value must like in the range 1-100. Default is 100.")
-        )
+
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

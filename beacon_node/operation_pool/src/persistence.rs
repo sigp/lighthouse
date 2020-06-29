@@ -19,7 +19,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     // be difficult to make that roundtrip due to eager aggregation.
     attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
     /// Attester slashings.
-    attester_slashings: Vec<AttesterSlashing<T>>,
+    attester_slashings: Vec<(AttesterSlashing<T>, ForkVersion)>,
     /// Proposer slashings.
     proposer_slashings: Vec<ProposerSlashing>,
     /// Voluntary exits.
@@ -40,7 +40,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .attester_slashings
             .read()
             .iter()
-            .map(|(_, slashing)| slashing.clone())
+            .cloned()
             .collect();
 
         let proposer_slashings = operation_pool
@@ -66,19 +66,9 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     }
 
     /// Reconstruct an `OperationPool`.
-    pub fn into_operation_pool(self, state: &BeaconState<T>, spec: &ChainSpec) -> OperationPool<T> {
+    pub fn into_operation_pool(self) -> OperationPool<T> {
         let attestations = RwLock::new(self.attestations.into_iter().collect());
-        let attester_slashings = RwLock::new(
-            self.attester_slashings
-                .into_iter()
-                .map(|slashing| {
-                    (
-                        OperationPool::attester_slashing_id(&slashing, state, spec),
-                        slashing,
-                    )
-                })
-                .collect(),
-        );
+        let attester_slashings = RwLock::new(self.attester_slashings.into_iter().collect());
         let proposer_slashings = RwLock::new(
             self.proposer_slashings
                 .into_iter()

@@ -18,13 +18,11 @@ pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
-    // Debugging output for libp2p and external crates.
-    Builder::from_env(Env::default()).init();
-
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
+        .setting(clap::AppSettings::ColoredHelp)
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
@@ -39,6 +37,13 @@ fn main() {
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
                 .default_value("mainnet"),
+        )
+        .arg(
+            Arg::with_name("env_log")
+                .short("l")
+                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                )
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("logfile")
@@ -64,6 +69,7 @@ fn main() {
                 .help("The verbosity level for emitting logs.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .global(true)
                 .default_value("info"),
         )
         .arg(
@@ -89,9 +95,26 @@ fn main() {
                 .global(true),
         )
         .subcommand(beacon_node::cli_app())
+        .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .get_matches();
+
+    // boot node subcommand circumvents the environment
+    if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
+        // The bootnode uses the main debug-level flag
+        let debug_info = matches
+            .value_of("debug-level")
+            .expect("Debug-level must be present")
+            .into();
+        boot_node::run(bootnode_matches, debug_info);
+        return;
+    }
+
+    // Debugging output for libp2p and external crates.
+    if matches.is_present("env_log") {
+        Builder::from_env(Env::default()).init();
+    }
 
     macro_rules! run_with_spec {
         ($env_builder: expr) => {
@@ -132,13 +155,14 @@ fn run<E: EthSpec>(
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
 
     let log_format = matches.value_of("log-format");
-    let eth2_testnet_config =
+
+    let optional_testnet_config =
         clap_utils::parse_testnet_dir_with_hardcoded_default(matches, "testnet-dir")?;
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .eth2_testnet_config(eth2_testnet_config)?
+        .optional_eth2_testnet_config(optional_testnet_config)?
         .build()?;
 
     let log = environment.core_context().log().clone();

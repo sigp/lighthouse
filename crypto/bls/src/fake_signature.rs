@@ -1,21 +1,19 @@
 use super::{PublicKey, SecretKey, BLS_SIG_BYTE_SIZE};
 use hex::encode as hex_encode;
-use milagro_bls::G2Point;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::PrefixedHexVisitor;
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use std::fmt;
 
 /// A single BLS signature.
 ///
 /// This struct is a wrapper upon a base type and provides helper functions (e.g., SSZ
 /// serialization).
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Clone)]
 pub struct FakeSignature {
-    bytes: Vec<u8>,
+    bytes: [u8; BLS_SIG_BYTE_SIZE],
     is_empty: bool,
-    /// Never used, only use for compatibility with "real" `Signature`.
-    pub point: G2Point,
 }
 
 impl FakeSignature {
@@ -27,9 +25,8 @@ impl FakeSignature {
     /// Creates a new all-zero's signature
     pub fn zero() -> Self {
         Self {
-            bytes: vec![0; BLS_SIG_BYTE_SIZE],
+            bytes: [0; BLS_SIG_BYTE_SIZE],
             is_empty: true,
-            point: G2Point::new(),
         }
     }
 
@@ -66,15 +63,16 @@ impl FakeSignature {
             })
         } else {
             let is_empty = bytes.iter().all(|x| *x == 0);
+            let mut array = [0u8; BLS_SIG_BYTE_SIZE];
+            array.copy_from_slice(bytes);
             Ok(Self {
-                bytes: bytes.to_vec(),
+                bytes: array,
                 is_empty,
-                point: G2Point::new(),
             })
         }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_SIG_BYTE_SIZE] {
         self.bytes.clone()
     }
 
@@ -92,6 +90,24 @@ impl FakeSignature {
 impl_ssz!(FakeSignature, BLS_SIG_BYTE_SIZE, "FakeSignature");
 
 impl_tree_hash!(FakeSignature, BLS_SIG_BYTE_SIZE);
+
+impl fmt::Debug for FakeSignature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!(
+            "{:?}, {:?}",
+            self.bytes.to_vec(),
+            self.is_empty()
+        ))
+    }
+}
+
+impl PartialEq for FakeSignature {
+    fn eq(&self, other: &FakeSignature) -> bool {
+        self.bytes.to_vec() == other.bytes.to_vec()
+    }
+}
+
+impl Eq for FakeSignature {}
 
 impl Serialize for FakeSignature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

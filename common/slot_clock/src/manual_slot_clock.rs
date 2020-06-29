@@ -41,6 +41,10 @@ impl ManualSlotClock {
         self.set_slot(self.now().unwrap().as_u64() + 1)
     }
 
+    pub fn genesis_duration(&self) -> &Duration {
+        &self.genesis_duration
+    }
+
     /// Returns the duration between UNIX epoch and the start of `slot`.
     pub fn start_of(&self, slot: Slot) -> Option<Duration> {
         let slot = slot
@@ -104,6 +108,10 @@ impl SlotClock for ManualSlotClock {
         self.slot_of(*self.current_time.read())
     }
 
+    fn is_prior_to_genesis(&self) -> Option<bool> {
+        Some(*self.current_time.read() < self.genesis_duration)
+    }
+
     fn now_duration(&self) -> Option<Duration> {
         Some(*self.current_time.read())
     }
@@ -158,6 +166,26 @@ mod tests {
         assert_eq!(clock.now(), Some(Slot::new(10)));
         clock.set_slot(123);
         assert_eq!(clock.now(), Some(Slot::new(123)));
+    }
+
+    #[test]
+    fn test_is_prior_to_genesis() {
+        let genesis_secs = 1;
+
+        let clock = ManualSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(genesis_secs),
+            Duration::from_secs(1),
+        );
+
+        *clock.current_time.write() = Duration::from_secs(genesis_secs - 1);
+        assert!(clock.is_prior_to_genesis().unwrap(), "prior to genesis");
+
+        *clock.current_time.write() = Duration::from_secs(genesis_secs);
+        assert!(!clock.is_prior_to_genesis().unwrap(), "at genesis");
+
+        *clock.current_time.write() = Duration::from_secs(genesis_secs + 1);
+        assert!(!clock.is_prior_to_genesis().unwrap(), "after genesis");
     }
 
     #[test]

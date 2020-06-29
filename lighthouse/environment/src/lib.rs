@@ -151,7 +151,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Setups eth2 config using the CLI arguments.
+    /// Adds a testnet configuration to the environment.
     pub fn eth2_testnet_config(
         mut self,
         eth2_testnet_config: Eth2TestnetConfig<E>,
@@ -172,6 +172,18 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         self.testnet = Some(eth2_testnet_config);
 
         Ok(self)
+    }
+
+    /// Optionally adds a testnet configuration to the environment.
+    pub fn optional_eth2_testnet_config(
+        self,
+        optional_config: Option<Eth2TestnetConfig<E>>,
+    ) -> Result<Self, String> {
+        if let Some(config) = optional_config {
+            self.eth2_testnet_config(config)
+        } else {
+            Ok(self)
+        }
     }
 
     /// Consumes the builder, returning an `Environment`.
@@ -271,7 +283,7 @@ impl<E: EthSpec> Environment<E> {
             executor: TaskExecutor {
                 exit: self.exit.clone(),
                 handle: self.runtime().handle().clone(),
-                log: self.log.new(o!("service" => service_name.clone())),
+                log: self.log.new(o!("service" => service_name)),
             },
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),

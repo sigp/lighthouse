@@ -90,12 +90,13 @@ impl DutyAndProof {
 
     /// Returns the information required for an attesting validator, if they are scheduled to
     /// attest.
-    pub fn attestation_duties(&self) -> Option<(Slot, CommitteeIndex, usize, u64)> {
+    pub fn attestation_duties(&self) -> Option<(Slot, CommitteeIndex, usize, u64, u64)> {
         Some((
             self.duty.attestation_slot?,
             self.duty.attestation_committee_index?,
             self.duty.attestation_committee_position?,
             self.duty.validator_index?,
+            self.duty.committee_count_at_slot?,
         ))
     }
 
@@ -116,6 +117,7 @@ impl TryInto<DutyAndProof> for ValidatorDutyBytes {
             attestation_slot: self.attestation_slot,
             attestation_committee_index: self.attestation_committee_index,
             attestation_committee_position: self.attestation_committee_position,
+            committee_count_at_slot: self.committee_count_at_slot,
             block_proposal_slots: self.block_proposal_slots,
             aggregator_modulo: self.aggregator_modulo,
         };
@@ -230,12 +232,12 @@ impl DutiesStore {
             .collect()
     }
 
-    fn is_aggregator(&self, validator_pubkey: &PublicKey, epoch: &Epoch) -> Option<bool> {
+    fn is_aggregator(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<bool> {
         Some(
             self.store
                 .read()
                 .get(validator_pubkey)?
-                .get(epoch)?
+                .get(&epoch)?
                 .selection_proof
                 .is_some(),
         )
@@ -602,13 +604,14 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
                 // The selection proof is computed on `store.insert`, so it's necessary to check
                 // with the store that the validator is an aggregator.
-                let is_aggregator = self.store.is_aggregator(&validator_pubkey, &epoch)?;
+                let is_aggregator = self.store.is_aggregator(&validator_pubkey, epoch)?;
 
                 if outcome.is_subscription_candidate() {
                     Some(ValidatorSubscription {
                         validator_index: remote_duties.validator_index?,
                         attestation_committee_index: remote_duties.attestation_committee_index?,
                         slot: remote_duties.attestation_slot?,
+                        committee_count_at_slot: remote_duties.committee_count_at_slot?,
                         is_aggregator,
                     })
                 } else {

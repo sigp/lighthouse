@@ -6,12 +6,12 @@ use crate::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonKeystore,
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
-use crate::PlainText;
 use crate::Uuid;
 use aes_ctr::stream_cipher::generic_array::GenericArray;
 use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher};
 use aes_ctr::Aes128Ctr as AesCtr;
-use bls::{Keypair, PublicKey, SecretKey};
+use bls::{Keypair, PublicKey, SecretHash, SecretKey};
+use eth2_key_derivation::PlainText;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::prelude::*;
@@ -147,7 +147,7 @@ impl Keystore {
         uuid: Uuid,
         path: String,
     ) -> Result<Self, Error> {
-        let secret: PlainText = keypair.sk.as_bytes();
+        let secret: SecretHash = keypair.sk.as_bytes();
 
         let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
 
@@ -201,7 +201,7 @@ impl Keystore {
 
         let keypair = keypair_from_secret(plain_text.as_bytes())?;
         // Verify that the derived `PublicKey` matches `self`.
-        if keypair.pk.as_hex_string()[2..].to_string() != self.json.pubkey {
+        if keypair.pk.as_hex_string()[2..] != self.json.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
 
