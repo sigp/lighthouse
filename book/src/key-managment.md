@@ -35,9 +35,9 @@ items, starting at one easy-to-backup mnemonic and ending with multiple
 keypairs. Creating a single validator looks like this:
 
 1. Create a **wallet** and record the **mnemonic**:
-    - `lighthouse account wallet create --name wally --passphrase-file wally.pass`
+    - `lighthouse account wallet create --name wally --password-file wally.pass`
 1. Create the voting and withdrawal **keystores** for one validator:
-	- `lighthouse account validator create --wallet-name wally --wallet-passphrase wally.pass --count 1`
+	- `lighthouse account validator create --wallet-name wally --wallet-password wally.pass --count 1`
 
 
 In step (1), we created a wallet in `~/.lighthouse/wallets` with the name
