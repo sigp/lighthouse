@@ -24,6 +24,11 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns the slot at this present time.
     fn now(&self) -> Option<Slot>;
 
+    /// Indicates if the current time is prior to genesis time.
+    ///
+    /// Returns `None` if the system clock cannot be read.
+    fn is_prior_to_genesis(&self) -> Option<bool>;
+
     /// Returns the present time as a duration since the UNIX epoch.
     ///
     /// Returns `None` if the present time is before the UNIX epoch (unlikely).

@@ -23,6 +23,8 @@ pub struct ValidatorDutyBase<T> {
     pub attestation_committee_index: Option<CommitteeIndex>,
     /// The position of the validator in the committee.
     pub attestation_committee_position: Option<usize>,
+    /// The committee count at `attestation_slot`.
+    pub committee_count_at_slot: Option<u64>,
     /// The slots in which a validator must propose a block (can be empty).
     ///
     /// Should be set to `None` when duties are not yet known (before the current epoch).
@@ -61,6 +63,7 @@ impl<T> ValidatorDutyBase<T> {
             && self.attestation_slot == other.attestation_slot
             && self.attestation_committee_index == other.attestation_committee_index
             && self.attestation_committee_position == other.attestation_committee_position
+            && self.committee_count_at_slot == other.committee_count_at_slot
             && self.aggregator_modulo == other.aggregator_modulo
     }
 }
@@ -82,6 +85,8 @@ pub struct ValidatorSubscription {
     pub attestation_committee_index: CommitteeIndex,
     /// The slot in which to subscribe.
     pub slot: Slot,
+    /// Committee count at slot to subscribe.
+    pub committee_count_at_slot: u64,
     /// If true, the validator is an aggregator and the beacon node should aggregate attestations
     /// for this slot.
     pub is_aggregator: bool,
@@ -99,6 +104,7 @@ mod test {
             attestation_slot: Some(Slot::new(50)),
             attestation_committee_index: Some(2),
             attestation_committee_position: Some(6),
+            committee_count_at_slot: Some(4),
             block_proposal_slots: None,
             aggregator_modulo: Some(99),
         };

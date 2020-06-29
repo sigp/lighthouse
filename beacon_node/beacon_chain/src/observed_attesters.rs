@@ -197,7 +197,7 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
                 .map(|(_epoch, item)| item.len())
                 .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
 
-            let initial_capacity = sum.checked_div(count).unwrap_or(T::default_capacity());
+            let initial_capacity = sum.checked_div(count).unwrap_or_else(T::default_capacity);
 
             let mut item = T::with_capacity(initial_capacity);
             item.insert(validator_index);

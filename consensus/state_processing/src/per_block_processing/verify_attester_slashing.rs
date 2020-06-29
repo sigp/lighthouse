@@ -16,7 +16,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for
 /// invalidity.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn verify_attester_slashing<T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing<T>,
@@ -45,7 +45,7 @@ pub fn verify_attester_slashing<T: EthSpec>(
 ///
 /// Returns Ok(indices) if `indices.len() > 0`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn get_slashable_indices<T: EthSpec>(
     state: &BeaconState<T>,
     attester_slashing: &AttesterSlashing<T>,

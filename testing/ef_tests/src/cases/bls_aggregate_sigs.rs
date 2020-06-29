@@ -25,12 +25,17 @@ impl Case for BlsAggregateSigs {
             aggregate_signature.add(&sig);
         }
 
-        let output_bytes = Some(
+        // Check for YAML null value, indicating invalid input. This is a bit of a hack,
+        // as our mutating `aggregate_signature.add` API doesn't play nicely with aggregating 0
+        // inputs.
+        let output_bytes = if self.output == "~" {
+            AggregateSignature::new().as_bytes().to_vec()
+        } else {
             hex::decode(&self.output[2..])
-                .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?,
-        );
-        let aggregate_signature = Ok(aggregate_signature.as_bytes());
+                .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?
+        };
+        let aggregate_signature = Ok(aggregate_signature.as_bytes().to_vec());
 
-        compare_result::<Vec<u8>, Vec<u8>>(&aggregate_signature, &output_bytes)
+        compare_result::<Vec<u8>, Vec<u8>>(&aggregate_signature, &Some(output_bytes))
     }
 }

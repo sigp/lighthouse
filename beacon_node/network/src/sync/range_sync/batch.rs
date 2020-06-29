@@ -3,6 +3,7 @@ use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use ssz::Encode;
+use std::cmp::min;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -75,7 +76,7 @@ impl<T: EthSpec> Batch<T> {
     pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
         BlocksByRangeRequest {
             start_slot: self.start_slot.into(),
-            count: std::cmp::min(
+            count: min(
                 T::slots_per_epoch() * EPOCHS_PER_BATCH,
                 self.end_slot.sub(self.start_slot).into(),
             ),

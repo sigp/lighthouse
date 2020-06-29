@@ -14,6 +14,7 @@ use remote_beacon_node::{
 use rest_types::ValidatorDutyBytes;
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
     test_utils::{
         build_double_vote_attester_slashing, build_proposer_slashing,
@@ -21,7 +22,7 @@ use types::{
     },
     BeaconBlock, BeaconState, ChainSpec, Domain, Epoch, EthSpec, MinimalEthSpec, PublicKey,
     RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
-    Validator,
+    SubnetId, Validator,
 };
 use version;
 
@@ -143,7 +144,16 @@ fn validator_produce_attestation() {
         ))
         .expect("should fetch duties from http api");
     let duties = &duties[0];
-
+    let committee_count = duties
+        .committee_count_at_slot
+        .expect("should have committee count");
+    let subnet_id = SubnetId::compute_subnet::<E>(
+        attestation.data.slot,
+        attestation.data.index,
+        committee_count,
+        spec,
+    )
+    .unwrap();
     // Try publishing the attestation without a signature or a committee bit set, ensure it is
     // raises an error.
     let publish_status = env
@@ -152,7 +162,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestations(vec![attestation.clone()]),
+                .publish_attestations(vec![(attestation.clone(), subnet_id)]),
         )
         .expect("should publish unsigned attestation");
     assert!(
@@ -178,7 +188,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestations(vec![attestation.clone()]),
+                .publish_attestations(vec![(attestation.clone(), subnet_id)]),
         )
         .expect("should publish attestation with invalid signature");
     assert!(
@@ -216,7 +226,7 @@ fn validator_produce_attestation() {
             remote_node
                 .http
                 .validator()
-                .publish_attestations(vec![attestation.clone()]),
+                .publish_attestations(vec![(attestation.clone(), subnet_id)]),
         )
         .expect("should publish attestation");
     assert!(
@@ -422,10 +432,16 @@ fn validator_block_post() {
 
     let spec = &E::default_spec();
 
+    let two_slots_secs = (spec.milliseconds_per_slot / 1_000) * 2;
+
     let mut config = testing_client_config();
     config.genesis = ClientGenesis::Interop {
         validator_count: 8,
-        genesis_time: 13_371_337,
+        genesis_time: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - two_slots_secs,
     };
 
     let node = build_node(&mut env, config);
@@ -949,6 +965,8 @@ fn get_fork_choice() {
             .beacon_chain()
             .expect("node should have beacon chain")
             .fork_choice
+            .read()
+            .proto_array()
             .core_proto_array(),
         "result should be as expected"
     );
@@ -1013,7 +1031,7 @@ fn proposer_slashing() {
     let spec = &chain.spec;
 
     // Check that there are no proposer slashings before insertion
-    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(proposer_slashings.len(), 0);
 
     let slot = state.slot;
@@ -1044,7 +1062,7 @@ fn proposer_slashing() {
     assert!(result, true);
 
     // Length should be just one as we've inserted only one proposer slashing
-    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(proposer_slashings.len(), 1);
     assert_eq!(proposer_slashing.clone(), proposer_slashings[0]);
 
@@ -1067,7 +1085,7 @@ fn proposer_slashing() {
     assert!(result.is_err());
 
     // Length should still be one as we've inserted nothing since last time.
-    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (proposer_slashings, _attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(proposer_slashings.len(), 1);
     assert_eq!(proposer_slashing, proposer_slashings[0]);
 }
@@ -1100,7 +1118,7 @@ fn attester_slashing() {
     let fork = &state.fork;
 
     // Checking there are no attester slashings before insertion
-    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(attester_slashings.len(), 0);
 
     let attester_slashing = build_double_vote_attester_slashing(
@@ -1124,7 +1142,7 @@ fn attester_slashing() {
     assert!(result, true);
 
     // Length should be just one as we've inserted only one attester slashing
-    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(attester_slashings.len(), 1);
     assert_eq!(attester_slashing, attester_slashings[0]);
 
@@ -1145,10 +1163,10 @@ fn attester_slashing() {
             .beacon()
             .attester_slashing(invalid_attester_slashing),
     );
-    assert!(result.is_err());
+    result.unwrap_err();
 
     // Length should still be one as we've failed to insert the attester slashing.
-    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state, spec);
+    let (_proposer_slashings, attester_slashings) = chain.op_pool.get_slashings(&state);
     assert_eq!(attester_slashings.len(), 1);
     assert_eq!(attester_slashing, attester_slashings[0]);
 }

@@ -11,7 +11,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 
 /// Verify an `IndexedAttestation`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn is_valid_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation<T>,
@@ -20,11 +20,8 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
 ) -> Result<()> {
     let indices = &indexed_attestation.attesting_indices;
 
-    // Verify max number of indices
-    verify!(
-        indices.len() <= T::MaxValidatorsPerCommittee::to_usize(),
-        Invalid::MaxIndicesExceed(T::MaxValidatorsPerCommittee::to_usize(), indices.len())
-    );
+    // Verify that indices aren't empty
+    verify!(!indices.is_empty(), Invalid::IndicesEmpty);
 
     // Check that indices are sorted and unique
     let check_sorted = |list: &[u64]| -> Result<()> {

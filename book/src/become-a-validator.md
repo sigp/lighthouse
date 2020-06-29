@@ -1,11 +1,10 @@
-# Become an Ethereum 2.0 Testnet Validator on Witti
+# Become an Ethereum 2.0 Testnet Validator on Altona
 
-Running a Lighthouse validator on the [Witti](https://github.com/goerli/witti)
+Running a Lighthouse validator on the [Altona](https://github.com/goerli/altona)
 multi-client testnet is easy if you're familiar with the terminal.
 
 Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make
 things as simple as possible.
-
 
 ## 0. Acquire Goerli ETH
 Before you install Lighthouse, you'll need [Metamask](https://metamask.io/) and 3.2 gETH

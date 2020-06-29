@@ -51,7 +51,7 @@ const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 pub enum DiscoveryEvent {
     /// A query has completed. The first parameter is the `min_ttl` of the peers if it is specified
     /// and the second parameter are the discovered peers.
-    QueryResult(Option<Instant>, Box<Vec<Enr>>),
+    QueryResult(Option<Instant>, Vec<Enr>),
     /// This indicates that our local UDP socketaddr has been updated and we should inform libp2p.
     SocketUpdated(SocketAddr),
 }
@@ -328,7 +328,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .enr_insert(BITFIELD_ENR_KEY, current_bitfield.as_ssz_bytes());
 
         // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr().clone();
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
         Ok(())
     }
 
@@ -360,7 +360,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             });
 
         // replace the global version with discovery version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr().clone();
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
     }
 
     /* Internal Functions */
@@ -602,7 +602,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 self.cached_enrs.put(enr.peer_id(), enr);
             }
             // return the result to the peer manager
-            return Poll::Ready(DiscoveryEvent::QueryResult(min_ttl, Box::new(result)));
+            return Poll::Ready(DiscoveryEvent::QueryResult(min_ttl, result));
         }
 
         // Process the server event stream

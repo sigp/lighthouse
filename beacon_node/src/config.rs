@@ -39,7 +39,7 @@ pub fn get_config<E: EthSpec>(
         fs::remove_dir_all(
             client_config
                 .get_db_path()
-                .ok_or("Failed to get db_path".to_string())?,
+                .ok_or_else(|| "Failed to get db_path".to_string())?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
@@ -47,7 +47,7 @@ pub fn get_config<E: EthSpec>(
         fs::remove_dir_all(
             client_config
                 .get_freezer_db_path()
-                .ok_or("Failed to get freezer db path".to_string())?,
+                .ok_or_else(|| "Failed to get freezer db path".to_string())?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
@@ -287,7 +287,7 @@ pub fn get_config<E: EthSpec>(
 
     if spec_constants != client_config.spec_constants {
         crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants.to_string(),
+              "client_config" => client_config.spec_constants,
               "eth2_config" => spec_constants
         );
         return Err("Specification constant mismatch".into());
@@ -374,13 +374,14 @@ pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
 pub fn get_eth2_testnet_config<E: EthSpec>(
     testnet_dir: &Option<PathBuf>,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    Ok(if let Some(testnet_dir) = testnet_dir {
+    if let Some(testnet_dir) = testnet_dir {
         Eth2TestnetConfig::load(testnet_dir.clone())
-            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))
     } else {
         Eth2TestnetConfig::hard_coded()
-            .map_err(|e| format!("{} Error : {}", BAD_TESTNET_DIR_MESSAGE, e))?
-    })
+            .map_err(|e| format!("Error parsing hardcoded testnet: {}", e))?
+            .ok_or_else(|| format!("{}", BAD_TESTNET_DIR_MESSAGE))
+    }
 }
 
 /// A bit of hack to find an unused port.

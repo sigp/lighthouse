@@ -313,8 +313,8 @@ fn main() {
                         .help("The number of validators required to trigger eth2 genesis."),
                 )
                 .arg(
-                    Arg::with_name("min-genesis-delay")
-                        .long("min-genesis-delay")
+                    Arg::with_name("genesis-delay")
+                        .long("genesis-delay")
                         .value_name("SECONDS")
                         .takes_value(true)
                         .help("The delay between sufficient eth1 deposits and eth2 genesis."),

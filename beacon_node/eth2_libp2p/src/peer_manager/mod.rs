@@ -422,7 +422,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
     /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
     /// proves resource constraining, we should switch to multiaddr dialling here.
-    fn peers_discovered(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
+    fn peers_discovered(&mut self, peers: &[Enr], min_ttl: Option<Instant>) {
         for enr in peers {
             let peer_id = enr.peer_id();
 
@@ -623,7 +623,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             match event {
                 DiscoveryEvent::SocketUpdated(socket_addr) => self.socket_updated(socket_addr),
                 DiscoveryEvent::QueryResult(min_ttl, peers) => {
-                    self.peers_discovered(*peers, min_ttl)
+                    self.peers_discovered(&peers, min_ttl)
                 }
             }
         }

@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::{error::Error, Block};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
@@ -12,10 +12,16 @@ pub struct ProtoNode {
     /// The `state_root` is not necessary for `ProtoArray` either, it also just exists for upstream
     /// components (namely attestation verification).
     pub state_root: Hash256,
-    root: Hash256,
-    parent: Option<usize>,
-    justified_epoch: Epoch,
-    finalized_epoch: Epoch,
+    /// The root that would be used for the `attestation.data.target.root` if a LMD vote was cast
+    /// for this block.
+    ///
+    /// The `target_root` is not necessary for `ProtoArray` either, it also just exists for upstream
+    /// components (namely fork choice attestation verification).
+    pub target_root: Hash256,
+    pub root: Hash256,
+    pub parent: Option<usize>,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
     weight: u64,
     best_child: Option<usize>,
     best_descendant: Option<usize>,
@@ -124,29 +130,24 @@ impl ProtoArray {
     /// Register a block with the fork choice.
     ///
     /// It is only sane to supply a `None` parent for the genesis block.
-    pub fn on_block(
-        &mut self,
-        slot: Slot,
-        root: Hash256,
-        parent_opt: Option<Hash256>,
-        state_root: Hash256,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
-    ) -> Result<(), Error> {
+    pub fn on_block(&mut self, block: Block) -> Result<(), Error> {
         // If the block is already known, simply ignore it.
-        if self.indices.contains_key(&root) {
+        if self.indices.contains_key(&block.root) {
             return Ok(());
         }
 
         let node_index = self.nodes.len();
 
         let node = ProtoNode {
-            slot,
-            state_root,
-            root,
-            parent: parent_opt.and_then(|parent| self.indices.get(&parent).copied()),
-            justified_epoch,
-            finalized_epoch,
+            slot: block.slot,
+            root: block.root,
+            target_root: block.target_root,
+            state_root: block.state_root,
+            parent: block
+                .parent_root
+                .and_then(|parent| self.indices.get(&parent).copied()),
+            justified_epoch: block.justified_epoch,
+            finalized_epoch: block.finalized_epoch,
             weight: 0,
             best_child: None,
             best_descendant: None,
