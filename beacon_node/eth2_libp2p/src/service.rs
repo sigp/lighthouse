@@ -386,17 +386,17 @@ fn build_transport(
     let transport = transport
         .and_then(move |stream, endpoint| {
             let upgrade = core::upgrade::SelectUpgrade::new(
+                libp2p::secio::SecioConfig::new(local_private_key.clone()),
                 generate_noise_config(&local_private_key),
-                libp2p::secio::SecioConfig::new(local_private_key),
             );
             core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1).and_then(
                 |out| async move {
                     match out {
-                        // Noise was negotiated
+                        // Secio was negotiated
                         core::either::EitherOutput::First((remote_id, out)) => {
                             Ok((core::either::EitherOutput::First(out), remote_id))
                         }
-                        // Secio was negotiated
+                        // Noise was negotiated
                         core::either::EitherOutput::Second((remote_id, out)) => {
                             Ok((core::either::EitherOutput::Second(out), remote_id))
                         }
