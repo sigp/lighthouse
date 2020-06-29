@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TESTNET_ID: &str = "altona-v2";
+const TESTNET_ID: &str = "altona-v3";
 
 fn main() {
     if !base_dir().exists() {
@@ -39,7 +39,7 @@ pub fn get_all_files() -> Result<(), String> {
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/sigp/witti/2bab01c2c18aea9f571e79d646acfd34704cbfde/altona/lighthouse/{}",
+        "https://raw.githubusercontent.com/sigp/witti/a94e00c1a03df851f960fcf44a79f2a6b1d29af1/altona/lighthouse/{}",
         filename
     );
 
