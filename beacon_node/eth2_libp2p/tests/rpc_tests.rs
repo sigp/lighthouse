@@ -46,7 +46,7 @@ async fn test_status_rpc() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerConnected(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -136,7 +136,7 @@ async fn test_blocks_by_range_chunked_rpc() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerConnected(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -719,7 +719,7 @@ async fn test_goodbye_rpc() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerConnected(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
