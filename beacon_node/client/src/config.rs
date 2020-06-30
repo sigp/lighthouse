@@ -56,6 +56,8 @@ pub struct Config {
     pub sync_eth1_chain: bool,
     /// A list of hard-coded forks that will be disabled.
     pub disabled_forks: Vec<String>,
+    /// Graffiti to be inserted everytime we create a block.
+    pub graffiti: Graffiti,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -65,7 +67,6 @@ pub struct Config {
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
-    pub graffiti: Graffiti,
 }
 
 impl Default for Config {
