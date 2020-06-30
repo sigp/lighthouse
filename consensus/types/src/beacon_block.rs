@@ -2,7 +2,6 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
 
-use crate::utils::GRAFFITI_BYTES_LEN;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -42,7 +41,7 @@ impl<T: EthSpec> BeaconBlock<T> {
                     block_hash: Hash256::zero(),
                     deposit_count: 0,
                 },
-                graffiti: [0; GRAFFITI_BYTES_LEN],
+                graffiti: Graffiti::default(),
                 proposer_slashings: VariableList::empty(),
                 attester_slashings: VariableList::empty(),
                 attestations: VariableList::empty(),

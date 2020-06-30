@@ -2,6 +2,7 @@ use network::NetworkConfig;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use types::Graffiti;
 
 pub const DEFAULT_DATADIR: &str = ".lighthouse";
 
@@ -64,6 +65,7 @@ pub struct Config {
     pub rest_api: rest_api::Config,
     pub websocket_server: websocket_server::Config,
     pub eth1: eth1::Config,
+    pub graffiti: Graffiti,
 }
 
 impl Default for Config {
@@ -84,6 +86,7 @@ impl Default for Config {
             sync_eth1_chain: false,
             eth1: <_>::default(),
             disabled_forks: Vec::new(),
+            graffiti: Graffiti::default(),
         }
     }
 }

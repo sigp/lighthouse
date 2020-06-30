@@ -45,16 +45,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB};
-use types::utils::GRAFFITI_BYTES_LEN;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
-
-// Text included in blocks.
-// Must be 32-bytes or panic.
-//
-//                          |-------must be this long------|
-pub const GRAFFITI: &str = "sigp/lighthouse-0.1.2-prerelease";
 
 /// The time-out before failure during an operation to take a read/write RwLock on the canonical
 /// head.
@@ -225,6 +218,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub disabled_forks: Vec<String>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
+    /// Arbitrary bytes included in the blocks.
+    pub(crate) graffiti: Graffiti,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
@@ -1621,9 +1616,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
-        let mut graffiti = [0u8; GRAFFITI_BYTES_LEN];
-        graffiti.copy_from_slice(GRAFFITI.as_bytes());
-
         let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
@@ -1645,6 +1637,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                 })
         };
+
+        let mut graffiti: Graffiti = Graffiti::default();
+        // Panic-free because graffiti and self.graffiti are both `Graffiti`.
+        graffiti.copy_from_slice(&self.graffiti);
 
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {

@@ -3,6 +3,7 @@ use serde::{Deserialize, Deserializer, Serializer};
 
 pub const FORK_BYTES_LEN: usize = 4;
 pub const GRAFFITI_BYTES_LEN: usize = 32;
+pub type Graffiti = [u8; GRAFFITI_BYTES_LEN];
 
 pub fn u8_from_hex_str<'de, D>(deserializer: D) -> Result<u8, D::Error>
 where
@@ -92,10 +93,7 @@ where
     serializer.serialize_str(&hex_string)
 }
 
-pub fn graffiti_to_hex_str<S>(
-    bytes: &[u8; GRAFFITI_BYTES_LEN],
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+pub fn graffiti_to_hex_str<S>(bytes: &Graffiti, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -105,12 +103,12 @@ where
     serializer.serialize_str(&hex_string)
 }
 
-pub fn graffiti_from_hex_str<'de, D>(deserializer: D) -> Result<[u8; GRAFFITI_BYTES_LEN], D::Error>
+pub fn graffiti_from_hex_str<'de, D>(deserializer: D) -> Result<Graffiti, D::Error>
 where
     D: Deserializer<'de>,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
-    let mut array = [0 as u8; GRAFFITI_BYTES_LEN];
+    let mut array = Graffiti::default();
 
     let start = s
         .as_str()
