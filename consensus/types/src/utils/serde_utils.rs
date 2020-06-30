@@ -3,6 +3,10 @@ use serde::{Deserialize, Deserializer, Serializer};
 
 pub const FORK_BYTES_LEN: usize = 4;
 pub const GRAFFITI_BYTES_LEN: usize = 32;
+
+/// Type for a slice of `GRAFFITI_BYTES_LEN` bytes.
+///
+/// Gets included inside each `BeaconBlockBody`.
 pub type Graffiti = [u8; GRAFFITI_BYTES_LEN];
 
 pub fn u8_from_hex_str<'de, D>(deserializer: D) -> Result<u8, D::Error>
