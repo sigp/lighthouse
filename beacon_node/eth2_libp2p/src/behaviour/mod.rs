@@ -800,6 +800,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     }
 
     fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+        // Could not dial the peer, inform the peer manager.
+        self.peer_manager.notify_disconnect(&peer_id);
+
         delegate_to_behaviours!(self, inject_dial_failure, peer_id);
     }
 
@@ -969,6 +972,8 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     PeerDialed(PeerId),
     /// A peer has successfully dialed and connected to us.
     PeerConnected(PeerId),
+    /// A peer has disconnected.
+    PeerDisconnected(PeerId),
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
