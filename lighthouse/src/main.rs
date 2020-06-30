@@ -17,7 +17,7 @@ use validator_client::ProductionValidatorClient;
 pub const VERSION: &str = git_version!(
     args = ["--always", "--dirty=(modified)"],
     prefix = concat!(crate_version!(), "-"),
-    fallback = "unknown"
+    fallback = crate_version!()
 );
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
