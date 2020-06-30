@@ -7,23 +7,26 @@ use clap_utils;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::HARDCODED_TESTNET;
-use git_version::git_describe;
+use git_version::git_version;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
-pub const GIT_LATEST_COMMIT: &str = git_describe!("--always", "--dirty=-modified");
+pub const VERSION: &str = git_version!(
+    args = ["--always", "--dirty=(modified)"],
+    prefix = concat!(crate_version!(), "-"),
+    fallback = "unknown"
+);
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
     // Parse the CLI parameters.
-    let version = format!("{} commit {}", crate_version!(), GIT_LATEST_COMMIT);
     let matches = App::new("Lighthouse")
-        .version(version.as_str())
+        .version(VERSION)
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
         .about(
