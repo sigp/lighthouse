@@ -240,6 +240,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         );
     }
 
+    /// A dial attempt has failed.
+    ///
+    /// NOTE: It can be the case that we are dialing a peer and during the dialing process the peer
+    /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
+    /// the peer is not already connected.
+    pub fn notify_dial_failure(&mut self, peer_id: &PeerId) {
+        if !self.network_globals.peers.read().is_connected(peer_id) {
+            self.notify_disconnect(peer_id);
+        }
+    }
+
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
     pub fn connect_ingoing(&mut self, peer_id: &PeerId) -> bool {
@@ -258,11 +269,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         true
     }
 
-    /// Reports if a peer is banned or not. 
+    /// Reports if a peer is banned or not.
     ///
     /// This is used to determine if we should accept incoming connections.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
-        self.network_globals.peers.read().peer_banned(peer_id)
+        self.network_globals.peers.read().is_banned(peer_id)
     }
 
     /// Updates `PeerInfo` with `identify` information.
@@ -474,7 +485,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .peers
                     .read()
                     .is_connected_or_dialing(&peer_id)
-                && !self.network_globals.peers.read().peer_banned(&peer_id)
+                && !self.network_globals.peers.read().is_banned(&peer_id)
             {
                 // TODO: Update output
                 // This should be updated with the peer dialing. In fact created once the peer is

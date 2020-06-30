@@ -389,40 +389,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         &mut self.peer_manager
     }
 
-    /* Address in the new behaviour. Connections are now maintained at the swarm level.
-    /// Notifies the behaviour that a peer has connected.
-    pub fn notify_peer_connect(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
-        match endpoint {
-            ConnectedPoint::Dialer { .. } => self.peer_manager.connect_outgoing(&peer_id),
-            ConnectedPoint::Listener { .. } => self.peer_manager.connect_ingoing(&peer_id),
-        };
-
-        // Find ENR info about a peer if possible.
-        if let Some(enr) = self.discovery.enr_of_peer(&peer_id) {
-            let bitfield = match enr.bitfield::<TSpec>() {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!(self.log, "Peer has invalid ENR bitfield";
-                                        "peer_id" => format!("{}", peer_id),
-                                        "error" => format!("{:?}", e));
-                    return;
-                }
-            };
-
-            // use this as a baseline, until we get the actual meta-data
-            let meta_data = MetaData {
-                seq_number: 0,
-                attnets: bitfield,
-            };
-            // TODO: Shift to the peer manager
-            self.network_globals
-                .peers
-                .write()
-                .add_metadata(&peer_id, meta_data);
-        }
-    }
-    */
-
     fn on_gossip_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(propagation_source, id, gs_msg) => {
@@ -721,19 +687,27 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         self.peer_manager.addresses_of_peer(peer_id)
     }
 
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        // Drop any connection from a banned peer. The goodbye and disconnects are handled in
-        // `inject_connection_established()`.
-        if self.peer_manager.is_banned(peer_id) {
-            return;
-        }
-        delegate_to_behaviours!(self, inject_connected, peer_id);
+    // This gets called every time a connection is closed.
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        conn_id: &ConnectionId,
+        endpoint: &ConnectedPoint,
+    ) {
+        delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
     }
 
+    // This gets called once there are no more active connections.
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        // Inform the peer manager.
+        self.peer_manager.notify_disconnect(&peer_id);
+        // Inform the application.
+        self.events
+            .push_back(BehaviourEvent::PeerDisconnected(peer_id.clone()));
         delegate_to_behaviours!(self, inject_disconnected, peer_id);
     }
 
+    // This gets called every time a connection is established.
     fn inject_connection_established(
         &mut self,
         peer_id: &PeerId,
@@ -781,13 +755,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         );
     }
 
-    fn inject_connection_closed(
-        &mut self,
-        peer_id: &PeerId,
-        conn_id: &ConnectionId,
-        endpoint: &ConnectedPoint,
-    ) {
-        delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
+    // This gets called on the initial connection establishment.
+    fn inject_connected(&mut self, peer_id: &PeerId) {
+        // Drop any connection from a banned peer. The goodbye and disconnects are handled in
+        // `inject_connection_established()`, which gets called first.
+        if self.peer_manager.is_banned(peer_id) {
+            return;
+        }
+        delegate_to_behaviours!(self, inject_connected, peer_id);
     }
 
     fn inject_addr_reach_failure(
@@ -801,8 +776,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
 
     fn inject_dial_failure(&mut self, peer_id: &PeerId) {
         // Could not dial the peer, inform the peer manager.
-        self.peer_manager.notify_disconnect(&peer_id);
-
+        self.peer_manager.notify_dial_failure(&peer_id);
         delegate_to_behaviours!(self, inject_dial_failure, peer_id);
     }
 

@@ -70,8 +70,25 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers.get_mut(peer_id)
     }
 
+    /// Returns if the peer is already connected.
+    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
+        if let Some(PeerConnectionStatus::Connected { .. }) = self.connection_status(peer_id) {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// If we are connected or currently dialing the peer returns true.
+    pub fn is_connected_or_dialing(&self, peer_id: &PeerId) -> bool {
+        match self.connection_status(peer_id) {
+            Some(PeerConnectionStatus::Connected { .. })
+            | Some(PeerConnectionStatus::Dialing { .. }) => true,
+            _ => false,
+        }
+    }
     /// Returns true if the peer is synced at least to our current head.
-    pub fn peer_synced(&self, peer_id: &PeerId) -> bool {
+    pub fn is_synced(&self, peer_id: &PeerId) -> bool {
         match self.peers.get(peer_id).map(|info| &info.sync_status) {
             Some(PeerSyncStatus::Synced { .. }) => true,
             Some(_) => false,
@@ -80,7 +97,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns true if the Peer is banned.
-    pub fn peer_banned(&self, peer_id: &PeerId) -> bool {
+    pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         match self.peers.get(peer_id).map(|info| &info.connection_status) {
             Some(status) => status.is_banned(),
             None => false,
@@ -182,24 +199,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     pub fn connection_status(&self, peer_id: &PeerId) -> Option<PeerConnectionStatus> {
         self.peer_info(peer_id)
             .map(|info| info.connection_status.clone())
-    }
-
-    /// Returns if the peer is already connected.
-    pub fn is_connected(&self, peer_id: &PeerId) -> bool {
-        if let Some(PeerConnectionStatus::Connected { .. }) = self.connection_status(peer_id) {
-            true
-        } else {
-            false
-        }
-    }
-
-    /// If we are connected or currently dialing the peer returns true.
-    pub fn is_connected_or_dialing(&self, peer_id: &PeerId) -> bool {
-        match self.connection_status(peer_id) {
-            Some(PeerConnectionStatus::Connected { .. })
-            | Some(PeerConnectionStatus::Dialing { .. }) => true,
-            _ => false,
-        }
     }
 
     /* Setters */
@@ -349,6 +348,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 })
                 .map(|(id, _)| id.clone())
             {
+                debug!(self.log, "Removing old banned peer"; "peer_id" => to_drop.to_string());
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease
@@ -370,6 +370,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 })
                 .map(|(id, _)| id.clone())
             {
+                debug!(self.log, "Removing old disconnected peer"; "peer_id" => to_drop.to_string());
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease

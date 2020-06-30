@@ -288,7 +288,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 // A peer has connected to us
                                 // We currently do not perform any action here.
                             },
-                            BehaviourEvent::PeerDisconnected(_peer_id) => {
+                            BehaviourEvent::PeerDisconnected(peer_id) => {
                             let _ = service
                                 .router_send
                                 .send(RouterMessage::PeerDisconnected(peer_id))

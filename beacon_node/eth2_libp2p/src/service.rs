@@ -12,7 +12,6 @@ use libp2p::core::{
     muxing::StreamMuxerBox,
     transport::boxed::Boxed,
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
-    ConnectedPoint,
 };
 use libp2p::{
     core, noise, secio,
@@ -41,19 +40,11 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
     Behaviour(BehaviourEvent<TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
-    /// A peer no longer has any connections, i.e is disconnected.
-    PeerDisconnected {
-        /// The peer the disconnected.
-        peer_id: PeerId,
-        /// Whether the peer was a dialer or a listener.
-        endpoint: ConnectedPoint,
-    },
 }
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
-    //TODO: Make this private
     pub swarm: Swarm<Behaviour<TSpec>>,
 
     /// This node's PeerId.
@@ -241,21 +232,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         SwarmEvent::ConnectionClosed {
                             peer_id,
                             cause,
-                            endpoint,
+                            endpoint: _,
                             num_established,
                         } => {
-                            // TODO: Shift to behaviour. This is currently fine as is, but better
-                            // to localise code logic
                             debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string(), "connections" => num_established);
-                            if num_established == 0 {
-                                // update the peer_db
-                                self.swarm.peer_manager().notify_disconnect(&peer_id);
-                                // the peer has disconnected
-                                return Libp2pEvent::PeerDisconnected {
-                                    peer_id,
-                                    endpoint,
-                                };
-                            }
                         }
                         SwarmEvent::NewListenAddr(multiaddr) => {
                             return Libp2pEvent::NewListenAddr(multiaddr)
@@ -273,10 +253,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         } => {
                             debug!(self.log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
                         }
-                        SwarmEvent::BannedPeer {
-                            peer_id,
-                            endpoint: _,
-                        } => {
+                        SwarmEvent::BannedPeer {.. } => {
                             // We do not ban peers at the swarm layer, so this should never occur.
                         }
                         SwarmEvent::UnreachableAddr {
