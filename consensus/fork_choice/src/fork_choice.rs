@@ -608,9 +608,10 @@ where
                 beacon_block_root: indexed_attestation.data.beacon_block_root,
             })?;
 
-        // If the attestation points to a block that is in a prior epoch, then all slots between
-        // the block and the attestation must be skip slots. Therefore, the target root must be
-        // equal to the root of the block that is being attested to.
+        // If an attestation points to a block that is from an earlier slot than the attestation,
+        // then all slots between the block and attestation must be skipped. Therefore if the block
+        // is from a prior epoch to the attestation, then the target root must be equal to the root
+        // of the block that is being attested to.
         let expected_target = if target.epoch > block.slot.epoch(E::slots_per_epoch()) {
             indexed_attestation.data.beacon_block_root
         } else {
