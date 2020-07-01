@@ -323,12 +323,12 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> usize {
+    pub fn expected_responses(&self) -> u64 {
         match self {
             RPCRequest::Status(_) => 1,
             RPCRequest::Goodbye(_) => 0,
-            RPCRequest::BlocksByRange(req) => req.count as usize,
-            RPCRequest::BlocksByRoot(req) => req.block_roots.len(),
+            RPCRequest::BlocksByRange(req) => req.count,
+            RPCRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             RPCRequest::Ping(_) => 1,
             RPCRequest::MetaData(_) => 1,
         }
