@@ -11,7 +11,7 @@ use libp2p::{
         identity::Keypair,
         Multiaddr,
     },
-    gossipsub::{Gossipsub, GossipsubEvent, MessageId},
+    gossipsub::{Gossipsub, GossipsubEvent, MessageId, Signing},
     identify::{Identify, IdentifyEvent},
     swarm::{
         NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters,
@@ -238,7 +238,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
-        let local_peer_id = local_key.public().into_peer_id();
         let behaviour_log = log.new(o!());
 
         let identify = Identify::new(
@@ -264,7 +263,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
-            gossipsub: Gossipsub::new(local_peer_id, net_conf.gs_config.clone()),
+            gossipsub: Gossipsub::new(
+                Signing::Disabled(PeerId::random()),
+                net_conf.gs_config.clone(),
+            ),
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)?,
             events: Vec::new(),
@@ -361,7 +363,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        self.gossipsub.publish(&topic.into(), message_data);
+                        if let Err(e) = self.gossipsub.publish(&topic.into(), message_data) {
+                            slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
+                        }
                     }
                     Err(e) => crit!(self.log, "Could not publish message"; "error" => e),
                 }

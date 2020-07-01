@@ -95,7 +95,6 @@ impl Default for Config {
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_secs(1))
             .manual_propagation() // require validation before propagation
-            .no_source_id()
             .message_id_fn(gossip_message_id)
             .build();
 
