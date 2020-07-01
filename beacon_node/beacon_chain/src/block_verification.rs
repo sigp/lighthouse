@@ -62,7 +62,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
-use store::{Error as DBError, StateBatch};
+use store::{Error as DBError, HotStateSummary, StoreOp};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
@@ -263,12 +263,12 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 /// Note: a `FullyVerifiedBlock` is not _forever_ valid to be imported, it may later become invalid
 /// due to finality or some other event. A `FullyVerifiedBlock` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
-pub struct FullyVerifiedBlock<T: BeaconChainTypes> {
+pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec>,
-    pub intermediate_states: StateBatch<T::EthSpec>,
+    pub intermediate_states: Vec<StoreOp<'a, T::EthSpec>>,
 }
 
 /// Implemented on types that can be converted into a `FullyVerifiedBlock`.
@@ -506,7 +506,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::Eth
     }
 }
 
-impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
+impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
     /// Instantiates `Self`, a wrapper that indicates that the given `block` is fully valid. See
     /// the struct-level documentation for more information.
     ///
@@ -552,7 +552,7 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
 
         // Keep a batch of any states that were "skipped" (block-less) in between the parent state
         // slot and the block slot. These will be stored in the database.
-        let mut intermediate_states = StateBatch::new();
+        let mut intermediate_states: Vec<StoreOp<T::EthSpec>> = Vec::new();
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_state.slot {
@@ -575,7 +575,16 @@ impl<T: BeaconChainTypes> FullyVerifiedBlock<T> {
                 // Computing the state root here is time-equivalent to computing it during slot
                 // processing, but we get early access to it.
                 let state_root = state.update_tree_hash_cache()?;
-                intermediate_states.add_state(state_root, &state)?;
+
+                let op = if state.slot % T::EthSpec::slots_per_epoch() == 0 {
+                    StoreOp::PutState(state_root.into(), Cow::Owned(state.clone()))
+                } else {
+                    StoreOp::PutStateSummary(
+                        state_root.into(),
+                        HotStateSummary::new(&state_root, &state)?,
+                    )
+                };
+                intermediate_states.push(op);
                 state_root
             };
 

@@ -195,6 +195,7 @@ pub trait Field<E: EthSpec>: Copy {
     fn check_and_store_genesis_value<S: KeyValueStore<E>>(
         store: &S,
         value: Self::Value,
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         let key = &genesis_value_key()[..];
 
@@ -217,7 +218,9 @@ pub trait Field<E: EthSpec>: Copy {
                 Ok(())
             }
         } else {
-            Chunk::new(vec![value]).store(store, Self::column(), &genesis_value_key()[..])
+            let chunk = Chunk::new(vec![value]);
+            chunk.store(Self::column(), &genesis_value_key()[..], ops)?;
+            Ok(())
         }
     }
 
@@ -332,6 +335,7 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
     store: &S,
     state: &BeaconState<E>,
     spec: &ChainSpec,
+    ops: &mut Vec<KeyValueStoreOp>,
 ) -> Result<(), Error> {
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(state.slot, spec);
@@ -341,7 +345,7 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
     // Store the genesis value if we have access to it, and it hasn't been stored already.
     if F::slot_needs_genesis_value(state.slot, spec) {
         let genesis_value = F::extract_genesis_value(state, spec)?;
-        F::check_and_store_genesis_value(store, genesis_value)?;
+        F::check_and_store_genesis_value(store, genesis_value, ops)?;
     }
 
     // Start by iterating backwards from the last chunk, storing new chunks in the database.
@@ -355,6 +359,7 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
         store,
         state,
         spec,
+        ops,
     )?;
 
     // If the previous `store_range` did not check the entire range, it may be the case that the
@@ -369,6 +374,7 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
             store,
             state,
             spec,
+            ops,
         )?;
     }
 
@@ -383,6 +389,7 @@ fn store_range<F, E, S, I>(
     store: &S,
     state: &BeaconState<E>,
     spec: &ChainSpec,
+    ops: &mut Vec<KeyValueStoreOp>,
 ) -> Result<bool, Error>
 where
     F: Field<E>,
@@ -409,7 +416,7 @@ where
             return Ok(false);
         }
 
-        new_chunk.store(store, F::column(), chunk_key)?;
+        new_chunk.store(F::column(), chunk_key, ops)?;
     }
 
     Ok(true)
@@ -585,13 +592,14 @@ where
             .transpose()
     }
 
-    pub fn store<S: KeyValueStore<E>, E: EthSpec>(
+    pub fn store(
         &self,
-        store: &S,
         column: DBColumn,
         key: &[u8],
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        store.put_bytes(column.into(), key, &self.encode()?)?;
+        let db_key = get_key_for_col(column.into(), key);
+        ops.push(KeyValueStoreOp::PutKeyValue(db_key, self.encode()?));
         Ok(())
     }
 
