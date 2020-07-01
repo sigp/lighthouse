@@ -1369,7 +1369,7 @@ name = "eth2_key_derivation"
 version = "0.1.0"
 dependencies = [
  "bls",
- "hex 0.3.2",
+ "hex 0.4.2",
  "num-bigint-dig",
  "ring",
  "rust-crypto",
@@ -1383,7 +1383,7 @@ dependencies = [
  "bls",
  "eth2_key_derivation",
  "eth2_ssz",
- "hex 0.3.2",
+ "hex 0.4.2",
  "rand 0.7.3",
  "rust-crypto",
  "serde",
@@ -1486,7 +1486,7 @@ version = "0.1.0"
 dependencies = [
  "eth2_key_derivation",
  "eth2_keystore",
- "hex 0.3.2",
+ "hex 0.4.2",
  "rand 0.7.3",
  "serde",
  "serde_json",
