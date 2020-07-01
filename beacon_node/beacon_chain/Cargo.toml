@@ -13,7 +13,7 @@ participation_metrics = []  # Exposes validator participation metrics to Prometh
 eth2_config = { path = "../../common/eth2_config" }
 merkle_proof = { path = "../../consensus/merkle_proof" }
 store = { path = "../store" }
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 lazy_static = "1.4.0"
 smallvec = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
