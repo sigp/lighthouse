@@ -4,9 +4,9 @@
 //! data structures. Specifically, there should not be any actual crypto logic in this file.
 
 use super::hex_bytes::HexBytes;
-use crypto::sha2::Sha256;
-use crypto::{hmac::Hmac, mac::Mac};
+use hmac::{Hmac, Mac, NewMac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::convert::TryFrom;
 
 /// KDF module representation.
@@ -66,7 +66,9 @@ pub enum Prf {
 impl Prf {
     pub fn mac(&self, password: &[u8]) -> impl Mac {
         match &self {
-            _hmac_sha256 => Hmac::new(Sha256::new(), password),
+            _hmac_sha256 => {
+                Hmac::<Sha256>::new_varkey(password).expect("Could not derive HMAC using SHA256.")
+            }
         }
     }
 }
