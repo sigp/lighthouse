@@ -6,8 +6,8 @@ use beacon_chain::{
         VerifiedUnaggregatedAttestation,
     },
     observed_operations::ObservationOutcome,
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProcessingOutcome,
-    ForkChoiceError, GossipVerifiedBlock,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{NetworkGlobals, PeerId, PeerRequestId, Request, Response};
@@ -527,59 +527,49 @@ impl<T: BeaconChainTypes> Processor<T> {
         verified_block: GossipVerifiedBlock<T>,
     ) -> bool {
         let block = Box::new(verified_block.block.clone());
-        match BlockProcessingOutcome::shim(self.chain.process_block(verified_block)) {
-            Ok(outcome) => match outcome {
-                BlockProcessingOutcome::Processed { .. } => {
-                    trace!(self.log, "Gossipsub block processed";
+        match self.chain.process_block(verified_block) {
+            Ok(_block_root) => {
+                trace!(self.log, "Gossipsub block processed";
                             "peer_id" => format!("{:?}",peer_id));
 
-                    // TODO: It would be better if we can run this _after_ we publish the block to
-                    // reduce block propagation latency.
-                    //
-                    // The `MessageHandler` would be the place to put this, however it doesn't seem
-                    // to have a reference to the `BeaconChain`. I will leave this for future
-                    // works.
-                    match self.chain.fork_choice() {
-                        Ok(()) => trace!(
-                            self.log,
-                            "Fork choice success";
-                            "location" => "block gossip"
-                        ),
-                        Err(e) => error!(
-                            self.log,
-                            "Fork choice failed";
-                            "error" => format!("{:?}", e),
-                            "location" => "block gossip"
-                        ),
-                    }
+                // TODO: It would be better if we can run this _after_ we publish the block to
+                // reduce block propagation latency.
+                //
+                // The `MessageHandler` would be the place to put this, however it doesn't seem
+                // to have a reference to the `BeaconChain`. I will leave this for future
+                // works.
+                match self.chain.fork_choice() {
+                    Ok(()) => trace!(
+                        self.log,
+                        "Fork choice success";
+                        "location" => "block gossip"
+                    ),
+                    Err(e) => error!(
+                        self.log,
+                        "Fork choice failed";
+                        "error" => format!("{:?}", e),
+                        "location" => "block gossip"
+                    ),
                 }
-                BlockProcessingOutcome::ParentUnknown { .. } => {
-                    // Inform the sync manager to find parents for this block
-                    // This should not occur. It should be checked by `should_forward_block`
-                    error!(self.log, "Block with unknown parent attempted to be processed";
+            }
+            Err(BlockError::ParentUnknown { .. }) => {
+                // Inform the sync manager to find parents for this block
+                // This should not occur. It should be checked by `should_forward_block`
+                error!(self.log, "Block with unknown parent attempted to be processed";
                             "peer_id" => format!("{:?}",peer_id));
-                    self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
-                }
-                other => {
-                    warn!(
-                        self.log,
-                        "Invalid gossip beacon block";
-                        "outcome" => format!("{:?}", other),
-                        "block root" => format!("{}", block.canonical_root()),
-                        "block slot" => block.slot()
-                    );
-                    trace!(
-                        self.log,
-                        "Invalid gossip beacon block ssz";
-                        "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
-                    );
-                }
-            },
-            Err(_) => {
-                // error is logged during the processing therefore no error is logged here
+                self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
+            }
+            other => {
+                warn!(
+                    self.log,
+                    "Invalid gossip beacon block";
+                    "outcome" => format!("{:?}", other),
+                    "block root" => format!("{}", block.canonical_root()),
+                    "block slot" => block.slot()
+                );
                 trace!(
                     self.log,
-                    "Erroneous gossip beacon block ssz";
+                    "Invalid gossip beacon block ssz";
                     "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
                 );
             }
