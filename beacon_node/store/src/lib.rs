@@ -27,7 +27,7 @@ pub mod iter;
 use std::borrow::Cow;
 
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::{HotColdDB, HotStateSummary};
+pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
@@ -42,6 +42,14 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Store some `value` in `column`, indexed with `key`.
     fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+
+    /// Same as put_bytes() but also force a flush to disk
+    fn put_bytes_sync(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+
+    /// Flush to disk.  See
+    /// https://chromium.googlesource.com/external/leveldb/+/HEAD/doc/index.md#synchronous-writes
+    /// for details.
+    fn sync(&self) -> Result<(), Error>;
 
     /// Return `true` if `key` exists in `column`.
     fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error>;
@@ -71,6 +79,14 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let key = key.as_bytes();
 
         self.put_bytes(column, key, &item.as_store_bytes())
+            .map_err(Into::into)
+    }
+
+    fn put_sync<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
+        let column = I::db_column().into();
+        let key = key.as_bytes();
+
+        self.put_bytes_sync(column, key, &item.as_store_bytes())
             .map_err(Into::into)
     }
 
