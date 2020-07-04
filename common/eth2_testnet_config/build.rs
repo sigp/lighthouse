@@ -5,8 +5,11 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 
 const TESTNET_ID: &str = "altona-v3";
+
+const HTTP_REQUEST_TIMEOUT_SECONDS: Duration = Duration::from_secs(60 * 5);
 
 fn main() {
     if !base_dir().exists() {
@@ -48,6 +51,7 @@ pub fn get_file(filename: &str) -> Result<(), String> {
         File::create(path).map_err(|e| format!("Failed to create {}: {:?}", filename, e))?;
 
     let request = reqwest::blocking::Client::builder()
+        .timeout(Some(HTTP_REQUEST_TIMEOUT_SECONDS))
         .build()
         .map_err(|_| "Could not build request client".to_string())?
         .get(&url)
