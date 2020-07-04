@@ -649,8 +649,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.request_parent(parent_request);
                     return;
                 }
-                Ok(_)
-                | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+                Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                     spawn_block_processor(
                         Arc::downgrade(&self.chain),
                         ProcessId::ParentLookup(parent_request.last_submitted_peer.clone()),
