@@ -4,7 +4,7 @@ use crate::builder::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
-use std::fs::{read, remove_file, write, OpenOptions};
+use std::fs::{read, remove_file, write, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
@@ -15,6 +15,9 @@ const LOCK_FILE: &str = ".lock";
 
 /// The file used to save the Eth1 transaction hash from a deposit.
 pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
+
+/// This trap file indicates that an eth1 deposit tx was sent but response hasn't been received yet
+pub const ETH1_DEPOSIT_TX_SENT_TRAP_FILE: &str = "eth1-deposit-tx-sent.trap";
 
 #[derive(Debug)]
 pub enum Error {
@@ -36,7 +39,10 @@ pub enum Error {
     DepositAmountIsNotUtf8(std::string::FromUtf8Error),
     UnableToParseDepositData(deposit_contract::DecodeError),
     Eth1TxHashExists(PathBuf),
+    Eth1TxSentPreviously(PathBuf),
     UnableToWriteEth1TxHash(io::Error),
+    UnableToCreateEth1TxSentFile(io::Error),
+    UnableToRemoveEth1TxSentFile(io::Error),
     /// The deposit root in the deposit data file does not match the one generated locally. This is
     /// generally caused by supplying an `amount` at deposit-time that is different to the one used
     /// at generation-time.
@@ -179,6 +185,41 @@ impl ValidatorDir {
         }
 
         write(path, tx_hash.as_bytes()).map_err(Error::UnableToWriteEth1TxHash)
+    }
+
+    /// Indicates if the eth1 deposit tx sent trap file exists in `self.dir`.
+    ///
+    pub fn eth1_deposit_tx_sent(&self) -> bool {
+        self.dir.join(ETH1_DEPOSIT_TX_SENT_TRAP_FILE).exists()
+    }
+
+    /// Creates the eth1 deposit tx sent trap file in `self.dir`. Artificially requires `mut self` to
+    /// prevent concurrent calls.
+    ///
+    /// ## Errors
+    ///
+    /// If there is a file-system error, or if the trap file already exists
+    pub fn create_eth1_deposit_tx_sent_trap_file(&mut self) -> Result<File, Error> {
+        let path = self.dir.join(ETH1_DEPOSIT_TX_SENT_TRAP_FILE);
+
+        if path.exists() {
+            return Err(Error::Eth1TxSentPreviously(path));
+        }
+        File::create(path).map_err(|e| Error::UnableToCreateEth1TxSentFile(e))
+    }
+
+    /// Removes the eth1 deposit tx sent trap file in `self.dir`. Artificially requires `mut self` to
+    /// prevent concurrent calls.
+    ///
+    /// ## Errors
+    ///
+    /// If there is a file-system error
+    pub fn remove_eth1_deposit_tx_sent_trap_file(&mut self) -> Result<(), Error> {
+        let path = self.dir.join(ETH1_DEPOSIT_TX_SENT_TRAP_FILE);
+        if path.exists() {
+            remove_file(path).map_err(|e| Error::UnableToRemoveEth1TxSentFile(e))?;
+        }
+        Ok(())
     }
 
     /// Attempts to read files in `self.dir` and return an `Eth1DepositData` that can be used for
