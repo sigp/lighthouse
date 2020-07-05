@@ -108,47 +108,50 @@ where
         poll_until_synced(web3.clone(), log.clone()).await?;
 
         for (mut validator_dir, eth1_deposit_data) in eth1_deposit_datas {
-            if validator_dir.eth1_deposit_tx_sent() {
-                warn!(log,
-                      "Skipping validator {:?} as deposit tx was sent but response was not received. Ensure tx was not broadcast and remove trap file to retry.",
-                      validator_dir
-                );
-            }
-            else {
-                validator_dir.create_eth1_deposit_tx_sent_trap_file()
-                    .map_err(|e| format!("Failed to create eth1 deposit tx sent trap file: {:?}", e))?;
-                let tx_hash = web3
-                    .eth()
-                    .send_transaction(TransactionRequest {
-                        from: from_address,
-                        to: Some(deposit_contract),
-                        gas: Some(DEPOSIT_GAS.into()),
-                        gas_price: None,
-                        value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
-                        data: Some(eth1_deposit_data.rlp.into()),
-                        nonce: None,
-                        condition: None,
-                    })
-                    .compat()
-                    .await
-                    .map_err(|e| match validator_dir
-                        .remove_eth1_deposit_tx_sent_trap_file() {
-                        Ok(_) => format!("Failed to send transaction: {:?}", e),
-                        Err(f) => format!("Failed to send transaction: {:?}\nAlso failed to remove deposit tx sent trap file: {:?}", e, f),
-                    })?;
+            match validator_dir
+                .get_eth1_deposit_tx_from_address()
+                .map_err(|e| format!("Failed to read deposit tx sent file: {:?}", e))? {
+                Some(from) => warn!(log,
+                    "Skipping validator {:?} as deposit tx from address {:?} was sent but response was not received. Ensure tx was not broadcast and remove trap file to retry.",
+                    validator_dir,
+                    from,
+                ),
+                None => {
+                    validator_dir.save_eth1_deposit_tx_sent_trap_file(format!("{:?}", from_address).as_str())
+                        .map_err(|e| format!("Failed to create eth1 deposit tx sent trap file: {:?}", e))?;
+                    let tx_hash = web3
+                        .eth()
+                        .send_transaction(TransactionRequest {
+                            from: from_address,
+                            to: Some(deposit_contract),
+                            gas: Some(DEPOSIT_GAS.into()),
+                            gas_price: None,
+                            value: Some(from_gwei(eth1_deposit_data.deposit_data.amount)),
+                            data: Some(eth1_deposit_data.rlp.into()),
+                            nonce: None,
+                            condition: None,
+                        })
+                        .compat()
+                        .await
+                        .map_err(|e| match validator_dir
+                            .remove_eth1_deposit_tx_sent_trap_file() {
+                            Ok(_) => format!("Failed to send transaction: {:?}", e),
+                            Err(f) => format!("Failed to send transaction: {:?}\nAlso failed to remove deposit tx sent trap file: {:?}", e, f),
+                        })?;
 
-                info!(
-                    log,
-                    "Submitted deposit";
-                    "tx_hash" => format!("{:?}", tx_hash),
-                );
+                    info!(
+                        log,
+                        "Submitted deposit";
+                        "tx_hash" => format!("{:?}", tx_hash),
+                    );
 
-                validator_dir
-                    .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
-                    .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
-                validator_dir
-                    .remove_eth1_deposit_tx_sent_trap_file()
-                    .map_err(|e| format!("Failed to remove eth1 deposit tx sent trap file: {:?}", e))?;
+                    validator_dir
+                        .save_eth1_deposit_tx_hash(&format!("{:?}", tx_hash))
+                        .map_err(|e| format!("Failed to save tx hash {:?} to disk: {:?}", tx_hash, e))?;
+                    validator_dir
+                        .remove_eth1_deposit_tx_sent_trap_file()
+                        .map_err(|e| format!("Failed to remove eth1 deposit tx sent trap file: {:?}", e))?;
+                }
             }
         }
 

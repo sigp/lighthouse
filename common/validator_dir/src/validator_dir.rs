@@ -4,7 +4,7 @@ use crate::builder::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
-use std::fs::{read, remove_file, write, File, OpenOptions};
+use std::fs::{read, remove_file, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
@@ -42,6 +42,7 @@ pub enum Error {
     Eth1TxSentPreviously(PathBuf),
     UnableToWriteEth1TxHash(io::Error),
     UnableToCreateEth1TxSentFile(io::Error),
+    UnableToReadEth1TxSentFile(io::Error),
     UnableToRemoveEth1TxSentFile(io::Error),
     /// The deposit root in the deposit data file does not match the one generated locally. This is
     /// generally caused by supplying an `amount` at deposit-time that is different to the one used
@@ -189,8 +190,17 @@ impl ValidatorDir {
 
     /// Indicates if the eth1 deposit tx sent trap file exists in `self.dir`.
     ///
-    pub fn eth1_deposit_tx_sent(&self) -> bool {
-        self.dir.join(ETH1_DEPOSIT_TX_SENT_TRAP_FILE).exists()
+    pub fn get_eth1_deposit_tx_from_address(&self) -> Result<Option<String>, Error> {
+        let path = self.dir.join(ETH1_DEPOSIT_TX_SENT_TRAP_FILE);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let eth1_address = read(path)
+            .map_err(|e| Error::UnableToReadEth1TxSentFile(e))
+            .and_then(|hex_bytes| {
+                String::from_utf8(hex_bytes).map_err(|_| Error::DepositDataNotUtf8)
+            })?;
+        Ok(Some(eth1_address))
     }
 
     /// Creates the eth1 deposit tx sent trap file in `self.dir`. Artificially requires `mut self` to
@@ -199,13 +209,13 @@ impl ValidatorDir {
     /// ## Errors
     ///
     /// If there is a file-system error, or if the trap file already exists
-    pub fn create_eth1_deposit_tx_sent_trap_file(&mut self) -> Result<File, Error> {
+    pub fn save_eth1_deposit_tx_sent_trap_file(&mut self, from: &str) -> Result<(), Error> {
         let path = self.dir.join(ETH1_DEPOSIT_TX_SENT_TRAP_FILE);
 
         if path.exists() {
             return Err(Error::Eth1TxSentPreviously(path));
         }
-        File::create(path).map_err(|e| Error::UnableToCreateEth1TxSentFile(e))
+        write(path, from).map_err(|e| Error::UnableToCreateEth1TxSentFile(e))
     }
 
     /// Removes the eth1 deposit tx sent trap file in `self.dir`. Artificially requires `mut self` to
