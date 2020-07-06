@@ -1,6 +1,31 @@
 mod fake_crypto;
 mod milagro;
 
+pub mod milagro_implementations {
+    pub use super::milagro::{verify_signature_sets, SignatureSet, SignedMessage};
+
+    use super::milagro::milagro;
+
+    pub type PublicKey = crate::public_key::PublicKey<milagro::AggregatePublicKey>;
+    pub type PublicKeyBytes = crate::public_key_bytes::PublicKeyBytes<milagro::AggregatePublicKey>;
+    pub type Signature =
+        crate::signature::Signature<milagro::AggregatePublicKey, milagro::AggregateSignature>;
+    pub type SignatureBytes = crate::signature_bytes::SignatureBytes<
+        milagro::AggregatePublicKey,
+        milagro::AggregateSignature,
+    >;
+    pub type SecretKey = crate::secret_key::SecretKey<
+        milagro::AggregateSignature,
+        milagro::AggregatePublicKey,
+        milagro::SecretKey,
+    >;
+    pub type Keypair = crate::keypair::Keypair<
+        milagro::AggregatePublicKey,
+        milagro::SecretKey,
+        milagro::AggregateSignature,
+    >;
+}
+
 macro_rules! define_mod {
     ($name: ident, $mod: path) => {
         pub mod $name {
@@ -31,10 +56,9 @@ macro_rules! define_mod {
     };
 }
 
+#[cfg(feature = "milagro")]
+pub use milagro_implementations::*;
+
 define_mod!(fake_crypto_implementations, super::fake_crypto);
 #[cfg(feature = "fake_crypto")]
 pub use fake_crypto_implementations::*;
-
-define_mod!(milagro_implementations, super::milagro);
-#[cfg(feature = "milagro")]
-pub use milagro_implementations::*;

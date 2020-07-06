@@ -4,10 +4,8 @@ use crate::{
     signature::TSignature,
     Error,
 };
-use ssz::{Decode, Encode};
 use std::fmt;
 use std::marker::PhantomData;
-use tree_hash::TreeHash;
 
 pub const KEYPAIR_BYTES_LEN: usize = PUBLIC_KEY_BYTES_LEN + SECRET_KEY_BYTES_LEN;
 
@@ -42,13 +40,18 @@ where
     }
 
     pub fn serialize(&self) -> [u8; KEYPAIR_BYTES_LEN] {
+        todo!()
+        /*
         let mut bytes = [0; KEYPAIR_BYTES_LEN];
         bytes[..SECRET_KEY_BYTES_LEN].copy_from_slice(&self.sk.serialize());
         bytes[SECRET_KEY_BYTES_LEN..].copy_from_slice(&self.pk.serialize());
         bytes
+        */
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        todo!()
+        /*
         if bytes.len() == KEYPAIR_BYTES_LEN {
             Ok(Self {
                 sk: SecretKey::deserialize(&bytes[..SECRET_KEY_BYTES_LEN])?,
@@ -61,34 +64,8 @@ where
                 expected: KEYPAIR_BYTES_LEN,
             })
         }
+        */
     }
-}
-
-impl<Pub, Sec, Sig> Encode for Keypair<Pub, Sec, Sig>
-where
-    Pub: TPublicKey,
-    Sec: TSecretKey<Sig, Pub>,
-    Sig: TSignature<Pub>,
-{
-    impl_ssz_encode!(KEYPAIR_BYTES_LEN);
-}
-
-impl<Pub, Sec, Sig> Decode for Keypair<Pub, Sec, Sig>
-where
-    Pub: TPublicKey,
-    Sec: TSecretKey<Sig, Pub>,
-    Sig: TSignature<Pub>,
-{
-    impl_ssz_decode!(KEYPAIR_BYTES_LEN);
-}
-
-impl<Pub, Sec, Sig> TreeHash for Keypair<Pub, Sec, Sig>
-where
-    Pub: TPublicKey,
-    Sec: TSecretKey<Sig, Pub>,
-    Sig: TSignature<Pub>,
-{
-    impl_tree_hash!(KEYPAIR_BYTES_LEN);
 }
 
 impl<Pub, Sec, Sig> fmt::Debug for Keypair<Pub, Sec, Sig>

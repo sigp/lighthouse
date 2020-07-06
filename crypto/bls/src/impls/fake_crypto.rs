@@ -2,7 +2,7 @@ use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256,
+    Error, Hash256, SecretHash,
 };
 
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
@@ -100,10 +100,10 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
         Signature::zero()
     }
 
-    fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
+    fn serialize(&self) -> SecretHash {
         let mut bytes = [0; SECRET_KEY_BYTES_LEN];
         bytes[..].copy_from_slice(&self.0[..]);
-        bytes
+        bytes.into()
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {

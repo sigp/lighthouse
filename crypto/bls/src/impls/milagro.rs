@@ -2,38 +2,74 @@ use crate::{
     public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256,
+    Error, Hash256, SecretHash,
 };
+pub use milagro_bls as milagro;
+/*
 pub use milagro_bls::{
     AggregatePublicKey as PublicKey, AggregateSignature as Signature, PublicKey as SinglePublicKey,
     SecretKey, Signature as SingleSignature,
 };
+*/
 use rand::thread_rng;
 
 pub const MILAGRO_SECRET_KEY_LEN: usize = 48;
 
-pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
-pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, PublicKey>;
-type VerifySet<'a> = (&'a Signature, &'a PublicKey, &'a [u8]);
+pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
+    'a,
+    milagro::AggregatePublicKey,
+    milagro::AggregateSignature,
+>;
+pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, milagro::AggregatePublicKey>;
 
 pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+    /*
     let rng = &mut rand::thread_rng();
     let verify_set: Vec<VerifySet> = signature_sets
         .map(|ss| (&ss.signature, &ss.signing_keys, ss.message.as_slice()))
         .collect();
-    RawAggregateSignature::verify_multiple_aggregate_signatures(rng, verify_set.into_iter())
+    milagro::AggregateSignature::verify_multiple_aggregate_signatures(rng, verify_set.into_iter())
+    */
+
+    let flattened_sets = signature_sets
+        .map(|signature_set| {
+            let signature = signature_set.signature.point().expect("FIXME");
+
+            signature_set
+                .signed_messages
+                .into_iter()
+                .map(move |signed_message| {
+                    let mut aggregate = milagro::AggregatePublicKey::new();
+                    for signing_key in &signed_message.signing_keys {
+                        aggregate.add(&milagro::PublicKey {
+                            // TODO: address this expensive clone.
+                            point: signing_key.point().point.clone(),
+                        })
+                    }
+
+                    (signature, aggregate, signed_message.message)
+                })
+        })
+        .flatten()
+        .collect::<Vec<(
+            &milagro::AggregateSignature,
+            milagro::AggregatePublicKey,
+            Hash256,
+        )>>();
+
     /*
     let signatures_iter = signature_sets.map(|set| {
-        let (pubkeys, messages): (Vec<PublicKey>, Vec<Vec<u8>>) = set
+        let (pubkeys, messages): (Vec<milagro::AggregatePublicKey>, Vec<Vec<u8>>) = set
             .signed_messages
             .into_iter()
             .map(|signed_message| {
                 let key = if signed_message.signing_keys.len() == 1 {
                     signed_message.signing_keys[0].point().clone()
                 } else {
-                    let mut aggregate = PublicKey::new();
+                    let mut aggregate = milagro::AggregatePublicKey::new();
                     for signing_key in signed_message.signing_keys {
-                        aggregate.add(&SinglePublicKey {
+                        aggregate.add(&milagro::PublicKey {
+                            // TODO: address this expensive clone.
                             point: signing_key.point().point.clone(),
                         })
                     }
@@ -53,14 +89,19 @@ pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureS
         );
         */
 
-        (set.signature, pubkeys, messages)
+        (set.signature.point().expect("FIXME"), pubkeys, messages)
     });
-
-    Signature::verify_multiple_aggregate_signatures(&mut rand::thread_rng(), signatures_iter)
     */
+
+    milagro::AggregateSignature::verify_multiple_aggregate_signatures(
+        &mut rand::thread_rng(),
+        flattened_sets
+            .iter()
+            .map(|(signature, aggregate, message)| (*signature, aggregate, message.as_bytes())),
+    )
 }
 
-impl TPublicKey for PublicKey {
+impl TPublicKey for milagro::AggregatePublicKey {
     fn zero() -> Self {
         Self::new()
     }
@@ -89,9 +130,9 @@ impl TPublicKey for PublicKey {
     }
 }
 
-impl TSignature<PublicKey> for Signature {
+impl TSignature<milagro::AggregatePublicKey> for milagro::AggregateSignature {
     fn zero() -> Self {
-        Signature::new()
+        milagro::AggregateSignature::new()
     }
 
     fn add_assign(&mut self, other: &Self) {
@@ -107,47 +148,59 @@ impl TSignature<PublicKey> for Signature {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Signature::from_bytes(&bytes).map_err(|e| Error::MilagroError(e))
+        milagro::AggregateSignature::from_bytes(&bytes).map_err(|e| Error::MilagroError(e))
     }
 
-    fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool {
-        self.verify(msg.as_bytes(), pubkey)
+    fn verify(&self, pubkey: &milagro::AggregatePublicKey, msg: Hash256) -> bool {
+        self.fast_aggregate_verify_pre_aggregated(msg.as_bytes(), pubkey)
     }
 
-    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[Hash256]) -> bool {
+    fn fast_aggregate_verify(
+        &self,
+        pubkeys: &[milagro::AggregatePublicKey],
+        msgs: &[Hash256],
+    ) -> bool {
+        todo!()
+        /*
         let msg_slices = msgs
             .iter()
             .map(|msg| msg.as_bytes().to_vec())
             .collect::<Vec<Vec<u8>>>();
-        let pubkey_refs = pubkeys.iter().collect::<Vec<&PublicKey>>();
+        let pubkey_refs = pubkeys
+            .iter()
+            .collect::<Vec<&milagro::AggregatePublicKey>>();
 
         self.verify_multiple(&msg_slices[..], &pubkey_refs[..])
+        */
     }
 }
 
-impl TSecretKey<Signature, PublicKey> for SecretKey {
+impl TSecretKey<milagro::AggregateSignature, milagro::AggregatePublicKey> for milagro::SecretKey {
     fn random() -> Self {
         Self::random(&mut thread_rng())
     }
 
-    fn public_key(&self) -> PublicKey {
-        let point = SinglePublicKey::from_secret_key(self).point;
-        PublicKey { point }
+    fn public_key(&self) -> milagro::AggregatePublicKey {
+        let point = milagro::PublicKey::from_secret_key(self).point;
+        milagro::AggregatePublicKey {
+            point,
+            is_empty: false,
+        }
     }
 
-    fn sign(&self, msg: Hash256) -> Signature {
-        let point = SingleSignature::new(msg.as_bytes(), self).point;
-        Signature { point }
+    fn sign(&self, msg: Hash256) -> milagro::AggregateSignature {
+        let point = milagro::Signature::new(msg.as_bytes(), self).point;
+        milagro::AggregateSignature { point }
     }
 
-    fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
+    fn serialize(&self) -> SecretHash {
         let mut bytes = [0; SECRET_KEY_BYTES_LEN];
 
         // Takes the right-hand 32 bytes from the secret key.
         bytes[..]
             .copy_from_slice(&self.as_bytes()[MILAGRO_SECRET_KEY_LEN - SECRET_KEY_BYTES_LEN..]);
 
-        bytes
+        bytes.into()
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {

@@ -1,11 +1,9 @@
 use crate::{
     public_key::{PublicKey, TPublicKey},
     signature::{Signature, TSignature},
-    Error, Hash256,
+    Error, Hash256, SecretHash,
 };
-use ssz::{Decode, Encode};
 use std::marker::PhantomData;
-use tree_hash::TreeHash;
 
 pub const SECRET_KEY_BYTES_LEN: usize = 32;
 
@@ -16,7 +14,7 @@ pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
 
     fn public_key(&self) -> PublicKeyPoint;
 
-    fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN];
+    fn serialize(&self) -> SecretHash;
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 }
@@ -53,7 +51,7 @@ where
         Signature::from_point(self.point.sign(msg))
     }
 
-    pub fn serialize(&self) -> [u8; SECRET_KEY_BYTES_LEN] {
+    pub fn serialize(&self) -> SecretHash {
         self.point.serialize()
     }
 
@@ -64,31 +62,4 @@ where
             _phantom_public_key: PhantomData,
         })
     }
-}
-
-impl<Sig, Pub, Sec> Encode for SecretKey<Sig, Pub, Sec>
-where
-    Sig: TSignature<Pub>,
-    Pub: TPublicKey,
-    Sec: TSecretKey<Sig, Pub>,
-{
-    impl_ssz_encode!(SECRET_KEY_BYTES_LEN);
-}
-
-impl<Sig, Pub, Sec> Decode for SecretKey<Sig, Pub, Sec>
-where
-    Sig: TSignature<Pub>,
-    Pub: TPublicKey,
-    Sec: TSecretKey<Sig, Pub>,
-{
-    impl_ssz_decode!(SECRET_KEY_BYTES_LEN);
-}
-
-impl<Sig, Pub, Sec> TreeHash for SecretKey<Sig, Pub, Sec>
-where
-    Sig: TSignature<Pub>,
-    Pub: TPublicKey,
-    Sec: TSecretKey<Sig, Pub>,
-{
-    impl_tree_hash!(SECRET_KEY_BYTES_LEN);
 }

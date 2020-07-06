@@ -5,6 +5,7 @@ mod impls;
 mod keypair;
 mod public_key;
 mod public_key_bytes;
+mod secret_hash;
 mod secret_key;
 mod signature;
 mod signature_bytes;
@@ -13,6 +14,7 @@ mod signature_set;
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use impls::*;
 pub use public_key::PUBLIC_KEY_BYTES_LEN;
+pub use secret_hash::SecretHash;
 pub use secret_key::SECRET_KEY_BYTES_LEN;
 pub use signature::SIGNATURE_BYTES_LEN;
 
