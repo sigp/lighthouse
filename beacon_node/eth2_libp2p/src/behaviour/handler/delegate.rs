@@ -80,6 +80,7 @@ pub enum DelegateError<TSpec: EthSpec> {
     Gossipsub(<GossipHandler as ProtocolsHandler>::Error),
     RPC(<RPCHandler<TSpec> as ProtocolsHandler>::Error),
     Identify(<IdentifyHandler as ProtocolsHandler>::Error),
+    Disconnected,
 }
 
 impl<TSpec: EthSpec> std::error::Error for DelegateError<TSpec> {}
@@ -93,6 +94,7 @@ impl<TSpec: EthSpec> std::fmt::Display for DelegateError<TSpec> {
             DelegateError::Gossipsub(err) => err.fmt(formater),
             DelegateError::RPC(err) => err.fmt(formater),
             DelegateError::Identify(err) => err.fmt(formater),
+            DelegateError::Disconnected => write!(formater, "Disconnected"),
         }
     }
 }

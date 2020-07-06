@@ -95,14 +95,9 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
         self.delegate.inject_dial_upgrade_error(info, err)
     }
 
+    // We don't use the keep alive to disconnect. This is handled in the poll
     fn connection_keep_alive(&self) -> KeepAlive {
-        if self.shutting_down {
-            let rpc_keep_alive = self.delegate.rpc().connection_keep_alive();
-            let identify_keep_alive = self.delegate.identify().connection_keep_alive();
-            rpc_keep_alive.max(identify_keep_alive)
-        } else {
-            KeepAlive::Yes
-        }
+        KeepAlive::Yes
     }
 
     fn poll(
@@ -116,6 +111,15 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
             Self::Error,
         >,
     > {
+        // Disconnect if the sub-handlers are ready.
+        if self.shutting_down {
+            let rpc_keep_alive = self.delegate.rpc().connection_keep_alive();
+            let identify_keep_alive = self.delegate.identify().connection_keep_alive();
+            if KeepAlive::No == rpc_keep_alive.max(identify_keep_alive) {
+                return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Disconnected));
+            }
+        }
+
         match self.delegate.poll(cx) {
             Poll::Ready(ProtocolsHandlerEvent::Custom(event)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Custom(

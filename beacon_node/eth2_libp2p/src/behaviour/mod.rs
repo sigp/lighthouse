@@ -66,6 +66,8 @@ pub struct Behaviour<TSpec: EthSpec> {
     // NOTE: This can be accessed via the network_globals ENR. However we keep it here for quick
     // lookups for every gossipsub message send.
     enr_fork_id: EnrForkId,
+    /// The waker for the current thread.
+    waker: Option<std::task::Waker>,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -114,6 +116,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             meta_data,
             network_globals,
             enr_fork_id,
+            waker: None,
             log: behaviour_log,
         })
     }
@@ -401,7 +404,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         }
                         Ok(msg) => {
                             // if this message isn't a duplicate, notify the network
-                            self.events.push_back(BehaviourEvent::PubsubMessage {
+                            self.add_event(BehaviourEvent::PubsubMessage {
                                 id,
                                 source: propagation_source,
                                 topics: gs_msg.topics,
@@ -421,8 +424,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                self.events
-                    .push_back(BehaviourEvent::PeerSubscribed(peer_id, topic));
+                self.add_event(BehaviourEvent::PeerSubscribed(peer_id, topic));
             }
             GossipsubEvent::Unsubscribed { .. } => {}
         }
@@ -431,7 +433,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Queues the response to be sent upwards as long at it was requested outside the Behaviour.
     fn propagate_response(&mut self, id: RequestId, peer_id: PeerId, response: Response<TSpec>) {
         if !matches!(id, RequestId::Behaviour) {
-            self.events.push_back(BehaviourEvent::ResponseReceived {
+            self.add_event(BehaviourEvent::ResponseReceived {
                 peer_id,
                 id,
                 response,
@@ -441,7 +443,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Convenience function to propagate a request.
     fn propagate_request(&mut self, id: PeerRequestId, peer_id: PeerId, request: Request) {
-        self.events.push_back(BehaviourEvent::RequestReceived {
+        self.add_event(BehaviourEvent::RequestReceived {
             peer_id,
             id,
             request,
@@ -474,8 +476,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
                         // inform failures of requests comming outside the behaviour
                         if !matches!(id, RequestId::Behaviour) {
-                            self.events
-                                .push_back(BehaviourEvent::RPCFailed { peer_id, id, error });
+                            self.add_event(BehaviourEvent::RPCFailed { peer_id, id, error });
                         }
                     }
                 }
@@ -664,6 +665,14 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             IdentifyEvent::Error { .. } => {}
         }
     }
+
+    /// Adds an event to the queue waking the current thread to process it.
+    fn add_event(&mut self, event: BehaviourEvent<TSpec>) {
+        self.events.push_back(event);
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
+        }
+    }
 }
 
 /// Calls the given function with the given args on all sub behaviours.
@@ -702,8 +711,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         // Inform the peer manager.
         self.peer_manager.notify_disconnect(&peer_id);
         // Inform the application.
-        self.events
-            .push_back(BehaviourEvent::PeerDisconnected(peer_id.clone()));
+        self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
         delegate_to_behaviours!(self, inject_disconnected, peer_id);
     }
 
@@ -733,14 +741,12 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         match endpoint {
             ConnectedPoint::Listener { .. } => {
                 self.peer_manager.connect_ingoing(&peer_id);
-                self.events
-                    .push_back(BehaviourEvent::PeerConnected(peer_id.clone()));
+                self.add_event(BehaviourEvent::PeerConnected(peer_id.clone()));
                 debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Incoming");
             }
             ConnectedPoint::Dialer { .. } => {
                 self.peer_manager.connect_outgoing(&peer_id);
-                self.events
-                    .push_back(BehaviourEvent::PeerDialed(peer_id.clone()));
+                self.add_event(BehaviourEvent::PeerDialed(peer_id.clone()));
                 debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Dialed");
             }
         }
@@ -824,6 +830,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         cx: &mut Context,
         poll_params: &mut impl PollParameters,
     ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
+        // update the waker if needed
+        if let Some(waker) = &self.waker {
+            if waker.will_wake(cx.waker()) {
+                self.waker = Some(cx.waker().clone());
+            }
+        } else {
+            self.waker = Some(cx.waker().clone());
+        }
+
         // TODO: move where it's less distracting
         macro_rules! poll_behaviour {
             /* $behaviour:  The sub-behaviour being polled.
@@ -881,7 +896,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
 
 /// The type of RPC requests the Behaviour informs it has received and allows for sending.
 ///
-// NOTE: This is an application-level wrapper over the lower network leve requests that can be
+// NOTE: This is an application-level wrapper over the lower network level requests that can be
 //       sent. The main difference is the absence of the Ping, Metadata and Goodbye protocols, which don't
 //       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
 #[derive(Debug, Clone, PartialEq)]
