@@ -393,14 +393,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     fn on_gossip_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message(propagation_source, id, gs_msg) => {
-                // Note: We are keeping track here of the peer that sent us the message, not the
-                // peer that originally published the message.
                 match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
                     Err(e) => {
                         debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
                     }
                     Ok(msg) => {
-                        // if this message isn't a duplicate, notify the network
                         self.add_event(BehaviourEvent::PubsubMessage {
                             id,
                             source: propagation_source,
