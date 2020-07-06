@@ -3,9 +3,9 @@
 Lighthouse runs on Linux, MacOS and Windows. Installation should be easy. In
 fact, if you already have Rust installed all you need is:
 
-- `$ git clone https://github.com/sigp/lighthouse.git`
-- `$ cd lighthouse`
-- `$ make`
+- `git clone https://github.com/sigp/lighthouse.git`
+- `cd lighthouse`
+- `make`
 
 If this doesn't work or is not clear enough, see the [Detailed Instructions](#detailed-instructions). If you have further issues, see [Troubleshooting](#troubleshooting). If you'd prefer to use Docker, see the [Docker Guide](./docker.md).
 
@@ -26,7 +26,16 @@ If this doesn't work or is not clear enough, see the [Detailed Instructions](#de
 
 ## Troubleshooting
 
-###  Command is not found
+### Dependencies (Ubuntu)
+
+Several dependencies may be required to compile Lighthouse. The following
+packages may be required in addition a base Ubuntu Server installation:
+
+```bash
+sudo apt install -y git gcc g++ make cmake pkg-config libssl-dev
+```
+
+### Command is not found
 
 Lighthouse will be installed to `CARGO_HOME` or `$HOME/.cargo`. This directory
 needs to be on your `PATH` before you can run `$ lighthouse`.

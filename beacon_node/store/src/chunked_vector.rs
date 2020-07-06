@@ -177,7 +177,7 @@ pub trait Field<E: EthSpec>: Copy {
     /// Load the genesis value for a fixed length field from the store.
     ///
     /// This genesis value should be used to fill the initial state of the vector.
-    fn load_genesis_value<S: Store<E>>(store: &S) -> Result<Self::Value, Error> {
+    fn load_genesis_value<S: KeyValueStore<E>>(store: &S) -> Result<Self::Value, Error> {
         let key = &genesis_value_key()[..];
         let chunk =
             Chunk::load(store, Self::column(), key)?.ok_or(ChunkError::MissingGenesisValue)?;
@@ -192,9 +192,10 @@ pub trait Field<E: EthSpec>: Copy {
     ///
     /// Check the existing value (if any) for consistency with the value we intend to store, and
     /// return an error if they are inconsistent.
-    fn check_and_store_genesis_value<S: Store<E>>(
+    fn check_and_store_genesis_value<S: KeyValueStore<E>>(
         store: &S,
         value: Self::Value,
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         let key = &genesis_value_key()[..];
 
@@ -217,7 +218,9 @@ pub trait Field<E: EthSpec>: Copy {
                 Ok(())
             }
         } else {
-            Chunk::new(vec![value]).store(store, Self::column(), &genesis_value_key()[..])
+            let chunk = Chunk::new(vec![value]);
+            chunk.store(Self::column(), &genesis_value_key()[..], ops)?;
+            Ok(())
         }
     }
 
@@ -327,11 +330,12 @@ field!(
     |state: &BeaconState<_>, index, _| safe_modulo_index(&state.randao_mixes, index)
 );
 
-pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store<E>>(
+pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
     field: F,
     store: &S,
     state: &BeaconState<E>,
     spec: &ChainSpec,
+    ops: &mut Vec<KeyValueStoreOp>,
 ) -> Result<(), Error> {
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(state.slot, spec);
@@ -341,7 +345,7 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store<E>>(
     // Store the genesis value if we have access to it, and it hasn't been stored already.
     if F::slot_needs_genesis_value(state.slot, spec) {
         let genesis_value = F::extract_genesis_value(state, spec)?;
-        F::check_and_store_genesis_value(store, genesis_value)?;
+        F::check_and_store_genesis_value(store, genesis_value, ops)?;
     }
 
     // Start by iterating backwards from the last chunk, storing new chunks in the database.
@@ -355,6 +359,7 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store<E>>(
         store,
         state,
         spec,
+        ops,
     )?;
 
     // If the previous `store_range` did not check the entire range, it may be the case that the
@@ -369,6 +374,7 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: Store<E>>(
             store,
             state,
             spec,
+            ops,
         )?;
     }
 
@@ -383,11 +389,12 @@ fn store_range<F, E, S, I>(
     store: &S,
     state: &BeaconState<E>,
     spec: &ChainSpec,
+    ops: &mut Vec<KeyValueStoreOp>,
 ) -> Result<bool, Error>
 where
     F: Field<E>,
     E: EthSpec,
-    S: Store<E>,
+    S: KeyValueStore<E>,
     I: Iterator<Item = usize>,
 {
     for chunk_index in range {
@@ -409,7 +416,7 @@ where
             return Ok(false);
         }
 
-        new_chunk.store(store, F::column(), chunk_key)?;
+        new_chunk.store(F::column(), chunk_key, ops)?;
     }
 
     Ok(true)
@@ -417,7 +424,7 @@ where
 
 // Chunks at the end index are included.
 // TODO: could be more efficient with a real range query (perhaps RocksDB)
-fn range_query<S: Store<E>, E: EthSpec, T: Decode + Encode>(
+fn range_query<S: KeyValueStore<E>, E: EthSpec, T: Decode + Encode>(
     store: &S,
     column: DBColumn,
     start_index: usize,
@@ -482,7 +489,7 @@ fn stitch<T: Default + Clone>(
     Ok(result)
 }
 
-pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store<E>>(
+pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: KeyValueStore<E>>(
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
@@ -514,7 +521,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: Store<E>>(
 }
 
 /// The historical roots are stored in vector chunks, despite not actually being a vector.
-pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: Store<E>>(
+pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyValueStore<E>>(
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
@@ -574,7 +581,7 @@ where
         Chunk { values }
     }
 
-    pub fn load<S: Store<E>, E: EthSpec>(
+    pub fn load<S: KeyValueStore<E>, E: EthSpec>(
         store: &S,
         column: DBColumn,
         key: &[u8],
@@ -585,13 +592,14 @@ where
             .transpose()
     }
 
-    pub fn store<S: Store<E>, E: EthSpec>(
+    pub fn store(
         &self,
-        store: &S,
         column: DBColumn,
         key: &[u8],
+        ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        store.put_bytes(column.into(), key, &self.encode()?)?;
+        let db_key = get_key_for_col(column.into(), key);
+        ops.push(KeyValueStoreOp::PutKeyValue(db_key, self.encode()?));
         Ok(())
     }
 

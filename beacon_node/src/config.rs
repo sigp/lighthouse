@@ -1,19 +1,17 @@
 use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
+use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
-use slog::{crit, warn, Logger};
+use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
-pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
 
@@ -28,6 +26,7 @@ pub const NETWORK_DIR: &str = "network";
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
     spec_constants: &str,
+    spec: &ChainSpec,
     log: Logger,
 ) -> Result<ClientConfig, String> {
     let mut client_config = ClientConfig::default();
@@ -40,7 +39,7 @@ pub fn get_config<E: EthSpec>(
         fs::remove_dir_all(
             client_config
                 .get_db_path()
-                .ok_or("Failed to get db_path".to_string())?,
+                .ok_or_else(|| "Failed to get db_path".to_string())?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
@@ -48,7 +47,7 @@ pub fn get_config<E: EthSpec>(
         fs::remove_dir_all(
             client_config
                 .get_freezer_db_path()
-                .ok_or("Failed to get freezer db path".to_string())?,
+                .ok_or_else(|| "Failed to get freezer db path".to_string())?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
@@ -64,17 +63,13 @@ pub fn get_config<E: EthSpec>(
     fs::create_dir_all(&client_config.data_dir)
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
-    // Load the client config, if it exists .
-    let config_file_path = client_config.data_dir.join(CLIENT_CONFIG_FILENAME);
-    let config_file_existed = config_file_path.exists();
-    if config_file_existed {
-        client_config = read_from_file(config_file_path.clone())
-            .map_err(|e| format!("Unable to parse {:?} file: {:?}", config_file_path, e))?
-            .ok_or_else(|| format!("{:?} file does not exist", config_file_path))?;
-    } else {
-        client_config.spec_constants = spec_constants.into();
-    }
+    // logs the chosen data directory
+    let mut log_dir = client_config.data_dir.clone();
+    // remove /beacon from the end
+    log_dir.pop();
+    info!(log, "Data directory initialised"; "datadir" => format!("{}",log_dir.into_os_string().into_string().expect("Datadir should be a valid os string")));
 
+    client_config.spec_constants = spec_constants.into();
     client_config.testnet_dir = get_testnet_dir(cli_args);
 
     /*
@@ -94,7 +89,7 @@ pub fn get_config<E: EthSpec>(
         client_config.network.listen_address = listen_address;
     }
 
-    if let Some(max_peers_str) = cli_args.value_of("maxpeers") {
+    if let Some(max_peers_str) = cli_args.value_of("max-peers") {
         client_config.network.max_peers = max_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
@@ -105,6 +100,13 @@ pub fn get_config<E: EthSpec>(
             .parse::<u16>()
             .map_err(|_| format!("Invalid port: {}", port_str))?;
         client_config.network.libp2p_port = port;
+        client_config.network.discovery_port = port;
+    }
+
+    if let Some(port_str) = cli_args.value_of("discovery-port") {
+        let port = port_str
+            .parse::<u16>()
+            .map_err(|_| format!("Invalid port: {}", port_str))?;
         client_config.network.discovery_port = port;
     }
 
@@ -126,40 +128,76 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
-    if let Some(topics_str) = cli_args.value_of("topics") {
-        client_config.network.topics = topics_str.split(',').map(|s| s.into()).collect();
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
+        client_config.network.enr_udp_port = Some(
+            enr_udp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
     }
 
-    if let Some(discovery_address_str) = cli_args.value_of("discovery-address") {
-        client_config.network.discovery_address = Some(
-            discovery_address_str
-                .parse()
-                .map_err(|_| format!("Invalid discovery address: {:?}", discovery_address_str))?,
-        )
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+        client_config.network.enr_tcp_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
     }
 
-    if let Some(disc_port_str) = cli_args.value_of("disc-port") {
-        client_config.network.discovery_port = disc_port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid discovery port: {}", disc_port_str))?;
-    }
-
-    if let Some(p2p_priv_key) = cli_args.value_of("p2p-priv-key") {
-        client_config.network.secret_key_hex = Some(p2p_priv_key.to_string());
-    }
-
-    // Define a percentage of messages that should be propogated, useful for simulating bad network
-    // conditions.
-    //
-    // WARNING: setting this to anything less than 100 will cause bad behaviour.
-    if let Some(propagation_percentage_string) = cli_args.value_of("random-propagation") {
-        let percentage = propagation_percentage_string
-            .parse::<u8>()
-            .map_err(|_| "Unable to parse the propagation percentage".to_string())?;
-        if percentage > 100 {
-            return Err("Propagation percentage greater than 100".to_string());
+    if cli_args.is_present("enr-match") {
+        // set the enr address to localhost if the address is 0.0.0.0
+        if client_config.network.listen_address
+            == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr")
+        {
+            client_config.network.enr_address =
+                Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        } else {
+            client_config.network.enr_address = Some(client_config.network.listen_address);
         }
-        client_config.network.propagation_percentage = Some(percentage);
+        client_config.network.enr_udp_port = Some(client_config.network.discovery_port);
+    }
+
+    if let Some(enr_address) = cli_args.value_of("enr-address") {
+        let resolved_addr = match enr_address.parse::<IpAddr>() {
+            Ok(addr) => addr, // // Input is an IpAddr
+            Err(_) => {
+                let mut addr = enr_address.to_string();
+                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
+                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
+                // will make the node undiscoverable.
+                if let Some(enr_udp_port) = client_config.network.enr_udp_port {
+                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                } else {
+                    return Err(
+                        "enr-udp-port must be set for node to be discoverable with dns address"
+                            .into(),
+                    );
+                }
+                // `to_socket_addr()` does the dns resolution
+                // Note: `to_socket_addrs()` is a blocking call
+                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
+                    // Pick the first ip from the list of resolved addresses
+                    resolved_addrs
+                        .next()
+                        .map(|a| a.ip())
+                        .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
+                } else {
+                    return Err(format!("Failed to parse enr-address: {}", enr_address));
+                };
+                client_config.network.discv5_config.enr_update = false;
+                resolved_addr
+            }
+        };
+        client_config.network.enr_address = Some(resolved_addr);
+    }
+
+    if cli_args.is_present("disable_enr_auto_update") {
+        client_config.network.discv5_config.enr_update = false;
+    }
+
+    if cli_args.is_present("disable-discovery") {
+        client_config.network.disable_discovery = true;
+        slog::warn!(log, "Discovery is disabled. New peers will not be found");
     }
 
     /*
@@ -247,15 +285,9 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
-    if let Some(state_cache_size) = cli_args.value_of("state-cache-size") {
-        client_config.store.state_cache_size = state_cache_size
-            .parse()
-            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
-    }
-
     if spec_constants != client_config.spec_constants {
         crit!(log, "Specification constants do not match.";
-              "client_config" => client_config.spec_constants.to_string(),
+              "client_config" => client_config.spec_constants,
               "eth2_config" => spec_constants
         );
         return Err("Specification constant mismatch".into());
@@ -271,8 +303,8 @@ pub fn get_config<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
-            client_config.network.discovery_address = None
+        if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
+            client_config.network.enr_address = None
         }
         client_config.network.libp2p_port =
             unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
@@ -280,16 +312,6 @@ pub fn get_config<E: EthSpec>(
             unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.rest_api.port = 0;
         client_config.websocket_server.port = 0;
-    }
-
-    // ENR IP needs to be explicit for node to be discoverable
-    if client_config.network.discovery_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
-        warn!(
-            log,
-            "Discovery address cannot be 0.0.0.0, Setting to to 127.0.0.1"
-        );
-        client_config.network.discovery_address =
-            Some("127.0.0.1".parse().expect("Valid IP address"))
     }
 
     /*
@@ -304,6 +326,7 @@ pub fn get_config<E: EthSpec>(
         eth2_testnet_config.deposit_contract_deploy_block;
     client_config.eth1.lowest_cached_block_number =
         client_config.eth1.deposit_contract_deploy_block;
+    client_config.eth1.follow_distance = spec.eth1_follow_distance;
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
         client_config.network.boot_nodes.append(&mut boot_nodes)
@@ -318,10 +341,6 @@ pub fn get_config<E: EthSpec>(
         };
     } else {
         client_config.genesis = ClientGenesis::DepositContract;
-    }
-
-    if !config_file_existed {
-        write_to_file(config_file_path, &client_config)?;
     }
 
     Ok(client_config)
@@ -355,19 +374,14 @@ pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
 pub fn get_eth2_testnet_config<E: EthSpec>(
     testnet_dir: &Option<PathBuf>,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    Ok(if let Some(testnet_dir) = testnet_dir {
+    if let Some(testnet_dir) = testnet_dir {
         Eth2TestnetConfig::load(testnet_dir.clone())
-            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))?
+            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))
     } else {
-        Eth2TestnetConfig::hard_coded().map_err(|e| {
-            format!(
-                "The hard-coded testnet directory was invalid. \
-                 This happens when Lighthouse is migrating between spec versions. \
-                 Error : {}",
-                e
-            )
-        })?
-    })
+        Eth2TestnetConfig::hard_coded()
+            .map_err(|e| format!("Error parsing hardcoded testnet: {}", e))?
+            .ok_or_else(|| format!("{}", BAD_TESTNET_DIR_MESSAGE))
+    }
 }
 
 /// A bit of hack to find an unused port.
@@ -409,43 +423,4 @@ pub fn unused_port(transport: &str) -> Result<u16, String> {
         _ => return Err("Invalid transport to find unused port".into()),
     };
     Ok(local_addr.port())
-}
-
-/// Write a configuration to file.
-pub fn write_to_file<T>(path: PathBuf, config: &T) -> Result<(), String>
-where
-    T: Default + serde::de::DeserializeOwned + serde::Serialize,
-{
-    if let Ok(mut file) = File::create(path.clone()) {
-        let toml_encoded = toml::to_string(&config).map_err(|e| {
-            format!(
-                "Failed to write configuration to {:?}. Error: {:?}",
-                path, e
-            )
-        })?;
-        file.write_all(toml_encoded.as_bytes())
-            .unwrap_or_else(|_| panic!("Unable to write to {:?}", path));
-    }
-
-    Ok(())
-}
-
-/// Loads a `ClientConfig` from file. If unable to load from file, generates a default
-/// configuration and saves that as a sample file.
-pub fn read_from_file<T>(path: PathBuf) -> Result<Option<T>, String>
-where
-    T: Default + serde::de::DeserializeOwned + serde::Serialize,
-{
-    if let Ok(mut file) = File::open(path.clone()) {
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)
-            .map_err(|e| format!("Unable to read {:?}. Error: {:?}", path, e))?;
-
-        let config = toml::from_str(&contents)
-            .map_err(|e| format!("Unable to parse {:?}: {:?}", path, e))?;
-
-        Ok(Some(config))
-    } else {
-        Ok(None)
-    }
 }

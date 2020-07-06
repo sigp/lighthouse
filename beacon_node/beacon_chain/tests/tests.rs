@@ -3,18 +3,17 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::AttestationProcessingOutcome;
 use beacon_chain::{
+    attestation_verification::Error as AttnError,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType, OP_POOL_DB_KEY,
     },
-    BlockProcessingOutcome,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
-use store::Store;
+use store::config::StoreConfig;
 use types::{BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
@@ -26,7 +25,11 @@ lazy_static! {
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<HarnessType<MinimalEthSpec>> {
-    let harness = BeaconChainHarness::new(MinimalEthSpec, KEYPAIRS[0..validator_count].to_vec());
+    let harness = BeaconChainHarness::new(
+        MinimalEthSpec,
+        KEYPAIRS[0..validator_count].to_vec(),
+        StoreConfig::default(),
+    );
 
     harness.advance_slot();
 
@@ -74,11 +77,13 @@ fn iterators() {
         .chain
         .rev_iter_block_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .collect();
     let state_roots: Vec<(Hash256, Slot)> = harness
         .chain
         .rev_iter_state_roots()
         .expect("should get iter")
+        .map(Result::unwrap)
         .collect();
 
     assert_eq!(
@@ -160,7 +165,7 @@ fn chooses_fork() {
         faulty_fork_blocks,
     );
 
-    assert!(honest_head != faulty_head, "forks should be distinct");
+    assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
@@ -349,22 +354,20 @@ fn roundtrip_operation_pool() {
         .persist_op_pool()
         .expect("should persist op pool");
 
-    let head_state = harness.chain.head().expect("should get head").beacon_state;
-
     let key = Hash256::from_slice(&OP_POOL_DB_KEY);
     let restored_op_pool = harness
         .chain
         .store
-        .get::<PersistedOperationPool<MinimalEthSpec>>(&key)
+        .get_item::<PersistedOperationPool<MinimalEthSpec>>(&key)
         .expect("should read db")
         .expect("should find op pool")
-        .into_operation_pool(&head_state, &harness.spec);
+        .into_operation_pool();
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
 
 #[test]
-fn free_attestations_added_to_fork_choice_some_none() {
+fn unaggregated_attestations_added_to_fork_choice_some_none() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() / 2;
 
     let harness = get_harness(VALIDATOR_COUNT);
@@ -376,7 +379,13 @@ fn free_attestations_added_to_fork_choice_some_none() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
         .into_iter()
@@ -398,7 +407,7 @@ fn free_attestations_added_to_fork_choice_some_none() {
             assert_eq!(
                 latest_message.unwrap().1,
                 slot.epoch(MinimalEthSpec::slots_per_epoch()),
-                "Latest message slot for {} should be equal to slot {}.",
+                "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
                 slot
             )
@@ -428,7 +437,7 @@ fn attestations_with_increasing_slots() {
         );
 
         attestations.append(
-            &mut harness.get_free_attestations(
+            &mut harness.get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &harness.chain.head().expect("should get head").beacon_state,
                 harness
@@ -448,28 +457,33 @@ fn attestations_with_increasing_slots() {
         harness.advance_slot();
     }
 
-    let current_epoch = harness.chain.epoch().expect("should get epoch");
+    for (attestation, subnet_id) in attestations.into_iter().flatten() {
+        let res = harness
+            .chain
+            .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id);
 
-    for attestation in attestations {
-        let attestation_epoch = attestation.data.target.epoch;
-        let res = harness.chain.process_attestation(attestation);
+        let current_slot = harness.chain.slot().expect("should get slot");
+        let expected_attestation_slot = attestation.data.slot;
+        let expected_earliest_permissible_slot =
+            current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 
-        if attestation_epoch + 1 < current_epoch {
-            assert_eq!(
-                res,
-                Ok(AttestationProcessingOutcome::PastEpoch {
-                    attestation_epoch,
-                    current_epoch,
-                })
-            )
+        if expected_attestation_slot < expected_earliest_permissible_slot {
+            assert!(matches!(
+                res.err().unwrap(),
+                AttnError::PastSlot {
+                    attestation_slot,
+                    earliest_permissible_slot,
+                }
+                if attestation_slot == expected_attestation_slot && earliest_permissible_slot == expected_earliest_permissible_slot
+            ))
         } else {
-            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed))
+            res.expect("should process attestation");
         }
     }
 }
 
 #[test]
-fn free_attestations_added_to_fork_choice_all_updated() {
+fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
 
     let harness = get_harness(VALIDATOR_COUNT);
@@ -481,7 +495,13 @@ fn free_attestations_added_to_fork_choice_all_updated() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
     let slots: Vec<Slot> = validators
@@ -556,21 +576,22 @@ fn run_skip_slot_test(skip_slots: u64) {
     );
 
     assert_eq!(
-        harness_b.chain.process_block(
-            harness_a
-                .chain
-                .head()
-                .expect("should get head")
-                .beacon_block
-                .clone()
-        ),
-        Ok(BlockProcessingOutcome::Processed {
-            block_root: harness_a
-                .chain
-                .head()
-                .expect("should get head")
-                .beacon_block_root
-        })
+        harness_b
+            .chain
+            .process_block(
+                harness_a
+                    .chain
+                    .head()
+                    .expect("should get head")
+                    .beacon_block
+                    .clone(),
+            )
+            .unwrap(),
+        harness_a
+            .chain
+            .head()
+            .expect("should get head")
+            .beacon_block_root
     );
 
     harness_b

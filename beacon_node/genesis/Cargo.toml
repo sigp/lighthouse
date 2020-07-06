@@ -1,28 +1,27 @@
 [package]
 name = "genesis"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dev-dependencies]
-eth1_test_rig = { path = "../../tests/eth1_test_rig" }
-futures = "0.1.25"
+eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 
 [dependencies]
-futures = "0.1.25"
-types = { path = "../../eth2/types"}
+futures = "0.3.5"
+types = { path = "../../consensus/types"}
 environment = { path = "../../lighthouse/environment"}
 eth1 = { path = "../eth1"}
-rayon = "1.0"
-state_processing = { path = "../../eth2/state_processing" }
-merkle_proof = { path = "../../eth2/utils/merkle_proof" }
-eth2_ssz = "0.1"
-eth2_hashing = { path = "../../eth2/utils/eth2_hashing" }
-tree_hash = "0.1"
-tokio = "0.1.22"
-parking_lot = "0.7"
-slog = "^2.2.3"
-exit-future = "0.1.4"
-serde = "1.0"
-serde_derive = "1.0"
-int_to_bytes = { path = "../../eth2/utils/int_to_bytes" }
+rayon = "1.3.0"
+state_processing = { path = "../../consensus/state_processing" }
+merkle_proof = { path = "../../consensus/merkle_proof" }
+eth2_ssz = "0.1.2"
+eth2_hashing = "0.1.0"
+tree_hash = "0.1.0"
+tokio = { version = "0.2.21", features = ["full"] }
+parking_lot = "0.11.0"
+slog = "2.5.2"
+exit-future = "0.2.0"
+serde = "1.0.110"
+serde_derive = "1.0.110"
+int_to_bytes = { path = "../../consensus/int_to_bytes" }

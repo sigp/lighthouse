@@ -25,7 +25,7 @@ pub fn run_transition_blocks<T: EthSpec>(matches: &ArgMatches) -> Result<(), Str
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse output path: {}", e))?;
 
-    info!("Using minimal spec");
+    info!("Using {} spec", T::spec_name());
     info!("Pre-state path: {:?}", pre_state_path);
     info!("Block path: {:?}", block_path);
 
@@ -76,7 +76,7 @@ fn do_transition<T: EthSpec>(
     Ok(pre_state)
 }
 
-fn load_from_ssz<T: Decode>(path: PathBuf) -> Result<T, String> {
+pub fn load_from_ssz<T: Decode>(path: PathBuf) -> Result<T, String> {
     let mut file =
         File::open(path.clone()).map_err(|e| format!("Unable to open file {:?}: {:?}", path, e))?;
     let mut bytes = vec![];

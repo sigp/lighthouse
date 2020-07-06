@@ -1,28 +1,34 @@
 #[macro_use]
 extern crate clap;
 
-use beacon_node::{get_eth2_testnet_config, get_testnet_dir, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
+use clap_utils;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
+use eth2_testnet_config::HARDCODED_TESTNET;
+use git_version::git_version;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
+pub const VERSION: &str = git_version!(
+    args = ["--always", "--dirty=(modified)"],
+    prefix = concat!(crate_version!(), "-"),
+    fallback = crate_version!()
+);
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
-    // Debugging output for libp2p and external crates.
-    Builder::from_env(Env::default()).init();
-
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
-        .version(crate_version!())
+        .version(VERSION)
         .author("Sigma Prime <contact@sigmaprime.io>")
+        .setting(clap::AppSettings::ColoredHelp)
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
@@ -37,6 +43,13 @@ fn main() {
                 .possible_values(&["mainnet", "minimal", "interop"])
                 .global(true)
                 .default_value("mainnet"),
+        )
+        .arg(
+            Arg::with_name("env_log")
+                .short("l")
+                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                )
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("logfile")
@@ -59,9 +72,10 @@ fn main() {
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
-                .help("The title of the spec constants for chain config.")
+                .help("The verbosity level for emitting logs.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .global(true)
                 .default_value("info"),
         )
         .arg(
@@ -87,29 +101,53 @@ fn main() {
                 .global(true),
         )
         .subcommand(beacon_node::cli_app())
+        .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .get_matches();
 
+    // boot node subcommand circumvents the environment
+    if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
+        // The bootnode uses the main debug-level flag
+        let debug_info = matches
+            .value_of("debug-level")
+            .expect("Debug-level must be present")
+            .into();
+        boot_node::run(bootnode_matches, debug_info);
+        return;
+    }
+
+    // Debugging output for libp2p and external crates.
+    if matches.is_present("env_log") {
+        Builder::from_env(Env::default()).init();
+    }
+
     macro_rules! run_with_spec {
         ($env_builder: expr) => {
-            match run($env_builder, &matches) {
-                Ok(()) => exit(0),
-                Err(e) => {
-                    println!("Failed to start Lighthouse: {}", e);
-                    exit(1)
-                }
-            }
+            run($env_builder, &matches)
         };
     }
 
-    match matches.value_of("spec") {
+    let result = match matches.value_of("spec") {
         Some("minimal") => run_with_spec!(EnvironmentBuilder::minimal()),
         Some("mainnet") => run_with_spec!(EnvironmentBuilder::mainnet()),
         Some("interop") => run_with_spec!(EnvironmentBuilder::interop()),
         spec => {
             // This path should be unreachable due to slog having a `default_value`
             unreachable!("Unknown spec configuration: {:?}", spec);
+        }
+    };
+
+    // `std::process::exit` does not run destructors so we drop manually.
+    drop(matches);
+
+    // Return the appropriate error code.
+    match result {
+        Ok(()) => exit(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            drop(e);
+            exit(1)
         }
     }
 }
@@ -123,15 +161,17 @@ fn run<E: EthSpec>(
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
 
     let log_format = matches.value_of("log-format");
-    let eth2_testnet_config = get_eth2_testnet_config(&get_testnet_dir(matches))?;
+
+    let optional_testnet_config =
+        clap_utils::parse_testnet_dir_with_hardcoded_default(matches, "testnet-dir")?;
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .eth2_testnet_config(&eth2_testnet_config)?
+        .optional_eth2_testnet_config(optional_testnet_config)?
         .build()?;
 
-    let log = environment.core_context().log;
+    let log = environment.core_context().log().clone();
 
     if let Some(log_path) = matches.value_of("logfile") {
         let path = log_path
@@ -149,11 +189,6 @@ fn run<E: EthSpec>(
         return Err("Invalid CPU architecture".into());
     }
 
-    warn!(
-        log,
-        "Ethereum 2.0 is pre-release. This software is experimental."
-    );
-
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.
     //
@@ -164,11 +199,24 @@ fn run<E: EthSpec>(
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        account_manager::run(sub_matches, environment);
+        account_manager::run(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
     };
+
+    warn!(
+        log,
+        "Ethereum 2.0 is pre-release. This software is experimental."
+    );
+
+    if !matches.is_present("testnet-dir") {
+        info!(
+            log,
+            "Using default testnet";
+            "default" => HARDCODED_TESTNET
+        )
+    }
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
         let runtime_context = environment.core_context();
@@ -198,9 +246,15 @@ fn run<E: EthSpec>(
             ))
             .map_err(|e| format!("Failed to init validator client: {}", e))?;
 
-        validator
-            .start_service()
-            .map_err(|e| format!("Failed to start validator client service: {}", e))?;
+        environment
+            .core_context()
+            .executor
+            .runtime_handle()
+            .enter(|| {
+                validator
+                    .start_service()
+                    .map_err(|e| format!("Failed to start validator client service: {}", e))
+            })?;
 
         Some(validator)
     } else {
@@ -214,12 +268,12 @@ fn run<E: EthSpec>(
 
     // Block this thread until Crtl+C is pressed.
     environment.block_until_ctrl_c()?;
-
     info!(log, "Shutting down..");
 
+    environment.fire_signal();
     drop(beacon_node);
     drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
-    environment.shutdown_on_idle()
+    Ok(environment.shutdown_on_idle())
 }

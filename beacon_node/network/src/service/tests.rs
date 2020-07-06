@@ -2,15 +2,14 @@
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
-    use crate::{NetworkConfig, Service};
+    use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
     use eth2_libp2p::Enr;
-    use futures::{Future, IntoFuture};
     use slog::Logger;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use store::MemoryStore;
+    use store::config::StoreConfig;
     use tokio::runtime::Runtime;
     use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
 
@@ -24,7 +23,12 @@ mod tests {
         let log = get_logger();
 
         let beacon_chain = Arc::new(
-            BeaconChainHarness::new(MinimalEthSpec, generate_deterministic_keypairs(8)).chain,
+            BeaconChainHarness::new(
+                MinimalEthSpec,
+                generate_deterministic_keypairs(8),
+                StoreConfig::default(),
+            )
+            .chain,
         );
 
         let store = beacon_chain.store.clone();
@@ -34,24 +38,25 @@ mod tests {
         let enrs = vec![enr1, enr2];
 
         let runtime = Runtime::new().unwrap();
-        let executor = runtime.executor();
+
+        let (signal, exit) = exit_future::signal();
+        let executor = environment::TaskExecutor::new(runtime.handle().clone(), exit, log.clone());
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;
         config.discovery_port = 21212;
         config.boot_nodes = enrs.clone();
-        runtime
-            .block_on_all(
-                // Create a new network service which implicitly gets dropped at the
-                // end of the block.
-                Service::new(beacon_chain.clone(), &config, &executor, log.clone())
-                    .into_future()
-                    .and_then(move |(_service, _)| Ok(())),
-            )
-            .unwrap();
+        runtime.spawn(async move {
+            // Create a new network service which implicitly gets dropped at the
+            // end of the block.
+
+            let _ = NetworkService::start(beacon_chain.clone(), &config, executor).unwrap();
+            drop(signal);
+        });
+        runtime.shutdown_timeout(tokio::time::Duration::from_millis(300));
 
         // Load the persisted dht from the store
-        let persisted_enrs = load_dht::<MemoryStore<MinimalEthSpec>, MinimalEthSpec>(store);
+        let persisted_enrs = load_dht(store);
         assert!(
             persisted_enrs.contains(&enrs[0]),
             "should have persisted the first ENR to store"

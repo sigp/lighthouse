@@ -1,14 +1,14 @@
 use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, BoxFut, UrlQuery};
+use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use futures::{Future, Stream};
 use hyper::{Body, Request};
+use rest_types::{IndividualVotesRequest, IndividualVotesResponse};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_epoch_processing::{TotalBalances, ValidatorStatus, ValidatorStatuses};
+use state_processing::per_epoch_processing::{TotalBalances, ValidatorStatuses};
 use std::sync::Arc;
-use types::{Epoch, EthSpec, PublicKeyBytes};
+use types::EthSpec;
 
 /// The results of validators voting during an epoch.
 ///
@@ -70,85 +70,23 @@ pub fn get_vote_count<T: BeaconChainTypes>(
     ResponseBuilder::new(&req)?.body(&report)
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct IndividualVotesRequest {
-    pub epoch: Epoch,
-    pub pubkeys: Vec<PublicKeyBytes>,
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct IndividualVote {
-    /// True if the validator has been slashed, ever.
-    pub is_slashed: bool,
-    /// True if the validator can withdraw in the current epoch.
-    pub is_withdrawable_in_current_epoch: bool,
-    /// True if the validator was active in the state's _current_ epoch.
-    pub is_active_in_current_epoch: bool,
-    /// True if the validator was active in the state's _previous_ epoch.
-    pub is_active_in_previous_epoch: bool,
-    /// The validator's effective balance in the _current_ epoch.
-    pub current_epoch_effective_balance_gwei: u64,
-    /// True if the validator had an attestation included in the _current_ epoch.
-    pub is_current_epoch_attester: bool,
-    /// True if the validator's beacon block root attestation for the first slot of the _current_
-    /// epoch matches the block root known to the state.
-    pub is_current_epoch_target_attester: bool,
-    /// True if the validator had an attestation included in the _previous_ epoch.
-    pub is_previous_epoch_attester: bool,
-    /// True if the validator's beacon block root attestation for the first slot of the _previous_
-    /// epoch matches the block root known to the state.
-    pub is_previous_epoch_target_attester: bool,
-    /// True if the validator's beacon block root attestation in the _previous_ epoch at the
-    /// attestation's slot (`attestation_data.slot`) matches the block root known to the state.
-    pub is_previous_epoch_head_attester: bool,
-}
-
-impl Into<IndividualVote> for ValidatorStatus {
-    fn into(self) -> IndividualVote {
-        IndividualVote {
-            is_slashed: self.is_slashed,
-            is_withdrawable_in_current_epoch: self.is_withdrawable_in_current_epoch,
-            is_active_in_current_epoch: self.is_active_in_current_epoch,
-            is_active_in_previous_epoch: self.is_active_in_previous_epoch,
-            current_epoch_effective_balance_gwei: self.current_epoch_effective_balance,
-            is_current_epoch_attester: self.is_current_epoch_attester,
-            is_current_epoch_target_attester: self.is_current_epoch_target_attester,
-            is_previous_epoch_attester: self.is_previous_epoch_attester,
-            is_previous_epoch_target_attester: self.is_previous_epoch_target_attester,
-            is_previous_epoch_head_attester: self.is_previous_epoch_head_attester,
-        }
-    }
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
-pub struct IndividualVotesResponse {
-    /// The epoch which is considered the "current" epoch.
-    pub epoch: Epoch,
-    /// The validators public key.
-    pub pubkey: PublicKeyBytes,
-    /// The index of the validator in state.validators.
-    pub validator_index: Option<usize>,
-    /// Voting statistics for the validator, if they voted in the given epoch.
-    pub vote: Option<IndividualVote>,
-}
-
-pub fn post_individual_votes<T: BeaconChainTypes>(
+pub async fn post_individual_votes<T: BeaconChainTypes>(
     req: Request<Body>,
     beacon_chain: Arc<BeaconChain<T>>,
-) -> BoxFut {
+) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
 
-    let future = req
-        .into_body()
-        .concat2()
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
-        .and_then(|chunks| {
-            serde_json::from_slice::<IndividualVotesRequest>(&chunks).map_err(|e| {
-                ApiError::BadRequest(format!(
-                    "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
-                    e
-                ))
-            })
+    let body = req.into_body();
+    let chunks = hyper::body::to_bytes(body)
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+    serde_json::from_slice::<IndividualVotesRequest>(&chunks)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to parse JSON into ValidatorDutiesRequest: {:?}",
+                e
+            ))
         })
         .and_then(move |body| {
             let epoch = body.epoch;
@@ -197,7 +135,5 @@ pub fn post_individual_votes<T: BeaconChainTypes>(
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
-        .and_then(|votes| response_builder?.body_no_ssz(&votes));
-
-    Box::new(future)
+        .and_then(|votes| response_builder?.body_no_ssz(&votes))
 }

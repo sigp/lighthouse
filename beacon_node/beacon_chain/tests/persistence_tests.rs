@@ -9,7 +9,7 @@ use beacon_chain::{
 };
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
-use store::{DiskStore, StoreConfig};
+use store::{HotColdDB, LevelDB, StoreConfig};
 use tempfile::{tempdir, TempDir};
 use types::{EthSpec, Keypair, MinimalEthSpec};
 
@@ -23,14 +23,14 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_store(db_path: &TempDir) -> Arc<DiskStore<E>> {
+fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let spec = E::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
     let log = NullLoggerBuilder.build().expect("logger should build");
     Arc::new(
-        DiskStore::open(&hot_path, &cold_path, config, spec, log)
+        HotColdDB::open(&hot_path, &cold_path, config, spec, log)
             .expect("disk store should initialize"),
     )
 }
@@ -143,14 +143,18 @@ fn finalizes_after_resuming_from_db() {
 fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b: &BeaconChain<T>) {
     assert_eq!(a.spec, b.spec, "spec should be equal");
     assert_eq!(a.op_pool, b.op_pool, "op_pool should be equal");
-    assert_eq!(a.head(), b.head(), "head() should be equal");
+    assert_eq!(
+        a.head().unwrap(),
+        b.head().unwrap(),
+        "head() should be equal"
+    );
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");
     assert_eq!(
         a.genesis_block_root, b.genesis_block_root,
         "genesis_block_root should be equal"
     );
     assert!(
-        a.fork_choice == b.fork_choice,
+        *a.fork_choice.read() == *b.fork_choice.read(),
         "fork_choice should be equal"
     );
 }

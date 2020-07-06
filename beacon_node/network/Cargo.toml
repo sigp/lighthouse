@@ -1,29 +1,41 @@
 [package]
 name = "network"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Age Manning <Age@AgeManning.com>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "0.3.4"
+sloggers = "1.0.0"
 genesis = { path = "../genesis" }
-tempdir = "0.3"
+lazy_static = "1.4.0"
+matches = "0.1.8"
+tempfile = "3.1.0"
+exit-future = "0.2.0"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
-eth2-libp2p =  { path = "../eth2-libp2p" }
-types = { path = "../../eth2/types" }
+eth2_libp2p =  { path = "../eth2_libp2p" }
+hashset_delay = { path = "../../common/hashset_delay" }
+rest_types = { path = "../../common/rest_types" }
+types = { path = "../../consensus/types" }
+state_processing = { path = "../../consensus/state_processing" }
+slot_clock = { path = "../../common/slot_clock" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-hex = "0.3"
+hex = "0.4.2"
 eth2_ssz = "0.1.2"
+eth2_ssz_types = { path =  "../../consensus/ssz_types" }
 tree_hash = "0.1.0"
-futures = "0.1.29"
-error-chain = "0.12.1"
-tokio = "0.1.22"
-parking_lot = "0.9.0"
-smallvec = "1.0.0"
+futures = "0.3.5"
+error-chain = "0.12.2"
+tokio = { version = "0.2.21", features = ["full"] }
+parking_lot = "0.11.0"
+smallvec = "1.4.0"
 # TODO: Remove rand crate for mainnet
-rand = "0.7.2"
+rand = "0.7.3"
 fnv = "1.0.6"
-rlp = "0.4.3"
+rlp = "0.4.5"
+lazy_static = "1.4.0"
+lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
+environment = { path = "../../lighthouse/environment" }
+itertools = "0.9.0"

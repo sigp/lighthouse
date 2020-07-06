@@ -1,0 +1,15 @@
+[package]
+name = "timer"
+version = "0.1.2"
+authors = ["Age Manning <Age@AgeManning.com>"]
+edition = "2018"
+
+[dependencies]
+beacon_chain =  { path = "../beacon_chain" }
+types = { path = "../../consensus/types" }
+slot_clock = { path = "../../common/slot_clock" }
+tokio = { version = "0.2.21", features = ["full"] }
+slog = "2.5.2"
+parking_lot = "0.11.0"
+futures = "0.3.5"
+environment = { path = "../../lighthouse/environment" }

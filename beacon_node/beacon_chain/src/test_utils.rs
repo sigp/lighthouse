@@ -7,8 +7,7 @@ use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
     events::NullEventHandler,
-    AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BlockProcessingOutcome,
-    StateSkipConfig,
+    BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
 use genesis::interop_genesis_state;
 use rayon::prelude::*;
@@ -19,13 +18,13 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{DiskStore, MemoryStore, Store};
+use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, SecretKey, Signature, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot,
-    Slot,
+    Hash256, Keypair, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot, SubnetId,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -35,17 +34,19 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 
-pub type BaseHarnessType<TStore, TStoreMigrator, TEthSpec> = Witness<
-    TStore,
+pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witness<
     TStoreMigrator,
     TestingSlotClock,
-    CachingEth1Backend<TEthSpec, TStore>,
+    CachingEth1Backend<TEthSpec>,
     TEthSpec,
     NullEventHandler<TEthSpec>,
+    THotStore,
+    TColdStore,
 >;
 
-pub type HarnessType<E> = BaseHarnessType<MemoryStore<E>, NullMigrator, E>;
-pub type DiskHarnessType<E> = BaseHarnessType<DiskStore<E>, BlockingMigrator<DiskStore<E>>, E>;
+pub type HarnessType<E> = BaseHarnessType<NullMigrator, E, MemoryStore<E>, MemoryStore<E>>;
+pub type DiskHarnessType<E> =
+    BaseHarnessType<BlockingMigrator<E, LevelDB<E>, LevelDB<E>>, E, LevelDB<E>, LevelDB<E>>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -85,16 +86,33 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
 impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
-    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>) -> Self {
+    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>, config: StoreConfig) -> Self {
+        // Setting the target aggregators to really high means that _all_ validators in the
+        // committee are required to produce an aggregate. This is overkill, however with small
+        // validator counts it's the only way to be certain there is _at least one_ aggregator per
+        // committee.
+        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32, config)
+    }
+
+    /// Instantiate a new harness with `validator_count` initial validators and a custom
+    /// `target_aggregators_per_committee` spec value
+    pub fn new_with_target_aggregators(
+        eth_spec_instance: E,
+        keypairs: Vec<Keypair>,
+        target_aggregators_per_committee: u64,
+        config: StoreConfig,
+    ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let spec = E::default_spec();
+        let mut spec = E::default_spec();
+
+        spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
         let log = NullLoggerBuilder.build().expect("logger should build");
-
+        let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
+            .logger(log)
             .custom_spec(spec.clone())
-            .store(Arc::new(MemoryStore::open()))
+            .store(Arc::new(store))
             .store_migrator(NullMigrator)
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
@@ -107,8 +125,6 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -125,7 +141,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
@@ -137,10 +153,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
-                store,
-                log.clone(),
-            ))
+            .store_migrator(BlockingMigrator::new(store, log.clone()))
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec)
@@ -152,8 +165,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(HARNESS_SLOT_TIME)
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -168,7 +179,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
-        store: Arc<DiskStore<E>>,
+        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
@@ -180,7 +191,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .logger(log.clone())
             .custom_spec(spec)
             .store(store.clone())
-            .store_migrator(<BlockingMigrator<_> as Migrate<_, E>>::new(
+            .store_migrator(<BlockingMigrator<_, _, _> as Migrate<E, _, _>>::new(
                 store,
                 log.clone(),
             ))
@@ -192,8 +203,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .null_event_handler()
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
-            .reduced_tree_fork_choice()
-            .expect("should add fork choice to builder")
             .build()
             .expect("should build");
 
@@ -206,11 +215,12 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     }
 }
 
-impl<S, M, E> BeaconChainHarness<BaseHarnessType<S, M, E>>
+impl<M, E, Hot, Cold> BeaconChainHarness<BaseHarnessType<M, E, Hot, Cold>>
 where
-    S: Store<E>,
-    M: Migrate<S, E>,
+    M: Migrate<E, Hot, Cold>,
     E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
 {
     /// Advance the slot of the `BeaconChain`.
     ///
@@ -234,6 +244,35 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) -> Hash256 {
+        let mut i = 0;
+        self.extend_chain_while(
+            |_, _| {
+                i += 1;
+                i <= num_blocks
+            },
+            block_strategy,
+            attestation_strategy,
+        )
+    }
+
+    /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
+    /// last-produced block (the head of the chain).
+    ///
+    /// Chain will be extended while `predidcate` returns `true`.
+    ///
+    /// The `block_strategy` dictates where the new blocks will be placed.
+    ///
+    /// The `attestation_strategy` dictates which validators will attest to the newly created
+    /// blocks.
+    pub fn extend_chain_while<F>(
+        &self,
+        mut predicate: F,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+    ) -> Hash256
+    where
+        F: FnMut(&SignedBeaconBlock<E>, &BeaconState<E>) -> bool,
+    {
         let mut state = {
             // Determine the slot for the first block (or skipped block).
             let state_slot = match block_strategy {
@@ -255,40 +294,66 @@ where
         };
 
         let mut head_block_root = None;
-        let mut state_root = state
-            .update_tree_hash_cache()
-            .expect("should find state root");
 
-        for _ in 0..num_blocks {
+        loop {
+            let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
+
+            if !predicate(&block, &new_state) {
+                break;
+            }
+
             while self.chain.slot().expect("should have a slot") < slot {
                 self.advance_slot();
             }
 
-            let (block, new_state) =
-                self.build_block(state.clone(), state_root, slot, block_strategy);
-
-            state_root = block.state_root();
-
-            let outcome = self
+            let block_root = self
                 .chain
                 .process_block(block)
                 .expect("should not error during block processing");
 
             self.chain.fork_choice().expect("should find head");
+            head_block_root = Some(block_root);
 
-            if let BlockProcessingOutcome::Processed { block_root } = outcome {
-                head_block_root = Some(block_root);
-
-                self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
-            } else {
-                panic!("block should be successfully processed: {:?}", outcome);
-            }
+            self.add_attestations_for_slot(&attestation_strategy, &new_state, block_root, slot);
 
             state = new_state;
             slot += 1;
         }
 
         head_block_root.expect("did not produce any blocks")
+    }
+
+    /// A simple method to produce a block at the current slot without applying it to the chain.
+    ///
+    /// Always uses `BlockStrategy::OnCanonicalHead`.
+    pub fn get_block(&self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        let state = self
+            .chain
+            .state_at_slot(
+                self.chain.slot().unwrap() - 1,
+                StateSkipConfig::WithStateRoots,
+            )
+            .unwrap();
+
+        let slot = self.chain.slot().unwrap();
+
+        self.build_block(state, slot, BlockStrategy::OnCanonicalHead)
+    }
+
+    /// A simple method to produce and process all attestation at the current slot. Always uses
+    /// `AttestationStrategy::AllValidators`.
+    pub fn generate_all_attestations(&self) {
+        let slot = self.chain.slot().unwrap();
+        let (state, block_root) = {
+            let head = self.chain.head().unwrap();
+            (head.beacon_state.clone(), head.beacon_block_root)
+        };
+        self.add_attestations_for_slot(
+            &AttestationStrategy::AllValidators,
+            &state,
+            block_root,
+            slot,
+        );
     }
 
     /// Returns current canonical head slot
@@ -316,20 +381,16 @@ where
 
         let (block, new_state) = self.build_block(state.clone(), slot, block_strategy);
 
-        let outcome = self
+        let block_root = self
             .chain
             .process_block(block)
             .expect("should not error during block processing");
 
         self.chain.fork_choice().expect("should find head");
 
-        if let BlockProcessingOutcome::Processed { block_root } = outcome {
-            let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
-            self.add_free_attestations(&attestation_strategy, &new_state, block_root, slot);
-            (block_root.into(), new_state)
-        } else {
-            panic!("block should be successfully processed: {:?}", outcome);
-        }
+        let attestation_strategy = AttestationStrategy::SomeValidators(validators.to_vec());
+        self.add_attestations_for_slot(&attestation_strategy, &new_state, block_root, slot);
+        (block_root.into(), new_state)
     }
 
     /// `add_block()` repeated `num_blocks` times.
@@ -416,7 +477,6 @@ where
     fn build_block(
         &self,
         mut state: BeaconState<E>,
-        state_root: Hash256,
         slot: Slot,
         block_strategy: BlockStrategy,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
@@ -424,9 +484,8 @@ where
             panic!("produce slot cannot be prior to the state slot");
         }
 
-        let mut state_root = Some(state_root);
         while state.slot < slot {
-            per_slot_processing(&mut state, state_root.take(), &self.spec)
+            per_slot_processing(&mut state, None, &self.spec)
                 .expect("should be able to advance state to slot");
         }
 
@@ -445,7 +504,7 @@ where
         };
 
         let sk = &self.keypairs[proposer_index].sk;
-        let fork = &state.fork.clone();
+        let fork = &state.fork;
 
         let randao_reveal = {
             let epoch = slot.epoch(E::slots_per_epoch());
@@ -466,114 +525,196 @@ where
         (signed_block, state)
     }
 
-    /// Adds attestations to the `BeaconChain` operations pool and fork choice.
+    /// A list of attestations for each committee for the given slot.
     ///
-    /// The `attestation_strategy` dictates which validators should attest.
-    fn add_free_attestations(
+    /// The first layer of the Vec is organised per committee. For example, if the return value is
+    /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
+    /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
+    pub fn get_unaggregated_attestations(
+        &self,
+        attestation_strategy: &AttestationStrategy,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        attestation_slot: Slot,
+    ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
+        let spec = &self.spec;
+        let fork = &state.fork;
+
+        let attesting_validators = self.get_attesting_validators(attestation_strategy);
+
+        let committee_count = state
+            .get_committee_count_at_slot(state.slot)
+            .expect("should get committee count");
+
+        state
+            .get_beacon_committees_at_slot(state.slot)
+            .expect("should get committees")
+            .iter()
+            .map(|bc| {
+                bc.committee
+                    .par_iter()
+                    .enumerate()
+                    .filter_map(|(i, validator_index)| {
+                        if !attesting_validators.contains(validator_index) {
+                            return None;
+                        }
+                        let mut attestation = self
+                            .chain
+                            .produce_unaggregated_attestation_for_block(
+                                attestation_slot,
+                                bc.index,
+                                head_block_root,
+                                Cow::Borrowed(state),
+                            )
+                            .expect("should produce attestation");
+
+                        attestation
+                            .aggregation_bits
+                            .set(i, true)
+                            .expect("should be able to set aggregation bits");
+
+                        attestation.signature = {
+                            let domain = spec.get_domain(
+                                attestation.data.target.epoch,
+                                Domain::BeaconAttester,
+                                fork,
+                                state.genesis_validators_root,
+                            );
+
+                            let message = attestation.data.signing_root(domain);
+
+                            let mut agg_sig = AggregateSignature::new();
+
+                            agg_sig.add(&Signature::new(
+                                message.as_bytes(),
+                                self.get_sk(*validator_index),
+                            ));
+
+                            agg_sig
+                        };
+
+                        let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
+                            &attestation.data,
+                            committee_count,
+                            &self.chain.spec,
+                        )
+                        .expect("should get subnet_id");
+
+                        Some((attestation, subnet_id))
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn get_attesting_validators(&self, attestation_strategy: &AttestationStrategy) -> Vec<usize> {
+        match attestation_strategy {
+            AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
+            AttestationStrategy::SomeValidators(vec) => vec.clone(),
+        }
+    }
+
+    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
+    pub fn add_attestations_for_slot(
         &self,
         attestation_strategy: &AttestationStrategy,
         state: &BeaconState<E>,
         head_block_root: Hash256,
         head_block_slot: Slot,
     ) {
-        self.get_free_attestations(
+        // These attestations will not be accepted by the chain so no need to generate them.
+        if state.slot + E::slots_per_epoch() < self.chain.slot().expect("should get slot") {
+            return;
+        }
+
+        let spec = &self.spec;
+        let fork = &state.fork;
+
+        let attesting_validators = self.get_attesting_validators(attestation_strategy);
+
+        let unaggregated_attestations = self.get_unaggregated_attestations(
             attestation_strategy,
             state,
             head_block_root,
             head_block_slot,
-        )
-        .into_iter()
-        .for_each(|attestation| {
-            match self
-                .chain
-                .process_attestation(attestation)
-                .expect("should not error during attestation processing")
-            {
-                // PastEpoch can occur if we fork over several epochs
-                AttestationProcessingOutcome::Processed
-                | AttestationProcessingOutcome::PastEpoch { .. } => (),
-                other => panic!("did not successfully process attestation: {:?}", other),
-            }
-        });
-    }
+        );
 
-    /// Generates a `Vec<Attestation>` for some attestation strategy and head_block.
-    pub fn get_free_attestations(
-        &self,
-        attestation_strategy: &AttestationStrategy,
-        state: &BeaconState<E>,
-        head_block_root: Hash256,
-        head_block_slot: Slot,
-    ) -> Vec<Attestation<E>> {
-        let spec = &self.spec;
-        let fork = &state.fork;
+        // Loop through all unaggregated attestations, submit them to the chain and also submit a
+        // single aggregate.
+        unaggregated_attestations
+            .into_iter()
+            .for_each(|committee_attestations| {
+                // Submit each unaggregated attestation to the chain.
+                for (attestation, subnet_id) in &committee_attestations {
+                    self.chain
+                        .verify_unaggregated_attestation_for_gossip(attestation.clone(), *subnet_id)
+                        .expect("should not error during attestation processing")
+                        .add_to_pool(&self.chain)
+                        .expect("should add attestation to naive pool");
+                }
 
-        let attesting_validators: Vec<usize> = match attestation_strategy {
-            AttestationStrategy::AllValidators => (0..self.keypairs.len()).collect(),
-            AttestationStrategy::SomeValidators(vec) => vec.clone(),
-        };
+                // If there are any attestations in this committee, create an aggregate.
+                if let Some((attestation, _)) = committee_attestations.first() {
+                    let bc = state.get_beacon_committee(attestation.data.slot, attestation.data.index)
+                        .expect("should get committee");
 
-        let mut attestations = vec![];
+                    let aggregator_index = bc.committee
+                        .iter()
+                        .find(|&validator_index| {
+                            if !attesting_validators.contains(validator_index) {
+                                return false
+                            }
 
-        state
-            .get_beacon_committees_at_slot(state.slot)
-            .expect("should get committees")
-            .iter()
-            .for_each(|bc| {
-                let mut local_attestations: Vec<Attestation<E>> = bc
-                    .committee
-                    .par_iter()
-                    .enumerate()
-                    .filter_map(|(i, validator_index)| {
-                        // Note: searching this array is worst-case `O(n)`. A hashset could be a better
-                        // alternative.
-                        if attesting_validators.contains(validator_index) {
-                            let mut attestation = self
-                                .chain
-                                .produce_attestation_for_block(
-                                    head_block_slot,
-                                    bc.index,
-                                    head_block_root,
-                                    Cow::Borrowed(state),
-                                )
-                                .expect("should produce attestation");
+                            let selection_proof = SelectionProof::new::<E>(
+                                state.slot,
+                                self.get_sk(*validator_index),
+                                fork,
+                                state.genesis_validators_root,
+                                spec,
+                            );
 
-                            attestation
-                                .aggregation_bits
-                                .set(i, true)
-                                .expect("should be able to set aggregation bits");
+                            selection_proof.is_aggregator(bc.committee.len(), spec).unwrap_or(false)
+                        })
+                        .copied()
+                        .unwrap_or_else(|| panic!(
+                            "Committee {} at slot {} with {} attesting validators does not have any aggregators",
+                            bc.index, state.slot, bc.committee.len()
+                        ));
 
-                            attestation.signature = {
-                                let domain = spec.get_domain(
-                                    attestation.data.target.epoch,
-                                    Domain::BeaconAttester,
-                                    fork,
-                                    state.genesis_validators_root,
-                                );
+                    // If the chain is able to produce an aggregate, use that. Otherwise, build an
+                    // aggregate locally.
+                    let aggregate = self
+                        .chain
+                        .get_aggregated_attestation(&attestation.data)
+                        .expect("should not error whilst finding aggregate")
+                        .unwrap_or_else(|| {
+                            committee_attestations.iter().skip(1).fold(attestation.clone(), |mut agg, (att, _)| {
+                                agg.aggregate(att);
+                                agg
+                            })
+                        });
 
-                                let message = attestation.data.signing_root(domain);
+                    let signed_aggregate = SignedAggregateAndProof::from_aggregate(
+                        aggregator_index as u64,
+                        aggregate,
+                        None,
+                        self.get_sk(aggregator_index),
+                        fork,
+                        state.genesis_validators_root,
+                        spec,
+                    );
 
-                                let mut agg_sig = AggregateSignature::new();
+                    let attn = self.chain
+                        .verify_aggregated_attestation_for_gossip(signed_aggregate)
+                        .expect("should not error during attestation processing");
 
-                                agg_sig.add(&Signature::new(
-                                    message.as_bytes(),
-                                    self.get_sk(*validator_index),
-                                ));
+                    self.chain.apply_attestation_to_fork_choice(&attn)
+                        .expect("should add attestation to fork choice");
 
-                                agg_sig
-                            };
-
-                            Some(attestation)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                attestations.append(&mut local_attestations);
+                    self.chain.add_to_block_inclusion_pool(attn)
+                        .expect("should add attestation to op pool");
+                }
             });
-
-        attestations
     }
 
     /// Creates two forks:
@@ -620,7 +761,7 @@ where
             AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
         );
 
-        assert!(honest_head != faulty_head, "forks should be distinct");
+        assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
     }

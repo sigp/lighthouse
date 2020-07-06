@@ -1,20 +1,16 @@
-use crate::{ApiError, ApiResult};
+use crate::{ApiError, ApiResult, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
-use eth2_libp2p::GossipTopic;
 use eth2_libp2p::PubsubMessage;
 use hex;
 use http::header;
 use hyper::{Body, Request};
+use itertools::process_results;
 use network::NetworkMessage;
-use parking_lot::RwLock;
-use ssz::{Decode, Encode};
-use std::sync::Arc;
-use store::{iter::AncestorIter, Store};
-use tokio::sync::mpsc;
+use ssz::Decode;
+use store::iter::AncestorIter;
 use types::{
-    Attestation, BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, Signature,
-    SignedBeaconBlock, Slot,
+    BeaconState, CommitteeIndex, Epoch, EthSpec, Hash256, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 /// Parse a slot.
@@ -49,7 +45,7 @@ pub fn parse_committee_index(string: &str) -> Result<CommitteeIndex, ApiError> {
 /// Checks the provided request to ensure that the `content-type` header.
 ///
 /// The content-type header should either be omitted, in which case JSON is assumed, or it should
-/// explicity specify `application/json`. If anything else is provided, an error is returned.
+/// explicitly specify `application/json`. If anything else is provided, an error is returned.
 pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> {
     match req.headers().get(header::CONTENT_TYPE) {
         Some(h) if h == "application/json" => Ok(()),
@@ -61,24 +57,26 @@ pub fn check_content_type_for_json(req: &Request<Body>) -> Result<(), ApiError> 
     }
 }
 
-/// Parse a signature from a `0x` preixed string.
-pub fn parse_signature(string: &str) -> Result<Signature, ApiError> {
+/// Parse an SSZ object from some hex-encoded bytes.
+///
+/// E.g., A signature is `"0x0000000000000000000000000000000000000000000000000000000000000000"`
+pub fn parse_hex_ssz_bytes<T: Decode>(string: &str) -> Result<T, ApiError> {
     const PREFIX: &str = "0x";
 
     if string.starts_with(PREFIX) {
         let trimmed = string.trim_start_matches(PREFIX);
         let bytes = hex::decode(trimmed)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature hex: {:?}", e)))?;
-        Signature::from_ssz_bytes(&bytes)
-            .map_err(|e| ApiError::BadRequest(format!("Unable to parse signature bytes: {:?}", e)))
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ hex: {:?}", e)))?;
+        T::from_ssz_bytes(&bytes)
+            .map_err(|e| ApiError::BadRequest(format!("Unable to parse SSZ bytes: {:?}", e)))
     } else {
         Err(ApiError::BadRequest(
-            "Signature must have a 0x prefix".to_string(),
+            "Hex bytes must have a 0x prefix".to_string(),
         ))
     }
 }
 
-/// Parse a root from a `0x` preixed string.
+/// Parse a root from a `0x` prefixed string.
 ///
 /// E.g., `"0x0000000000000000000000000000000000000000000000000000000000000000"`
 pub fn parse_root(string: &str) -> Result<Hash256, ApiError> {
@@ -121,11 +119,14 @@ pub fn block_root_at_slot<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     target: Slot,
 ) -> Result<Option<Hash256>, ApiError> {
-    Ok(beacon_chain
-        .rev_iter_block_roots()?
-        .take_while(|(_root, slot)| *slot >= target)
-        .find(|(_root, slot)| *slot == target)
-        .map(|(root, _slot)| root))
+    Ok(process_results(
+        beacon_chain.rev_iter_block_roots()?,
+        |iter| {
+            iter.take_while(|(_, slot)| *slot >= target)
+                .find(|(_, slot)| *slot == target)
+                .map(|(root, _)| root)
+        },
+    )?)
 }
 
 /// Returns a `BeaconState` and it's root in the canonical chain of `beacon_chain` at the given
@@ -193,12 +194,15 @@ pub fn state_root_at_slot<T: BeaconChainTypes>(
         //
         // Iterate through the state roots on the head state to find the root for that
         // slot. Once the root is found, load it from the database.
-        Ok(head_state
-            .try_iter_ancestor_roots(beacon_chain.store.clone())
-            .ok_or_else(|| ApiError::ServerError("Failed to create roots iterator".to_string()))?
-            .find(|(_root, s)| *s == slot)
-            .map(|(root, _slot)| root)
-            .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at slot {}", slot)))?)
+        process_results(
+            head_state
+                .try_iter_ancestor_roots(beacon_chain.store.clone())
+                .ok_or_else(|| {
+                    ApiError::ServerError("Failed to create roots iterator".to_string())
+                })?,
+            |mut iter| iter.find(|(_, s)| *s == slot).map(|(root, _)| root),
+        )?
+        .ok_or_else(|| ApiError::NotFound(format!("Unable to find state at slot {}", slot)))
     } else {
         // 4. The request slot is later than the head slot.
         //
@@ -232,42 +236,16 @@ pub fn implementation_pending_response(_req: Request<Body>) -> ApiResult {
 }
 
 pub fn publish_beacon_block_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
+    chan: NetworkChannel<T::EthSpec>,
     block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic = GossipTopic::BeaconBlock;
-    let message = PubsubMessage::Block(block.as_ssz_bytes());
+    // send the block via SSZ encoding
+    let messages = vec![PubsubMessage::BeaconBlock(Box::new(block))];
 
     // Publish the block to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic.into()],
-        message,
-    }) {
+    if let Err(e) = chan.send(NetworkMessage::Publish { messages }) {
         return Err(ApiError::ServerError(format!(
             "Unable to send new block to network: {:?}",
-            e
-        )));
-    }
-
-    Ok(())
-}
-
-pub fn publish_attestation_to_network<T: BeaconChainTypes + 'static>(
-    chan: Arc<RwLock<mpsc::UnboundedSender<NetworkMessage>>>,
-    attestation: Attestation<T::EthSpec>,
-) -> Result<(), ApiError> {
-    // create the network topic to send on
-    let topic = GossipTopic::BeaconAttestation;
-    let message = PubsubMessage::Attestation(attestation.as_ssz_bytes());
-
-    // Publish the attestation to the p2p network via gossipsub.
-    if let Err(e) = chan.write().try_send(NetworkMessage::Publish {
-        topics: vec![topic.into()],
-        message,
-    }) {
-        return Err(ApiError::ServerError(format!(
-            "Unable to send new attestation to network: {:?}",
             e
         )));
     }

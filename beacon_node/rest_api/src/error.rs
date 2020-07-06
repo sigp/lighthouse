@@ -1,4 +1,3 @@
-use crate::BoxFut;
 use hyper::{Body, Response, StatusCode};
 use std::error::Error as StdError;
 
@@ -33,18 +32,12 @@ impl ApiError {
 
 impl Into<Response<Body>> for ApiError {
     fn into(self) -> Response<Body> {
-        let status_code = self.status_code();
+        let (status_code, desc) = self.status_code();
         Response::builder()
-            .status(status_code.0)
+            .status(status_code)
             .header("content-type", "text/plain; charset=utf-8")
-            .body(Body::from(status_code.1))
+            .body(Body::from(desc))
             .expect("Response should always be created.")
-    }
-}
-
-impl Into<BoxFut> for ApiError {
-    fn into(self) -> BoxFut {
-        Box::new(futures::future::err(self))
     }
 }
 
@@ -75,6 +68,12 @@ impl From<state_processing::per_slot_processing::Error> for ApiError {
 impl From<hyper::error::Error> for ApiError {
     fn from(e: hyper::error::Error) -> ApiError {
         ApiError::ServerError(format!("Networking error: {:?}", e))
+    }
+}
+
+impl From<std::io::Error> for ApiError {
+    fn from(e: std::io::Error) -> ApiError {
+        ApiError::ServerError(format!("IO error: {:?}", e))
     }
 }
 

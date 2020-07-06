@@ -1,0 +1,17 @@
+[package]
+name = "proto_array"
+version = "0.2.0"
+authors = ["Paul Hauner <paul@sigmaprime.io>"]
+edition = "2018"
+
+[[bin]]
+name = "proto_array"
+path = "src/bin.rs"
+
+[dependencies]
+types = { path = "../types" }
+eth2_ssz = "0.1.2"
+eth2_ssz_derive = "0.1.0"
+serde = "1.0.110"
+serde_derive = "1.0.110"
+serde_yaml = "0.8.11"

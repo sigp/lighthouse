@@ -1,14 +1,12 @@
 use environment::RuntimeContext;
-use exit_future::Signal;
-use futures::{Future, Stream};
+use futures::StreamExt;
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{crit, info, trace};
+use slog::{debug, trace};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, EthSpec, Fork};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
@@ -101,71 +99,68 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     }
 
     /// Starts the service that periodically polls for the `Fork`.
-    pub fn start_update_service(&self, spec: &ChainSpec) -> Result<Signal, String> {
-        let log = self.context.log.clone();
-
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let duration_to_next_epoch = self
             .slot_clock
             .duration_to_next_epoch(E::slots_per_epoch())
             .ok_or_else(|| "Unable to determine duration to next epoch".to_string())?;
 
-        let interval = {
+        let mut interval = {
             let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            Interval::new(
+            // Note: interval_at panics if `slot_duration * E::slots_per_epoch()` = 0
+            interval_at(
                 Instant::now() + duration_to_next_epoch + TIME_DELAY_FROM_SLOT,
                 slot_duration * E::slots_per_epoch() as u32,
             )
         };
 
-        let (exit_signal, exit_fut) = exit_future::signal();
-        let service = self.clone();
-        let log_1 = log.clone();
-        let log_2 = log.clone();
-
         // Run an immediate update before starting the updater service.
-        self.context.executor.spawn(service.clone().do_update());
+        self.inner
+            .context
+            .executor
+            .runtime_handle()
+            .spawn(self.clone().do_update());
 
-        self.context.executor.spawn(
-            exit_fut
-                .until(
-                    interval
-                        .map_err(move |e| {
-                            crit! {
-                                log_1,
-                                "Timer thread failed";
-                                "error" => format!("{}", e)
-                            }
-                        })
-                        .for_each(move |_| service.do_update().then(|_| Ok(()))),
-                )
-                .map(move |_| info!(log_2, "Shutdown complete")),
-        );
+        let executor = self.inner.context.executor.clone();
 
-        Ok(exit_signal)
+        let interval_fut = async move {
+            while interval.next().await.is_some() {
+                self.clone().do_update().await.ok();
+            }
+        };
+
+        executor.spawn(interval_fut, "fork_service");
+
+        Ok(())
     }
 
     /// Attempts to download the `Fork` from the server.
-    fn do_update(&self) -> impl Future<Item = (), Error = ()> {
-        let service_1 = self.clone();
-        let log_1 = service_1.context.log.clone();
-        let log_2 = service_1.context.log.clone();
+    async fn do_update(self) -> Result<(), ()> {
+        let log = self.context.log();
 
-        self.inner
+        let fork = self
+            .inner
             .beacon_node
             .http
             .beacon()
             .get_fork()
-            .map(move |fork| *(service_1.fork.write()) = Some(fork))
-            .map(move |_| trace!(log_1, "Fork update success"))
-            .map_err(move |e| {
+            .await
+            .map_err(|e| {
                 trace!(
-                    log_2,
+                    log,
                     "Fork update failed";
                     "error" => format!("Error retrieving fork: {:?}", e)
                 )
-            })
-            // Returning an error will stop the interval. This is not desired, a single failure
-            // should not stop all future attempts.
-            .then(|_| Ok(()))
+            })?;
+
+        if self.fork.read().as_ref() != Some(&fork) {
+            *(self.fork.write()) = Some(fork);
+        }
+
+        debug!(log, "Fork update success");
+
+        // Returning an error will stop the interval. This is not desired, a single failure
+        // should not stop all future attempts.
+        Ok(())
     }
 }

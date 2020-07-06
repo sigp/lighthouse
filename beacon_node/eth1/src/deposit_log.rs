@@ -1,7 +1,10 @@
 use super::http::Log;
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
-use types::{DepositData, Hash256, PublicKeyBytes, SignatureBytes};
+use state_processing::per_block_processing::signature_sets::{
+    deposit_pubkey_signature_message, deposit_signature_set,
+};
+use types::{ChainSpec, DepositData, Hash256, PublicKeyBytes, SignatureBytes};
 
 /// The following constants define the layout of bytes in the deposit contract `DepositEvent`. The
 /// event bytes are formatted according to the  Ethereum ABI.
@@ -24,11 +27,13 @@ pub struct DepositLog {
     pub block_number: u64,
     /// The index included with the deposit log.
     pub index: u64,
+    /// True if the signature is valid.
+    pub signature_is_valid: bool,
 }
 
 impl DepositLog {
     /// Attempts to parse a raw `Log` from the deposit contract into a `DepositLog`.
-    pub fn from_log(log: &Log) -> Result<Self, String> {
+    pub fn from_log(log: &Log, spec: &ChainSpec) -> Result<Self, String> {
         let bytes = &log.data;
 
         let pubkey = bytes
@@ -58,10 +63,15 @@ impl DepositLog {
                 .map_err(|e| format!("Invalid signature ssz: {:?}", e))?,
         };
 
+        let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data, spec)
+            .ok_or_else(|| "Unable to prepare deposit signature verification".to_string())?;
+        let signature_is_valid = deposit_signature_set(&deposit_signature_message).is_valid();
+
         Ok(DepositLog {
             deposit_data,
             block_number: log.block_number,
             index: u64::from_ssz_bytes(index).map_err(|e| format!("Invalid index ssz: {:?}", e))?,
+            signature_is_valid,
         })
     }
 }
@@ -70,6 +80,7 @@ impl DepositLog {
 pub mod tests {
     use super::*;
     use crate::http::Log;
+    use types::{EthSpec, MainnetEthSpec};
 
     /// The data from a deposit event, using the v0.8.3 version of the deposit contract.
     pub const EXAMPLE_LOG: &[u8] = &[
@@ -103,6 +114,6 @@ pub mod tests {
             block_number: 42,
             data: EXAMPLE_LOG.to_vec(),
         };
-        DepositLog::from_log(&log).expect("should decode log");
+        DepositLog::from_log(&log, &MainnetEthSpec::default_spec()).expect("should decode log");
     }
 }

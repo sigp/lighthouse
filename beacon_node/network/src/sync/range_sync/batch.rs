@@ -1,15 +1,15 @@
-use super::chain::BLOCKS_PER_BATCH;
+use super::chain::EPOCHS_PER_BATCH;
 use eth2_libp2p::rpc::methods::*;
-use eth2_libp2p::rpc::RequestId;
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
 use ssz::Encode;
+use std::cmp::min;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{EthSpec, SignedBeaconBlock, Slot};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct BatchId(pub u64);
@@ -41,8 +41,6 @@ pub struct Batch<T: EthSpec> {
     pub start_slot: Slot,
     /// The requested end slot of batch, exclusive.
     pub end_slot: Slot,
-    /// The hash of the chain root to requested from the peer.
-    pub head_root: Hash256,
     /// The peer that was originally assigned to the batch.
     pub original_peer: PeerId,
     /// The peer that is currently assigned to the batch.
@@ -61,18 +59,11 @@ pub struct Batch<T: EthSpec> {
 impl<T: EthSpec> Eq for Batch<T> {}
 
 impl<T: EthSpec> Batch<T> {
-    pub fn new(
-        id: BatchId,
-        start_slot: Slot,
-        end_slot: Slot,
-        head_root: Hash256,
-        peer_id: PeerId,
-    ) -> Self {
+    pub fn new(id: BatchId, start_slot: Slot, end_slot: Slot, peer_id: PeerId) -> Self {
         Batch {
             id,
             start_slot,
             end_slot,
-            head_root,
             original_peer: peer_id.clone(),
             current_peer: peer_id,
             retries: 0,
@@ -84,9 +75,11 @@ impl<T: EthSpec> Batch<T> {
 
     pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
         BlocksByRangeRequest {
-            head_block_root: self.head_root,
             start_slot: self.start_slot.into(),
-            count: std::cmp::min(BLOCKS_PER_BATCH, self.end_slot.sub(self.start_slot).into()),
+            count: min(
+                T::slots_per_epoch() * EPOCHS_PER_BATCH,
+                self.end_slot.sub(self.start_slot).into(),
+            ),
             step: 1,
         }
     }
@@ -119,9 +112,9 @@ impl<T: EthSpec> PartialOrd for Batch<T> {
 /// This is used to optimise searches for idle peers (peers that have no outbound batch requests).
 pub struct PendingBatches<T: EthSpec> {
     /// The current pending batches.
-    batches: FnvHashMap<RequestId, Batch<T>>,
+    batches: FnvHashMap<usize, Batch<T>>,
     /// A mapping of peers to the number of pending requests.
-    peer_requests: HashMap<PeerId, HashSet<RequestId>>,
+    peer_requests: HashMap<PeerId, HashSet<usize>>,
 }
 
 impl<T: EthSpec> PendingBatches<T> {
@@ -132,7 +125,7 @@ impl<T: EthSpec> PendingBatches<T> {
         }
     }
 
-    pub fn insert(&mut self, request_id: RequestId, batch: Batch<T>) -> Option<Batch<T>> {
+    pub fn insert(&mut self, request_id: usize, batch: Batch<T>) -> Option<Batch<T>> {
         let peer_request = batch.current_peer.clone();
         self.peer_requests
             .entry(peer_request)
@@ -141,7 +134,7 @@ impl<T: EthSpec> PendingBatches<T> {
         self.batches.insert(request_id, batch)
     }
 
-    pub fn remove(&mut self, request_id: RequestId) -> Option<Batch<T>> {
+    pub fn remove(&mut self, request_id: usize) -> Option<Batch<T>> {
         if let Some(batch) = self.batches.remove(&request_id) {
             if let Entry::Occupied(mut entry) = self.peer_requests.entry(batch.current_peer.clone())
             {
@@ -164,7 +157,7 @@ impl<T: EthSpec> PendingBatches<T> {
 
     /// Adds a block to the batches if the request id exists. Returns None if there is no batch
     /// matching the request id.
-    pub fn add_block(&mut self, request_id: RequestId, block: SignedBeaconBlock<T>) -> Option<()> {
+    pub fn add_block(&mut self, request_id: usize, block: SignedBeaconBlock<T>) -> Option<()> {
         let batch = self.batches.get_mut(&request_id)?;
         batch.downloaded_blocks.push(block);
         Some(())

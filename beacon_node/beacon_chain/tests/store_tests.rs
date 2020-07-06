@@ -3,19 +3,24 @@
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
+
+use crate::slog::Drain;
+use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::BeaconSnapshot;
-use beacon_chain::{AttestationProcessingOutcome, StateSkipConfig};
+use beacon_chain::StateSkipConfig;
 use rand::Rng;
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
-    DiskStore, Store, StoreConfig,
+    HotColdDB, LevelDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
@@ -34,19 +39,26 @@ lazy_static! {
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<DiskStore<E>> {
+fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     let spec = MinimalEthSpec::default_spec();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
-    let log = NullLoggerBuilder.build().expect("logger should build");
+
+    let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
+    let drain = slog_term::FullFormat::new(decorator).build();
+    let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+
     Arc::new(
-        DiskStore::open(&hot_path, &cold_path, config, spec, log)
+        HotColdDB::open(&hot_path, &cold_path, config, spec, log)
             .expect("disk store should initialize"),
     )
 }
 
-fn get_harness(store: Arc<DiskStore<E>>, validator_count: usize) -> TestHarness {
+fn get_harness(
+    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    validator_count: usize,
+) -> TestHarness {
     let harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
         store,
@@ -272,7 +284,7 @@ fn epoch_boundary_state_attestation_processing() {
         );
 
         let head = harness.chain.head().expect("head ok");
-        late_attestations.extend(harness.get_free_attestations(
+        late_attestations.extend(harness.get_unaggregated_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_block_root,
@@ -289,7 +301,7 @@ fn epoch_boundary_state_attestation_processing() {
 
     let mut checked_pre_fin = false;
 
-    for attestation in late_attestations {
+    for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
         let block = store.get_block(&block_root).unwrap().expect("block exists");
@@ -310,26 +322,30 @@ fn epoch_boundary_state_attestation_processing() {
             .expect("head ok")
             .finalized_checkpoint
             .epoch;
+
         let res = harness
             .chain
-            .process_attestation_internal(attestation.clone());
+            .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id);
 
-        let current_epoch = harness.chain.epoch().expect("should get epoch");
-        let attestation_epoch = attestation.data.target.epoch;
+        let current_slot = harness.chain.slot().expect("should get slot");
+        let expected_attestation_slot = attestation.data.slot;
+        // Extra -1 to handle gossip clock disparity.
+        let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
-        if attestation.data.slot <= finalized_epoch.start_slot(E::slots_per_epoch())
-            || attestation_epoch + 1 < current_epoch
+        if expected_attestation_slot <= finalized_epoch.start_slot(E::slots_per_epoch())
+            || expected_attestation_slot < expected_earliest_permissible_slot
         {
             checked_pre_fin = true;
-            assert_eq!(
-                res,
-                Ok(AttestationProcessingOutcome::PastEpoch {
-                    attestation_epoch,
-                    current_epoch,
-                })
-            );
+            assert!(matches!(
+                res.err().unwrap(),
+                AttnError::PastSlot {
+                    attestation_slot,
+                    earliest_permissible_slot,
+                }
+                if attestation_slot == expected_attestation_slot && earliest_permissible_slot == expected_earliest_permissible_slot
+            ));
         } else {
-            assert_eq!(res, Ok(AttestationProcessingOutcome::Processed));
+            res.expect("should have verified attetation");
         }
     }
     assert!(checked_pre_fin);
@@ -364,7 +380,7 @@ fn delete_blocks_and_states() {
         fork_blocks as usize,
     );
 
-    assert!(honest_head != faulty_head, "forks should be distinct");
+    assert_ne!(honest_head, faulty_head, "forks should be distinct");
     let head_info = harness.chain.head_info().expect("should get head");
     assert_eq!(head_info.slot, unforked_blocks + fork_blocks);
 
@@ -387,30 +403,32 @@ fn delete_blocks_and_states() {
         .expect("faulty head state exists");
 
     let states_to_delete = StateRootsIterator::new(store.clone(), &faulty_head_state)
+        .map(Result::unwrap)
         .take_while(|(_, slot)| *slot > unforked_blocks)
         .collect::<Vec<_>>();
 
     // Delete faulty fork
     // Attempting to load those states should find them unavailable
     for (state_root, slot) in &states_to_delete {
-        assert_eq!(store.delete_state(state_root, *slot), Ok(()));
-        assert_eq!(store.get_state(state_root, Some(*slot)), Ok(None));
+        store.delete_state(state_root, *slot).unwrap();
+        assert_eq!(store.get_state(state_root, Some(*slot)).unwrap(), None);
     }
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
     for (state_root, slot) in &states_to_delete {
-        assert_eq!(store.delete_state(state_root, *slot), Ok(()));
+        store.delete_state(state_root, *slot).unwrap();
     }
 
     // Deleting the blocks from the fork should remove them completely
     let blocks_to_delete = BlockRootsIterator::new(store.clone(), &faulty_head_state)
+        .map(Result::unwrap)
         // Extra +1 here accounts for the skipped slot that started this fork
         .take_while(|(_, slot)| *slot > unforked_blocks + 1)
         .collect::<Vec<_>>();
 
     for (block_root, _) in blocks_to_delete {
-        assert_eq!(store.delete_block(&block_root), Ok(()));
-        assert_eq!(store.get_block(&block_root), Ok(None));
+        store.delete_block(&block_root).unwrap();
+        assert_eq!(store.get_block(&block_root).unwrap(), None);
     }
 
     // Deleting frozen states should do nothing
@@ -419,10 +437,11 @@ fn delete_blocks_and_states() {
         .chain
         .rev_iter_state_roots()
         .expect("rev iter ok")
+        .map(Result::unwrap)
         .filter(|(_, slot)| *slot < split_slot);
 
     for (state_root, slot) in finalized_states {
-        assert_eq!(store.delete_state(&state_root, slot), Ok(()));
+        store.delete_state(&state_root, slot).unwrap();
     }
 
     // After all that, the chain dump should still be OK
@@ -654,11 +673,12 @@ fn check_shuffling_compatible(
     let previous_pivot_slot =
         (head_state.previous_epoch() - shuffling_lookahead).end_slot(E::slots_per_epoch());
 
-    for (block_root, slot) in harness
+    for maybe_tuple in harness
         .chain
         .rev_iter_block_roots_from(head_block_root)
         .unwrap()
     {
+        let (block_root, slot) = maybe_tuple.unwrap();
         // Shuffling is compatible targeting the current epoch,
         // iff slot is greater than or equal to the current epoch pivot block
         assert_eq!(
@@ -1069,8 +1089,19 @@ fn prunes_fork_running_past_finalized_checkpoint() {
     let (canonical_blocks_second_epoch, _, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
-        slots_per_epoch * 4,
+        slots_per_epoch * 6,
         &honest_validators,
+    );
+    assert_ne!(
+        harness
+            .chain
+            .head()
+            .unwrap()
+            .beacon_state
+            .finalized_checkpoint
+            .epoch,
+        0,
+        "chain should have finalized"
     );
 
     // Postconditions
@@ -1087,8 +1118,8 @@ fn prunes_fork_running_past_finalized_checkpoint() {
         finalized_blocks,
         vec![
             Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64)],
-            canonical_blocks[&Slot::new((slots_per_epoch * 2) as u64)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 3)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 4)],
         ]
         .into_iter()
         .collect()
@@ -1203,8 +1234,19 @@ fn prunes_skipped_slots_states() {
     let (canonical_blocks_post_finalization, _, _, _, _) = harness.add_canonical_chain_blocks(
         canonical_state,
         canonical_slot,
-        slots_per_epoch * 5,
+        slots_per_epoch * 6,
         &honest_validators,
+    );
+    assert_eq!(
+        harness
+            .chain
+            .head()
+            .unwrap()
+            .beacon_state
+            .finalized_checkpoint
+            .epoch,
+        2,
+        "chain should have finalized"
     );
 
     // Postconditions
@@ -1218,7 +1260,7 @@ fn prunes_skipped_slots_states() {
         finalized_blocks,
         vec![
             Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64)],
+            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 2)],
         ]
         .into_iter()
         .collect()
@@ -1240,10 +1282,12 @@ fn prunes_skipped_slots_states() {
         assert!(
             harness
                 .chain
-                .get_state(&state_hash, Some(slot))
+                .get_state(&state_hash, None)
                 .unwrap()
                 .is_none(),
-            "skipped slot states should have been pruned"
+            "skipped slot {} state {} should have been pruned",
+            slot,
+            state_hash
         );
     }
 }
@@ -1276,8 +1320,8 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
     );
 }
 
-/// Check that the DiskStore's split_slot is equal to the start slot of the last finalized epoch.
-fn check_split_slot(harness: &TestHarness, store: Arc<DiskStore<E>>) {
+/// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
+fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) {
     let split_slot = store.get_split_slot();
     assert_eq!(
         harness
@@ -1328,13 +1372,15 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
         .collect::<Vec<_>>();
 
     let head = harness.chain.head().expect("should get head");
-    let mut forward_block_roots = Store::forwards_block_roots_iterator(
+    let mut forward_block_roots = HotColdDB::forwards_block_roots_iterator(
         harness.chain.store.clone(),
         Slot::new(0),
         head.beacon_state,
         head.beacon_block_root,
         &harness.spec,
     )
+    .unwrap()
+    .map(Result::unwrap)
     .collect::<Vec<_>>();
 
     // Drop the block roots for skipped slots.
@@ -1358,6 +1404,7 @@ fn check_iterators(harness: &TestHarness) {
             .rev_iter_state_roots()
             .expect("should get iter")
             .last()
+            .map(Result::unwrap)
             .map(|(_, slot)| slot),
         Some(Slot::new(0))
     );
@@ -1367,6 +1414,7 @@ fn check_iterators(harness: &TestHarness) {
             .rev_iter_block_roots()
             .expect("should get iter")
             .last()
+            .map(Result::unwrap)
             .map(|(_, slot)| slot),
         Some(Slot::new(0))
     );

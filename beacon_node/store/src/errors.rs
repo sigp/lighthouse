@@ -1,9 +1,11 @@
 use crate::chunked_vector::ChunkError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
-use types::BeaconStateError;
+use types::{BeaconStateError, Hash256, Slot};
 
-#[derive(Debug, PartialEq)]
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug)]
 pub enum Error {
     SszDecodeError(DecodeError),
     VectorChunkError(ChunkError),
@@ -12,6 +14,9 @@ pub enum Error {
     HotColdDBError(HotColdDBError),
     DBError { message: String },
     RlpError(String),
+    BlockNotFound(Hash256),
+    NoContinuationData,
+    SplitPointModified(Slot, Slot),
 }
 
 impl From<DecodeError> for Error {

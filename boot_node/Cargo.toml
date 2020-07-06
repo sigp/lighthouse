@@ -1,0 +1,20 @@
+[package]
+name = "boot_node"
+version = "0.1.0"
+authors = ["Age Manning <Age@AgeManning.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33.0"
+eth2_libp2p = { path = "../beacon_node/eth2_libp2p" } 
+slog = "2.5.2"
+sloggers = "1.0.1"
+tokio = "0.2.21"
+log = "0.4.8"
+slog-term = "2.6.0"
+logging = { path = "../common/logging" }
+slog-async = "2.5.0"
+slog-scope = "4.3.0"
+slog-stdlog = "4.0.0"
+futures = "0.3.5"
+discv5 = "0.1.0-alpha.5"

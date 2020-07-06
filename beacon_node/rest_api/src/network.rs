@@ -1,6 +1,6 @@
 use crate::error::ApiResult;
 use crate::response_builder::ResponseBuilder;
-use crate::NetworkService;
+use crate::NetworkGlobals;
 use beacon_chain::BeaconChainTypes;
 use eth2_libp2p::{Multiaddr, PeerId};
 use hyper::{Body, Request};
@@ -11,7 +11,7 @@ use std::sync::Arc;
 /// Returns a list of `Multiaddr`, serialized according to their `serde` impl.
 pub fn get_listen_addresses<T: BeaconChainTypes>(
     req: Request<Body>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> ApiResult {
     let multiaddresses: Vec<Multiaddr> = network.listen_multiaddrs();
     ResponseBuilder::new(&req)?.body_no_ssz(&multiaddresses)
@@ -22,9 +22,9 @@ pub fn get_listen_addresses<T: BeaconChainTypes>(
 /// Returns the TCP port number in its plain form (which is also valid JSON serialization)
 pub fn get_listen_port<T: BeaconChainTypes>(
     req: Request<Body>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&network.listen_port())
+    ResponseBuilder::new(&req)?.body(&network.listen_port_tcp())
 }
 
 /// HTTP handler to return the Discv5 ENR from the client's libp2p service.
@@ -32,14 +32,9 @@ pub fn get_listen_port<T: BeaconChainTypes>(
 /// ENR is encoded as base64 string.
 pub fn get_enr<T: BeaconChainTypes>(
     req: Request<Body>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> ApiResult {
-    ResponseBuilder::new(&req)?.body_no_ssz(
-        &network
-            .local_enr()
-            .map(|enr| enr.to_base64())
-            .unwrap_or_else(|| "".into()),
-    )
+    ResponseBuilder::new(&req)?.body_no_ssz(&network.local_enr().to_base64())
 }
 
 /// HTTP handler to return the `PeerId` from the client's libp2p service.
@@ -47,7 +42,7 @@ pub fn get_enr<T: BeaconChainTypes>(
 /// PeerId is encoded as base58 string.
 pub fn get_peer_id<T: BeaconChainTypes>(
     req: Request<Body>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> ApiResult {
     ResponseBuilder::new(&req)?.body_no_ssz(&network.local_peer_id().to_base58())
 }
@@ -55,7 +50,7 @@ pub fn get_peer_id<T: BeaconChainTypes>(
 /// HTTP handler to return the number of peers connected in the client's libp2p service.
 pub fn get_peer_count<T: BeaconChainTypes>(
     req: Request<Body>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> ApiResult {
     ResponseBuilder::new(&req)?.body(&network.connected_peers())
 }
@@ -65,11 +60,12 @@ pub fn get_peer_count<T: BeaconChainTypes>(
 /// Peers are presented as a list of `PeerId::to_string()`.
 pub fn get_peer_list<T: BeaconChainTypes>(
     req: Request<Body>,
-    network: Arc<NetworkService<T>>,
+    network: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> ApiResult {
     let connected_peers: Vec<String> = network
-        .connected_peer_set()
-        .iter()
+        .peers
+        .read()
+        .connected_peer_ids()
         .map(PeerId::to_string)
         .collect();
     ResponseBuilder::new(&req)?.body_no_ssz(&connected_peers)
