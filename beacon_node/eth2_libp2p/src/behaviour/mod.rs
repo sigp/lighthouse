@@ -415,10 +415,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 } else {
                     match PubsubMessage::<TSpec>::decode(&gs_msg.topics, &gs_msg.data) {
                         Err(e) => {
-                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => e.to_string())
                         }
                         Ok(msg) => {
-                            debug!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
+                            debug!(self.log, "A duplicate gossipsub message was received"; "message_source" => gs_msg.source.to_string(), "propagated_peer" => propagation_source.to_string(), "message" => msg.to_string());
                         }
                     }
                 }
@@ -506,7 +506,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             "reason" => reason.to_string(),
                             "client" => self.network_globals.client(&peer_id).to_string(),
                         );
-                        self.peers_to_dc.push_back(peer_id.clone());
+                        self.peers_to_dc.push_back(peer_id);
                         // NOTE: We currently do not inform the application that we are
                         // disconnecting here.
                         // The actual disconnection event will be relayed to the application. Ideally

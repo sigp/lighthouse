@@ -153,7 +153,7 @@ impl Score {
     /// Modifies the score based on a peer's action.
     pub fn apply_peer_action(&mut self, peer_action: PeerAction) {
         match peer_action {
-            PeerAction::Fatal => self.score = MIN_SCORE.into(), // The worst possible score
+            PeerAction::Fatal => self.score = MIN_SCORE, // The worst possible score
             PeerAction::LowToleranceError => self.add(-10.0),
             PeerAction::MidToleranceError => self.add(-5.0),
             PeerAction::HighToleranceError => self.add(-1.0),
@@ -210,7 +210,7 @@ impl Score {
         {
             // e^(-ln(2)/HL*t)
             let decay_factor = (*HALFLIFE_DECAY * secs_since_update as f64).exp();
-            self.score = self.score * decay_factor;
+            self.score *= decay_factor;
             self.last_updated = now;
         }
     }

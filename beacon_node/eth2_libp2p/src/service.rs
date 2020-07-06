@@ -224,67 +224,61 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
         loop {
-            tokio::select! {
-                event = self.swarm.next_event() => {
-                    match event {
-                        SwarmEvent::Behaviour(behaviour) => {
-                            return Libp2pEvent::Behaviour(behaviour)
-                        }
-                        SwarmEvent::ConnectionEstablished { .. } => {
-                            // A connection could be established with a banned peer. This is
-                            // handled inside the behaviour.
-                        }
-                        SwarmEvent::ConnectionClosed {
-                            peer_id,
-                            cause,
-                            endpoint: _,
-                            num_established,
-                        } => {
-                            debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string(), "connections" => num_established);
-                        }
-                        SwarmEvent::NewListenAddr(multiaddr) => {
-                            return Libp2pEvent::NewListenAddr(multiaddr)
-                        }
-                        SwarmEvent::IncomingConnection {
-                            local_addr,
-                            send_back_addr,
-                        } => {
-                            debug!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
-                        }
-                        SwarmEvent::IncomingConnectionError {
-                            local_addr,
-                            send_back_addr,
-                            error,
-                        } => {
-                            debug!(self.log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
-                        }
-                        SwarmEvent::BannedPeer {.. } => {
-                            // We do not ban peers at the swarm layer, so this should never occur.
-                        }
-                        SwarmEvent::UnreachableAddr {
-                            peer_id,
-                            address,
-                            error,
-                            attempts_remaining,
-                        } => {
-                            debug!(self.log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining);
-                        }
-                        SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
-                            debug!(self.log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string());
-                        }
-                        SwarmEvent::ExpiredListenAddr(multiaddr) => {
-                            debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
-                        }
-                        SwarmEvent::ListenerClosed { addresses, reason } => {
-                            debug!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
-                        }
-                        SwarmEvent::ListenerError { error } => {
-                            debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
-                        }
-                        SwarmEvent::Dialing(peer_id) => {
-                            debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
-                        }
-                    }
+            match self.swarm.next_event().await {
+                SwarmEvent::Behaviour(behaviour) => return Libp2pEvent::Behaviour(behaviour),
+                SwarmEvent::ConnectionEstablished { .. } => {
+                    // A connection could be established with a banned peer. This is
+                    // handled inside the behaviour.
+                }
+                SwarmEvent::ConnectionClosed {
+                    peer_id,
+                    cause,
+                    endpoint: _,
+                    num_established,
+                } => {
+                    debug!(self.log, "Connection closed"; "peer_id"=> peer_id.to_string(), "cause" => cause.to_string(), "connections" => num_established);
+                }
+                SwarmEvent::NewListenAddr(multiaddr) => {
+                    return Libp2pEvent::NewListenAddr(multiaddr)
+                }
+                SwarmEvent::IncomingConnection {
+                    local_addr,
+                    send_back_addr,
+                } => {
+                    debug!(self.log, "Incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string())
+                }
+                SwarmEvent::IncomingConnectionError {
+                    local_addr,
+                    send_back_addr,
+                    error,
+                } => {
+                    debug!(self.log, "Failed incoming connection"; "our_addr" => local_addr.to_string(), "from" => send_back_addr.to_string(), "error" => error.to_string())
+                }
+                SwarmEvent::BannedPeer { .. } => {
+                    // We do not ban peers at the swarm layer, so this should never occur.
+                }
+                SwarmEvent::UnreachableAddr {
+                    peer_id,
+                    address,
+                    error,
+                    attempts_remaining,
+                } => {
+                    debug!(self.log, "Failed to dial address"; "peer_id" => peer_id.to_string(), "address" => address.to_string(), "error" => error.to_string(), "attempts_remaining" => attempts_remaining);
+                }
+                SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
+                    debug!(self.log, "Peer not known at dialed address"; "address" => address.to_string(), "error" => error.to_string());
+                }
+                SwarmEvent::ExpiredListenAddr(multiaddr) => {
+                    debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
+                }
+                SwarmEvent::ListenerClosed { addresses, reason } => {
+                    debug!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
+                }
+                SwarmEvent::ListenerError { error } => {
+                    debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
+                }
+                SwarmEvent::Dialing(peer_id) => {
+                    debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
                 }
             }
         }

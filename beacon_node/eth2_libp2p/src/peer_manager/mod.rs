@@ -10,7 +10,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::multiaddr::Protocol as MProtocol;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error};
+use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     net::SocketAddr,
@@ -291,7 +291,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This adjusts a peer's score based on the error.
     pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
         let client = self.network_globals.client(peer_id);
-        debug!(self.log, "RPCError"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string());
+        warn!(self.log, "RPC Error"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string());
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -704,7 +704,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e))
+                    error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
                 }
                 Poll::Ready(None) | Poll::Pending => break,
             }
@@ -717,7 +717,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
                     self.events.push(PeerManagerEvent::Status(peer_id))
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for peers to ping"; "error" => format!("{}",e))
+                    error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
                 }
                 Poll::Ready(None) | Poll::Pending => break,
             }

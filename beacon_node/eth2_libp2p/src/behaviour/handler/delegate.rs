@@ -137,11 +137,10 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
         let rpc_proto = self.rpc_handler.listen_protocol();
         let identify_proto = self.identify_handler.listen_protocol();
 
-        let timeout = gossip_proto
+        let timeout = *gossip_proto
             .timeout()
             .max(rpc_proto.timeout())
-            .max(identify_proto.timeout())
-            .clone();
+            .max(identify_proto.timeout());
 
         let select = SelectUpgrade::new(
             gossip_proto.into_upgrade().1,
@@ -319,7 +318,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             }
             Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                    protocol: protocol.map_upgrade(|u| EitherUpgrade::A(u)),
+                    protocol: protocol.map_upgrade(EitherUpgrade::A),
                     info: EitherOutput::First(info),
                 });
             }

@@ -74,7 +74,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
             return Err(RPCError::InternalError(
-                "attempting to encode data > max_packet_size".into(),
+                "attempting to encode data > max_packet_size",
             ));
         }
         // Inserts the length prefix of the uncompressed bytes into dst
@@ -186,7 +186,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                     },
                     Protocol::MetaData => match self.protocol.version {
                         Version::V1 => {
-                            if decoded_buffer.len() > 0 {
+                            if !decoded_buffer.is_empty() {
                                 Err(RPCError::InvalidData)
                             } else {
                                 Ok(Some(RPCRequest::MetaData(PhantomData)))
