@@ -5,34 +5,14 @@ use crate::{
 };
 use std::borrow::Cow;
 
-#[derive(Clone, Debug)]
-pub struct SignedMessage<'a, Pub>
-where
-    Pub: TPublicKey + Clone,
-{
-    pub(crate) signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
-    pub(crate) message: Hash256,
-}
-
-impl<'a, Pub> SignedMessage<'a, Pub>
-where
-    Pub: TPublicKey + Clone,
-{
-    pub fn new(signing_keys: Vec<Cow<'a, PublicKey<Pub>>>, message: Hash256) -> Self {
-        Self {
-            signing_keys,
-            message,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct SignatureSet<'a, Pub, Sig>
 where
     Pub: TPublicKey + Clone,
 {
     pub signature: &'a Signature<Pub, Sig>,
-    pub(crate) signed_messages: Vec<SignedMessage<'a, Pub>>,
+    pub(crate) signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
+    pub(crate) message: Hash256,
 }
 
 impl<'a, Pub, Sig> SignatureSet<'a, Pub, Sig>
@@ -47,7 +27,8 @@ where
     ) -> Self {
         Self {
             signature,
-            signed_messages: vec![SignedMessage::new(vec![signing_key], message)],
+            signing_keys: vec![signing_key],
+            message,
         }
     }
 
@@ -58,42 +39,17 @@ where
     ) -> Self {
         Self {
             signature,
-            signed_messages: vec![SignedMessage {
-                signing_keys,
-                message,
-            }],
-        }
-    }
-
-    pub fn from_components(
-        signature: &'a Signature<Pub, Sig>,
-        signed_messages: Vec<SignedMessage<'a, Pub>>,
-    ) -> Self {
-        Self {
-            signature,
-            signed_messages,
+            signing_keys,
+            message,
         }
     }
 
     pub fn is_valid(self) -> bool {
-        let iter = self.signed_messages.into_iter().map(|mut signed_message| {
-            let pubkey = if signed_message.signing_keys.len() == 1 {
-                signed_message
-                    .signing_keys
-                    .pop()
-                    .expect("Pop must succeed if len == 1")
-            } else {
-                let mut aggregate = PublicKey::zero();
-                aggregate.add_assign_multiple(
-                    signed_message.signing_keys.iter().map(|cow| cow.as_ref()),
-                );
-
-                Cow::Owned(aggregate)
-            };
-
-            (pubkey, signed_message.message)
-        });
-
-        self.signature.fast_aggregate_verify(iter)
+        let pubkeys = self
+            .signing_keys
+            .iter()
+            .map(|pk| pk.as_ref())
+            .collect::<Vec<_>>();
+        self.signature.fast_aggregate_verify(self.message, &pubkeys)
     }
 }

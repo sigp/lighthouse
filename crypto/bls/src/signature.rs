@@ -6,7 +6,6 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
-use std::borrow::Cow;
 use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -25,7 +24,7 @@ pub trait TSignature<PublicKey>: Sized {
 
     fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool;
 
-    fn fast_aggregate_verify(&self, pubkeys: &[PublicKey], msgs: &[Hash256]) -> bool;
+    fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey]) -> bool;
 }
 
 #[derive(Clone, PartialEq)]
@@ -109,20 +108,8 @@ where
         }
     }
 
-    pub fn fast_aggregate_verify<'a>(
-        &'a self,
-        signed_messages: impl Iterator<Item = (Cow<'a, PublicKey<Pub>>, Hash256)>,
-    ) -> bool {
-        if let Some(point) = &self.point {
-            let (pubkeys, msgs): (Vec<_>, Vec<_>) = signed_messages
-                .into_iter()
-                .map(|(pubkey, msg)| (pubkey.point().clone(), msg))
-                .unzip();
-
-            point.fast_aggregate_verify(&pubkeys[..], &msgs)
-        } else {
-            false
-        }
+    pub fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool {
+        self.fast_aggregate_verify(msg, pubkeys)
     }
 }
 

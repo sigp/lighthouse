@@ -20,7 +20,6 @@ pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
     milagro::AggregatePublicKey,
     milagro::AggregateSignature,
 >;
-pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, milagro::AggregatePublicKey>;
 
 pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureSet<'a>>) -> bool {
     /*
@@ -157,21 +156,10 @@ impl TSignature<milagro::AggregatePublicKey> for milagro::AggregateSignature {
 
     fn fast_aggregate_verify(
         &self,
-        pubkeys: &[milagro::AggregatePublicKey],
-        msgs: &[Hash256],
+        msg: Hash256,
+        pubkeys: &[&milagro::AggregatePublicKey],
     ) -> bool {
-        todo!("fast_aggregate_verify")
-        /*
-        let msg_slices = msgs
-            .iter()
-            .map(|msg| msg.as_bytes().to_vec())
-            .collect::<Vec<Vec<u8>>>();
-        let pubkey_refs = pubkeys
-            .iter()
-            .collect::<Vec<&milagro::AggregatePublicKey>>();
-
-        self.verify_multiple(&msg_slices[..], &pubkey_refs[..])
-        */
+        self.fast_aggregate_verify(msg.as_bytes(), pubkeys)
     }
 }
 
