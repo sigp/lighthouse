@@ -9,7 +9,7 @@ use tree_hash::TreeHash;
 
 pub const PUBLIC_KEY_BYTES_LEN: usize = 48;
 
-pub trait TPublicKey: Sized {
+pub trait TPublicKey: Sized + Clone {
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN];
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;

@@ -25,34 +25,36 @@ pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
     milagro::AggregateSignature,
 >;
 
-pub fn verify_signature_sets<'a>(signature_sets: impl Iterator<Item = SignatureSet<'a>>) -> bool {
-    let flattened_sets = signature_sets
+pub fn verify_signature_sets<'a>(
+    signature_sets: impl Iterator<Item = &'a SignatureSet<'a>>,
+) -> bool {
+    let aggregates_result = signature_sets
         .map(|signature_set| {
             let mut aggregate = milagro::AggregatePublicKey::new();
             for signing_key in &signature_set.signing_keys {
-                aggregate.add(&milagro::PublicKey {
-                    // TODO: address this expensive clone.
-                    point: signing_key.point().point.clone(),
-                })
+                aggregate.add(signing_key.point())
             }
+            aggregate
+        })
+        .collect::<Vec<_>>();
 
+    let iter = signature_sets
+        .zip(aggregates.iter())
+        .map(|(signature_set, aggregate)| {
             (
                 signature_set.signature.point().expect("FIXME"),
-                aggregate,
-                signature_set.message,
+                &aggregate,
+                signature_set.message.as_bytes(),
             )
-        })
-        .collect::<Vec<(
-            &milagro::AggregateSignature,
-            milagro::AggregatePublicKey,
-            Hash256,
-        )>>();
+        });
 
     milagro::AggregateSignature::verify_multiple_aggregate_signatures(
         &mut rand::thread_rng(),
-        flattened_sets
-            .iter()
-            .map(|(signature, aggregate, message)| (*signature, aggregate, message.as_bytes())),
+        iter, /*
+              flattened_sets
+                  .iter()
+                  .map(|(signature, aggregate, message)| (*signature, aggregate, message.as_bytes())),
+              */
     )
 }
 
@@ -123,6 +125,10 @@ impl TAggregateSignature<milagro::PublicKey, milagro::AggregatePublicKey, milagr
 
     fn add_assign(&mut self, other: &milagro::Signature) {
         self.add(other)
+    }
+
+    fn add_assign_aggregate(&mut self, other: &Self) {
+        self.add_aggregate(other)
     }
 
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {

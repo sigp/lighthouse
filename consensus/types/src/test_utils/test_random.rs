@@ -5,6 +5,7 @@ use rand_xorshift::XorShiftRng;
 use ssz_types::typenum::Unsigned;
 
 mod address;
+mod aggregate_signature;
 mod bitfield;
 mod hash256;
 mod public_key;

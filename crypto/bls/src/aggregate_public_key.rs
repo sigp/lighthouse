@@ -9,7 +9,7 @@ use tree_hash::TreeHash;
 
 pub const PUBLIC_KEY_BYTES_LEN: usize = 48;
 
-pub trait TAggregatePublicKey: Sized {
+pub trait TAggregatePublicKey: Sized + Clone {
     fn zero() -> Self;
 
     fn add_assign(&mut self, other: &Self);

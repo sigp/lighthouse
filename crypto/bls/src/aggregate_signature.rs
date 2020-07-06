@@ -15,10 +15,12 @@ use tree_hash::TreeHash;
 pub const SIGNATURE_BYTES_LEN: usize = 96;
 pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
-pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized {
+pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
     fn zero() -> Self;
 
     fn add_assign(&mut self, other: &Sig);
+
+    fn add_assign_aggregate(&mut self, other: &Self);
 
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
@@ -62,15 +64,6 @@ where
         self.point.is_none()
     }
 
-    pub(crate) fn from_point(point: AggSig) -> Self {
-        Self {
-            point: Some(point),
-            _phantom_pub: PhantomData,
-            _phantom_agg_pub: PhantomData,
-            _phantom_sig: PhantomData,
-        }
-    }
-
     pub(crate) fn point(&self) -> Option<&AggSig> {
         self.point.as_ref()
     }
@@ -78,6 +71,13 @@ where
     pub fn add_assign(&mut self, other: &Signature<Pub, Sig>) {
         match (&mut self.point, other.point()) {
             (Some(a), Some(b)) => a.add_assign(b),
+            _ => {}
+        }
+    }
+
+    pub fn add_assign_aggregate(&mut self, other: &Self) {
+        match (&mut self.point, other.point()) {
+            (Some(a), Some(b)) => a.add_assign_aggregate(b),
             _ => {}
         }
     }

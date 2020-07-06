@@ -13,7 +13,7 @@ use tree_hash::TreeHash;
 pub const SIGNATURE_BYTES_LEN: usize = 96;
 pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
-pub trait TSignature<PublicKey>: Sized {
+pub trait TSignature<PublicKey>: Sized + Clone {
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;

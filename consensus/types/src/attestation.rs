@@ -44,7 +44,7 @@ impl<T: EthSpec> Attestation<T> {
         debug_assert!(self.signers_disjoint_from(other));
 
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
-        self.signature.add_assign(&other.signature);
+        self.signature.add_assign_aggregate(&other.signature);
     }
 
     /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.
