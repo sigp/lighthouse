@@ -164,10 +164,13 @@ impl Manager {
     ///
     /// Returns an error if a directory is unable to be read.
     pub fn directory_names(&self) -> Result<HashMap<String, PathBuf>, Error> {
-        Ok(HashMap::from_iter(
-            self.iter_dir()?
-                .into_iter()
-                .map(|path| (format!("{:?}", path), path)),
-        ))
+        Ok(HashMap::from_iter(self.iter_dir()?.into_iter().filter_map(
+            |path| {
+                path.clone()
+                    .file_name()
+                    .and_then(|os_string| os_string.to_str())
+                    .map(|filename| (format!("{}", filename), path))
+            },
+        )))
     }
 }
