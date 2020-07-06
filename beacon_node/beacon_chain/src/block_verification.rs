@@ -69,10 +69,6 @@ use types::{
     PublicKey, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
-mod block_processing_outcome;
-
-pub use block_processing_outcome::BlockProcessingOutcome;
-
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 

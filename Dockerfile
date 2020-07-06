@@ -1,4 +1,4 @@
-FROM rust:1.43.1 AS builder
+FROM rust:1.44.1 AS builder
 RUN apt-get update && apt-get install -y cmake
 COPY . lighthouse
 RUN cd lighthouse && make

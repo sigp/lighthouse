@@ -35,7 +35,7 @@ pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
-pub use block_verification::{BlockError, BlockProcessingOutcome, GossipVerifiedBlock};
+pub use block_verification::{BlockError, GossipVerifiedBlock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::EventHandler;
 pub use metrics::scrape_for_metrics;

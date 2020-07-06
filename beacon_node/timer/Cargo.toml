@@ -10,6 +10,6 @@ types = { path = "../../consensus/types" }
 slot_clock = { path = "../../common/slot_clock" }
 tokio = { version = "0.2.21", features = ["full"] }
 slog = "2.5.2"
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 futures = "0.3.5"
 environment = { path = "../../lighthouse/environment" }

@@ -22,7 +22,7 @@ eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 tree_hash = "0.1.0"
 eth2_hashing = "0.1.0"
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 slog = "2.5.2"
 tokio = { version = "0.2.21", features = ["full"] }
 state_processing = { path = "../../consensus/state_processing" }

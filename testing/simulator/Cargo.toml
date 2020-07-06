@@ -10,7 +10,7 @@ edition = "2018"
 node_test_rig = { path = "../node_test_rig" }
 types = { path = "../../consensus/types" }
 validator_client = { path = "../../validator_client" }
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 futures = "0.3.5"
 tokio = "0.2.21"
 eth1_test_rig = { path = "../eth1_test_rig" }

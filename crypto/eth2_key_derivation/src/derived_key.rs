@@ -1,7 +1,7 @@
 use crate::{lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, SecretHash};
-use crypto::{digest::Digest, sha2::Sha256};
 use num_bigint_dig::BigUint;
 use ring::hkdf::{KeyType, Prk, Salt, HKDF_SHA256};
+use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 /// The byte size of a SHA256 hash.
@@ -126,14 +126,16 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> SecretHash {
         .enumerate()
         .for_each(|(i, chunk)| {
             let mut hasher = Sha256::new();
-            hasher.input(chunk);
-            hasher.result(&mut pk_bytes[i * HASH_SIZE..(i + 1) * HASH_SIZE]);
+            hasher.update(chunk);
+            pk_bytes[i * HASH_SIZE..(i + 1) * HASH_SIZE].copy_from_slice(&hasher.finalize());
         });
 
     let mut compressed_lamport_pk = SecretHash::zero();
     let mut hasher = Sha256::new();
-    hasher.input(lamport_pk.as_bytes());
-    hasher.result(compressed_lamport_pk.as_mut_bytes());
+    hasher.update(lamport_pk.as_bytes());
+    compressed_lamport_pk
+        .as_mut_bytes()
+        .copy_from_slice(&hasher.finalize());
 
     compressed_lamport_pk
 }
