@@ -645,6 +645,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             // to disk.
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
+                            // update  network globals
+                            *self.network_globals.local_enr.write() = enr;
                             return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
                         }
                         _ => {} // Ignore all other discv5 server events
