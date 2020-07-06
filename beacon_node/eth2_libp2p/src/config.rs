@@ -94,8 +94,8 @@ impl Default for Config {
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_secs(1))
+            .history_length(385) // A heartbeat is 1 second. We want to keep an epoch worth of history,
             .manual_propagation() // require validation before propagation
-            .no_source_id()
             .message_id_fn(gossip_message_id)
             .build();
 
