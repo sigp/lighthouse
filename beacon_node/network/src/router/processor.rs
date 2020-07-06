@@ -555,8 +555,11 @@ impl<T: BeaconChainTypes> Processor<T> {
             Err(BlockError::ParentUnknown { .. }) => {
                 // Inform the sync manager to find parents for this block
                 // This should not occur. It should be checked by `should_forward_block`
-                error!(self.log, "Block with unknown parent attempted to be processed";
-                            "peer_id" => format!("{:?}",peer_id));
+                error!(
+                    self.log,
+                    "Block with unknown parent attempted to be processed";
+                    "peer_id" => format!("{:?}",peer_id)
+                );
                 self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
             }
             other => {
