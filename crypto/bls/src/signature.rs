@@ -14,17 +14,11 @@ pub const SIGNATURE_BYTES_LEN: usize = 96;
 pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
 pub trait TSignature<PublicKey>: Sized {
-    fn zero() -> Self;
-
-    fn add_assign(&mut self, other: &Self);
-
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 
     fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool;
-
-    fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey]) -> bool;
 }
 
 #[derive(Clone, PartialEq)]
@@ -37,13 +31,6 @@ impl<Pub, Sig> Signature<Pub, Sig>
 where
     Sig: TSignature<Pub>,
 {
-    pub fn zero() -> Self {
-        Self {
-            point: Some(Sig::zero()),
-            _phantom: PhantomData,
-        }
-    }
-
     pub fn empty() -> Self {
         Self {
             point: None,
@@ -55,21 +42,14 @@ where
         self.point.is_none()
     }
 
-    pub(crate) fn from_point(point: Sig) -> Self {
-        Self {
-            point: Some(point),
-            _phantom: PhantomData,
-        }
-    }
-
     pub(crate) fn point(&self) -> Option<&Sig> {
         self.point.as_ref()
     }
 
-    pub fn add_assign(&mut self, other: &Self) {
-        match (&mut self.point, &other.point) {
-            (Some(a), Some(b)) => a.add_assign(b),
-            _ => {}
+    pub(crate) fn from_point(point: Sig) -> Self {
+        Self {
+            point: Some(point),
+            _phantom: PhantomData,
         }
     }
 
@@ -106,10 +86,6 @@ where
         } else {
             false
         }
-    }
-
-    pub fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool {
-        self.fast_aggregate_verify(msg, pubkeys)
     }
 }
 

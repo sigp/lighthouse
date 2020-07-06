@@ -5,8 +5,13 @@ use crate::{
     Error, Hash256, SecretHash,
 };
 
-pub type SignatureSet<'a> = crate::signature_set::SignatureSet<'a, PublicKey, Signature>;
-pub type SignedMessage<'a> = crate::signature_set::SignedMessage<'a, PublicKey>;
+pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
+    'a,
+    PublicKey,
+    AggregatePublicKey,
+    Signature,
+    AggregateSignature,
+>;
 
 pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet<'a>>) -> bool {
     true
@@ -15,19 +20,13 @@ pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet<'a>>) 
 #[derive(Clone)]
 pub struct PublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
 
-impl TPublicKey for PublicKey {
+impl PublicKey {
     fn zero() -> Self {
         Self([0; PUBLIC_KEY_BYTES_LEN])
     }
+}
 
-    fn add_assign(&mut self, _other: &Self) {
-        // Do nothing.
-    }
-
-    fn add_assign_multiple<'a>(&'a mut self, _others: impl Iterator<Item = &'a Self>) {
-        // Do nothing.
-    }
-
+impl TPublicKey for PublicKey {
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         self.0.clone()
     }
@@ -48,17 +47,24 @@ impl PartialEq for PublicKey {
 }
 
 #[derive(Clone)]
+pub struct AggregatePublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
+
+impl AggregatePublicKey {
+    fn zero() -> Self {
+        Self([0; PUBLIC_KEY_BYTES_LEN])
+    }
+}
+
+#[derive(Clone)]
 pub struct Signature([u8; SIGNATURE_BYTES_LEN]);
 
-impl TSignature<PublicKey> for Signature {
+impl Signature {
     fn zero() -> Self {
         Self([0; SIGNATURE_BYTES_LEN])
     }
+}
 
-    fn add_assign(&mut self, _other: &Self) {
-        // Do nothing.
-    }
-
+impl TSignature<PublicKey> for Signature {
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
         self.0.clone()
     }
@@ -72,15 +78,20 @@ impl TSignature<PublicKey> for Signature {
     fn verify(&self, _pubkey: &PublicKey, _msg: Hash256) -> bool {
         true
     }
-
-    fn fast_aggregate_verify(&self, _pubkeys: &[PublicKey], _msgs: &[Hash256]) -> bool {
-        true
-    }
 }
 
 impl PartialEq for Signature {
     fn eq(&self, other: &Self) -> bool {
         &self.0[..] == &other.0[..]
+    }
+}
+
+#[derive(Clone)]
+pub struct AggregateSignature([u8; SIGNATURE_BYTES_LEN]);
+
+impl AggregateSignature {
+    fn zero() -> Self {
+        Self([0; SIGNATURE_BYTES_LEN])
     }
 }
 

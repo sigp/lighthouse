@@ -1,27 +1,33 @@
 use crate::{
+    aggregate_public_key::TAggregatePublicKey,
+    aggregate_signature::{AggregateSignature, TAggregateSignature},
     public_key::{PublicKey, TPublicKey},
-    signature::{Signature, TSignature},
+    signature::TSignature,
     Hash256,
 };
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 #[derive(Clone)]
-pub struct SignatureSet<'a, Pub, Sig>
+pub struct SignatureSet<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
 {
-    pub signature: &'a Signature<Pub, Sig>,
+    pub signature: &'a AggregateSignature<Pub, AggPub, Sig, AggSig>,
     pub(crate) signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
     pub(crate) message: Hash256,
+    _phantom: PhantomData<Sig>,
 }
 
-impl<'a, Pub, Sig> SignatureSet<'a, Pub, Sig>
+impl<'a, Pub, AggPub, Sig, AggSig> SignatureSet<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
+    AggPub: TAggregatePublicKey + Clone,
     Sig: TSignature<Pub>,
+    AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
     pub fn single(
-        signature: &'a Signature<Pub, Sig>,
+        signature: &'a AggregateSignature<Pub, AggPub, Sig, AggSig>,
         signing_key: Cow<'a, PublicKey<Pub>>,
         message: Hash256,
     ) -> Self {
@@ -29,11 +35,12 @@ where
             signature,
             signing_keys: vec![signing_key],
             message,
+            _phantom: PhantomData,
         }
     }
 
     pub fn new(
-        signature: &'a Signature<Pub, Sig>,
+        signature: &'a AggregateSignature<Pub, AggPub, Sig, AggSig>,
         signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
         message: Hash256,
     ) -> Self {
@@ -41,6 +48,7 @@ where
             signature,
             signing_keys,
             message,
+            _phantom: PhantomData,
         }
     }
 
@@ -50,6 +58,7 @@ where
             .iter()
             .map(|pk| pk.as_ref())
             .collect::<Vec<_>>();
-        self.signature.fast_aggregate_verify(self.message, &pubkeys)
+        self.signature
+            .fast_aggregate_verify(self.message, &pubkeys[..])
     }
 }

@@ -2,28 +2,29 @@ mod fake_crypto;
 mod milagro;
 
 pub mod milagro_implementations {
-    pub use super::milagro::{verify_signature_sets, SignatureSet, SignedMessage};
+    pub use super::milagro::{verify_signature_sets, SignatureSet};
 
     use super::milagro::milagro;
 
-    pub type PublicKey = crate::public_key::PublicKey<milagro::AggregatePublicKey>;
+    pub type PublicKey = crate::public_key::PublicKey<milagro::PublicKey>;
+    pub type AggregatePublicKey =
+        crate::aggregate_public_key::AggregatePublicKey<milagro::AggregatePublicKey>;
     pub type PublicKeyBytes = crate::public_key_bytes::PublicKeyBytes<milagro::AggregatePublicKey>;
-    pub type Signature =
-        crate::signature::Signature<milagro::AggregatePublicKey, milagro::AggregateSignature>;
+    pub type Signature = crate::signature::Signature<milagro::PublicKey, milagro::Signature>;
+    pub type AggregateSignature = crate::aggregate_signature::AggregateSignature<
+        milagro::PublicKey,
+        milagro::AggregatePublicKey,
+        milagro::AggregateSignature,
+        milagro::Signature,
+    >;
     pub type SignatureBytes = crate::signature_bytes::SignatureBytes<
         milagro::AggregatePublicKey,
         milagro::AggregateSignature,
     >;
-    pub type SecretKey = crate::secret_key::SecretKey<
-        milagro::AggregateSignature,
-        milagro::AggregatePublicKey,
-        milagro::SecretKey,
-    >;
-    pub type Keypair = crate::keypair::Keypair<
-        milagro::AggregatePublicKey,
-        milagro::SecretKey,
-        milagro::AggregateSignature,
-    >;
+    pub type SecretKey =
+        crate::secret_key::SecretKey<milagro::Signature, milagro::PublicKey, milagro::SecretKey>;
+    pub type Keypair =
+        crate::keypair::Keypair<milagro::PublicKey, milagro::SecretKey, milagro::Signature>;
 }
 
 macro_rules! define_mod {
@@ -31,7 +32,7 @@ macro_rules! define_mod {
         pub mod $name {
             use $mod as bls_variant;
 
-            pub use bls_variant::{verify_signature_sets, SignatureSet, SignedMessage};
+            pub use bls_variant::{verify_signature_sets, SignatureSet};
 
             pub type PublicKey = crate::public_key::PublicKey<bls_variant::PublicKey>;
             pub type PublicKeyBytes =

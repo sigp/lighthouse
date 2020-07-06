@@ -1,5 +1,7 @@
 #[macro_use]
 mod macros;
+mod aggregate_public_key;
+mod aggregate_signature;
 mod get_withdrawal_credentials;
 mod impls;
 mod keypair;
@@ -21,8 +23,6 @@ pub use signature::SIGNATURE_BYTES_LEN;
 use milagro_bls::AmclError;
 
 pub type Hash256 = ethereum_types::H256;
-pub type AggregateSignature = Signature;
-pub type AggregatePublicKey = PublicKey;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
