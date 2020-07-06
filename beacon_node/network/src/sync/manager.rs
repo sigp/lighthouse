@@ -39,7 +39,7 @@ use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
 use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::service::NetworkMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::{PeerAction, PeerId};
@@ -400,44 +400,40 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         // we have the correct block, try and process it
-        match BlockProcessingOutcome::shim(self.chain.process_block(block.clone())) {
-            Ok(outcome) => {
-                match outcome {
-                    BlockProcessingOutcome::Processed { block_root } => {
-                        info!(self.log, "Processed block"; "block" => format!("{}", block_root));
+        match self.chain.process_block(block.clone()) {
+            Ok(block_root) => {
+                info!(self.log, "Processed block"; "block" => format!("{}", block_root));
 
-                        match self.chain.fork_choice() {
-                            Ok(()) => trace!(
-                                self.log,
-                                "Fork choice success";
-                                "location" => "single block"
-                            ),
-                            Err(e) => error!(
-                                self.log,
-                                "Fork choice failed";
-                                "error" => format!("{:?}", e),
-                                "location" => "single block"
-                            ),
-                        }
-                    }
-                    BlockProcessingOutcome::ParentUnknown { .. } => {
-                        // We don't know of the blocks parent, begin a parent lookup search
-                        self.add_unknown_block(peer_id, block);
-                    }
-                    BlockProcessingOutcome::BlockIsAlreadyKnown => {
-                        trace!(self.log, "Single block lookup already known");
-                    }
-                    _ => {
-                        warn!(self.log, "Single block lookup failed"; "outcome" => format!("{:?}", outcome));
-                        // This could be a range of errors. But we couldn't process the block.
-                        // For now we consider this a mid tolerance error.
-                        self.network
-                            .report_peer(peer_id, PeerAction::MidToleranceError);
-                    }
+                match self.chain.fork_choice() {
+                    Ok(()) => trace!(
+                        self.log,
+                        "Fork choice success";
+                        "location" => "single block"
+                    ),
+                    Err(e) => error!(
+                        self.log,
+                        "Fork choice failed";
+                        "error" => format!("{:?}", e),
+                        "location" => "single block"
+                    ),
                 }
             }
-            Err(e) => {
+            Err(BlockError::ParentUnknown { .. }) => {
+                // We don't know of the blocks parent, begin a parent lookup search
+                self.add_unknown_block(peer_id, block);
+            }
+            Err(BlockError::BlockIsAlreadyKnown) => {
+                trace!(self.log, "Single block lookup already known");
+            }
+            Err(BlockError::BeaconChainError(e)) => {
                 warn!(self.log, "Unexpected block processing error"; "error" => format!("{:?}", e));
+            }
+            outcome => {
+                warn!(self.log, "Single block lookup failed"; "outcome" => format!("{:?}", outcome));
+                // This could be a range of errors. But we couldn't process the block.
+                // For now we consider this a mid tolerance error.
+                self.network
+                    .report_peer(peer_id, PeerAction::MidToleranceError);
             }
         }
     }
@@ -656,16 +652,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .downloaded_blocks
                 .pop()
                 .expect("There is always at least one block in the queue");
-            match BlockProcessingOutcome::shim(self.chain.process_block(newest_block.clone())) {
-                Ok(BlockProcessingOutcome::ParentUnknown { .. }) => {
+            match self.chain.process_block(newest_block.clone()) {
+                Err(BlockError::ParentUnknown { .. }) => {
                     // need to keep looking for parents
                     // add the block back to the queue and continue the search
                     parent_request.downloaded_blocks.push(newest_block);
                     self.request_parent(parent_request);
                     return;
                 }
-                Ok(BlockProcessingOutcome::Processed { .. })
-                | Ok(BlockProcessingOutcome::BlockIsAlreadyKnown { .. }) => {
+                Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                     spawn_block_processor(
                         Arc::downgrade(&self.chain),
                         ProcessId::ParentLookup(parent_request.last_submitted_peer.clone()),
@@ -674,7 +669,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.log.clone(),
                     );
                 }
-                Ok(outcome) => {
+                Err(outcome) => {
                     // all else we consider the chain a failure and downvote the peer that sent
                     // us the last block
                     warn!(
@@ -689,21 +684,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.network.report_peer(
                         parent_request.last_submitted_peer.clone(),
                         PeerAction::MidToleranceError,
-                    );
-                    return;
-                }
-                Err(e) => {
-                    warn!(
-                        self.log, "Parent chain processing error";
-                        "score_adjustment" => PeerAction::HighToleranceError.to_string(),
-                        "error" => format!("{:?}", e),
-                        "last_peer" => parent_request.last_submitted_peer.to_string(),
-                    );
-                    // This error could also be internal. We are careful in scoring the peer and
-                    // have a reasonably high tolerance to these errors.
-                    self.network.report_peer(
-                        parent_request.last_submitted_peer.clone(),
-                        PeerAction::HighToleranceError,
                     );
                     return;
                 }
