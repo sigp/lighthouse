@@ -682,7 +682,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // ambiguity.
                     // TODO: Refine the error types and score the peer appropriately.
                     self.network.report_peer(
-                        parent_request.last_submitted_peer.clone(),
+                        parent_request.last_submitted_peer,
                         PeerAction::MidToleranceError,
                     );
                     return;
