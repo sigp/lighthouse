@@ -11,7 +11,7 @@ use utils::{
 
 /// Each of the BLS signature domains.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Domain {
     BeaconProposer,
@@ -25,7 +25,7 @@ pub enum Domain {
 
 /// Holds all the "constants" for a BeaconChain.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -75,14 +75,14 @@ pub struct ChainSpec {
     /*
      * Time parameters
      */
-    pub min_genesis_delay: u64,
+    pub genesis_delay: u64,
     pub milliseconds_per_slot: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
     pub min_epochs_to_inactivity_penalty: u64,
     pub min_validator_withdrawability_delay: Epoch,
-    pub persistent_committee_period: u64,
+    pub shard_committee_period: u64,
 
     /*
      * Reward and penalty quotients
@@ -154,7 +154,7 @@ impl ChainSpec {
 
     /// Get the domain number, unmodified by the fork.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn get_domain_constant(&self, domain: Domain) -> u32 {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
@@ -169,7 +169,7 @@ impl ChainSpec {
 
     /// Get the domain that represents the fork meta and signature domain.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn get_domain(
         &self,
         epoch: Epoch,
@@ -186,7 +186,7 @@ impl ChainSpec {
     /// Deposits are valid across forks, thus the deposit domain is computed
     /// with the genesis fork version.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn get_deposit_domain(&self) -> Hash256 {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
     }
@@ -195,7 +195,7 @@ impl ChainSpec {
     ///
     /// This is used primarily in signature domains to avoid collisions across forks/chains.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn compute_fork_data_root(
         current_version: [u8; 4],
         genesis_validators_root: Hash256,
@@ -223,7 +223,7 @@ impl ChainSpec {
 
     /// Compute a domain by applying the given `fork_version`.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn compute_domain(
         &self,
         domain: Domain,
@@ -243,7 +243,7 @@ impl ChainSpec {
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn mainnet() -> Self {
         Self {
             /*
@@ -285,14 +285,14 @@ impl ChainSpec {
             /*
              * Time parameters
              */
-            min_genesis_delay: 86400, // 1 day
+            genesis_delay: 172800, // 2 days
             milliseconds_per_slot: 12_000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
-            persistent_committee_period: 2_048,
+            shard_committee_period: 256,
 
             /*
              * Reward and penalty quotients
@@ -300,7 +300,7 @@ impl ChainSpec {
             base_reward_factor: 64,
             whistleblower_reward_quotient: 512,
             proposer_reward_quotient: 8,
-            inactivity_penalty_quotient: 33_554_432,
+            inactivity_penalty_quotient: u64::pow(2, 24),
             min_slashing_penalty_quotient: 32,
 
             /*
@@ -341,7 +341,7 @@ impl ChainSpec {
 
     /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];
@@ -353,8 +353,8 @@ impl ChainSpec {
             min_genesis_active_validator_count: 64,
             eth1_follow_distance: 16,
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
-            persistent_committee_period: 128,
-            min_genesis_delay: 300,
+            shard_committee_period: 64,
+            genesis_delay: 300,
             milliseconds_per_slot: 6_000,
             safe_slots_to_update_justified: 2,
             network_id: 2, // lighthouse testnet network id
@@ -442,7 +442,7 @@ mod tests {
 ///
 /// Doesn't include fields of the YAML that we don't need yet (e.g. Phase 1 stuff).
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 // Yaml Config is declared here in order to access domain fields of ChainSpec which are private.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
@@ -459,7 +459,7 @@ pub struct YamlConfig {
     shuffle_round_count: u8,
     min_genesis_active_validator_count: u64,
     min_genesis_time: u64,
-    min_genesis_delay: u64,
+    genesis_delay: u64,
     min_deposit_amount: u64,
     max_effective_balance: u64,
     ejection_balance: u64,
@@ -481,7 +481,7 @@ pub struct YamlConfig {
     max_seed_lookahead: u64,
     min_epochs_to_inactivity_penalty: u64,
     min_validator_withdrawability_delay: u64,
-    persistent_committee_period: u64,
+    shard_committee_period: u64,
     base_reward_factor: u64,
     whistleblower_reward_quotient: u64,
     proposer_reward_quotient: u64,
@@ -560,7 +560,7 @@ impl Default for YamlConfig {
     }
 }
 
-/// Spec v0.11.1
+/// Spec v0.12.1
 impl YamlConfig {
     #[allow(clippy::integer_arithmetic)]
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
@@ -576,7 +576,7 @@ impl YamlConfig {
             shuffle_round_count: spec.shuffle_round_count,
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
-            min_genesis_delay: spec.min_genesis_delay,
+            genesis_delay: spec.genesis_delay,
             min_deposit_amount: spec.min_deposit_amount,
             max_effective_balance: spec.max_effective_balance,
             ejection_balance: spec.ejection_balance,
@@ -591,7 +591,7 @@ impl YamlConfig {
             min_seed_lookahead: spec.min_seed_lookahead.into(),
             max_seed_lookahead: spec.max_seed_lookahead.into(),
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay.into(),
-            persistent_committee_period: spec.persistent_committee_period,
+            shard_committee_period: spec.shard_committee_period,
             min_epochs_to_inactivity_penalty: spec.min_epochs_to_inactivity_penalty,
             base_reward_factor: spec.base_reward_factor,
             whistleblower_reward_quotient: spec.whistleblower_reward_quotient,
@@ -674,7 +674,7 @@ impl YamlConfig {
             min_genesis_active_validator_count: self.min_genesis_active_validator_count,
             min_genesis_time: self.min_genesis_time,
             min_deposit_amount: self.min_deposit_amount,
-            min_genesis_delay: self.min_genesis_delay,
+            genesis_delay: self.genesis_delay,
             max_effective_balance: self.max_effective_balance,
             hysteresis_quotient: self.hysteresis_quotient,
             hysteresis_downward_multiplier: self.hysteresis_downward_multiplier,
@@ -690,7 +690,7 @@ impl YamlConfig {
             min_validator_withdrawability_delay: Epoch::from(
                 self.min_validator_withdrawability_delay,
             ),
-            persistent_committee_period: self.persistent_committee_period,
+            shard_committee_period: self.shard_committee_period,
             min_epochs_to_inactivity_penalty: self.min_epochs_to_inactivity_penalty,
             base_reward_factor: self.base_reward_factor,
             whistleblower_reward_quotient: self.whistleblower_reward_quotient,

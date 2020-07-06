@@ -1,5 +1,5 @@
 use super::*;
-use milagro_bls::{AggregateSignature as RawAggregateSignature, G2Point};
+use milagro_bls::AggregateSignature as RawAggregateSignature;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -84,9 +84,9 @@ impl AggregateSignature {
     }
 
     /// Return AggregateSignature as bytes
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_AGG_SIG_BYTE_SIZE] {
         if self.is_empty {
-            return vec![0; BLS_AGG_SIG_BYTE_SIZE];
+            return [0; BLS_AGG_SIG_BYTE_SIZE];
         }
         self.aggregate_signature.as_bytes()
     }
@@ -116,14 +116,6 @@ impl AggregateSignature {
         &self.aggregate_signature
     }
 
-    /// Returns the underlying signature.
-    pub fn from_point(point: G2Point) -> Self {
-        Self {
-            aggregate_signature: RawAggregateSignature { point },
-            is_empty: false,
-        }
-    }
-
     /// Returns if the AggregateSignature `is_empty`
     pub fn is_empty(&self) -> bool {
         self.is_empty
@@ -143,7 +135,7 @@ impl AggregateSignature {
     /// Return a hex string representation of the bytes of this signature.
     #[cfg(test)]
     pub fn as_hex_string(&self) -> String {
-        hex_encode(self.as_bytes())
+        hex_encode(self.as_ssz_bytes())
     }
 }
 
@@ -161,7 +153,7 @@ impl Serialize for AggregateSignature {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&hex_encode(self.as_bytes()))
+        serializer.serialize_str(&hex_encode(self.as_ssz_bytes()))
     }
 }
 

@@ -16,7 +16,7 @@ slog-term = "2.5.0"
 slog-async = "2.5.0"
 ctrlc = { version = "3.1.4", features = ["termination"] }
 futures = "0.3.5"
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 slog-json = "2.3.0"
 exit-future = "0.2.0"
 lazy_static = "1.4.0"

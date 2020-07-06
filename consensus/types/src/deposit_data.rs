@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 
 /// The data supplied by the user to the deposit contract.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct DepositData {
@@ -22,7 +22,7 @@ pub struct DepositData {
 impl DepositData {
     /// Create a `DepositMessage` corresponding to this `DepositData`, for signature verification.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn as_deposit_message(&self) -> DepositMessage {
         DepositMessage {
             pubkey: self.pubkey.clone(),
@@ -33,7 +33,7 @@ impl DepositData {
 
     /// Generate the signature for a given DepositData details.
     ///
-    /// Spec v0.11.1
+    /// Spec v0.12.1
     pub fn create_signature(&self, secret_key: &SecretKey, spec: &ChainSpec) -> SignatureBytes {
         let domain = spec.get_deposit_domain();
         let msg = self.as_deposit_message().signing_root(domain);

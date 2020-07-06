@@ -7,7 +7,7 @@ use types::*;
 
 /// Initialize a `BeaconState` from genesis data.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 // TODO: this is quite inefficient and we probably want to rethink how we do this
 pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
@@ -50,16 +50,19 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
-    state.genesis_time >= spec.min_genesis_time
-        && state.get_active_validator_indices(T::genesis_epoch()).len() as u64
-            >= spec.min_genesis_active_validator_count
+    state
+        .get_active_validator_indices(T::genesis_epoch(), spec)
+        .map_or(false, |active_validators| {
+            state.genesis_time >= spec.min_genesis_time
+                && active_validators.len() as u64 >= spec.min_genesis_active_validator_count
+        })
 }
 
 /// Activate genesis validators, if their balance is acceptable.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn process_activations<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -82,9 +85,7 @@ pub fn process_activations<T: EthSpec>(
 ///
 /// Does _not_ ensure that the time is greater than `MIN_GENESIS_TIME`.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn eth2_genesis_time(eth1_timestamp: u64, spec: &ChainSpec) -> Result<u64, ArithError> {
-    eth1_timestamp
-        .safe_sub(eth1_timestamp.safe_rem(spec.min_genesis_delay)?)?
-        .safe_add(2.safe_mul(spec.min_genesis_delay)?)
+    eth1_timestamp.safe_add(spec.genesis_delay)
 }

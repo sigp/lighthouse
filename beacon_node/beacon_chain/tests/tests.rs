@@ -354,8 +354,6 @@ fn roundtrip_operation_pool() {
         .persist_op_pool()
         .expect("should persist op pool");
 
-    let head_state = harness.chain.head().expect("should get head").beacon_state;
-
     let key = Hash256::from_slice(&OP_POOL_DB_KEY);
     let restored_op_pool = harness
         .chain
@@ -363,7 +361,7 @@ fn roundtrip_operation_pool() {
         .get_item::<PersistedOperationPool<MinimalEthSpec>>(&key)
         .expect("should read db")
         .expect("should find op pool")
-        .into_operation_pool(&head_state, &harness.spec);
+        .into_operation_pool();
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
@@ -381,7 +379,13 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
         .into_iter()
@@ -403,7 +407,7 @@ fn unaggregated_attestations_added_to_fork_choice_some_none() {
             assert_eq!(
                 latest_message.unwrap().1,
                 slot.epoch(MinimalEthSpec::slots_per_epoch()),
-                "Latest message slot for {} should be equal to slot {}.",
+                "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
                 slot
             )
@@ -453,10 +457,10 @@ fn attestations_with_increasing_slots() {
         harness.advance_slot();
     }
 
-    for attestation in attestations.into_iter().flatten() {
+    for (attestation, subnet_id) in attestations.into_iter().flatten() {
         let res = harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation.clone());
+            .verify_unaggregated_attestation_for_gossip(attestation.clone(), subnet_id);
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;
@@ -491,7 +495,13 @@ fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     );
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let fork_choice = &harness.chain.fork_choice;
+    let mut fork_choice = harness.chain.fork_choice.write();
+
+    // Move forward a slot so all queued attestations can be processed.
+    harness.advance_slot();
+    fork_choice
+        .update_time(harness.chain.slot().unwrap())
+        .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
     let slots: Vec<Slot> = validators

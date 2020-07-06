@@ -43,7 +43,7 @@ impl AggregatePublicKey {
     }
 
     /// Returns the underlying point as compressed bytes.
-    pub fn as_bytes(&self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> [u8; BLS_PUBLIC_KEY_BYTE_SIZE] {
         self.as_raw().as_bytes()
     }
 
@@ -54,7 +54,7 @@ impl AggregatePublicKey {
     /// Return a hex string representation of this key's bytes.
     #[cfg(test)]
     pub fn as_hex_string(&self) -> String {
-        serde_hex::encode(self.as_bytes())
+        serde_hex::encode(self.as_ssz_bytes())
     }
 }
 
@@ -71,7 +71,7 @@ impl Serialize for AggregatePublicKey {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&hex_encode(self.as_bytes()))
+        serializer.serialize_str(&hex_encode(self.as_ssz_bytes()))
     }
 }
 

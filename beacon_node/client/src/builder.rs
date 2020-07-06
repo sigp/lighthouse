@@ -204,7 +204,11 @@ where
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
 
-                let genesis_service = Eth1GenesisService::new(config.eth1, context.log().clone());
+                let genesis_service = Eth1GenesisService::new(
+                    config.eth1,
+                    context.log().clone(),
+                    context.eth2_config().spec.clone(),
+                );
 
                 let genesis_state = genesis_service
                     .wait_for_genesis_state(
@@ -414,8 +418,6 @@ where
                     .clone()
                     .ok_or_else(|| "beacon_chain requires a slot clock")?,
             )
-            .reduced_tree_fork_choice()
-            .map_err(|e| format!("Failed to init fork choice: {}", e))?
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
@@ -627,6 +629,10 @@ where
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or_else(|| "caching_eth1_backend requires a beacon_chain_builder")?;
+        let spec = self
+            .chain_spec
+            .clone()
+            .ok_or_else(|| "caching_eth1_backend requires a chain spec".to_string())?;
 
         let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
             eth1_service_from_genesis.update_config(config)?;
@@ -650,10 +656,17 @@ where
                         &persisted,
                         config.clone(),
                         &context.log().clone(),
+                        spec.clone(),
                     )
                     .map(|chain| chain.into_backend())
                 })
-                .unwrap_or_else(|| Ok(CachingEth1Backend::new(config, context.log().clone())))?
+                .unwrap_or_else(|| {
+                    Ok(CachingEth1Backend::new(
+                        config,
+                        context.log().clone(),
+                        spec.clone(),
+                    ))
+                })?
         };
 
         self.eth1_service = None;

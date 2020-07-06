@@ -673,7 +673,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         justified_epoch: Epoch::new(2),
         justified_root: get_hash(5),
         finalized_epoch: Epoch::new(2),
-        justified_state_balances: balances.clone(),
+        justified_state_balances: balances,
         expected_head: get_hash(11),
     });
 

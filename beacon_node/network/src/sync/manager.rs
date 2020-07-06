@@ -36,16 +36,21 @@
 use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
-use super::range_sync::{BatchId, ChainId, RangeSync};
+use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
+<<<<<<< HEAD
 use eth2_libp2p::rpc::{BlocksByRootRequest, GoodbyeReason};
+=======
+use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest};
+>>>>>>> master
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
+use ssz_types::VariableList;
 use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -188,6 +193,10 @@ pub fn spawn<T: BeaconChainTypes>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
+    assert!(
+        MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
+    );
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
@@ -269,7 +278,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // by one and their head_slot is within the slot tolerance, consider this peer
                 // fully synced.
 
-                if (self.chain.fork_choice.contains_block(&remote.head_root)) || // the first case 
+                if (self.chain.fork_choice.read().contains_block(&remote.head_root)) || // the first case
                     (remote.finalized_epoch.sub(local_peer_info.finalized_epoch) == 1 && remote.head_slot.sub(local_peer_info.head_slot) < SLOT_IMPORT_TOLERANCE as u64)
                 // the second case
                 {
@@ -504,7 +513,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         let request = BlocksByRootRequest {
-            block_roots: vec![block_hash],
+            block_roots: VariableList::from(vec![block_hash]),
         };
 
         if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
@@ -536,7 +545,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // otherwise, this is a range sync issue, notify the range sync
         self.range_sync
-            .inject_error(&mut self.network, peer_id.clone(), request_id);
+            .inject_error(&mut self.network, peer_id, request_id);
     }
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
@@ -678,6 +687,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "outcome" => format!("{:?}", outcome),
                         "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
                     );
+<<<<<<< HEAD
                     // This currently can be a host of errors. We permit this due to the partial
                     // ambiguity.
                     // TODO: Refine the error types and score the peer appropriately.
@@ -685,6 +695,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         parent_request.last_submitted_peer.clone(),
                         PeerAction::MidToleranceError,
                     );
+=======
+                    self.network
+                        .downvote_peer(parent_request.last_submitted_peer);
+>>>>>>> master
                     return;
                 }
                 Err(e) => {
@@ -694,12 +708,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "error" => format!("{:?}", e),
                         "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
                     );
+<<<<<<< HEAD
                     // This error could also be internal. We are careful in scoring the peer and
                     // have a reasonably high tolerance to these errors.
                     self.network.report_peer(
                         parent_request.last_submitted_peer.clone(),
                         PeerAction::HighToleranceError,
                     );
+=======
+                    self.network
+                        .downvote_peer(parent_request.last_submitted_peer);
+>>>>>>> master
                     return;
                 }
             }
@@ -737,7 +756,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         };
 
         let request = BlocksByRootRequest {
-            block_roots: vec![parent_hash],
+            block_roots: VariableList::from(vec![parent_hash]),
         };
 
         // We continue to search for the chain of blocks from the same peer. Other peers are not

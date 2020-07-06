@@ -6,7 +6,7 @@ type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
 /// Convert `attestation` to (almost) indexed-verifiable form.
 ///
-/// Spec v0.11.1
+/// Spec v0.12.1
 pub fn get_indexed_attestation<T: EthSpec>(
     committee: &[usize],
     attestation: &Attestation<T>,

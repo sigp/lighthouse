@@ -36,4 +36,16 @@ lazy_static! {
         "network_gossip_aggregated_attestations_tx_total",
         "Count of gossip aggregated attestations transmitted"
     );
+
+    /*
+     * Attestation subnet subscriptions
+     */
+    pub static ref SUBNET_SUBSCRIPTION_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "network_subnet_subscriptions_total",
+        "Count of validator subscription requests."
+    );
+    pub static ref SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "network_subnet_subscriptions_aggregator_total",
+        "Count of validator subscription requests where the subscriber is an aggregator."
+    );
 }

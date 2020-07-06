@@ -1,11 +1,9 @@
 use crate::error::Error;
 use crate::proto_array::ProtoArray;
 use crate::ssz_container::SszContainer;
-use parking_lot::{RwLock, RwLockReadGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use std::ptr;
 use types::{Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -15,6 +13,19 @@ pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
     next_epoch: Epoch,
+}
+
+/// A block that is to be applied to the fork choice.
+///
+/// A simplified version of `types::BeaconBlock`.
+pub struct Block {
+    pub slot: Slot,
+    pub root: Hash256,
+    pub parent_root: Option<Hash256>,
+    pub state_root: Hash256,
+    pub target_root: Hash256,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
 }
 
 /// A Vec-wrapper which will grow to match any request.
@@ -44,21 +55,11 @@ where
     }
 }
 
+#[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
-    pub(crate) proto_array: RwLock<ProtoArray>,
-    pub(crate) votes: RwLock<ElasticList<VoteTracker>>,
-    pub(crate) balances: RwLock<Vec<u64>>,
-}
-
-impl PartialEq for ProtoArrayForkChoice {
-    fn eq(&self, other: &Self) -> bool {
-        if ptr::eq(self, other) {
-            return true;
-        }
-        *self.proto_array.read() == *other.proto_array.read()
-            && *self.votes.read() == *other.votes.read()
-            && *self.balances.read() == *other.balances.read()
-    }
+    pub(crate) proto_array: ProtoArray,
+    pub(crate) votes: ElasticList<VoteTracker>,
+    pub(crate) balances: Vec<u64>,
 }
 
 impl ProtoArrayForkChoice {
@@ -77,32 +78,36 @@ impl ProtoArrayForkChoice {
             indices: HashMap::with_capacity(1),
         };
 
+        let block = Block {
+            slot: finalized_block_slot,
+            root: finalized_root,
+            parent_root: None,
+            state_root: finalized_block_state_root,
+            // We are using the finalized_root as the target_root, since it always lies on an
+            // epoch boundary.
+            target_root: finalized_root,
+            justified_epoch,
+            finalized_epoch,
+        };
+
         proto_array
-            .on_block(
-                finalized_block_slot,
-                finalized_root,
-                None,
-                finalized_block_state_root,
-                justified_epoch,
-                finalized_epoch,
-            )
+            .on_block(block)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
-            proto_array: RwLock::new(proto_array),
-            votes: RwLock::new(ElasticList::default()),
-            balances: RwLock::new(vec![]),
+            proto_array: proto_array,
+            votes: ElasticList::default(),
+            balances: vec![],
         })
     }
 
     pub fn process_attestation(
-        &self,
+        &mut self,
         validator_index: usize,
         block_root: Hash256,
         target_epoch: Epoch,
     ) -> Result<(), String> {
-        let mut votes = self.votes.write();
-        let vote = votes.get_mut(validator_index);
+        let vote = self.votes.get_mut(validator_index);
 
         if target_epoch > vote.next_epoch || *vote == VoteTracker::default() {
             vote.next_root = block_root;
@@ -112,102 +117,86 @@ impl ProtoArrayForkChoice {
         Ok(())
     }
 
-    pub fn process_block(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        parent_root: Hash256,
-        state_root: Hash256,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
-    ) -> Result<(), String> {
+    pub fn process_block(&mut self, block: Block) -> Result<(), String> {
+        if block.parent_root.is_none() {
+            return Err("Missing parent root".to_string());
+        }
+
         self.proto_array
-            .write()
-            .on_block(
-                slot,
-                block_root,
-                Some(parent_root),
-                state_root,
-                justified_epoch,
-                finalized_epoch,
-            )
+            .on_block(block)
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
     pub fn find_head(
-        &self,
+        &mut self,
         justified_epoch: Epoch,
         justified_root: Hash256,
         finalized_epoch: Epoch,
         justified_state_balances: &[u64],
     ) -> Result<Hash256, String> {
-        let mut proto_array = self.proto_array.write();
-        let mut votes = self.votes.write();
-        let mut old_balances = self.balances.write();
+        let old_balances = &mut self.balances;
 
         let new_balances = justified_state_balances;
 
         let deltas = compute_deltas(
-            &proto_array.indices,
-            &mut votes,
+            &self.proto_array.indices,
+            &mut self.votes,
             &old_balances,
             &new_balances,
         )
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
-        proto_array
+        self.proto_array
             .apply_score_changes(deltas, justified_epoch, finalized_epoch)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
         *old_balances = new_balances.to_vec();
 
-        proto_array
+        self.proto_array
             .find_head(&justified_root)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
-    pub fn maybe_prune(&self, finalized_root: Hash256) -> Result<(), String> {
+    pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), String> {
         self.proto_array
-            .write()
             .maybe_prune(finalized_root)
             .map_err(|e| format!("find_head maybe_prune failed: {:?}", e))
     }
 
-    pub fn set_prune_threshold(&self, prune_threshold: usize) {
-        self.proto_array.write().prune_threshold = prune_threshold;
+    pub fn set_prune_threshold(&mut self, prune_threshold: usize) {
+        self.proto_array.prune_threshold = prune_threshold;
     }
 
     pub fn len(&self) -> usize {
-        self.proto_array.read().nodes.len()
+        self.proto_array.nodes.len()
     }
 
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.proto_array.read().indices.contains_key(block_root)
+        self.proto_array.indices.contains_key(block_root)
     }
 
-    pub fn block_slot(&self, block_root: &Hash256) -> Option<Slot> {
-        let proto_array = self.proto_array.read();
+    pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
+        let block_index = self.proto_array.indices.get(block_root)?;
+        let block = self.proto_array.nodes.get(*block_index)?;
+        let parent_root = block
+            .parent
+            .and_then(|i| self.proto_array.nodes.get(i))
+            .map(|parent| parent.root);
 
-        let i = proto_array.indices.get(block_root)?;
-        let block = proto_array.nodes.get(*i)?;
-
-        Some(block.slot)
-    }
-
-    pub fn block_slot_and_state_root(&self, block_root: &Hash256) -> Option<(Slot, Hash256)> {
-        let proto_array = self.proto_array.read();
-
-        let i = proto_array.indices.get(block_root)?;
-        let block = proto_array.nodes.get(*i)?;
-
-        Some((block.slot, block.state_root))
+        Some(Block {
+            slot: block.slot,
+            root: block.root,
+            parent_root,
+            state_root: block.state_root,
+            target_root: block.target_root,
+            justified_epoch: block.justified_epoch,
+            finalized_epoch: block.finalized_epoch,
+        })
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
-        let votes = self.votes.read();
-
-        if validator_index < votes.0.len() {
-            let vote = &votes.0[validator_index];
+        if validator_index < self.votes.0.len() {
+            let vote = &self.votes.0[validator_index];
 
             if *vote == VoteTracker::default() {
                 None
@@ -232,8 +221,8 @@ impl ProtoArrayForkChoice {
     /// Returns a read-lock to core `ProtoArray` struct.
     ///
     /// Should only be used when encoding/decoding during troubleshooting.
-    pub fn core_proto_array(&self) -> RwLockReadGuard<ProtoArray> {
-        self.proto_array.read()
+    pub fn core_proto_array(&self) -> &ProtoArray {
+        &self.proto_array
     }
 }
 

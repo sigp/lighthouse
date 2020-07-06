@@ -6,14 +6,10 @@ use types::SubnetId;
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
 // For example /eth2/beacon_block/ssz
 pub const TOPIC_PREFIX: &str = "eth2";
-pub const SSZ_ENCODING_POSTFIX: &str = "ssz";
 pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
-// for speed and easier string manipulation, committee topic index is split into a prefix and a
-// postfix. The topic is committee_index{}_beacon_attestation where {} is an integer.
-pub const COMMITEE_INDEX_TOPIC_PREFIX: &str = "committee_index";
-pub const COMMITEE_INDEX_TOPIC_POSTFIX: &str = "_beacon_attestation";
+pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
@@ -39,7 +35,7 @@ pub enum GossipKind {
     /// Topic for publishing aggregate attestations and proofs.    
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.
-    CommitteeIndex(SubnetId),
+    Attestation(SubnetId),
     /// Topic for publishing voluntary exits.
     VoluntaryExit,
     /// Topic for publishing block proposer slashings.
@@ -53,7 +49,7 @@ impl std::fmt::Display for GossipKind {
         match self {
             GossipKind::BeaconBlock => write!(f, "beacon_block"),
             GossipKind::BeaconAggregateAndProof => write!(f, "beacon_aggregate_and_proof"),
-            GossipKind::CommitteeIndex(subnet_id) => write!(f, "committee_index_{}", **subnet_id),
+            GossipKind::Attestation(subnet_id) => write!(f, "beacon_attestation_{}", **subnet_id),
             GossipKind::VoluntaryExit => write!(f, "voluntary_exit"),
             GossipKind::ProposerSlashing => write!(f, "proposer_slashing"),
             GossipKind::AttesterSlashing => write!(f, "attester_slashing"),
@@ -64,8 +60,6 @@ impl std::fmt::Display for GossipKind {
 /// The known encoding types for gossipsub messages.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum GossipEncoding {
-    /// Messages are encoded with SSZ.
-    SSZ,
     /// Messages are encoded with SSZSnappy.
     SSZSnappy,
 }
@@ -117,7 +111,6 @@ impl GossipTopic {
             fork_digest.copy_from_slice(&digest_bytes);
 
             let encoding = match topic_parts[4] {
-                SSZ_ENCODING_POSTFIX => GossipEncoding::SSZ,
                 SSZ_SNAPPY_ENCODING_POSTFIX => GossipEncoding::SSZSnappy,
                 _ => return Err(format!("Unknown encoding: {}", topic)),
             };
@@ -128,7 +121,7 @@ impl GossipTopic {
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
                 topic => match committee_topic_index(topic) {
-                    Some(subnet_id) => GossipKind::CommitteeIndex(subnet_id),
+                    Some(subnet_id) => GossipKind::Attestation(subnet_id),
                     None => return Err(format!("Unknown topic: {}", topic)),
                 },
             };
@@ -153,7 +146,6 @@ impl Into<Topic> for GossipTopic {
 impl Into<String> for GossipTopic {
     fn into(self) -> String {
         let encoding = match self.encoding {
-            GossipEncoding::SSZ => SSZ_ENCODING_POSTFIX,
             GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
         };
 
@@ -163,10 +155,7 @@ impl Into<String> for GossipTopic {
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
             GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
-            GossipKind::CommitteeIndex(index) => format!(
-                "{}{}{}",
-                COMMITEE_INDEX_TOPIC_PREFIX, *index, COMMITEE_INDEX_TOPIC_POSTFIX
-            ),
+            GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
         };
         format!(
             "/{}/{}/{}/{}",
@@ -180,7 +169,7 @@ impl Into<String> for GossipTopic {
 
 impl From<SubnetId> for GossipKind {
     fn from(subnet_id: SubnetId) -> Self {
-        GossipKind::CommitteeIndex(subnet_id)
+        GossipKind::Attestation(subnet_id)
     }
 }
 
@@ -188,17 +177,9 @@ impl From<SubnetId> for GossipKind {
 
 // Determines if a string is a committee topic.
 fn committee_topic_index(topic: &str) -> Option<SubnetId> {
-    if topic.starts_with(COMMITEE_INDEX_TOPIC_PREFIX)
-        && topic.ends_with(COMMITEE_INDEX_TOPIC_POSTFIX)
-    {
+    if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
         return Some(SubnetId::new(
-            u64::from_str_radix(
-                topic
-                    .trim_start_matches(COMMITEE_INDEX_TOPIC_PREFIX)
-                    .trim_end_matches(COMMITEE_INDEX_TOPIC_POSTFIX),
-                10,
-            )
-            .ok()?,
+            u64::from_str_radix(topic.trim_start_matches(BEACON_ATTESTATION_PREFIX), 10).ok()?,
         ));
     }
     None
