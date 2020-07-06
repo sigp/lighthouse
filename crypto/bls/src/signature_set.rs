@@ -65,6 +65,16 @@ where
         }
     }
 
+    pub fn from_components(
+        signature: &'a Signature<Pub, Sig>,
+        signed_messages: Vec<SignedMessage<'a, Pub>>,
+    ) -> Self {
+        Self {
+            signature,
+            signed_messages,
+        }
+    }
+
     pub fn is_valid(self) -> bool {
         let iter = self.signed_messages.into_iter().map(|mut signed_message| {
             let pubkey = if signed_message.signing_keys.len() == 1 {

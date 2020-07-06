@@ -160,7 +160,7 @@ impl TSignature<milagro::AggregatePublicKey> for milagro::AggregateSignature {
         pubkeys: &[milagro::AggregatePublicKey],
         msgs: &[Hash256],
     ) -> bool {
-        todo!()
+        todo!("fast_aggregate_verify")
         /*
         let msg_slices = msgs
             .iter()

@@ -95,8 +95,8 @@ pub type Hash256 = H256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 
-pub type AggregateSignature = Signature;
-pub type AggregatePublicKey = PublicKey;
-
-pub use bls::{Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes};
+pub use bls::{
+    AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
+    Signature, SignatureBytes,
+};
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
