@@ -14,13 +14,8 @@ use libp2p::core::{
     upgrade::{InboundUpgradeExt, OutboundUpgradeExt},
 };
 use libp2p::{
-<<<<<<< HEAD
     core, noise, secio,
     swarm::{SwarmBuilder, SwarmEvent},
-=======
-    core, noise,
-    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
->>>>>>> master
     PeerId, Swarm, Transport,
 };
 use slog::{crit, debug, info, o, trace, warn};
@@ -313,7 +308,7 @@ fn build_transport(
     let transport = transport
         .and_then(move |stream, endpoint| {
             let upgrade = core::upgrade::SelectUpgrade::new(
-                libp2p::secio::SecioConfig::new(local_private_key.clone()),
+                secio::SecioConfig::new(local_private_key.clone()),
                 generate_noise_config(&local_private_key),
             );
             core::upgrade::apply(stream, upgrade, endpoint, core::upgrade::Version::V1).and_then(
@@ -382,7 +377,6 @@ fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
 ///
 /// Currently only secp256k1 keys are allowed, as these are the only keys supported by discv5.
 fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
-    // TODO: Currently using secp256k1 keypairs - currently required for discv5
     // check for key from disk
     let network_key_f = config.network_dir.join(NETWORK_KEY_FILENAME);
     if let Ok(mut network_key_file) = File::open(network_key_f.clone()) {

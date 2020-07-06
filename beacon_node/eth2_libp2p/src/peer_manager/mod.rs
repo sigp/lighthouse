@@ -472,13 +472,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
     /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
     /// proves resource constraining, we should switch to multiaddr dialling here.
-<<<<<<< HEAD
-    fn peers_discovered(&mut self, peers: Vec<Enr>, min_ttl: Option<Instant>) {
+    fn peers_discovered(&mut self, peers: &[Enr], min_ttl: Option<Instant>) {
         let mut to_dial_peers = Vec::new();
 
-=======
-    fn peers_discovered(&mut self, peers: &[Enr], min_ttl: Option<Instant>) {
->>>>>>> master
         for enr in peers {
             let peer_id = enr.peer_id();
 

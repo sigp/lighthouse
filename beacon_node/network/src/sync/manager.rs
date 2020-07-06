@@ -40,11 +40,7 @@ use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessingOutcome};
-<<<<<<< HEAD
-use eth2_libp2p::rpc::{BlocksByRootRequest, GoodbyeReason};
-=======
-use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest};
->>>>>>> master
+use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
@@ -685,9 +681,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.log, "Invalid parent chain";
                         "score_adjustment" => PeerAction::MidToleranceError.to_string(),
                         "outcome" => format!("{:?}", outcome),
-                        "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
+                        "last_peer" => parent_request.last_submitted_peer.to_string(),
                     );
-<<<<<<< HEAD
                     // This currently can be a host of errors. We permit this due to the partial
                     // ambiguity.
                     // TODO: Refine the error types and score the peer appropriately.
@@ -695,10 +690,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         parent_request.last_submitted_peer.clone(),
                         PeerAction::MidToleranceError,
                     );
-=======
-                    self.network
-                        .downvote_peer(parent_request.last_submitted_peer);
->>>>>>> master
                     return;
                 }
                 Err(e) => {
@@ -706,19 +697,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.log, "Parent chain processing error";
                         "score_adjustment" => PeerAction::HighToleranceError.to_string(),
                         "error" => format!("{:?}", e),
-                        "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
+                        "last_peer" => parent_request.last_submitted_peer.to_string(),
                     );
-<<<<<<< HEAD
                     // This error could also be internal. We are careful in scoring the peer and
                     // have a reasonably high tolerance to these errors.
                     self.network.report_peer(
                         parent_request.last_submitted_peer.clone(),
                         PeerAction::HighToleranceError,
                     );
-=======
-                    self.network
-                        .downvote_peer(parent_request.last_submitted_peer);
->>>>>>> master
                     return;
                 }
             }
