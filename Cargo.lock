@@ -1132,8 +1132,10 @@ version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "ethabi",
+ "hex 0.4.2",
  "reqwest",
  "serde_json",
+ "sha2 0.9.1",
  "tree_hash",
  "types",
 ]
