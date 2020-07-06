@@ -7,12 +7,11 @@ use crate::json_keystore::{
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::Uuid;
-use bls::{Keypair, PublicKey, SecretHash, SecretKey};
+use bls::{Keypair, SecretHash, SecretKey};
 use crypto::{digest::Digest, sha2::Sha256};
 use eth2_key_derivation::PlainText;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
-use ssz::DecodeError;
 use std::io::{Read, Write};
 
 /// The byte-length of a BLS secret key.
@@ -49,7 +48,7 @@ pub const HASH_SIZE: usize = 32;
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
-    InvalidSecretKeyBytes(DecodeError),
+    InvalidSecretKeyBytes(bls::Error),
     PublicKeyMismatch,
     EmptyPassword,
     UnableToSerialize(String),
@@ -161,7 +160,7 @@ impl Keystore {
                 },
                 uuid,
                 path,
-                pubkey: keypair.pk.as_hex_string()[2..].to_string(),
+                pubkey: format!("{:?}", keypair.pk)[2..].to_string(),
                 version: Version::four(),
             },
         })
@@ -190,7 +189,7 @@ impl Keystore {
 
         let keypair = keypair_from_secret(plain_text.as_bytes())?;
         // Verify that the derived `PublicKey` matches `self`.
-        if keypair.pk.as_hex_string()[2..] != self.json.pubkey {
+        if format!("{:?}", keypair.pk)[2..] != self.json.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
 
@@ -247,9 +246,9 @@ impl Keystore {
 /// - If `secret.len() != 32`.
 /// - If `secret` does not represent a point in the BLS curve.
 pub fn keypair_from_secret(secret: &[u8]) -> Result<Keypair, Error> {
-    let sk = SecretKey::from_bytes(secret).map_err(Error::InvalidSecretKeyBytes)?;
-    let pk = PublicKey::from_secret_key(&sk);
-    Ok(Keypair { sk, pk })
+    let sk = SecretKey::deserialize(secret).map_err(Error::InvalidSecretKeyBytes)?;
+    let pk = sk.public_key();
+    Ok(Keypair::from_components(pk, sk))
 }
 
 /// Returns `Kdf` used by default when creating keystores.
