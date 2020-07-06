@@ -32,7 +32,7 @@ eth2_config = { path = "../../common/eth2_config" }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 slot_clock = { path = "../../common/slot_clock" }
 hex = "0.4.2"
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 futures = "0.3.5"
 operation_pool = { path = "../operation_pool" }
 rayon = "1.3.0"

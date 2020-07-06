@@ -14,4 +14,4 @@ ring = "0.16.9"
 bls = { path = "../bls" }
 
 [dev-dependencies]
-hex = "0.3"
+hex = "0.4.2"

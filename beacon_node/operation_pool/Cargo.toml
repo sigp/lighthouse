@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 int_to_bytes = { path = "../../consensus/int_to_bytes" }
-parking_lot = "0.10.2"
+parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 state_processing = { path = "../../consensus/state_processing" }
 eth2_ssz = "0.1.2"

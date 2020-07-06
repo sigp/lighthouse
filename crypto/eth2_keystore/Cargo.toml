@@ -17,7 +17,7 @@ uuid = { version = "0.8", features = ["serde", "v4"] }
 zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
 serde = "1.0.110"
 serde_repr = "0.1"
-hex = "0.3"
+hex = "0.4.2"
 bls = { path = "../bls" }
 eth2_ssz = { path = "../../consensus/ssz" }
 serde_json = "1.0.41"
