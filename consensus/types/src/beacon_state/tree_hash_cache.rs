@@ -147,15 +147,16 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
         // efficient algorithm.
         if let Some((previous_root, previous_slot)) = self.previous_state {
             // The given state must be older than the given state.
-            if previous_slot >= state.slot {
+            if previous_slot > state.slot {
                 return Err(Error::TreeHashCacheSkippedSlot {
                     cache: previous_slot,
                     state: state.slot,
                 });
             }
 
-            // The previous root must be in the history of the given state.
-            if *state.get_state_root(previous_slot)? != previous_root {
+            // If the state is newer, the previous root must be in the history of the given state.
+            if previous_slot < state.slot && *state.get_state_root(previous_slot)? != previous_root
+            {
                 return Err(Error::NonLinearTreeHashCacheHistory);
             }
         }
