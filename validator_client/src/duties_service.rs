@@ -232,12 +232,12 @@ impl DutiesStore {
             .collect()
     }
 
-    fn is_aggregator(&self, validator_pubkey: &PublicKey, epoch: &Epoch) -> Option<bool> {
+    fn is_aggregator(&self, validator_pubkey: &PublicKey, epoch: Epoch) -> Option<bool> {
         Some(
             self.store
                 .read()
                 .get(validator_pubkey)?
-                .get(epoch)?
+                .get(&epoch)?
                 .selection_proof
                 .is_some(),
         )
@@ -604,7 +604,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
                 // The selection proof is computed on `store.insert`, so it's necessary to check
                 // with the store that the validator is an aggregator.
-                let is_aggregator = self.store.is_aggregator(&validator_pubkey, &epoch)?;
+                let is_aggregator = self.store.is_aggregator(&validator_pubkey, epoch)?;
 
                 if outcome.is_subscription_candidate() {
                     Some(ValidatorSubscription {

@@ -13,7 +13,7 @@ use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
-use validator_dir::{Manager as ValidatorManager, ValidatorDir};
+use validator_dir::ValidatorDir;
 
 struct LocalValidator {
     validator_dir: ValidatorDir,
@@ -53,7 +53,8 @@ pub struct ValidatorStore<T, E: EthSpec> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
-    pub fn load_from_disk(
+    pub fn new(
+        validators: Vec<(Keypair, ValidatorDir)>,
         config: &Config,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
@@ -69,20 +70,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 )
             })?;
 
-        let validator_key_values = ValidatorManager::open(&config.data_dir)
-            .map_err(|e| format!("unable to read data_dir: {:?}", e))?
-            .decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
-            .map_err(|e| format!("unable to decrypt all validator directories: {:?}", e))?
-            .into_iter()
-            .map(|(kp, dir)| {
-                (
-                    kp.pk.clone(),
-                    LocalValidator {
-                        validator_dir: dir,
-                        voting_keypair: kp,
-                    },
-                )
-            });
+        let validator_key_values = validators.into_iter().map(|(kp, dir)| {
+            (
+                kp.pk.clone(),
+                LocalValidator {
+                    validator_dir: dir,
+                    voting_keypair: kp,
+                },
+            )
+        });
 
         Ok(Self {
             validators: Arc::new(RwLock::new(HashMap::from_iter(validator_key_values))),

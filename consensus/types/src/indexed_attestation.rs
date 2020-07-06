@@ -1,4 +1,5 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -12,9 +13,8 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[derive(Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derivative(PartialEq, Eq)] // to satisfy Clippy's lint about `Hash`
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.

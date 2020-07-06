@@ -70,7 +70,7 @@ pub enum DelegateIn<TSpec: EthSpec> {
 pub enum DelegateOut<TSpec: EthSpec> {
     Gossipsub(<GossipHandler as ProtocolsHandler>::OutEvent),
     RPC(<RPCHandler<TSpec> as ProtocolsHandler>::OutEvent),
-    Identify(<IdentifyHandler as ProtocolsHandler>::OutEvent),
+    Identify(Box<<IdentifyHandler as ProtocolsHandler>::OutEvent>),
 }
 
 /// Wrapper around the `ProtocolsHandler::Error` types of the handlers.
@@ -342,7 +342,9 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
 
         match self.identify_handler.poll(cx) {
             Poll::Ready(ProtocolsHandlerEvent::Custom(event)) => {
-                return Poll::Ready(ProtocolsHandlerEvent::Custom(DelegateOut::Identify(event)));
+                return Poll::Ready(ProtocolsHandlerEvent::Custom(DelegateOut::Identify(
+                    Box::new(event),
+                )));
             }
             Poll::Ready(ProtocolsHandlerEvent::Close(event)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Identify(event)));

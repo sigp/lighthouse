@@ -98,12 +98,16 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
             .map_err(Into::into)
     }
 
-    fn do_atomically(&self, ops_batch: &[KeyValueStoreOp]) -> Result<(), Error> {
+    fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
-        for op in ops_batch.into_iter() {
+        for op in ops_batch {
             match op {
+                KeyValueStoreOp::PutKeyValue(key, value) => {
+                    leveldb_batch.put(BytesKey::from_vec(key), &value);
+                }
+
                 KeyValueStoreOp::DeleteKey(key) => {
-                    leveldb_batch.delete(BytesKey::from_vec(key.to_vec()));
+                    leveldb_batch.delete(BytesKey::from_vec(key));
                 }
             }
         }

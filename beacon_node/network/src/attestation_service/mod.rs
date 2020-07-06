@@ -2,6 +2,7 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
+use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::GossipKind, NetworkGlobals};
 use futures::prelude::*;
@@ -130,6 +131,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// This is a set of validator indices.
     known_validators: HashSetDelay<u64>,
 
+    /// The waker for the current thread.
+    waker: Option<std::task::Waker>,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -170,6 +174,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
             known_validators: HashSetDelay::new(last_seen_val_timeout),
+            waker: None,
             log,
         }
     }
@@ -191,6 +196,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
         for subscription in subscriptions {
+            metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
             // Registers the validator with the attestation service.
@@ -237,6 +243,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // TODO: Implement
 
             if subscription.is_aggregator {
+                metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
                 // set the subscription timer to subscribe to the next subnet if required
                 if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
                     warn!(self.log,
@@ -253,6 +260,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 }
             }
         }
+
+        // pre-emptively wake the thread to check for new events
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
+        }
         Ok(())
     }
 
@@ -260,7 +272,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// verification, re-propagates and returns false.
     pub fn should_process_attestation(
         &mut self,
-        subnet: &SubnetId,
+        subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
         let exact_subnet = ExactSubnet {
@@ -710,6 +722,15 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
     type Item = AttServiceMessage;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // update the waker if needed
+        if let Some(waker) = &self.waker {
+            if waker.will_wake(cx.waker()) {
+                self.waker = Some(cx.waker().clone());
+            }
+        } else {
+            self.waker = Some(cx.waker().clone());
+        }
+
         // process any peer discovery events
         match self.discover_peers.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_discover_peers(exact_subnet),

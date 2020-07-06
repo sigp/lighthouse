@@ -169,7 +169,7 @@ where
     /// A response has been sent, pending writing.
     ResponsePendingSend {
         /// The substream used to send the response
-        substream: InboundFramed<NegotiatedSubstream, TSpec>,
+        substream: Box<InboundFramed<NegotiatedSubstream, TSpec>>,
         /// The message that is attempting to be sent.
         message: RPCCodedResponse<TSpec>,
         /// Whether a stream termination is requested. If true the stream will be closed after
@@ -180,7 +180,7 @@ where
     /// A response has been sent, pending flush.
     ResponsePendingFlush {
         /// The substream used to send the response
-        substream: InboundFramed<NegotiatedSubstream, TSpec>,
+        substream: Box<InboundFramed<NegotiatedSubstream, TSpec>>,
         /// Whether a stream termination is requested. If true the stream will be closed after
         /// this send. Otherwise it will transition to an idle state until a stream termination is
         /// requested or a timeout is reached.
@@ -188,9 +188,9 @@ where
     },
     /// The response stream is idle and awaiting input from the application to send more chunked
     /// responses.
-    ResponseIdle(InboundFramed<NegotiatedSubstream, TSpec>),
+    ResponseIdle(Box<InboundFramed<NegotiatedSubstream, TSpec>>),
     /// The substream is attempting to shutdown.
-    Closing(InboundFramed<NegotiatedSubstream, TSpec>),
+    Closing(Box<InboundFramed<NegotiatedSubstream, TSpec>>),
     /// Temporary state during processing
     Poisoned,
 }
@@ -201,12 +201,12 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
-        substream: OutboundFramed<NegotiatedSubstream, TSpec>,
+        substream: Box<OutboundFramed<NegotiatedSubstream, TSpec>>,
         /// Keeps track of the actual request sent.
         request: RPCRequest<TSpec>,
     },
     /// Closing an outbound substream>
-    Closing(OutboundFramed<NegotiatedSubstream, TSpec>),
+    Closing(Box<OutboundFramed<NegotiatedSubstream, TSpec>>),
     /// Temporary state during processing
     Poisoned,
 }
@@ -326,7 +326,7 @@ where
         if matches!(self.state, HandlerState::Active) {
             debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
             // we now drive to completion communications already dialed/established
-            for (id, req) in self.dial_queue.pop() {
+            while let Some((id, req)) = self.dial_queue.pop() {
                 self.pending_errors.push(HandlerErr::Outbound {
                     id,
                     proto: req.protocol(),
@@ -551,7 +551,7 @@ where
                 self.current_inbound_substream_id,
                 Duration::from_secs(RESPONSE_TIMEOUT),
             );
-            let awaiting_stream = InboundSubstreamState::ResponseIdle(substream);
+            let awaiting_stream = InboundSubstreamState::ResponseIdle(Box::new(substream));
             self.inbound_substreams.insert(
                 self.current_inbound_substream_id,
                 (awaiting_stream, Some(delay_key), req.protocol()),
@@ -593,7 +593,7 @@ where
                 Duration::from_secs(RESPONSE_TIMEOUT),
             );
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
-                substream: out,
+                substream: Box::new(out),
                 request,
             };
             let expected_responses = if expected_responses > 1 {
@@ -833,7 +833,7 @@ where
                                                     // await flush
                                                     entry.get_mut().0 =
                                                     InboundSubstreamState::ResponsePendingFlush {
-                                                        substream,
+                                                        substream: substream,
                                                         closing,
                                                     };
                                                     drive_stream_further = true;
@@ -853,7 +853,7 @@ where
                                                     } else {
                                                         // check for queued chunks and update the stream
                                                         entry.get_mut().0 = apply_queued_responses(
-                                                            substream,
+                                                            *substream,
                                                             &mut self
                                                                 .queued_outbound_items
                                                                 .get_mut(&request_id),
@@ -908,7 +908,7 @@ where
                                         } else {
                                             // check for queued chunks and update the stream
                                             entry.get_mut().0 = apply_queued_responses(
-                                                substream,
+                                                *substream,
                                                 &mut self
                                                     .queued_outbound_items
                                                     .get_mut(&request_id),
@@ -942,7 +942,7 @@ where
                             InboundSubstreamState::ResponseIdle(substream) => {
                                 if !deactivated {
                                     entry.get_mut().0 = apply_queued_responses(
-                                        substream,
+                                        *substream,
                                         &mut self.queued_outbound_items.get_mut(&request_id),
                                         &mut drive_stream_further,
                                     );
@@ -1190,10 +1190,10 @@ fn apply_queued_responses<TSpec: EthSpec>(
             match queue.remove(0) {
                 RPCCodedResponse::StreamTermination(_) => {
                     // close the stream if this is a stream termination
-                    InboundSubstreamState::Closing(substream)
+                    InboundSubstreamState::Closing(Box::new(substream))
                 }
                 chunk => InboundSubstreamState::ResponsePendingSend {
-                    substream,
+                    substream: Box::new(substream),
                     message: chunk,
                     closing: false,
                 },
@@ -1201,7 +1201,7 @@ fn apply_queued_responses<TSpec: EthSpec>(
         }
         _ => {
             // no items queued set to idle
-            InboundSubstreamState::ResponseIdle(substream)
+            InboundSubstreamState::ResponseIdle(Box::new(substream))
         }
     }
 }

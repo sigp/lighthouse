@@ -375,9 +375,16 @@ impl<T: EthSpec> BeaconState<T> {
     /// Does not utilize the cache, performs a full iteration over the validator registry.
     ///
     /// Spec v0.12.1
-    pub fn get_active_validator_indices(&self, epoch: Epoch) -> Vec<usize> {
-        // FIXME(sproul): put a bounds check on here based on the maximum lookahead
-        get_active_validator_indices(&self.validators, epoch)
+    pub fn get_active_validator_indices(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        if epoch >= self.compute_activation_exit_epoch(self.current_epoch(), spec) {
+            Err(BeaconStateError::EpochOutOfBounds)
+        } else {
+            Ok(get_active_validator_indices(&self.validators, epoch))
+        }
     }
 
     /// Return the cached active validator indices at some epoch.
@@ -505,7 +512,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
         let epoch = slot.epoch(T::slots_per_epoch());
         let seed = self.get_beacon_proposer_seed(slot, spec)?;
-        let indices = self.get_active_validator_indices(epoch);
+        let indices = self.get_active_validator_indices(epoch, spec)?;
 
         self.compute_proposer_index(&indices, &seed, spec)
     }

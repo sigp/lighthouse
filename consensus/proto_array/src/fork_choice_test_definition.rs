@@ -80,10 +80,9 @@ impl ForkChoiceTestDefinition {
                             finalized_epoch,
                             &justified_state_balances,
                         )
-                        .expect(&format!(
-                            "find_head op at index {} returned error",
-                            op_index
-                        ));
+                        .unwrap_or_else(|_| {
+                            panic!("find_head op at index {} returned error", op_index)
+                        });
 
                     assert_eq!(
                         head, expected_head,
@@ -129,10 +128,12 @@ impl ForkChoiceTestDefinition {
                         justified_epoch,
                         finalized_epoch,
                     };
-                    fork_choice.process_block(block).expect(&format!(
-                        "process_block op at index {} returned error",
-                        op_index
-                    ));
+                    fork_choice.process_block(block).unwrap_or_else(|e| {
+                        panic!(
+                            "process_block op at index {} returned error: {:?}",
+                            op_index, e
+                        )
+                    });
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProcessAttestation {
@@ -142,10 +143,12 @@ impl ForkChoiceTestDefinition {
                 } => {
                     fork_choice
                         .process_attestation(validator_index, block_root, target_epoch)
-                        .expect(&format!(
-                            "process_attestation op at index {} returned error",
-                            op_index
-                        ));
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "process_attestation op at index {} returned error",
+                                op_index
+                            )
+                        });
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::Prune {

@@ -43,7 +43,7 @@ impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
     ///
     /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
-    pub fn new(config: Eth1Config, log: Logger) -> Self {
+    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
         let config = Eth1Config {
             // Truncating the block cache makes searching for genesis more
             // complicated.
@@ -65,7 +65,7 @@ impl Eth1GenesisService {
         };
 
         Self {
-            eth1_service: Eth1Service::new(config, log),
+            eth1_service: Eth1Service::new(config, log, spec),
             stats: Arc::new(Statistics {
                 highest_processed_block: AtomicU64::new(0),
                 active_validator_count: AtomicUsize::new(0),
@@ -113,7 +113,8 @@ impl Eth1GenesisService {
         );
 
         loop {
-            let update_result = Eth1Service::update_deposit_cache(eth1_service.clone())
+            let update_result = eth1_service
+                .update_deposit_cache()
                 .await
                 .map_err(|e| format!("{:?}", e));
 
@@ -154,14 +155,13 @@ impl Eth1GenesisService {
             }
 
             // Download new eth1 blocks into the cache.
-            let blocks_imported = match Eth1Service::update_block_cache(eth1_service.clone()).await
-            {
+            let blocks_imported = match eth1_service.update_block_cache().await {
                 Ok(outcome) => {
                     debug!(
                         log,
                         "Imported eth1 blocks";
                         "latest_block_timestamp" => eth1_service.latest_block_timestamp(),
-                        "cache_head" => self.highest_safe_block(),
+                        "cache_head" => eth1_service.highest_safe_block(),
                         "count" => outcome.blocks_imported,
                     );
                     outcome.blocks_imported
@@ -183,7 +183,10 @@ impl Eth1GenesisService {
                 info!(
                     log,
                     "Genesis ceremony complete";
-                    "genesis_validators" => genesis_state.get_active_validator_indices(E::genesis_epoch()).len(),
+                    "genesis_validators" => genesis_state
+                        .get_active_validator_indices(E::genesis_epoch(), &spec)
+                        .map_err(|e| format!("Genesis validators error: {:?}", e))?
+                        .len(),
                     "genesis_time" => genesis_state.genesis_time,
                 );
                 break Ok(genesis_state);
@@ -205,8 +208,9 @@ impl Eth1GenesisService {
                         log,
                         "Waiting for more validators";
                         "min_genesis_active_validators" => spec.min_genesis_active_validator_count,
-                        "total_deposits" => total_deposit_count,
                         "active_validators" => active_validator_count,
+                        "total_deposits" => total_deposit_count,
+                        "valid_deposits" => eth1_service.get_valid_signature_count().unwrap_or(0),
                     );
                 }
             } else {
@@ -255,7 +259,10 @@ impl Eth1GenesisService {
             //
             // Don't update the highest processed block since we want to come back and process this
             // again later.
-            if self.highest_safe_block().map_or(true, |n| block.number > n) {
+            if eth1_service
+                .highest_safe_block()
+                .map_or(true, |n| block.number > n)
+            {
                 continue;
             }
 
@@ -287,13 +294,30 @@ impl Eth1GenesisService {
                 continue;
             }
 
+            let valid_signature_count = eth1_service
+                .get_valid_signature_count_at_block(block.number)
+                .unwrap_or(0);
+            if (valid_signature_count as u64) < spec.min_genesis_active_validator_count {
+                trace!(
+                    log,
+                    "Insufficient valid signatures";
+                    "genesis_delay" => spec.genesis_delay,
+                    "valid_signature_count" => valid_signature_count,
+                    "min_validator_count" => spec.min_genesis_active_validator_count,
+                    "eth1_block_number" => block.number,
+                );
+                continue;
+            }
+
             // Generate a potential beacon state for this eth1 block.
             //
             // Note: this state is fully valid, some fields have been bypassed to make verification
             // faster.
             let state = self.cheap_state_at_eth1_block::<E>(block, &spec)?;
-            let active_validator_count =
-                state.get_active_validator_indices(E::genesis_epoch()).len();
+            let active_validator_count = state
+                .get_active_validator_indices(E::genesis_epoch(), spec)
+                .map_err(|e| format!("Genesis validators error: {:?}", e))?
+                .len();
 
             self.stats
                 .active_validator_count
@@ -414,14 +438,6 @@ impl Eth1GenesisService {
             .map_err(|e| format!("Error whilst processing activations: {:?}", e))?;
 
         Ok(state)
-    }
-
-    /// Returns the highest block that is present in both the deposit and block caches.
-    fn highest_safe_block(&self) -> Option<u64> {
-        let block_cache = self.eth1_service.blocks().read().highest_block_number()?;
-        let deposit_cache = self.eth1_service.deposits().read().last_processed_block?;
-
-        Some(std::cmp::min(block_cache, deposit_cache))
     }
 
     /// Returns all deposit logs included in `block_number` and all prior blocks.

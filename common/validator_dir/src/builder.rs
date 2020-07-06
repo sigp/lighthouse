@@ -182,7 +182,7 @@ impl<'a> Builder<'a> {
                 //
                 // This allows us to know the RLP data for the eth1 transaction without needing to know
                 // the withdrawal/voting keypairs again at a later date.
-                let path = dir.clone().join(ETH1_DEPOSIT_DATA_FILE);
+                let path = dir.join(ETH1_DEPOSIT_DATA_FILE);
                 if path.exists() {
                     return Err(Error::DepositDataAlreadyExists(path));
                 } else {
@@ -191,7 +191,7 @@ impl<'a> Builder<'a> {
                         .write(true)
                         .read(true)
                         .create(true)
-                        .open(path.clone())
+                        .open(path)
                         .map_err(Error::UnableToSaveDepositData)?
                         .write_all(hex.as_bytes())
                         .map_err(Error::UnableToSaveDepositData)?
@@ -200,7 +200,7 @@ impl<'a> Builder<'a> {
                 // Save `ETH1_DEPOSIT_AMOUNT_FILE` to file.
                 //
                 // This allows us to know the intended deposit amount at a later date.
-                let path = dir.clone().join(ETH1_DEPOSIT_AMOUNT_FILE);
+                let path = dir.join(ETH1_DEPOSIT_AMOUNT_FILE);
                 if path.exists() {
                     return Err(Error::DepositAmountAlreadyExists(path));
                 } else {
@@ -208,7 +208,7 @@ impl<'a> Builder<'a> {
                         .write(true)
                         .read(true)
                         .create(true)
-                        .open(path.clone())
+                        .open(path)
                         .map_err(Error::UnableToSaveDepositAmount)?
                         .write_all(format!("{}", amount).as_bytes())
                         .map_err(Error::UnableToSaveDepositAmount)?
@@ -220,29 +220,24 @@ impl<'a> Builder<'a> {
                 // Write the withdrawal password to file.
                 write_password_to_file(
                     self.password_dir
-                        .clone()
                         .join(withdrawal_keypair.pk.as_hex_string()),
                     withdrawal_password.as_bytes(),
                 )?;
 
                 // Write the withdrawal keystore to file.
-                write_keystore_to_file(
-                    dir.clone().join(WITHDRAWAL_KEYSTORE_FILE),
-                    &withdrawal_keystore,
-                )?;
+                write_keystore_to_file(dir.join(WITHDRAWAL_KEYSTORE_FILE), &withdrawal_keystore)?;
             }
         }
 
         // Write the voting password to file.
         write_password_to_file(
             self.password_dir
-                .clone()
                 .join(format!("0x{}", voting_keystore.pubkey())),
             voting_password.as_bytes(),
         )?;
 
         // Write the voting keystore to file.
-        write_keystore_to_file(dir.clone().join(VOTING_KEYSTORE_FILE), &voting_keystore)?;
+        write_keystore_to_file(dir.join(VOTING_KEYSTORE_FILE), &voting_keystore)?;
 
         ValidatorDir::open(dir).map_err(Error::UnableToOpenDir)
     }
@@ -257,7 +252,7 @@ fn write_keystore_to_file(path: PathBuf, keystore: &Keystore) -> Result<(), Erro
             .write(true)
             .read(true)
             .create_new(true)
-            .open(path.clone())
+            .open(path)
             .map_err(Error::UnableToSaveKeystore)?;
 
         keystore.to_json_writer(file).map_err(Into::into)

@@ -43,18 +43,16 @@ lazy_static! {
     }
     .as_ssz_bytes()
     .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize = BlocksByRootRequest {
-        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
-    }
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
+        VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
     .as_ssz_bytes()
     .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize = BlocksByRootRequest {
-        block_roots: VariableList::<Hash256, MaxRequestBlocks>::from(vec![
+    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize =
+        VariableList::<Hash256, MaxRequestBlocks>::from(vec![
             Hash256::zero();
             MAX_REQUEST_BLOCKS
                 as usize
         ])
-    }
     .as_ssz_bytes()
     .len();
 }

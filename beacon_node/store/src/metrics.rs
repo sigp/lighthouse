@@ -78,10 +78,6 @@ lazy_static! {
         "store_beacon_state_read_bytes_total",
         "Total number of beacon state bytes read from the DB"
     );
-    pub static ref BEACON_STATE_WRITE_TIMES: Result<Histogram> = try_create_histogram(
-        "store_beacon_state_write_seconds",
-        "Total time required to write a BeaconState to the database"
-    );
     pub static ref BEACON_STATE_WRITE_OVERHEAD_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_write_overhead_seconds",
         "Overhead on writing a beacon state to the DB (e.g., encoding)"

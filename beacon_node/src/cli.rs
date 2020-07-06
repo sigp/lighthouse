@@ -61,7 +61,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("max_peers")
+            Arg::with_name("max-peers")
                 .long("max-peers")
                 .help("The maximum number of peers.")
                 .default_value("50")
@@ -125,6 +125,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        without an ENR.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("disable-discovery")
+                .long("disable-discovery")
+                .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
+                .takes_value(false),
+        )
+
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

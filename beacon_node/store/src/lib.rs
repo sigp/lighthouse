@@ -21,9 +21,10 @@ mod leveldb_store;
 mod memory_store;
 mod metrics;
 mod partial_beacon_state;
-mod state_batch;
 
 pub mod iter;
+
+use std::borrow::Cow;
 
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary};
@@ -33,7 +34,6 @@ pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metrics::scrape_for_metrics;
-pub use state_batch::StateBatch;
 pub use types::*;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
@@ -50,7 +50,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
 
     /// Execute either all of the operations in `batch` or none at all, returning an error.
-    fn do_atomically(&self, batch: &[KeyValueStoreOp]) -> Result<(), Error>;
+    fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error>;
 }
 
 pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
@@ -60,6 +60,7 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
 }
 
 pub enum KeyValueStoreOp {
+    PutKeyValue(Vec<u8>, Vec<u8>),
     DeleteKey(Vec<u8>),
 }
 
@@ -103,7 +104,11 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
-pub enum StoreOp {
+#[allow(clippy::large_enum_variant)]
+pub enum StoreOp<'a, E: EthSpec> {
+    PutBlock(SignedBeaconBlockHash, SignedBeaconBlock<E>),
+    PutState(BeaconStateHash, Cow<'a, BeaconState<E>>),
+    PutStateSummary(BeaconStateHash, HotStateSummary),
     DeleteBlock(SignedBeaconBlockHash),
     DeleteState(BeaconStateHash, Slot),
 }
@@ -165,6 +170,11 @@ pub trait StoreItem: Sized {
     ///
     /// Return an instance of the type and the number of bytes that were read.
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
+
+    fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
+        let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
+        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
+    }
 }
 
 #[cfg(test)]
