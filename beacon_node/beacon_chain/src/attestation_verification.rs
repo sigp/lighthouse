@@ -589,7 +589,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
     ];
 
-    Ok(verify_signature_sets(signature_sets))
+    Ok(verify_signature_sets(signature_sets.into_iter()))
 }
 
 /// Assists in readability.

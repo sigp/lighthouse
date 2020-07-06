@@ -864,7 +864,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     root: target_root,
                 },
             },
-            signature: AggregateSignature::empty_signature(),
+            signature: AggregateSignature::empty(),
         })
     }
 
@@ -1662,7 +1662,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
             },
             // The block is not signed here, that is the task of a validator client.
-            signature: Signature::empty_signature(),
+            signature: Signature::empty(),
         };
 
         per_block_processing(

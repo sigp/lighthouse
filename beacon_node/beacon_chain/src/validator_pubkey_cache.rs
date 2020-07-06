@@ -140,6 +140,7 @@ struct ValidatorPubkeyCacheFile(File);
 enum Error {
     IoError(io::Error),
     SszError(DecodeError),
+    PubkeyDecodeError(bls::Error),
     /// The file read from disk does not have a contiguous list of validator public keys. The file
     /// has become corrupted.
     InconsistentIndex {
@@ -201,7 +202,7 @@ impl ValidatorPubkeyCacheFile {
             let expected = last.map(|n| n + 1);
             if expected.map_or(true, |expected| index == expected) {
                 last = Some(index);
-                pubkeys.push((&pubkey).try_into().map_err(Error::SszError)?);
+                pubkeys.push((&pubkey).try_into().map_err(Error::PubkeyDecodeError)?);
                 indices.insert(pubkey, index);
             } else {
                 return Err(Error::InconsistentIndex {

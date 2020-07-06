@@ -53,11 +53,15 @@ where
 
     pub fn new(
         signature: &'a Signature<Pub, Sig>,
-        signed_messages: Vec<SignedMessage<'a, Pub>>,
+        signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
+        message: Hash256,
     ) -> Self {
         Self {
             signature,
-            signed_messages,
+            signed_messages: vec![SignedMessage {
+                signing_keys,
+                message,
+            }],
         }
     }
 

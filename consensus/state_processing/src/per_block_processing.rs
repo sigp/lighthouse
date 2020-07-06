@@ -3,7 +3,6 @@ use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid, IntoWithI
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
-use std::convert::TryInto;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -452,7 +451,7 @@ pub fn process_deposit<T: EthSpec>(
     // depositing validator already exists in the registry.
     state.update_pubkey_cache()?;
 
-    let pubkey: PublicKey = match (&deposit.data.pubkey).try_into() {
+    let pubkey: PublicKey = match deposit.data.pubkey.decompress() {
         Err(_) => return Ok(()), //bad public key => return early
         Ok(k) => k,
     };

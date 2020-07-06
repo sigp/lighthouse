@@ -6,6 +6,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use std::convert::TryInto;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -85,6 +86,17 @@ where
     }
 }
 
+impl<Pub> TryInto<PublicKey<Pub>> for &PublicKeyBytes<Pub>
+where
+    Pub: TPublicKey,
+{
+    type Error = Error;
+
+    fn try_into(self) -> Result<PublicKey<Pub>, Self::Error> {
+        self.decompress()
+    }
+}
+
 impl<Pub> Encode for PublicKeyBytes<Pub> {
     impl_ssz_encode!(PUBLIC_KEY_BYTES_LEN);
 }
@@ -107,4 +119,9 @@ impl<'de, Pub> Deserialize<'de> for PublicKeyBytes<Pub> {
 
 impl<Pub> fmt::Debug for PublicKeyBytes<Pub> {
     impl_debug!();
+}
+
+#[cfg(feature = "arbitrary")]
+impl<Pub: 'static> arbitrary::Arbitrary for PublicKeyBytes<Pub> {
+    impl_arbitrary!(PUBLIC_KEY_BYTES_LEN);
 }

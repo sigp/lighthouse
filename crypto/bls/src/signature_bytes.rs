@@ -7,6 +7,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
 use ssz::{Decode, Encode};
+use std::convert::TryInto;
 use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -79,6 +80,18 @@ where
     }
 }
 
+impl<Pub, Sig> TryInto<Signature<Pub, Sig>> for &SignatureBytes<Pub, Sig>
+where
+    Pub: TPublicKey,
+    Sig: TSignature<Pub>,
+{
+    type Error = Error;
+
+    fn try_into(self) -> Result<Signature<Pub, Sig>, Error> {
+        self.decompress()
+    }
+}
+
 impl<Pub, Sig> Encode for SignatureBytes<Pub, Sig> {
     impl_ssz_encode!(SIGNATURE_BYTES_LEN);
 }
@@ -101,4 +114,9 @@ impl<'de, Pub, Sig> Deserialize<'de> for SignatureBytes<Pub, Sig> {
 
 impl<Pub, Sig> fmt::Debug for SignatureBytes<Pub, Sig> {
     impl_debug!();
+}
+
+#[cfg(feature = "arbitrary")]
+impl<Pub: 'static, Sig: 'static> arbitrary::Arbitrary for SignatureBytes<Pub, Sig> {
+    impl_arbitrary!(SIGNATURE_BYTES_LEN);
 }
