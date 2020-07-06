@@ -103,7 +103,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             debug!(
                 self.log,
                 "Sending Status Request";
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "fork_digest" => format!("{:?}", status_message.fork_digest),
                 "finalized_root" => format!("{:?}", status_message.finalized_root),
                 "finalized_epoch" => format!("{:?}", status_message.finalized_epoch),
@@ -127,7 +127,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         debug!(
             self.log,
             "Received Status Request";
-            "peer" => format!("{:?}", peer_id),
+            "peer" => peer_id.to_string(),
             "fork_digest" => format!("{:?}", status.fork_digest),
             "finalized_root" => format!("{:?}", status.finalized_root),
             "finalized_epoch" => format!("{:?}", status.finalized_epoch),
@@ -206,7 +206,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             // clock is incorrect.
             debug!(
             self.log, "Handshake Failure";
-            "peer" => format!("{:?}", peer_id),
+            "peer" => peer_id.to_string(),
             "reason" => "different system clocks or genesis time"
             );
             self.network
@@ -226,7 +226,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             // Therefore, the node is on a different chain and we should not communicate with them.
             debug!(
                 self.log, "Handshake Failure";
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "reason" => "different finalized chain"
             );
             self.network
@@ -248,7 +248,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             debug!(
                 self.log,
                 "NaivePeer";
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "reason" => "lower finalized epoch"
             );
         } else if self
@@ -259,7 +259,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         {
             debug!(
                 self.log, "Peer with known chain found";
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "remote_head_slot" => remote.head_slot,
                 "remote_latest_finalized_epoch" => remote.finalized_epoch,
             );
@@ -274,7 +274,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             // head that are worth downloading.
             debug!(
                 self.log, "UsefulPeer";
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "local_finalized_epoch" => local.finalized_epoch,
                 "remote_latest_finalized_epoch" => remote.finalized_epoch,
             );
@@ -302,7 +302,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 debug!(
                     self.log,
                     "Peer requested unknown block";
-                    "peer" => format!("{:?}", peer_id),
+                    "peer" => peer_id.to_string(),
                     "request_root" => format!("{:}", root),
                 );
             }
@@ -310,7 +310,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         debug!(
             self.log,
             "Received BlocksByRoot Request";
-            "peer" => format!("{:?}", peer_id),
+            "peer" => peer_id.to_string(),
             "requested" => request.block_roots.len(),
             "returned" => send_block_count,
         );
@@ -422,7 +422,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             debug!(
                 self.log,
                 "BlocksByRange Response Sent";
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "msg" => "Failed to return all requested blocks",
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
@@ -432,7 +432,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             debug!(
                 self.log,
                 "Sending BlocksByRange Response";
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "start_slot" => req.start_slot,
                 "current_slot" => self.chain.slot().unwrap_or_else(|_| Slot::from(0_u64)).as_u64(),
                 "requested" => req.count,
@@ -455,7 +455,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         trace!(
             self.log,
             "Received BlocksByRange Response";
-            "peer" => format!("{:?}", peer_id),
+            "peer" => peer_id.to_string(),
         );
 
         if let RequestId::Sync(id) = request_id {
@@ -482,7 +482,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         trace!(
             self.log,
             "Received BlocksByRoot Response";
-            "peer" => format!("{:?}", peer_id),
+            "peer" => peer_id.to_string(),
         );
 
         if let RequestId::Sync(id) = request_id {
@@ -529,8 +529,11 @@ impl<T: BeaconChainTypes> Processor<T> {
         let block = Box::new(verified_block.block.clone());
         match self.chain.process_block(verified_block) {
             Ok(_block_root) => {
-                trace!(self.log, "Gossipsub block processed";
-                            "peer_id" => format!("{:?}",peer_id));
+                trace!(
+                    self.log,
+                    "Gossipsub block processed";
+                    "peer_id" => peer_id.to_string()
+                );
 
                 // TODO: It would be better if we can run this _after_ we publish the block to
                 // reduce block propagation latency.
@@ -558,7 +561,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 error!(
                     self.log,
                     "Block with unknown parent attempted to be processed";
-                    "peer_id" => format!("{:?}",peer_id)
+                    "peer_id" => peer_id.to_string()
                 );
                 self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
             }
@@ -594,7 +597,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             self.log,
             "Invalid attestation from network";
             "block" => format!("{}", beacon_block_root),
-            "peer_id" => format!("{:?}", peer_id),
+            "peer_id" => peer_id.to_string(),
             "type" => format!("{:?}", attestation_type),
         );
 
@@ -700,7 +703,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 debug!(
                     self.log,
                     "Attestation for unknown block";
-                    "peer_id" => format!("{:?}", peer_id),
+                    "peer_id" => peer_id.to_string(),
                     "block" => format!("{}", beacon_block_root)
                 );
                 // we don't know the block, get the sync manager to handle the block lookup
@@ -783,7 +786,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 error!(
                     self.log,
                     "Unable to validate aggregate";
-                    "peer_id" => format!("{:?}", peer_id),
+                    "peer_id" => peer_id.to_string(),
                     "error" => format!("{:?}", e),
                 );
             }
@@ -830,7 +833,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 self.log,
                 "Attestation invalid for op pool";
                 "reason" => format!("{:?}", e),
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "beacon_block_root" => format!("{:?}", beacon_block_root)
             )
         }
@@ -880,7 +883,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 self.log,
                 "Attestation invalid for agg pool";
                 "reason" => format!("{:?}", e),
-                "peer" => format!("{:?}", peer_id),
+                "peer" => peer_id.to_string(),
                 "beacon_block_root" => format!("{:?}", beacon_block_root)
             )
         }
@@ -908,7 +911,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                         self.log,
                         "Attestation invalid for fork choice";
                         "reason" => format!("{:?}", e),
-                        "peer" => format!("{:?}", peer_id),
+                        "peer" => peer_id.to_string(),
                         "beacon_block_root" => format!("{:?}", beacon_block_root)
                     )
                 }
@@ -916,7 +919,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     self.log,
                     "Error applying attestation to fork choice";
                     "reason" => format!("{:?}", e),
-                    "peer" => format!("{:?}", peer_id),
+                    "peer" => peer_id.to_string(),
                     "beacon_block_root" => format!("{:?}", beacon_block_root)
                 ),
             }
@@ -940,7 +943,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     self.log,
                     "Dropping exit for already exiting validator";
                     "validator_index" => validator_index,
-                    "peer" => format!("{:?}", peer_id)
+                    "peer" => peer_id.to_string()
                 );
                 None
             }
@@ -949,7 +952,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     self.log,
                     "Dropping invalid exit";
                     "validator_index" => validator_index,
-                    "peer" => format!("{:?}", peer_id),
+                    "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
                 None
@@ -987,7 +990,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "Dropping proposer slashing";
                     "reason" => "Already seen a proposer slashing for that validator",
                     "validator_index" => validator_index,
-                    "peer" => format!("{:?}", peer_id)
+                    "peer" => peer_id.to_string()
                 );
                 None
             }
@@ -996,7 +999,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     self.log,
                     "Dropping invalid proposer slashing";
                     "validator_index" => validator_index,
-                    "peer" => format!("{:?}", peer_id),
+                    "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
                 None
@@ -1031,7 +1034,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     self.log,
                     "Dropping attester slashing";
                     "reason" => "Slashings already known for all slashed validators",
-                    "peer" => format!("{:?}", peer_id)
+                    "peer" => peer_id.to_string()
                 );
                 None
             }
@@ -1039,7 +1042,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 debug!(
                     self.log,
                     "Dropping invalid attester slashing";
-                    "peer" => format!("{:?}", peer_id),
+                    "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
                 None
