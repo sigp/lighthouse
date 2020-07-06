@@ -107,14 +107,14 @@ impl Manager {
                             info!(
                                 log,
                                 "Decrypted validator keystore";
-                                "voting_pubkey" => kp.pk.as_hex_string()
+                                "voting_pubkey" => kp.pk.to_hex_string()
                             );
                             if lockfile_existed {
                                 warn!(
                                     log,
                                     "Lockfile already existed";
                                     "msg" => "ensure no other validator client is running on this host",
-                                    "voting_pubkey" => kp.pk.as_hex_string()
+                                    "voting_pubkey" => kp.pk.to_hex_string()
                                 );
                             }
                         }
@@ -147,7 +147,7 @@ impl Manager {
                             info!(
                                 log,
                                 "Decrypted validator keystore";
-                                "voting_pubkey" => kp.pk.as_hex_string()
+                                "voting_pubkey" => kp.pk.to_hex_string()
                             )
                         }
                         (kp, v)

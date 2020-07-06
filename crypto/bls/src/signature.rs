@@ -45,11 +45,15 @@ where
         }
     }
 
-    pub fn none() -> Self {
+    pub fn empty() -> Self {
         Self {
             point: None,
             _phantom: PhantomData,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.point.is_none()
     }
 
     pub(crate) fn from_point(point: Sig) -> Self {
@@ -144,4 +148,11 @@ impl<'de, PublicKey, T: TSignature<PublicKey>> Deserialize<'de> for Signature<Pu
 
 impl<PublicKey, T: TSignature<PublicKey>> fmt::Debug for Signature<PublicKey, T> {
     impl_debug!();
+}
+
+#[cfg(feature = "arbitrary")]
+impl<PublicKey: 'static, T: TSignature<PublicKey> + 'static> arbitrary::Arbitrary
+    for Signature<PublicKey, T>
+{
+    impl_arbitrary!(SIGNATURE_BYTES_LEN);
 }

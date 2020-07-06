@@ -98,3 +98,13 @@ macro_rules! impl_debug {
         }
     };
 }
+
+macro_rules! impl_arbitrary {
+    ($byte_size: expr) => {
+        fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+            let mut bytes = [0u8; $byte_size];
+            u.fill_buffer(&mut bytes)?;
+            Self::deserialize(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
+        }
+    };
+}

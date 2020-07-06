@@ -136,7 +136,7 @@ fn upgrade_keypair<P: AsRef<Path>>(
         .to_json_writer(&mut file)
         .map_err(|e| format!("Cannot write keystore to {:?}: {:?}", keystore_path, e))?;
 
-    let password_path = secrets_dir.join(format!("{}", keypair.pk.as_hex_string()));
+    let password_path = secrets_dir.join(format!("{}", keypair.pk.to_hex_string()));
 
     if password_path.exists() {
         return Err(format!("{:?} already exists", password_path));

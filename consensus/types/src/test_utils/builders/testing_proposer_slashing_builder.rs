@@ -37,7 +37,7 @@ impl TestingProposerSlashingBuilder {
                 state_root: hash_1,
                 body_root: hash_1,
             },
-            signature: Signature::empty_signature(),
+            signature: Signature::empty(),
         };
 
         let slot_2 = if test_task == ProposerSlashingTestTask::ProposalEpochMismatch {
@@ -52,7 +52,7 @@ impl TestingProposerSlashingBuilder {
                 slot: slot_2,
                 ..signed_header_1.message
             },
-            signature: Signature::empty_signature(),
+            signature: Signature::empty(),
         };
 
         if test_task != ProposerSlashingTestTask::BadProposal1Signature {

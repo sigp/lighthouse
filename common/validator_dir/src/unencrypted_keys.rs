@@ -3,7 +3,7 @@
 //! we're confident that no-one is using these keypairs anymore (hopefully mid-June 2020).
 #![cfg(feature = "unencrypted_keys")]
 
-use bls::{BLS_PUBLIC_KEY_BYTE_SIZE as PK_LEN, BLS_SECRET_KEY_BYTE_SIZE as SK_LEN};
+use bls::{PUBLIC_KEY_BYTES_LEN as PK_LEN, SECRET_KEY_BYTES_LEN as SK_LEN};
 use eth2_keystore::PlainText;
 use std::fs::File;
 use std::io::Read;
@@ -38,11 +38,11 @@ pub fn load_unencrypted_keypair<P: AsRef<Path>>(path: P) -> Result<Keypair, Stri
     let pk_bytes = &bytes.as_bytes()[..PK_LEN];
     let sk_bytes = &bytes.as_bytes()[PK_LEN..];
 
-    let pk = PublicKey::from_bytes(pk_bytes)
+    let pk = PublicKey::deserialize(pk_bytes)
         .map_err(|e| format!("Unable to decode public key: {:?}", e))?;
 
-    let sk = SecretKey::from_bytes(sk_bytes)
+    let sk = SecretKey::deserialize(sk_bytes)
         .map_err(|e| format!("Unable to decode secret key: {:?}", e))?;
 
-    Ok(Keypair { pk, sk })
+    Ok(Keypair::from_components(pk, sk))
 }

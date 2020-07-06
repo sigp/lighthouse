@@ -50,6 +50,10 @@ where
         self.point.add_assign_multiple(others.map(|pk| &pk.point))
     }
 
+    pub fn to_hex_string(&self) -> String {
+        format!("{:?}", self)
+    }
+
     pub fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         self.point.serialize()
     }
@@ -91,4 +95,9 @@ impl<'de, Pub: TPublicKey> Deserialize<'de> for PublicKey<Pub> {
 
 impl<Pub: TPublicKey> fmt::Debug for PublicKey<Pub> {
     impl_debug!();
+}
+
+#[cfg(feature = "arbitrary")]
+impl<Pub: TPublicKey + 'static> arbitrary::Arbitrary for PublicKey<Pub> {
+    impl_arbitrary!(PUBLIC_KEY_BYTES_LEN);
 }
