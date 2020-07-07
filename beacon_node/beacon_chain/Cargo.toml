@@ -15,7 +15,7 @@ merkle_proof = { path = "../../consensus/merkle_proof" }
 store = { path = "../store" }
 parking_lot = "0.11.0"
 lazy_static = "1.4.0"
-smallvec = "1.4.0"
+smallvec = "1.4.1"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 log = "0.4.8"
 operation_pool = { path = "../operation_pool" }
