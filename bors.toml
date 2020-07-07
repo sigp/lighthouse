@@ -1,3 +1,4 @@
-status = ["%"]
+status = ["cargo-fmt", "release-tests-ubuntu", "release-tests-and-install-macos", "debug-tests-ubuntu", "state-transition-vectors-ubuntu", "ef-tests-ubuntu", "dockerfile-ubuntu", "eth1-simulator-ubuntu", "no-eth1-simulator-ubuntu", "check-benchmarks", "clippy", "arbitrary-check", "cargo-audit", "cargo-udeps"]
 use_squash_merge = true
 timeout_sec = 7200
+pr_status = ["license/cla"]
