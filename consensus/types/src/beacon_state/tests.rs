@@ -19,10 +19,10 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     };
 
     // Get the i'th candidate proposer for the given state and slot
-    let ith_candidate = |state: &BeaconState<T>, slot: Slot, i: usize| {
+    let ith_candidate = |state: &BeaconState<T>, slot: Slot, i: usize, spec: &ChainSpec| {
         let epoch = slot.epoch(T::slots_per_epoch());
         let seed = state.get_beacon_proposer_seed(slot, &spec).unwrap();
-        let active_validators = state.get_active_validator_indices(epoch);
+        let active_validators = state.get_active_validator_indices(epoch, spec).unwrap();
         active_validators[compute_shuffled_index(
             i,
             active_validators.len(),
@@ -36,7 +36,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     let test = |state: &BeaconState<T>, slot: Slot, candidate_index: usize| {
         assert_eq!(
             state.get_beacon_proposer_index(slot, &spec),
-            Ok(ith_candidate(state, slot, candidate_index))
+            Ok(ith_candidate(state, slot, candidate_index, &spec))
         );
     };
 
@@ -56,7 +56,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
 
     // Test with two validators per slot, first validator has zero balance.
     let mut state = build_state(T::slots_per_epoch() as usize * 2);
-    let slot0_candidate0 = ith_candidate(&state, Slot::new(0), 0);
+    let slot0_candidate0 = ith_candidate(&state, Slot::new(0), 0, &spec);
     state.validators[slot0_candidate0].effective_balance = 0;
     test(&state, Slot::new(0), 1);
     for i in 1..T::slots_per_epoch() {

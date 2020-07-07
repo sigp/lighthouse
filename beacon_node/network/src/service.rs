@@ -8,8 +8,8 @@ use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::Service as LibP2PService;
 use eth2_libp2p::{
-    rpc::{RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerRequestId, PubsubMessage, Request, Response,
+    rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, Request, Response,
 };
 use eth2_libp2p::{BehaviourEvent, MessageId, NetworkGlobals, PeerId};
 use futures::prelude::*;
@@ -24,8 +24,49 @@ use types::EthSpec;
 
 mod tests;
 
-/// The time in seconds that a peer will be banned and prevented from reconnecting.
-const BAN_PEER_TIMEOUT: u64 = 30;
+/// Types of messages that the network service can receive.
+#[derive(Debug)]
+pub enum NetworkMessage<T: EthSpec> {
+    /// Subscribes a list of validators to specific slots for attestation duties.
+    Subscribe {
+        subscriptions: Vec<ValidatorSubscription>,
+    },
+    /// Send an RPC request to the libp2p service.
+    SendRequest {
+        peer_id: PeerId,
+        request: Request,
+        request_id: RequestId,
+    },
+    /// Send a successful Response to the libp2p service.
+    SendResponse {
+        peer_id: PeerId,
+        response: Response<T>,
+        id: PeerRequestId,
+    },
+    /// Respond to a peer's request with an error.
+    SendError {
+        // TODO: note that this is never used, we just say goodbye without nicely closing the
+        // stream assigned to the request
+        peer_id: PeerId,
+        error: RPCResponseErrorCode,
+        reason: String,
+        id: PeerRequestId,
+    },
+    /// Publish a list of messages to the gossipsub protocol.
+    Publish { messages: Vec<PubsubMessage<T>> },
+    /// Propagate a received gossipsub message.
+    Propagate {
+        propagation_source: PeerId,
+        message_id: MessageId,
+    },
+    /// Reports a peer to the peer manager for performing an action.
+    ReportPeer { peer_id: PeerId, action: PeerAction },
+    /// Disconnect an ban a peer, providing a reason.
+    GoodbyePeer {
+        peer_id: PeerId,
+        reason: GoodbyeReason,
+    },
+}
 
 /// Service that handles communication between internal services and the `eth2_libp2p` network service.
 pub struct NetworkService<T: BeaconChainTypes> {
@@ -200,12 +241,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                 expose_publish_metrics(&messages);
                                 service.libp2p.swarm.publish(messages);
                         }
-                        NetworkMessage::Disconnect { peer_id } => {
-                            service.libp2p.disconnect_and_ban_peer(
-                                peer_id,
-                                std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
-                            );
-                        }
+                        NetworkMessage::ReportPeer { peer_id, action } => service.libp2p.report_peer(&peer_id, action),
+                        NetworkMessage::GoodbyePeer { peer_id, reason } => service.libp2p.goodbye_peer(&peer_id, reason),
                         NetworkMessage::Subscribe { subscriptions } => {
                             if let Err(e) = service
                                 .attestation_service
@@ -240,16 +277,27 @@ fn spawn_service<T: BeaconChainTypes>(
                     // poll the swarm
                     match libp2p_event {
                         Libp2pEvent::Behaviour(event) => match event {
+
+                            BehaviourEvent::PeerDialed(peer_id) => {
+                                    let _ = service
+                                        .router_send
+                                        .send(RouterMessage::PeerDialed(peer_id))
+                                        .map_err(|_| {
+                                            debug!(service.log, "Failed to send peer dialed to router"); });
+                            },
+                            BehaviourEvent::PeerConnected(_peer_id) => {
+                                // A peer has connected to us
+                                // We currently do not perform any action here.
+                            },
+                            BehaviourEvent::PeerDisconnected(peer_id) => {
+                            let _ = service
+                                .router_send
+                                .send(RouterMessage::PeerDisconnected(peer_id))
+                                .map_err(|_| {
+                                    debug!(service.log, "Failed to send peer disconnect to router");
+                                });
+                            },
                             BehaviourEvent::RequestReceived{peer_id, id, request} => {
-                                if let Request::Goodbye(_) = request {
-                                    // if we received a Goodbye message, drop and ban the peer
-                                    //peers_to_ban.push(peer_id.clone());
-                                    // TODO: remove this: https://github.com/sigp/lighthouse/issues/1240
-                                    service.libp2p.disconnect_and_ban_peer(
-                                        peer_id.clone(),
-                                        std::time::Duration::from_secs(BAN_PEER_TIMEOUT),
-                                    );
-                                };
                                 let _ = service
                                     .router_send
                                     .send(RouterMessage::RPCRequestReceived{peer_id, id, request})
@@ -328,25 +376,6 @@ fn spawn_service<T: BeaconChainTypes>(
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
                         }
-                        Libp2pEvent::PeerConnected{ peer_id, endpoint,} => {
-                            debug!(service.log, "Peer Connected"; "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                            if let eth2_libp2p::ConnectedPoint::Dialer { .. } = endpoint {
-                                let _ = service
-                                    .router_send
-                                    .send(RouterMessage::PeerDialed(peer_id))
-                                    .map_err(|_| {
-                                        debug!(service.log, "Failed to send peer dialed to router"); });
-                            }
-                        }
-                        Libp2pEvent::PeerDisconnected{ peer_id, endpoint,} => {
-                            debug!(service.log, "Peer Disconnected";  "peer_id" => peer_id.to_string(), "endpoint" => format!("{:?}", endpoint));
-                            let _ = service
-                                .router_send
-                                .send(RouterMessage::PeerDisconnected(peer_id))
-                                .map_err(|_| {
-                                    debug!(service.log, "Failed to send peer disconnect to router");
-                                });
-                        }
                     }
                 }
             }
@@ -376,45 +405,6 @@ fn next_fork_delay<T: BeaconChainTypes>(
         let delay = Duration::from_millis(200);
         tokio::time::delay_until(tokio::time::Instant::now() + until_fork + delay)
     })
-}
-
-/// Types of messages that the network service can receive.
-#[derive(Debug)]
-pub enum NetworkMessage<T: EthSpec> {
-    /// Subscribes a list of validators to specific slots for attestation duties.
-    Subscribe {
-        subscriptions: Vec<ValidatorSubscription>,
-    },
-    /// Send an RPC request to the libp2p service.
-    SendRequest {
-        peer_id: PeerId,
-        request: Request,
-        request_id: RequestId,
-    },
-    /// Send a successful Response to the libp2p service.
-    SendResponse {
-        peer_id: PeerId,
-        response: Response<T>,
-        id: PeerRequestId,
-    },
-    /// Respond to a peer's request with an error.
-    SendError {
-        // TODO: note that this is never used, we just say goodbye without nicely clossing the
-        // stream assigned to the request
-        peer_id: PeerId,
-        error: RPCResponseErrorCode,
-        reason: String,
-        id: PeerRequestId,
-    },
-    /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<T>> },
-    /// Propagate a received gossipsub message.
-    Propagate {
-        propagation_source: PeerId,
-        message_id: MessageId,
-    },
-    /// Disconnect and bans a peer id.
-    Disconnect { peer_id: PeerId },
 }
 
 /// Inspects the `messages` that were being sent to the network and updates Prometheus metrics.

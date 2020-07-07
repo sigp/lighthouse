@@ -20,7 +20,7 @@ use std::{
     collections::hash_map::Entry,
     pin::Pin,
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::time::{delay_queue, delay_until, Delay, DelayQueue, Instant as TInstant};
 use types::EthSpec;
@@ -40,19 +40,19 @@ const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
-/// An error encoutered by the handler.
+/// An error encountered by the handler.
 pub enum HandlerErr {
-    /// An error ocurred for this peer's request. This can occurr during protocol negotiation,
-    /// message passing, or if the handler identifies that we are sending an error reponse to the peer.
+    /// An error occurred for this peer's request. This can occur during protocol negotiation,
+    /// message passing, or if the handler identifies that we are sending an error response to the peer.
     Inbound {
         /// Id of the peer's request for which an error occurred.
         id: SubstreamId,
         /// Information of the negotiated protocol.
         proto: Protocol,
-        /// The error that ocurred.
+        /// The error that occurred.
         error: RPCError,
     },
-    /// An error ocurred for this request. Such error can occurr during protocol negotiation,
+    /// An error occurred for this request. Such error can occur during protocol negotiation,
     /// message passing, or if we successfully received a response from the peer, but this response
     /// indicates an error.
     Outbound {
@@ -60,7 +60,7 @@ pub enum HandlerErr {
         id: RequestId,
         /// Information of the protocol.
         proto: Protocol,
-        /// The error that ocurred.
+        /// The error that occurred.
         error: RPCError,
     },
 }
@@ -122,9 +122,6 @@ where
     /// State of the handler.
     state: HandlerState,
 
-    /// After the given duration has elapsed, an inactive connection will shutdown.
-    inactive_timeout: Duration,
-
     /// Try to negotiate the outbound upgrade a few times if there is an IO error before reporting the request as failed.
     /// This keeps track of the number of attempts.
     outbound_io_error_retries: u8,
@@ -139,6 +136,7 @@ enum HandlerState {
     /// The handler is shutting_down.
     ///
     /// While in this state the handler rejects new requests but tries to finish existing ones.
+    /// Once the timer expires, all messages are killed.
     ShuttingDown(Delay),
     /// The handler is deactivated. A goodbye has been sent and no more messages are sent or
     /// received.
@@ -278,11 +276,7 @@ impl<TSpec> RPCHandler<TSpec>
 where
     TSpec: EthSpec,
 {
-    pub fn new(
-        listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>,
-        inactive_timeout: Duration,
-        log: &slog::Logger,
-    ) -> Self {
+    pub fn new(listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>>, log: &slog::Logger) -> Self {
         RPCHandler {
             listen_protocol,
             pending_errors: Vec::new(),
@@ -299,7 +293,6 @@ where
             state: HandlerState::Active,
             max_dial_negotiated: 8,
             keep_alive: KeepAlive::Yes,
-            inactive_timeout,
             outbound_io_error_retries: 0,
             log: log.clone(),
         }
@@ -496,19 +489,21 @@ where
         // Check that we don't have outbound items pending for dialing, nor dialing, nor
         // established. Also check that there are no established inbound substreams.
         // Errors and events need to be reported back, so check those too.
-        let should_shutdown = self.dial_queue.is_empty()
-            && self.outbound_substreams.is_empty()
-            && self.inbound_substreams.is_empty()
-            && self.pending_errors.is_empty()
-            && self.events_out.is_empty()
-            && self.dial_negotiated == 0;
+        let should_shutdown = if let HandlerState::ShuttingDown(_) = self.state {
+            self.dial_queue.is_empty()
+                && self.outbound_substreams.is_empty()
+                && self.inbound_substreams.is_empty()
+                && self.pending_errors.is_empty()
+                && self.events_out.is_empty()
+                && self.dial_negotiated == 0
+        } else {
+            false
+        };
 
         match self.keep_alive {
-            KeepAlive::Yes if should_shutdown => {
-                self.keep_alive = KeepAlive::Until(Instant::now() + self.inactive_timeout);
-            }
+            KeepAlive::Yes if should_shutdown => self.keep_alive = KeepAlive::No,
             KeepAlive::Yes => {} // We continue being active
-            KeepAlive::Until(_) if should_shutdown => {} // Already deemed inactive
+            KeepAlive::Until(_) if should_shutdown => self.keep_alive = KeepAlive::No, // Already deemed inactive
             KeepAlive::Until(_) => {
                 // No longer idle
                 self.keep_alive = KeepAlive::Yes;
@@ -833,7 +828,7 @@ where
                                                     // await flush
                                                     entry.get_mut().0 =
                                                     InboundSubstreamState::ResponsePendingFlush {
-                                                        substream: substream,
+                                                        substream,
                                                         closing,
                                                     };
                                                     drive_stream_further = true;

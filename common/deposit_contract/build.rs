@@ -3,7 +3,9 @@
 //!
 //! These files are required for some `include_bytes` calls used in this crate.
 
+use hex;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs::File;
 use std::io::Write;
@@ -13,6 +15,16 @@ const TAG: &str = "v0.12.1";
 // NOTE: the version of the unsafe contract lags the main tag, but the v0.9.2.1 code is compatible
 // with the unmodified v0.12.1 contract
 const UNSAFE_TAG: &str = "v0.9.2.1";
+
+// Checksums for the production smart contract.
+const ABI_CHECKSUM: &str = "e53a64aecdd14f7c46c4134d19500c3184bf083b046347fb14c7828a26f2bff6";
+const BYTECODE_CHECKSUM: &str = "ace004b44a9f531bcd47f9d8827b2527c713a2df3af943ac28ecc3df2aa355d6";
+
+// Checksums for the testnet smart contract.
+const TESTNET_ABI_CHECKSUM: &str =
+    "c9a0a6b3fd48b94193d48c48abad3edcd61eb645d8cdfc9d969d188beb34f5c1";
+const TESTNET_BYTECODE_CHECKSUM: &str =
+    "2b054e7d134e2d66566ba074c8a18a3a67841d67c8ef6175fc95f1639ee73a89";
 
 fn spec_url() -> String {
     format!("https://raw.githubusercontent.com/ethereum/eth2.0-specs/{}/deposit_contract/contracts/validator_registration.json", TAG)
@@ -34,12 +46,16 @@ pub fn get_all_contracts() -> Result<(), String> {
     download_deposit_contract(
         &spec_url(),
         "validator_registration.json",
+        ABI_CHECKSUM,
         "validator_registration.bytecode",
+        BYTECODE_CHECKSUM,
     )?;
     download_deposit_contract(
         &testnet_url(),
         "testnet_validator_registration.json",
+        TESTNET_ABI_CHECKSUM,
         "testnet_validator_registration.bytecode",
+        TESTNET_BYTECODE_CHECKSUM,
     )
 }
 
@@ -48,7 +64,9 @@ pub fn get_all_contracts() -> Result<(), String> {
 pub fn download_deposit_contract(
     url: &str,
     abi_file: &str,
+    abi_checksum: &str,
     bytecode_file: &str,
+    bytecode_checksum: &str,
 ) -> Result<(), String> {
     let abi_file = abi_dir().join(format!("{}_{}", TAG, abi_file));
     let bytecode_file = abi_dir().join(format!("{}_{}", TAG, bytecode_file));
@@ -71,6 +89,9 @@ pub fn download_deposit_contract(
                     .get("abi")
                     .ok_or(format!("Response does not contain key: abi"))?
                     .to_string();
+
+                verify_checksum(abi.as_bytes(), abi_checksum);
+
                 abi_file
                     .write(abi.as_bytes())
                     .map_err(|e| format!("Failed to write http response to abi file: {:?}", e))?;
@@ -79,6 +100,9 @@ pub fn download_deposit_contract(
                     .get("bytecode")
                     .ok_or(format!("Response does not contain key: bytecode"))?
                     .to_string();
+
+                verify_checksum(bytecode.as_bytes(), bytecode_checksum);
+
                 bytecode_file.write(bytecode.as_bytes()).map_err(|e| {
                     format!("Failed to write http response to bytecode file: {:?}", e)
                 })?;
@@ -93,6 +117,20 @@ pub fn download_deposit_contract(
     }
 
     Ok(())
+}
+
+fn verify_checksum(bytes: &[u8], expected_checksum: &str) {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let result = hasher.finalize();
+
+    let checksum = hex::encode(&result[..]);
+
+    assert_eq!(
+        &checksum, expected_checksum,
+        "Checksum {} did not match {}",
+        checksum, expected_checksum
+    );
 }
 
 /// Returns the directory that will be used to store the deposit contract ABI.

@@ -44,7 +44,7 @@ use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
-use store::{Error as DBError, HotColdDB};
+use store::{Error as DBError, HotColdDB, StoreOp};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -1422,8 +1422,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = fully_verified_block.block_root;
         let state = fully_verified_block.state;
         let parent_block = fully_verified_block.parent_block;
-        let intermediate_states = fully_verified_block.intermediate_states;
         let current_slot = self.slot()?;
+        let mut ops = fully_verified_block.intermediate_states;
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
@@ -1515,18 +1515,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
-        // Store all the states between the parent block state and this block's slot before storing
-        // the final state.
-        intermediate_states.commit(&*self.store)?;
-
-        // Store the block and state.
-        // NOTE: we store the block *after* the state to guard against inconsistency in the event of
-        // a crash, as states are usually looked up from blocks, not the other way around. A better
-        // solution would be to use a database transaction (once our choice of database and API
-        // settles down).
-        // See: https://github.com/sigp/lighthouse/issues/692
-        self.store.put_state(&block.state_root, &state)?;
-        self.store.put_block(&block_root, signed_block.clone())?;
+        // Store all the states between the parent block state and this block's slot, the block and state.
+        ops.push(StoreOp::PutBlock(block_root.into(), signed_block.clone()));
+        ops.push(StoreOp::PutState(
+            block.state_root.into(),
+            Cow::Borrowed(&state),
+        ));
+        self.store.do_atomically(ops)?;
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.

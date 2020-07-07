@@ -23,13 +23,13 @@ pub const YAML_CONFIG_FILE: &str = "config.yaml";
 /// The name of the testnet to hardcode.
 ///
 /// Should be set to `None` when no existing testnet is compatible with the codebase.
-pub const HARDCODED_TESTNET: Option<&str> = Some("altona-v2");
+pub const HARDCODED_TESTNET: Option<&str> = Some("altona-v3");
 
-pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../altona-v2/config.yaml");
-pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../altona-v2/deploy_block.txt");
-pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../altona-v2/deposit_contract.txt");
-pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../altona-v2/genesis.ssz");
-pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../altona-v2/boot_enr.yaml");
+pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../altona-v3/config.yaml");
+pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../altona-v3/deploy_block.txt");
+pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../altona-v3/deposit_contract.txt");
+pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../altona-v3/genesis.ssz");
+pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../altona-v3/boot_enr.yaml");
 
 /// Specifies an Eth2 testnet.
 ///

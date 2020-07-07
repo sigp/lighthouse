@@ -183,7 +183,10 @@ impl Eth1GenesisService {
                 info!(
                     log,
                     "Genesis ceremony complete";
-                    "genesis_validators" => genesis_state.get_active_validator_indices(E::genesis_epoch()).len(),
+                    "genesis_validators" => genesis_state
+                        .get_active_validator_indices(E::genesis_epoch(), &spec)
+                        .map_err(|e| format!("Genesis validators error: {:?}", e))?
+                        .len(),
                     "genesis_time" => genesis_state.genesis_time,
                 );
                 break Ok(genesis_state);
@@ -311,8 +314,10 @@ impl Eth1GenesisService {
             // Note: this state is fully valid, some fields have been bypassed to make verification
             // faster.
             let state = self.cheap_state_at_eth1_block::<E>(block, &spec)?;
-            let active_validator_count =
-                state.get_active_validator_indices(E::genesis_epoch()).len();
+            let active_validator_count = state
+                .get_active_validator_indices(E::genesis_epoch(), spec)
+                .map_err(|e| format!("Genesis validators error: {:?}", e))?
+                .len();
 
             self.stats
                 .active_validator_count

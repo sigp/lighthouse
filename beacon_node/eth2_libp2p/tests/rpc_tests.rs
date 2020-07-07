@@ -47,7 +47,7 @@ async fn test_status_rpc() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -137,7 +137,7 @@ async fn test_blocks_by_range_chunked_rpc() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -248,7 +248,7 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -377,7 +377,7 @@ async fn test_blocks_by_range_single_empty_rpc() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -489,7 +489,7 @@ async fn test_blocks_by_root_chunked_rpc() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -608,7 +608,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                     // Send a STATUS message
                     debug!(log, "Sending RPC");
                     sender
@@ -713,19 +713,19 @@ async fn test_goodbye_rpc() {
     // get sender/receiver
     let (mut sender, mut receiver) = common::build_node_pair(&log).await;
 
-    // Goodbye Request
-    let rpc_request = Request::Goodbye(GoodbyeReason::ClientShutdown);
-
     // build the sender future
     let sender_future = async {
         loop {
             match sender.next_event().await {
-                Libp2pEvent::PeerConnected { peer_id, .. } => {
-                    // Send a STATUS message
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    // Send a goodbye and disconnect
                     debug!(log, "Sending RPC");
                     sender
                         .swarm
-                        .send_request(peer_id, RequestId::Sync(10), rpc_request.clone());
+                        .goodbye_peer(&peer_id, GoodbyeReason::IrrelevantNetwork);
+                }
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDisconnected(_)) => {
+                    return;
                 }
                 _ => {} // Ignore other RPC messages
             }
@@ -736,13 +736,8 @@ async fn test_goodbye_rpc() {
     let receiver_future = async {
         loop {
             match receiver.next_event().await {
-                Libp2pEvent::Behaviour(BehaviourEvent::RequestReceived {
-                    peer_id: _,
-                    id: _,
-                    request,
-                }) => {
+                Libp2pEvent::Behaviour(BehaviourEvent::PeerDisconnected(_)) => {
                     // Should receive sent RPC request
-                    assert_eq!(rpc_request.clone(), request); // receives the goodbye. Nothing left to do
                     return;
                 }
                 _ => {} // Ignore other events
@@ -750,9 +745,10 @@ async fn test_goodbye_rpc() {
         }
     };
 
+    let total_future = futures::future::join(sender_future, receiver_future);
+
     tokio::select! {
-        _ = sender_future => {}
-        _ = receiver_future => {}
+        _ = total_future => {}
         _ = delay_for(Duration::from_secs(30)) => {
             panic!("Future timed out");
         }

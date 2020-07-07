@@ -106,6 +106,14 @@ impl ForkChoiceTest {
         self
     }
 
+    /// Skips `count` slots, without producing a block.
+    pub fn skip_slots(self, count: usize) -> Self {
+        for _ in 0..count {
+            self.harness.advance_slot();
+        }
+        self
+    }
+
     /// Build the chain whilst `predicate` returns `true`.
     pub fn apply_blocks_while<F>(self, mut predicate: F) -> Self
     where
@@ -809,4 +817,23 @@ fn invalid_attestation_delayed_slot() {
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 1))
         .skip_slot()
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0));
+}
+
+/// Tests that the correct target root is used when the attested-to block is in a prior epoch to
+/// the attestation.
+#[test]
+fn valid_attestation_skip_across_epoch() {
+    ForkChoiceTest::new()
+        .apply_blocks(E::slots_per_epoch() as usize - 1)
+        .skip_slots(2)
+        .apply_attestation_to_chain(
+            MutationDelay::NoDelay,
+            |attestation, _chain| {
+                assert_eq!(
+                    attestation.data.target.root,
+                    attestation.data.beacon_block_root
+                )
+            },
+            |result| result.unwrap(),
+        );
 }
