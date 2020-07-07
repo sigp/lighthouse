@@ -178,6 +178,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         unban_peer = Some(peer_id.clone());
                     }
                 }
+            } else {
+                debug!(self.log, "Peer score adjusted"; "peer_id" => peer_id.to_string(), "score" => info.score.to_string());
             }
         }
 
@@ -291,7 +293,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This adjusts a peer's score based on the error.
     pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
         let client = self.network_globals.client(peer_id);
-        warn!(self.log, "RPC Error"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string());
+        let score = self.network_globals.peers.read().score(peer_id);
+        warn!(self.log, "RPC Error"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string(), "peer_id" => peer_id.to_string(), "score" => score.to_string());
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
