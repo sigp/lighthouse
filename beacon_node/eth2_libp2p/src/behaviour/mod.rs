@@ -798,6 +798,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
+        // All events from banned peers are rejected
+        if self.peer_manager.is_banned(&peer_id) {
+            return;
+        }
+
         match event {
             // Events comming from the handler, redirected to each behaviour
             BehaviourHandlerOut::Delegate(delegate) => match *delegate {
