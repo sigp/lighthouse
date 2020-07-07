@@ -1,13 +1,10 @@
 use crate::{
-    public_key::{PublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
-    secret_key::{SecretKey, TSecretKey, SECRET_KEY_BYTES_LEN},
+    public_key::{PublicKey, TPublicKey},
+    secret_key::{SecretKey, TSecretKey},
     signature::TSignature,
-    Error,
 };
 use std::fmt;
 use std::marker::PhantomData;
-
-pub const KEYPAIR_BYTES_LEN: usize = PUBLIC_KEY_BYTES_LEN + SECRET_KEY_BYTES_LEN;
 
 #[derive(Clone, PartialEq)]
 pub struct Keypair<Pub, Sec, Sig> {
@@ -37,34 +34,6 @@ where
             sk,
             _phantom: PhantomData,
         }
-    }
-
-    pub fn serialize(&self) -> [u8; KEYPAIR_BYTES_LEN] {
-        todo!()
-        /*
-        let mut bytes = [0; KEYPAIR_BYTES_LEN];
-        bytes[..SECRET_KEY_BYTES_LEN].copy_from_slice(&self.sk.serialize());
-        bytes[SECRET_KEY_BYTES_LEN..].copy_from_slice(&self.pk.serialize());
-        bytes
-        */
-    }
-
-    pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        todo!()
-        /*
-        if bytes.len() == KEYPAIR_BYTES_LEN {
-            Ok(Self {
-                sk: SecretKey::deserialize(&bytes[..SECRET_KEY_BYTES_LEN])?,
-                pk: PublicKey::deserialize(&bytes[SECRET_KEY_BYTES_LEN..])?,
-                _phantom: PhantomData,
-            })
-        } else {
-            Err(Error::InvalidByteLength {
-                got: bytes.len(),
-                expected: KEYPAIR_BYTES_LEN,
-            })
-        }
-        */
     }
 }
 
