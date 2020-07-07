@@ -310,7 +310,7 @@ pub fn deposit_signature_set<'a>(
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fok zeroed.
-    SignatureSet::single(&signature, Cow::Borrowed(pubkey), *message)
+    SignatureSet::single(signature, Cow::Borrowed(pubkey), *message)
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated

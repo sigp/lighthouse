@@ -28,33 +28,46 @@ pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
 pub fn verify_signature_sets<'a>(
     signature_sets: impl Iterator<Item = &'a SignatureSet<'a>>,
 ) -> bool {
-    let aggregates_result = signature_sets
+    let aggregates = signature_sets
         .map(|signature_set| {
             let mut aggregate = milagro::AggregatePublicKey::new();
             for signing_key in &signature_set.signing_keys {
                 aggregate.add(signing_key.point())
             }
-            aggregate
+            // aggregate
+            (
+                signature_set.signature.as_ref(),
+                aggregate,
+                signature_set.message,
+            )
         })
         .collect::<Vec<_>>();
 
+    /*
     let iter = signature_sets
         .zip(aggregates.iter())
         .map(|(signature_set, aggregate)| {
             (
                 signature_set.signature.point().expect("FIXME"),
-                &aggregate,
+                aggregate,
                 signature_set.message.as_bytes(),
             )
         });
+    */
 
     milagro::AggregateSignature::verify_multiple_aggregate_signatures(
         &mut rand::thread_rng(),
-        iter, /*
-              flattened_sets
-                  .iter()
-                  .map(|(signature, aggregate, message)| (*signature, aggregate, message.as_bytes())),
-              */
+        aggregates.iter().map(|(signature, aggregate, message)| {
+            (
+                signature.point().expect("FIXME: PAUL H"),
+                aggregate,
+                message.as_bytes(),
+            )
+        }), /*
+            flattened_sets
+                .iter()
+                .map(|(signature, aggregate, message)| (*signature, aggregate, message.as_bytes())),
+            */
     )
 }
 

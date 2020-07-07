@@ -129,7 +129,7 @@ where
             .sets
             .into_par_iter()
             .chunks(num_chunks)
-            .map(|chunk| verify_signature_sets(chunk.into_iter()))
+            .map(|chunk| verify_signature_sets(chunk.iter()))
             .reduce(|| true, |current, this| current && this);
 
         if result {
