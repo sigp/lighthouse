@@ -10,7 +10,7 @@ ef_tests = []
 fake_crypto = ["bls/fake_crypto"]
 
 [dependencies]
-bls = { path = "../../crypto/bls" }
+bls = { path = "../../crypto/bls", default-features = false }
 compare_fields = { path = "../../common/compare_fields" }
 ethereum-types = "0.9.1"
 hex = "0.4.2"

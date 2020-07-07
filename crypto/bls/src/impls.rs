@@ -33,10 +33,18 @@ macro_rules! define_mod {
             pub use bls_variant::{verify_signature_sets, SignatureSet};
 
             pub type PublicKey = crate::public_key::PublicKey<bls_variant::PublicKey>;
+            pub type AggregatePublicKey =
+                crate::aggregate_public_key::AggregatePublicKey<bls_variant::AggregatePublicKey>;
             pub type PublicKeyBytes =
                 crate::public_key_bytes::PublicKeyBytes<bls_variant::PublicKey>;
             pub type Signature =
                 crate::signature::Signature<bls_variant::PublicKey, bls_variant::Signature>;
+            pub type AggregateSignature = crate::aggregate_signature::AggregateSignature<
+                bls_variant::PublicKey,
+                bls_variant::AggregatePublicKey,
+                bls_variant::Signature,
+                bls_variant::AggregateSignature,
+            >;
             pub type SignatureBytes = crate::signature_bytes::SignatureBytes<
                 bls_variant::PublicKey,
                 bls_variant::Signature,
@@ -55,7 +63,7 @@ macro_rules! define_mod {
     };
 }
 
-#[cfg(feature = "milagro")]
+#[cfg(all(feature = "milagro", not(feature = "fake_crypto")))]
 pub use milagro_implementations::*;
 
 define_mod!(fake_crypto_implementations, super::fake_crypto);

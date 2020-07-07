@@ -1,5 +1,7 @@
 use crate::{
-    public_key::{TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    aggregate_public_key::TAggregatePublicKey,
+    aggregate_signature::TAggregateSignature,
+    public_key::{PublicKey as CratePublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, SecretHash,
@@ -13,7 +15,9 @@ pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
     AggregateSignature,
 >;
 
-pub fn verify_signature_sets<'a>(_iter: impl Iterator<Item = SignatureSet<'a>>) -> bool {
+pub fn verify_signature_sets<'a>(
+    _signature_sets: impl ExactSizeIterator<Item = &'a SignatureSet<'a>>,
+) -> bool {
     true
 }
 
@@ -49,9 +53,39 @@ impl PartialEq for PublicKey {
 #[derive(Clone)]
 pub struct AggregatePublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
 
-impl AggregatePublicKey {
+impl TAggregatePublicKey for AggregatePublicKey {
     fn zero() -> Self {
         Self([0; PUBLIC_KEY_BYTES_LEN])
+    }
+
+    fn add_assign(&mut self, _other: &Self) {
+        // Do nothing.
+    }
+
+    fn add_assign_multiple<'a>(&'a mut self, _others: impl Iterator<Item = &'a Self>) {
+        // Do nothing.
+    }
+
+    fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
+        let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
+        bytes[..].copy_from_slice(&self.0);
+        bytes
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        let mut key = [0; PUBLIC_KEY_BYTES_LEN];
+
+        key[..].copy_from_slice(&bytes);
+
+        Ok(Self(key))
+    }
+}
+
+impl Eq for AggregatePublicKey {}
+
+impl PartialEq for AggregatePublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        &self.0[..] == &other.0[..]
     }
 }
 
@@ -92,6 +126,56 @@ pub struct AggregateSignature([u8; SIGNATURE_BYTES_LEN]);
 impl AggregateSignature {
     fn zero() -> Self {
         Self([0; SIGNATURE_BYTES_LEN])
+    }
+}
+
+impl TAggregateSignature<PublicKey, AggregatePublicKey, Signature> for AggregateSignature {
+    fn zero() -> Self {
+        Self::zero()
+    }
+
+    fn add_assign(&mut self, _other: &Signature) {
+        // Do nothing.
+    }
+
+    fn add_assign_aggregate(&mut self, _other: &Self) {
+        // Do nothing.
+    }
+
+    fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
+        let mut bytes = [0; SIGNATURE_BYTES_LEN];
+
+        bytes[..].copy_from_slice(&self.0);
+
+        bytes
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        let mut key = [0; SIGNATURE_BYTES_LEN];
+
+        key[..].copy_from_slice(&bytes);
+
+        Ok(Self(key))
+    }
+
+    fn fast_aggregate_verify(
+        &self,
+        _msg: Hash256,
+        _pubkeys: &[&CratePublicKey<PublicKey>],
+    ) -> bool {
+        true
+    }
+
+    fn aggregate_verify(&self, _msgs: &[Hash256], _pubkeys: &[&CratePublicKey<PublicKey>]) -> bool {
+        true
+    }
+}
+
+impl Eq for AggregateSignature {}
+
+impl PartialEq for AggregateSignature {
+    fn eq(&self, other: &Self) -> bool {
+        &self.0[..] == &other.0[..]
     }
 }
 
