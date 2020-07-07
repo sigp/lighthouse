@@ -1,3 +1,4 @@
+mod blst;
 mod fake_crypto;
 mod milagro;
 
@@ -23,6 +24,33 @@ pub mod milagro_implementations {
         crate::secret_key::SecretKey<milagro::Signature, milagro::PublicKey, milagro::SecretKey>;
     pub type Keypair =
         crate::keypair::Keypair<milagro::PublicKey, milagro::SecretKey, milagro::Signature>;
+}
+
+pub mod blst_implementations {
+    pub use super::blst::{verify_signature_sets, SignatureSet};
+
+    use super::blst::blst_core;
+
+    pub type PublicKey = crate::public_key::PublicKey<blst_core::PublicKey>;
+    pub type AggregatePublicKey =
+        crate::aggregate_public_key::AggregatePublicKey<blst_core::AggregatePublicKey>;
+    pub type PublicKeyBytes = crate::public_key_bytes::PublicKeyBytes<blst_core::PublicKey>;
+    pub type Signature = crate::signature::Signature<blst_core::PublicKey, blst_core::Signature>;
+    pub type AggregateSignature = crate::aggregate_signature::AggregateSignature<
+        blst_core::PublicKey,
+        blst_core::AggregatePublicKey,
+        blst_core::Signature,
+        blst_core::AggregateSignature,
+    >;
+    pub type SignatureBytes =
+        crate::signature_bytes::SignatureBytes<blst_core::PublicKey, blst_core::Signature>;
+    pub type SecretKey = crate::secret_key::SecretKey<
+        blst_core::Signature,
+        blst_core::PublicKey,
+        blst_core::SecretKey,
+    >;
+    pub type Keypair =
+        crate::keypair::Keypair<blst_core::PublicKey, blst_core::SecretKey, blst_core::Signature>;
 }
 
 macro_rules! define_mod {
@@ -63,8 +91,19 @@ macro_rules! define_mod {
     };
 }
 
-#[cfg(all(feature = "milagro", not(feature = "fake_crypto")))]
+#[cfg(all(
+    feature = "milagro",
+    not(feature = "fake_crypto"),
+    not(feature = "supranatural")
+))]
 pub use milagro_implementations::*;
+
+#[cfg(all(
+    feature = "supranatural",
+    not(feature = "fake_crypto"),
+    not(feature = "milagro")
+))]
+pub use blst_implementations::*;
 
 define_mod!(fake_crypto_implementations, super::fake_crypto);
 #[cfg(feature = "fake_crypto")]

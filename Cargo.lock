@@ -520,17 +520,30 @@ name = "bls"
 version = "0.2.0"
 dependencies = [
  "arbitrary",
+ "blst",
  "eth2_hashing",
  "eth2_ssz",
  "ethereum-types",
  "hex 0.3.2",
  "milagro_bls",
  "rand 0.7.3",
+ "rand_chacha",
  "serde",
  "serde_derive",
  "serde_hex",
  "tree_hash",
  "zeroize",
+]
+
+[[package]]
+name = "blst"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29ce28f94f9a93e0108192d5c20fcc4f2dcc277df2a478117bbe381128b24c7c"
+dependencies = [
+ "cc",
+ "glob",
+ "threadpool",
 ]
 
 [[package]]
@@ -5258,6 +5271,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d40c6d1b69745a6ec6fb1ca717914848da4b44ae29d9b3080cbee91d72a69b14"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "threadpool"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
+dependencies = [
+ "num_cpus",
 ]
 
 [[package]]

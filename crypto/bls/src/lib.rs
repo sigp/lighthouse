@@ -20,6 +20,7 @@ pub use secret_hash::SecretHash;
 pub use secret_key::SECRET_KEY_BYTES_LEN;
 pub use signature::SIGNATURE_BYTES_LEN;
 
+use blst::BLST_ERROR as BlstError;
 use milagro_bls::AmclError;
 
 pub type Hash256 = ethereum_types::H256;
@@ -27,6 +28,7 @@ pub type Hash256 = ethereum_types::H256;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     MilagroError(AmclError),
+    BlstError(BlstError),
     InvalidByteLength { got: usize, expected: usize },
     InvalidSecretKeyLength { got: usize, expected: usize },
 }
@@ -34,5 +36,11 @@ pub enum Error {
 impl From<AmclError> for Error {
     fn from(e: AmclError) -> Error {
         Error::MilagroError(e)
+    }
+}
+
+impl From<BlstError> for Error {
+    fn from(e: BlstError) -> Error {
+        Error::BlstError(e)
     }
 }
