@@ -72,16 +72,26 @@ where
     }
 
     pub fn add_assign(&mut self, other: &Signature<Pub, Sig>) {
-        match (&mut self.point, other.point()) {
-            (Some(a), Some(b)) => a.add_assign(b),
-            _ => {}
+        if let Some(other_point) = other.point() {
+            if let Some(self_point) = &mut self.point {
+                self_point.add_assign(other_point)
+            } else {
+                let mut self_point = AggSig::zero();
+                self_point.add_assign(other_point);
+                self.point = Some(self_point)
+            }
         }
     }
 
     pub fn add_assign_aggregate(&mut self, other: &Self) {
-        match (&mut self.point, other.point()) {
-            (Some(a), Some(b)) => a.add_assign_aggregate(b),
-            _ => {}
+        if let Some(other_point) = other.point() {
+            if let Some(self_point) = &mut self.point {
+                self_point.add_assign_aggregate(other_point)
+            } else {
+                let mut self_point = AggSig::zero();
+                self_point.add_assign_aggregate(other_point);
+                self.point = Some(self_point)
+            }
         }
     }
 

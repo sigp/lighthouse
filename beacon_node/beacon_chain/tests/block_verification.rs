@@ -68,7 +68,7 @@ fn chain_segment_blocks() -> Vec<SignedBeaconBlock<E>> {
 
 fn junk_signature() -> Signature {
     let kp = generate_deterministic_keypair(VALIDATOR_COUNT);
-    let message = Hash256::from_slice(&[42, 32]);
+    let message = Hash256::from_slice(&[42; 32]);
     kp.sk.sign(message)
 }
 

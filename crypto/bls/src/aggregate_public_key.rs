@@ -34,14 +34,6 @@ where
         Self { point: Pub::zero() }
     }
 
-    pub(crate) fn from_point(point: Pub) -> Self {
-        Self { point }
-    }
-
-    pub(crate) fn point(&self) -> &Pub {
-        &self.point
-    }
-
     pub fn add_assign(&mut self, other: &Self) {
         self.point.add_assign(&other.point)
     }

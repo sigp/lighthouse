@@ -90,7 +90,7 @@ impl TAggregatePublicKey for milagro::AggregatePublicKey {
         // fail.
         //
         // It is recommended to use `Self::add_assign_multiple` instead.
-        self.point.add(&other.point)
+        self.point.add(&other.point);
     }
 
     fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>) {

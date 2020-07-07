@@ -740,13 +740,10 @@ fn unaggregated_gossip_verification() {
         AttnError::InvalidSignature
     );
 
-    assert!(
-        harness
-            .chain
-            .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
-            .is_ok(),
-        "valid attestation should be verified"
-    );
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
+        .expect("valid attestation should be verified");
 
     /*
      * The following test ensures that:
