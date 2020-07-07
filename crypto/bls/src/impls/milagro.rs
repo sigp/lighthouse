@@ -7,14 +7,8 @@ use crate::{
     Error, Hash256, SecretHash,
 };
 pub use milagro_bls as milagro;
-use std::iter::ExactSizeIterator;
-/*
-pub use milagro_bls::{
-    AggregatePublicKey as PublicKey, AggregateSignature as Signature, PublicKey as SinglePublicKey,
-    SecretKey, Signature as SingleSignature,
-};
-*/
 use rand::thread_rng;
+use std::iter::ExactSizeIterator;
 
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
     'a,
