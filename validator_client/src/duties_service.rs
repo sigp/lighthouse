@@ -406,8 +406,9 @@ pub struct Inner<T, E: EthSpec> {
 
 /// Maintains a store of the duties for all voting validators in the `validator_store`.
 ///
-/// Polls the beacon node at the start of each epoch, collecting duties for the current and next
-/// epoch.
+/// Polls the beacon node at the start of each slot, collecting duties for the current and next
+/// epoch. The duties service notifies the block production service to run each time it completes,
+/// so it *must* be run every slot.
 pub struct DutiesService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
 }
@@ -490,7 +491,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
         let interval_fut = async move {
             while interval.next().await.is_some() {
-                self.clone().do_update(&mut block_service_tx).await.ok();
+                self.clone().do_update(&mut block_service_tx).await;
             }
         };
 
@@ -500,21 +501,21 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     }
 
     /// Attempt to download the duties of all managed validators for this epoch and the next.
-    async fn do_update(
-        self,
-        block_service_tx: &mut Sender<BlockServiceNotification>,
-    ) -> Result<(), ()> {
+    async fn do_update(self, block_service_tx: &mut Sender<BlockServiceNotification>) {
         let log = self.context.log();
 
         if !is_synced(&self.beacon_node, &self.slot_clock, None).await
             && !self.allow_unsynced_beacon_node
         {
-            return Ok(());
+            return;
         }
 
-        let slot = self.slot_clock.now().ok_or_else(|| {
+        let slot = if let Some(slot) = self.slot_clock.now() {
+            slot
+        } else {
             error!(log, "Duties manager failed to read slot clock");
-        })?;
+            return;
+        };
 
         let current_epoch = slot.epoch(E::slots_per_epoch());
 
@@ -531,8 +532,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             self.store.prune(prune_below);
         }
 
-        let result = self.clone().update_epoch(current_epoch).await;
-        if let Err(e) = result {
+        // Update duties for the current epoch, but keep running if there's an error:
+        // block production or the next epoch update could still succeed.
+        if let Err(e) = self.clone().update_epoch(current_epoch).await {
             error!(
                 log,
                 "Failed to get current epoch duties";
@@ -540,33 +542,29 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             );
         }
 
-        self.clone()
-            .update_epoch(current_epoch + 1)
-            .await
-            .map_err(|e| {
-                error!(
-                    log,
-                    "Failed to get next epoch duties";
-                    "http_error" => format!("{:?}", e)
-                );
-            })?;
-
         // Notify the block service to produce a block.
-        block_service_tx
+        if let Err(e) = block_service_tx
             .send(BlockServiceNotification {
                 slot,
                 block_proposers: self.block_proposers(slot),
             })
             .await
-            .map_err(|e| {
-                error!(
-                    log,
-                    "Failed to notify block service";
-                    "error" => format!("{:?}", e)
-                );
-            })?;
+        {
+            error!(
+                log,
+                "Failed to notify block service";
+                "error" => format!("{:?}", e)
+            );
+        };
 
-        Ok(())
+        // Update duties for the next epoch.
+        if let Err(e) = self.clone().update_epoch(current_epoch + 1).await {
+            error!(
+                log,
+                "Failed to get next epoch duties";
+                "http_error" => format!("{:?}", e)
+            );
+        }
     }
 
     /// Attempt to download the duties of all managed validators for the given `epoch`.
