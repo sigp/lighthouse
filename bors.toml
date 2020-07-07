@@ -1,0 +1,3 @@
+status = ["%"]
+use_squash_merge = true
+timeout_sec = 7200
