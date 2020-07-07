@@ -211,16 +211,13 @@ fn tree_hash_cache() {
     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
 
     /*
-     * A cache should not hash twice without updating the slot.
+     * A cache should hash twice without updating the slot.
      */
 
     assert_eq!(
-        state.update_tree_hash_cache(),
-        Err(BeaconStateError::TreeHashCacheSkippedSlot {
-            cache: state.slot,
-            state: state.slot
-        }),
-        "tree hash cache should not hash twice on the same slot"
+        state.update_tree_hash_cache().unwrap(),
+        root,
+        "tree hash result should be identical on the same slot"
     );
 
     /*
