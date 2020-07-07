@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{AggregateSignature, PublicKey, SignatureSet, SignedMessage};
+use bls::{verify_signature_sets, AggregateSignature, PublicKey, SignatureSet};
 use serde_derive::Deserialize;
 use std::borrow::Cow;
 use types::Hash256;
@@ -43,18 +43,19 @@ impl Case for BlsAggregateVerify {
             .ok()
             .and_then(|bytes: Vec<u8>| AggregateSignature::deserialize(&bytes).ok())
             .map(|signature| {
-                let signed_messages = message_refs
+                let signature_sets = message_refs
                     .into_iter()
                     .zip(pubkey_refs.into_iter())
                     .map(|(message, pubkey)| {
-                        SignedMessage::new(
-                            vec![Cow::Borrowed(pubkey)],
+                        SignatureSet::single(
+                            &signature,
+                            Cow::Borrowed(pubkey),
                             Hash256::from_slice(message),
                         )
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
 
-                SignatureSet::from_components(&signature, signed_messages).is_valid()
+                verify_signature_sets(signature_sets.iter())
             })
             .unwrap_or(false);
 
