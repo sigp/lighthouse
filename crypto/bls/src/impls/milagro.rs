@@ -36,9 +36,15 @@ pub fn verify_signature_sets<'a>(
             let mut aggregate = milagro::AggregatePublicKey::from_public_key(
                 signature_set.signing_keys.first().ok_or(())?.point(),
             );
+
             for signing_key in signature_set.signing_keys.iter().skip(1) {
                 aggregate.add(signing_key.point())
             }
+
+            if signature_set.signature.point().is_none() {
+                return Err(());
+            }
+
             Ok((
                 signature_set.signature.as_ref(),
                 aggregate,
@@ -51,7 +57,9 @@ pub fn verify_signature_sets<'a>(
                 &mut rand::thread_rng(),
                 aggregates.iter().map(|(signature, aggregate, message)| {
                     (
-                        signature.point().expect("FIXME: PAUL H"),
+                        signature
+                            .point()
+                            .expect("guarded against none by previous check"),
                         aggregate,
                         message.as_bytes(),
                     )

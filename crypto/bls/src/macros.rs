@@ -99,6 +99,7 @@ macro_rules! impl_debug {
     };
 }
 
+#[cfg(feature = "arbitrary")]
 macro_rules! impl_arbitrary {
     ($byte_size: expr) => {
         fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {

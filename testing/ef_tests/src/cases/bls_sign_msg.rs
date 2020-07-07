@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{SecretKey, SECRET_KEY_BYTES_LEN};
+use bls::SecretKey;
 use serde_derive::Deserialize;
 use types::Hash256;
 

@@ -127,7 +127,7 @@ async fn test_blocks_by_range_chunked_rpc() {
     let empty_block = BeaconBlock::empty(&spec);
     let empty_signed = SignedBeaconBlock {
         message: empty_block,
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
@@ -238,7 +238,7 @@ async fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
     let empty_block = BeaconBlock::empty(&spec);
     let empty_signed = SignedBeaconBlock {
         message: empty_block,
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
@@ -365,7 +365,7 @@ async fn test_blocks_by_range_single_empty_rpc() {
     let empty_block = BeaconBlock::empty(&spec);
     let empty_signed = SignedBeaconBlock {
         message: empty_block,
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
@@ -479,7 +479,7 @@ async fn test_blocks_by_root_chunked_rpc() {
     let full_block = BeaconBlock::full(&spec);
     let signed_full_block = SignedBeaconBlock {
         message: full_block,
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
@@ -598,7 +598,7 @@ async fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     let full_block = BeaconBlock::full(&spec);
     let signed_full_block = SignedBeaconBlock {
         message: full_block,
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
