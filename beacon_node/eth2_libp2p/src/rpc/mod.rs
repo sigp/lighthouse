@@ -14,7 +14,6 @@ use libp2p::{Multiaddr, PeerId};
 use slog::{debug, o};
 use std::marker::PhantomData;
 use std::task::{Context, Poll};
-use std::time::Duration;
 use types::EthSpec;
 
 pub(crate) use handler::HandlerErr;
@@ -149,7 +148,6 @@ where
             SubstreamProtocol::new(RPCProtocol {
                 phantom: PhantomData,
             }),
-            Duration::from_secs(30),
             &self.log,
         )
     }

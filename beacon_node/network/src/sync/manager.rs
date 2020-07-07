@@ -40,9 +40,9 @@ use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
-use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest};
+use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
 use eth2_libp2p::types::NetworkGlobals;
-use eth2_libp2p::PeerId;
+use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
@@ -347,10 +347,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // stream termination for a single block lookup, remove the key
                 if let Some(single_block_request) = self.single_block_lookups.remove(&request_id) {
-                    // the peer didn't respond with a block that it referenced
+                    // The peer didn't respond with a block that it referenced.
+                    // This can be allowed as some clients may implement pruning. We mildly
+                    // tolerate this behaviour.
                     if !single_block_request.block_returned {
                         warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => format!("{}", single_block_request.hash), "peer_id" =>  format!("{}", peer_id));
-                        self.network.downvote_peer(peer_id);
+                        self.network
+                            .report_peer(peer_id, PeerAction::MidToleranceError);
                     }
                     return;
                 }
@@ -389,9 +392,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         // verify the hash is correct and try and process the block
         if expected_block_hash != block.canonical_root() {
-            // the peer that sent this, sent us the wrong block
+            // The peer that sent this, sent us the wrong block.
+            // We do not tolerate this behaviour. The peer is instantly disconnected and banned.
             warn!(self.log, "Peer sent incorrect block for single block lookup"; "peer_id" => format!("{}", peer_id));
-            self.network.downvote_peer(peer_id);
+            self.network.goodbye_peer(peer_id, GoodbyeReason::Fault);
             return;
         }
 
@@ -426,7 +430,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             outcome => {
                 warn!(self.log, "Single block lookup failed"; "outcome" => format!("{:?}", outcome));
-                self.network.downvote_peer(peer_id);
+                // This could be a range of errors. But we couldn't process the block.
+                // For now we consider this a mid tolerance error.
+                self.network
+                    .report_peer(peer_id, PeerAction::MidToleranceError);
             }
         }
     }
@@ -624,8 +631,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 "expected_parent" => format!("{}", expected_hash),
             );
 
+            // We try again, but downvote the peer.
             self.request_parent(parent_request);
-            self.network.downvote_peer(peer);
+            // We do not tolerate these kinds of errors. We will accept a few but these are signs
+            // of a faulty peer.
+            self.network
+                .report_peer(peer, PeerAction::LowToleranceError);
         } else {
             // The last block in the queue is the only one that has not attempted to be processed yet.
             //
@@ -662,12 +673,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // all else we consider the chain a failure and downvote the peer that sent
                     // us the last block
                     warn!(
-                        self.log, "Invalid parent chain. Downvoting peer";
+                        self.log, "Invalid parent chain";
+                        "score_adjustment" => PeerAction::MidToleranceError.to_string(),
                         "outcome" => format!("{:?}", outcome),
-                        "last_peer" => format!("{:?}", parent_request.last_submitted_peer),
+                        "last_peer" => parent_request.last_submitted_peer.to_string(),
                     );
-                    self.network
-                        .downvote_peer(parent_request.last_submitted_peer);
+                    // This currently can be a host of errors. We permit this due to the partial
+                    // ambiguity.
+                    // TODO: Refine the error types and score the peer appropriately.
+                    self.network.report_peer(
+                        parent_request.last_submitted_peer,
+                        PeerAction::MidToleranceError,
+                    );
                     return;
                 }
             }
@@ -774,7 +791,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         );
                     }
                     SyncMessage::ParentLookupFailed(peer_id) => {
-                        self.network.downvote_peer(peer_id);
+                        // A peer sent an object (block or attestation) that referenced a parent.
+                        // On request for this parent the peer indicated it did not have this
+                        // block.
+                        // This is not fatal. Peer's could prune old blocks so we moderately
+                        // tolerate this behaviour.
+                        self.network
+                            .report_peer(peer_id, PeerAction::MidToleranceError);
                     }
                 }
             }

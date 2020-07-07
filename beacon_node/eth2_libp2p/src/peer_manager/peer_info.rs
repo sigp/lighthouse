@@ -1,5 +1,5 @@
 use super::client::Client;
-use super::peerdb::{Rep, DEFAULT_REPUTATION};
+use super::score::Score;
 use super::PeerSyncStatus;
 use crate::rpc::MetaData;
 use crate::Multiaddr;
@@ -18,7 +18,7 @@ pub struct PeerInfo<T: EthSpec> {
     /// The connection status of the peer
     _status: PeerStatus,
     /// The peers reputation
-    pub reputation: Rep,
+    pub score: Score,
     /// Client managing this peer
     pub client: Client,
     /// Connection status of this peer
@@ -41,7 +41,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
     fn default() -> PeerInfo<TSpec> {
         PeerInfo {
             _status: Default::default(),
-            reputation: DEFAULT_REPUTATION,
+            score: Score::default(),
             client: Client::default(),
             connection_status: Default::default(),
             listening_addresses: vec![],
@@ -146,7 +146,7 @@ impl Default for PeerConnectionStatus {
 }
 
 impl PeerConnectionStatus {
-    /// Checks if the status is connected
+    /// Checks if the status is connected.
     pub fn is_connected(&self) -> bool {
         match self {
             PeerConnectionStatus::Connected { .. } => true,
@@ -154,7 +154,7 @@ impl PeerConnectionStatus {
         }
     }
 
-    /// Checks if the status is connected
+    /// Checks if the status is connected.
     pub fn is_dialing(&self) -> bool {
         match self {
             PeerConnectionStatus::Dialing { .. } => true,
@@ -162,7 +162,12 @@ impl PeerConnectionStatus {
         }
     }
 
-    /// Checks if the status is banned
+    /// The peer is either connected or in the process of being dialed.
+    pub fn is_connected_or_dialing(&self) -> bool {
+        self.is_connected() || self.is_dialing()
+    }
+
+    /// Checks if the status is banned.
     pub fn is_banned(&self) -> bool {
         match self {
             PeerConnectionStatus::Banned { .. } => true,
@@ -170,7 +175,7 @@ impl PeerConnectionStatus {
         }
     }
 
-    /// Checks if the status is disconnected
+    /// Checks if the status is disconnected.
     pub fn is_disconnected(&self) -> bool {
         match self {
             Disconnected { .. } => true,
@@ -212,6 +217,13 @@ impl PeerConnectionStatus {
         *self = Banned {
             since: Instant::now(),
         };
+    }
+
+    /// The score system has unbanned the peer. Update the connection status
+    pub fn unban(&mut self) {
+        if let PeerConnectionStatus::Banned { since } = self {
+            *self = PeerConnectionStatus::Disconnected { since: *since }
+        }
     }
 
     pub fn connections(&self) -> (u8, u8) {
