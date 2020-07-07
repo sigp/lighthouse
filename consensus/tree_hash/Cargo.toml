@@ -20,7 +20,7 @@ lazy_static = "1.4.0"
 [dependencies]
 ethereum-types = "0.9.1"
 eth2_hashing = "0.1.0"
-smallvec = "1.4.0"
+smallvec = "1.4.1"
 
 [features]
 arbitrary = ["ethereum-types/arbitrary"]

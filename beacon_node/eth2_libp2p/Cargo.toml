@@ -23,7 +23,7 @@ fnv = "1.0.7"
 unsigned-varint = { git = "https://github.com/sigp/unsigned-varint", branch = "latest-codecs", features = ["codec"] }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-smallvec = "1.4.0"
+smallvec = "1.4.1"
 lru = "0.5.1"
 parking_lot = "0.11.0"
 sha2 = "0.9.1"

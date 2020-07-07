@@ -19,7 +19,7 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, o};
+use slog::{crit, debug, o, trace};
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -355,7 +355,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
         };
-        debug!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
+        trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => peer_id.to_string());
 
         self.eth2_rpc
             .send_request(peer_id, id, RPCRequest::Ping(ping));
@@ -366,7 +366,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let ping = crate::rpc::Ping {
             data: self.meta_data.seq_number,
         };
-        debug!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => peer_id.to_string());
+        trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => peer_id.to_string());
         let event = RPCCodedResponse::Success(RPCResponse::Pong(ping));
         self.eth2_rpc.send_response(peer_id, id, event);
     }
