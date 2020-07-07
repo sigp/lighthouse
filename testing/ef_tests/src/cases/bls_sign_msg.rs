@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::SecretKey;
+use bls::{SecretKey, SECRET_KEY_BYTES_LEN};
 use serde_derive::Deserialize;
 use types::Hash256;
 
@@ -24,6 +24,9 @@ impl Case for BlsSign {
         // Convert private_key and message to required types
         let sk = hex::decode(&self.input.privkey[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+
+        assert_eq!(sk.len(), 32);
+
         let sk = SecretKey::deserialize(&sk).unwrap();
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;

@@ -56,10 +56,17 @@ where
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self {
-            point: Sec::deserialize(bytes)?,
-            _phantom_signature: PhantomData,
-            _phantom_public_key: PhantomData,
-        })
+        if bytes.len() != SECRET_KEY_BYTES_LEN {
+            Err(Error::InvalidSecretKeyLength {
+                got: bytes.len(),
+                expected: SECRET_KEY_BYTES_LEN,
+            })
+        } else {
+            Ok(Self {
+                point: Sec::deserialize(bytes)?,
+                _phantom_signature: PhantomData,
+                _phantom_public_key: PhantomData,
+            })
+        }
     }
 }
