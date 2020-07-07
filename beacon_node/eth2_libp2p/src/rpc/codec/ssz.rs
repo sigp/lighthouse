@@ -145,7 +145,7 @@ impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
                 },
                 Protocol::MetaData => match self.protocol.version {
                     Version::V1 => {
-                        if packet.len() > 0 {
+                        if !packet.is_empty() {
                             Err(RPCError::InvalidData)
                         } else {
                             Ok(Some(RPCRequest::MetaData(PhantomData)))

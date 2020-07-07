@@ -5,7 +5,7 @@ use crate::router::processor::status_message;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
-use eth2_libp2p::{Client, NetworkGlobals, PeerId, Request};
+use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -101,37 +101,20 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         self.send_rpc_request(peer_id, Request::BlocksByRoot(request))
     }
 
-    pub fn downvote_peer(&mut self, peer_id: PeerId) {
-        debug!(
-            self.log,
-            "Peer downvoted";
-            "peer" => format!("{:?}", peer_id)
-        );
-        // TODO: Implement reputation
-        // TODO: what if we first close the channel sending a response
-        // RPCResponseErrorCode::InvalidRequest (or something)
-        // and then disconnect the peer? either request dc or let the behaviour have that logic
-        // itself
-        self.disconnect(peer_id, GoodbyeReason::Fault);
+    pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        self.network_send
+            .send(NetworkMessage::GoodbyePeer { peer_id, reason })
+            .unwrap_or_else(|_| {
+                warn!(self.log, "Could not report peer, channel failed");
+            });
     }
 
-    fn disconnect(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        warn!(
-            &self.log,
-            "Disconnecting peer (RPC)";
-            "reason" => format!("{:?}", reason),
-            "peer_id" => format!("{:?}", peer_id),
-        );
-
-        // ignore the error if the channel send fails
-        let _ = self.send_rpc_request(peer_id.clone(), Request::Goodbye(reason));
+    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
+        debug!(self.log, "Sync reporting peer"; "peer_id" => peer_id.to_string(), "action"=> action.to_string());
         self.network_send
-            .send(NetworkMessage::Disconnect { peer_id })
+            .send(NetworkMessage::ReportPeer { peer_id, action })
             .unwrap_or_else(|_| {
-                warn!(
-                    self.log,
-                    "Could not send a Disconnect to the network service"
-                )
+                warn!(self.log, "Could not report peer, channel failed");
             });
     }
 

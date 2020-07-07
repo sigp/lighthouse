@@ -80,6 +80,7 @@ pub enum DelegateError<TSpec: EthSpec> {
     Gossipsub(<GossipHandler as ProtocolsHandler>::Error),
     RPC(<RPCHandler<TSpec> as ProtocolsHandler>::Error),
     Identify(<IdentifyHandler as ProtocolsHandler>::Error),
+    Disconnected,
 }
 
 impl<TSpec: EthSpec> std::error::Error for DelegateError<TSpec> {}
@@ -93,6 +94,7 @@ impl<TSpec: EthSpec> std::fmt::Display for DelegateError<TSpec> {
             DelegateError::Gossipsub(err) => err.fmt(formater),
             DelegateError::RPC(err) => err.fmt(formater),
             DelegateError::Identify(err) => err.fmt(formater),
+            DelegateError::Disconnected => write!(formater, "Disconnected"),
         }
     }
 }
@@ -135,11 +137,10 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
         let rpc_proto = self.rpc_handler.listen_protocol();
         let identify_proto = self.identify_handler.listen_protocol();
 
-        let timeout = gossip_proto
+        let timeout = *gossip_proto
             .timeout()
             .max(rpc_proto.timeout())
-            .max(identify_proto.timeout())
-            .clone();
+            .max(identify_proto.timeout());
 
         let select = SelectUpgrade::new(
             gossip_proto.into_upgrade().1,
@@ -317,7 +318,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             }
             Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                    protocol: protocol.map_upgrade(|u| EitherUpgrade::A(u)),
+                    protocol: protocol.map_upgrade(EitherUpgrade::A),
                     info: EitherOutput::First(info),
                 });
             }

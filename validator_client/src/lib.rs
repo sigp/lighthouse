@@ -18,6 +18,7 @@ use config::SLASHING_PROTECTION_FILENAME;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use fork_service::{ForkService, ForkServiceBuilder};
+use futures::channel::mpsc;
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{error, info, warn, Logger};
@@ -208,7 +209,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .build()?;
 
         let block_service = BlockServiceBuilder::new()
-            .duties_service(duties_service.clone())
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_node(beacon_node.clone())
@@ -234,9 +234,15 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     }
 
     pub fn start_service(&mut self) -> Result<(), String> {
+        // We use `SLOTS_PER_EPOCH` as the capacity of the block notification channel, because
+        // we don't except notifications to be delayed by more than a single slot, let alone a
+        // whole epoch!
+        let channel_capacity = T::slots_per_epoch() as usize;
+        let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
+
         self.duties_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service(block_service_tx, &self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start duties service: {}", e))?;
 
         self.fork_service
@@ -246,7 +252,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.block_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service(block_service_rx)
             .map_err(|e| format!("Unable to start block service: {}", e))?;
 
         self.attestation_service

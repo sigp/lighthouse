@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+      - staging
+      - trying
   pull_request:
 
 jobs:
@@ -108,27 +110,27 @@ jobs:
     - name: Lint code for quality and style with Clippy
       run: make lint
   arbitrary-check:
-   runs-on: ubuntu-latest
-   needs: cargo-fmt
-   steps:
-   - uses: actions/checkout@v1
-   - name: Validate state_processing feature arbitrary-fuzz
-     run:  make arbitrary-fuzz
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Validate state_processing feature arbitrary-fuzz
+      run:  make arbitrary-fuzz
   cargo-audit:
-   runs-on: ubuntu-latest
-   needs: cargo-fmt
-   steps:
-   - uses: actions/checkout@v1
-   - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
-     run:  make audit
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
+      run:  make audit
   cargo-udeps:
-   runs-on: ubuntu-latest
-   needs: cargo-fmt
-   steps:
-   - uses: actions/checkout@v1
-   - name: Get latest version of nightly Rust
-     run: rustup update nightly
-   - name: Install cargo-udeps
-     run: cargo install cargo-udeps --locked
-   - name: Run cargo udeps to identify unused crates in the dependency graph
-     run: make udeps
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of nightly Rust
+      run: rustup update nightly
+    - name: Install cargo-udeps
+      run: cargo install cargo-udeps --locked
+    - name: Run cargo udeps to identify unused crates in the dependency graph
+      run: make udeps

@@ -510,7 +510,13 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.12.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
+        // Proposer indices are only known for the current epoch, due to the dependence on the
+        // effective balances of validators, which change at every epoch transition.
         let epoch = slot.epoch(T::slots_per_epoch());
+        if epoch != self.current_epoch() {
+            return Err(Error::SlotOutOfBounds);
+        }
+
         let seed = self.get_beacon_proposer_seed(slot, spec)?;
         let indices = self.get_active_validator_indices(epoch, spec)?;
 

@@ -90,7 +90,7 @@ impl QueryType {
     pub fn min_ttl(&self) -> Option<Instant> {
         match self {
             Self::FindPeers => None,
-            Self::Subnet { min_ttl, .. } => min_ttl.clone(),
+            Self::Subnet { min_ttl, .. } => *min_ttl,
         }
     }
 }
@@ -197,7 +197,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 debug!(
                     log,
                     "Could not add peer to the local routing table";
-                    "error" => format!("{}", e)
+                    "error" => e.to_string()
                 )
             });
         }
@@ -267,7 +267,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             debug!(
                 self.log,
                 "Could not add peer to the local routing table";
-                "error" => format!("{}", e)
+                "error" => e.to_string()
             )
         }
     }
@@ -350,7 +350,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY, enr_fork_id.as_ssz_bytes())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -452,11 +452,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     // Returns a boolean indicating if we are currently processing the maximum number of
     // concurrent queries or not.
     fn at_capacity(&self) -> bool {
-        if self.active_queries.len() >= MAX_CONCURRENT_QUERIES {
-            true
-        } else {
-            false
-        }
+        self.active_queries.len() >= MAX_CONCURRENT_QUERIES
     }
 
     /// Runs a discovery request for a given subnet_id if one already exists.
@@ -526,7 +522,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             QueryType::Subnet { subnet_id, .. } => {
                 // build the subnet predicate as a combination of the eth2_fork_predicate and the
                 // subnet predicate
-                let subnet_predicate = subnet_predicate::<TSpec>(subnet_id.clone(), &self.log);
+                let subnet_predicate = subnet_predicate::<TSpec>(*subnet_id, &self.log);
                 Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && subnet_predicate(enr))
             }
         };
@@ -645,6 +641,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             // to disk.
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
+                            // update  network globals
+                            *self.network_globals.local_enr.write() = enr;
                             return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
                         }
                         _ => {} // Ignore all other discv5 server events
