@@ -7,6 +7,7 @@ use crate::{
     Error, Hash256, SecretHash,
 };
 pub use milagro_bls as milagro;
+use std::iter::ExactSizeIterator;
 /*
 pub use milagro_bls::{
     AggregatePublicKey as PublicKey, AggregateSignature as Signature, PublicKey as SinglePublicKey,
@@ -24,49 +25,40 @@ pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
 >;
 
 pub fn verify_signature_sets<'a>(
-    signature_sets: impl Iterator<Item = &'a SignatureSet<'a>>,
+    signature_sets: impl ExactSizeIterator<Item = &'a SignatureSet<'a>>,
 ) -> bool {
-    let aggregates = signature_sets
+    if signature_sets.len() == 0 {
+        return false;
+    }
+
+    signature_sets
         .map(|signature_set| {
-            let mut aggregate = milagro::AggregatePublicKey::new();
-            for signing_key in &signature_set.signing_keys {
+            let mut aggregate = milagro::AggregatePublicKey::from_public_key(
+                signature_set.signing_keys.first().ok_or(())?.point(),
+            );
+            for signing_key in signature_set.signing_keys.iter().skip(1) {
                 aggregate.add(signing_key.point())
             }
-            // aggregate
-            (
+            Ok((
                 signature_set.signature.as_ref(),
                 aggregate,
                 signature_set.message,
+            ))
+        })
+        .collect::<Result<Vec<_>, ()>>()
+        .map(|aggregates| {
+            milagro::AggregateSignature::verify_multiple_aggregate_signatures(
+                &mut rand::thread_rng(),
+                aggregates.iter().map(|(signature, aggregate, message)| {
+                    (
+                        signature.point().expect("FIXME: PAUL H"),
+                        aggregate,
+                        message.as_bytes(),
+                    )
+                }),
             )
         })
-        .collect::<Vec<_>>();
-
-    /*
-    let iter = signature_sets
-        .zip(aggregates.iter())
-        .map(|(signature_set, aggregate)| {
-            (
-                signature_set.signature.point().expect("FIXME"),
-                aggregate,
-                signature_set.message.as_bytes(),
-            )
-        });
-    */
-
-    milagro::AggregateSignature::verify_multiple_aggregate_signatures(
-        &mut rand::thread_rng(),
-        aggregates.iter().map(|(signature, aggregate, message)| {
-            (
-                signature.point().expect("FIXME: PAUL H"),
-                aggregate,
-                message.as_bytes(),
-            )
-        }), /*
-            flattened_sets
-                .iter()
-                .map(|(signature, aggregate, message)| (*signature, aggregate, message.as_bytes())),
-            */
-    )
+        .unwrap_or(false)
 }
 
 impl TPublicKey for milagro::PublicKey {
@@ -161,6 +153,16 @@ impl TAggregateSignature<milagro::PublicKey, milagro::AggregatePublicKey, milagr
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         self.fast_aggregate_verify(msg.as_bytes(), &pubkeys)
+    }
+
+    fn aggregate_verify(
+        &self,
+        msgs: &[Hash256],
+        pubkeys: &[&PublicKey<milagro::PublicKey>],
+    ) -> bool {
+        let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
+        let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();
+        self.aggregate_verify(&msgs, &pubkeys)
     }
 }
 

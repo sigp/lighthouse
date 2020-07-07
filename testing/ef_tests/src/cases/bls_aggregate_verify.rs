@@ -1,9 +1,8 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{verify_signature_sets, AggregateSignature, PublicKey, SignatureSet};
+use bls::{AggregateSignature, PublicKey};
 use serde_derive::Deserialize;
-use std::borrow::Cow;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,37 +27,22 @@ impl Case for BlsAggregateVerify {
             .messages
             .iter()
             .map(|message| {
-                hex::decode(&message[2..]).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+                let bytes = hex::decode(&message[2..])
+                    .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+                Ok(Hash256::from_slice(&bytes))
             })
-            .collect::<Result<Vec<Vec<_>>, _>>()?;
-
-        let message_refs = messages
-            .iter()
-            .map(|x| x.as_slice())
-            .collect::<Vec<&[u8]>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let pubkey_refs = self.input.pubkeys.iter().collect::<Vec<_>>();
 
-        let signature_ok = hex::decode(&self.input.signature[2..])
-            .ok()
-            .and_then(|bytes: Vec<u8>| AggregateSignature::deserialize(&bytes).ok())
-            .map(|signature| {
-                let signature_sets = message_refs
-                    .into_iter()
-                    .zip(pubkey_refs.into_iter())
-                    .map(|(message, pubkey)| {
-                        SignatureSet::single(
-                            &signature,
-                            Cow::Borrowed(pubkey),
-                            Hash256::from_slice(message),
-                        )
-                    })
-                    .collect::<Vec<_>>();
+        let signature_bytes = hex::decode(&self.input.signature[2..])
+            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-                verify_signature_sets(signature_sets.iter())
-            })
+        let signature_valid = AggregateSignature::deserialize(&signature_bytes)
+            .ok()
+            .map(|signature| signature.aggregate_verify(&messages, &pubkey_refs))
             .unwrap_or(false);
 
-        compare_result::<bool, ()>(&Ok(signature_ok), &Some(self.output))
+        compare_result::<bool, ()>(&Ok(signature_valid), &Some(self.output))
     }
 }

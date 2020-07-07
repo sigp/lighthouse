@@ -27,6 +27,9 @@ pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 
     fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool;
+
+    // Note: this only exists for tests.
+    fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&PublicKey<Pub>]) -> bool;
 }
 
 #[derive(Clone, PartialEq)]
@@ -116,6 +119,13 @@ where
     pub fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool {
         match self.point.as_ref() {
             Some(point) => point.fast_aggregate_verify(msg, pubkeys),
+            None => false,
+        }
+    }
+
+    pub fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&PublicKey<Pub>]) -> bool {
+        match self.point.as_ref() {
+            Some(point) => point.aggregate_verify(msgs, pubkeys),
             None => false,
         }
     }

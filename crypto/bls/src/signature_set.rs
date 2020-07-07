@@ -51,46 +51,6 @@ where
     }
 }
 
-/*
-#[derive(Clone)]
-pub enum GenericSignature<'a, Pub, AggPub, Sig, AggSig>
-where
-    Pub: TPublicKey + Clone,
-    AggPub: Clone,
-    Sig: Clone,
-    AggSig: Clone,
-{
-    Signature(&'a Signature<Pub, Sig>),
-    AggregateSignature(&'a AggregateSignature<Pub, AggPub, Sig, AggSig>),
-}
-
-impl<'a, Pub, AggPub, Sig, AggSig> Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>
-    for &'a Signature<Pub, Sig>
-where
-    Pub: TPublicKey + Clone,
-    AggPub: Clone,
-    Sig: Clone,
-    AggSig: Clone,
-{
-    fn into(self) -> GenericSignature<'a, Pub, AggPub, Sig, AggSig> {
-        GenericSignature::Signature(self)
-    }
-}
-
-impl<'a, Pub, AggPub, Sig, AggSig> Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>
-    for &'a AggregateSignature<Pub, AggPub, Sig, AggSig>
-where
-    Pub: TPublicKey + Clone,
-    AggPub: Clone,
-    Sig: Clone,
-    AggSig: Clone,
-{
-    fn into(self) -> GenericSignature<'a, Pub, AggPub, Sig, AggSig> {
-        GenericSignature::AggregateSignature(self)
-    }
-}
-*/
-
 #[derive(Clone)]
 pub struct SignatureSet<'a, Pub, AggPub, Sig, AggSig>
 where
