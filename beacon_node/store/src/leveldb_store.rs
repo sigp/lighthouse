@@ -37,9 +37,49 @@ impl<E: EthSpec> LevelDB<E> {
     fn write_options(&self) -> WriteOptions {
         WriteOptions::new()
     }
+
+    fn write_options_sync(&self) -> WriteOptions {
+        let mut opts = WriteOptions::new();
+        opts.sync = true;
+        opts
+    }
+
+    fn put_bytes_with_options(
+        &self,
+        col: &str,
+        key: &[u8],
+        val: &[u8],
+        opts: WriteOptions,
+    ) -> Result<(), Error> {
+        let column_key = get_key_for_col(col, key);
+
+        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
+        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
+        let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
+
+        self.db
+            .put(opts, BytesKey::from_vec(column_key), val)
+            .map_err(Into::into)
+            .map(|()| {
+                metrics::stop_timer(timer);
+            })
+    }
 }
 
 impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
+    /// Store some `value` in `column`, indexed with `key`.
+    fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+        self.put_bytes_with_options(col, key, val, self.write_options())
+    }
+
+    fn put_bytes_sync(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+        self.put_bytes_with_options(col, key, val, self.write_options_sync())
+    }
+
+    fn sync(&self) -> Result<(), Error> {
+        self.put_bytes_sync("sync", "sync".as_bytes(), "sync".as_bytes())
+    }
+
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = get_key_for_col(col, key);
@@ -56,22 +96,6 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
                     metrics::stop_timer(timer);
                     bytes
                 })
-            })
-    }
-
-    /// Store some `value` in `column`, indexed with `key`.
-    fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
-        let column_key = get_key_for_col(col, key);
-
-        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as i64);
-        let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
-
-        self.db
-            .put(self.write_options(), BytesKey::from_vec(column_key), val)
-            .map_err(Into::into)
-            .map(|()| {
-                metrics::stop_timer(timer);
             })
     }
 
