@@ -10,6 +10,17 @@ pub use milagro_bls as milagro;
 use rand::thread_rng;
 use std::iter::ExactSizeIterator;
 
+/// Provides the externally-facing, core BLS types.
+pub mod types {
+    pub use super::milagro::AggregatePublicKey;
+    pub use super::milagro::AggregateSignature;
+    pub use super::milagro::PublicKey;
+    pub use super::milagro::SecretKey;
+    pub use super::milagro::Signature;
+    pub use super::verify_signature_sets;
+    pub use super::SignatureSet;
+}
+
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
     'a,
     milagro::PublicKey,

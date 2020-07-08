@@ -2,54 +2,6 @@ mod blst;
 mod fake_crypto;
 mod milagro;
 
-pub mod milagro_implementations {
-    pub use super::milagro::{verify_signature_sets, SignatureSet};
-
-    use super::milagro::milagro;
-
-    pub type PublicKey = crate::public_key::PublicKey<milagro::PublicKey>;
-    pub type AggregatePublicKey =
-        crate::aggregate_public_key::AggregatePublicKey<milagro::AggregatePublicKey>;
-    pub type PublicKeyBytes = crate::public_key_bytes::PublicKeyBytes<milagro::PublicKey>;
-    pub type Signature = crate::signature::Signature<milagro::PublicKey, milagro::Signature>;
-    pub type AggregateSignature = crate::aggregate_signature::AggregateSignature<
-        milagro::PublicKey,
-        milagro::AggregatePublicKey,
-        milagro::Signature,
-        milagro::AggregateSignature,
-    >;
-    pub type SignatureBytes =
-        crate::signature_bytes::SignatureBytes<milagro::PublicKey, milagro::Signature>;
-    pub type SecretKey =
-        crate::secret_key::SecretKey<milagro::Signature, milagro::PublicKey, milagro::SecretKey>;
-    pub type Keypair =
-        crate::keypair::Keypair<milagro::PublicKey, milagro::SecretKey, milagro::Signature>;
-}
-
-pub mod blst_implementations {
-    pub use super::blst::{verify_signature_sets, SignatureSet};
-
-    use super::blst::types;
-
-    pub type PublicKey = crate::public_key::PublicKey<types::PublicKey>;
-    pub type AggregatePublicKey =
-        crate::aggregate_public_key::AggregatePublicKey<types::AggregatePublicKey>;
-    pub type PublicKeyBytes = crate::public_key_bytes::PublicKeyBytes<types::PublicKey>;
-    pub type Signature = crate::signature::Signature<types::PublicKey, types::Signature>;
-    pub type AggregateSignature = crate::aggregate_signature::AggregateSignature<
-        types::PublicKey,
-        types::AggregatePublicKey,
-        types::Signature,
-        types::AggregateSignature,
-    >;
-    pub type SignatureBytes =
-        crate::signature_bytes::SignatureBytes<types::PublicKey, types::Signature>;
-    pub type SecretKey =
-        crate::secret_key::SecretKey<types::Signature, types::PublicKey, types::SecretKey>;
-    pub type Keypair =
-        crate::keypair::Keypair<types::PublicKey, types::SecretKey, types::Signature>;
-}
-
 macro_rules! define_mod {
     ($name: ident, $mod: path) => {
         pub mod $name {
@@ -88,6 +40,10 @@ macro_rules! define_mod {
     };
 }
 
+define_mod!(milagro_implementations, super::milagro::types);
+define_mod!(blst_implementations, super::blst::types);
+define_mod!(fake_crypto_implementations, super::fake_crypto::types);
+
 #[cfg(all(
     feature = "milagro",
     not(feature = "fake_crypto"),
@@ -102,6 +58,5 @@ pub use milagro_implementations::*;
 ))]
 pub use blst_implementations::*;
 
-define_mod!(fake_crypto_implementations, super::fake_crypto);
 #[cfg(feature = "fake_crypto")]
 pub use fake_crypto_implementations::*;
