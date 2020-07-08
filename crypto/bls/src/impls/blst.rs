@@ -55,7 +55,12 @@ pub fn verify_signature_sets<'a>(
 
     let sigs_result = sets
         .iter()
-        .map(|s| s.signature.point().ok_or(()).map(|s| s.0.to_signature()))
+        .map(|s| {
+            s.signature
+                .point()
+                .ok_or(())
+                .map(|s| s.0.as_ref().expect("FIXME: Paul H").to_signature())
+        })
         .collect::<Result<Vec<_>, ()>>();
 
     let sigs = if let Ok(sigs) = sigs_result {
@@ -162,19 +167,27 @@ impl TSignature<blst_core::PublicKey> for blst_core::Signature {
 }
 
 /// A wrapper that allows for `PartialEq` and `Clone` impls.
-pub struct BlstAggregateSignature(blst_core::AggregateSignature);
+pub struct BlstAggregateSignature(Option<blst_core::AggregateSignature>);
 
 impl Clone for BlstAggregateSignature {
     fn clone(&self) -> Self {
-        Self(blst_core::AggregateSignature::from_signature(
-            &self.0.to_signature() as *const blst_core::Signature,
-        ))
+        if let Some(agg_sig) = self.0 {
+            Self(Some(blst_core::AggregateSignature::from_signature(
+                &agg_sig.to_signature() as *const blst_core::Signature,
+            )))
+        } else {
+            Self(None)
+        }
     }
 }
 
 impl PartialEq for BlstAggregateSignature {
     fn eq(&self, other: &Self) -> bool {
-        self.0.to_signature() == other.0.to_signature()
+        match (self.0, other.0) {
+            (Some(a), Some(b)) => a.to_signature() == b.to_signature(),
+            (None, None) => true,
+            _ => false,
+        }
     }
 }
 
@@ -182,19 +195,34 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     for BlstAggregateSignature
 {
     fn zero() -> Self {
-        todo!("blst_core zero")
+        Self(None)
     }
 
     fn add_assign(&mut self, other: &blst_core::Signature) {
-        self.0.add_signature(other)
+        if let Some(mut agg_sig) = self.0 {
+            agg_sig.add_signature(other)
+        } else {
+            self.0 = Some(blst_core::AggregateSignature::aggregate(&[other]))
+        }
     }
 
     fn add_assign_aggregate(&mut self, other: &Self) {
-        self.0.add_aggregate(&other.0)
+        if let Some(other) = other.0 {
+            if let Some(mut agg_sig) = self.0 {
+                agg_sig.add_aggregate(&other)
+            } else {
+                // TODO: double check that I can just use the other aggregate here.
+                self.0 = Some(other.clone())
+            }
+        }
     }
 
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
-        self.0.to_signature().to_bytes()
+        if let Some(agg_sig) = self.0 {
+            agg_sig.to_signature().to_bytes()
+        } else {
+            [0; SIGNATURE_BYTES_LEN]
+        }
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
@@ -203,6 +231,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
             .map(|sig| {
                 blst_core::AggregateSignature::from_signature(&sig as *const blst_core::Signature)
             })
+            .map(Some)
             .map(Self)
     }
 
@@ -211,9 +240,14 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
         msg: Hash256,
         pubkeys: &[&PublicKey<blst_core::PublicKey>],
     ) -> bool {
-        let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
-        let signature = self.clone().0.to_signature();
-        signature.fast_aggregate_verify(msg.as_bytes(), DST, &pubkeys) == BLST_ERROR::BLST_SUCCESS
+        if let Some(agg_sig) = self.0 {
+            let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
+            let signature = agg_sig.clone().to_signature();
+            signature.fast_aggregate_verify(msg.as_bytes(), DST, &pubkeys)
+                == BLST_ERROR::BLST_SUCCESS
+        } else {
+            false
+        }
     }
 
     fn aggregate_verify(
@@ -221,10 +255,14 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
         msgs: &[Hash256],
         pubkeys: &[&PublicKey<blst_core::PublicKey>],
     ) -> bool {
-        let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
-        let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();
-        let signature = self.clone().0.to_signature();
-        signature.aggregate_verify(&msgs, DST, &pubkeys) == BLST_ERROR::BLST_SUCCESS
+        if let Some(agg_sig) = self.0 {
+            let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
+            let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();
+            let signature = agg_sig.clone().to_signature();
+            signature.aggregate_verify(&msgs, DST, &pubkeys) == BLST_ERROR::BLST_SUCCESS
+        } else {
+            false
+        }
     }
 }
 
