@@ -6,6 +6,16 @@ use crate::{
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, SecretHash,
 };
+/// Provides the externally-facing, core BLS types.
+pub mod types {
+    pub use super::verify_signature_sets;
+    pub use super::AggregatePublicKey;
+    pub use super::AggregateSignature;
+    pub use super::PublicKey;
+    pub use super::SecretKey;
+    pub use super::Signature;
+    pub use super::SignatureSet;
+}
 
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
     'a,

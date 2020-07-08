@@ -29,28 +29,25 @@ pub mod milagro_implementations {
 pub mod blst_implementations {
     pub use super::blst::{verify_signature_sets, SignatureSet};
 
-    use super::blst::blst_core;
+    use super::blst::types;
 
-    pub type PublicKey = crate::public_key::PublicKey<blst_core::PublicKey>;
+    pub type PublicKey = crate::public_key::PublicKey<types::PublicKey>;
     pub type AggregatePublicKey =
-        crate::aggregate_public_key::AggregatePublicKey<blst_core::AggregatePublicKey>;
-    pub type PublicKeyBytes = crate::public_key_bytes::PublicKeyBytes<blst_core::PublicKey>;
-    pub type Signature = crate::signature::Signature<blst_core::PublicKey, blst_core::Signature>;
+        crate::aggregate_public_key::AggregatePublicKey<types::AggregatePublicKey>;
+    pub type PublicKeyBytes = crate::public_key_bytes::PublicKeyBytes<types::PublicKey>;
+    pub type Signature = crate::signature::Signature<types::PublicKey, types::Signature>;
     pub type AggregateSignature = crate::aggregate_signature::AggregateSignature<
-        blst_core::PublicKey,
-        blst_core::AggregatePublicKey,
-        blst_core::Signature,
-        blst_core::AggregateSignature,
+        types::PublicKey,
+        types::AggregatePublicKey,
+        types::Signature,
+        types::AggregateSignature,
     >;
     pub type SignatureBytes =
-        crate::signature_bytes::SignatureBytes<blst_core::PublicKey, blst_core::Signature>;
-    pub type SecretKey = crate::secret_key::SecretKey<
-        blst_core::Signature,
-        blst_core::PublicKey,
-        blst_core::SecretKey,
-    >;
+        crate::signature_bytes::SignatureBytes<types::PublicKey, types::Signature>;
+    pub type SecretKey =
+        crate::secret_key::SecretKey<types::Signature, types::PublicKey, types::SecretKey>;
     pub type Keypair =
-        crate::keypair::Keypair<blst_core::PublicKey, blst_core::SecretKey, blst_core::Signature>;
+        crate::keypair::Keypair<types::PublicKey, types::SecretKey, types::Signature>;
 }
 
 macro_rules! define_mod {

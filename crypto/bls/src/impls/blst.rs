@@ -14,12 +14,23 @@ use std::iter::ExactSizeIterator;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 
+/// Provides the externally-facing, core BLS types.
+pub mod types {
+    pub use super::blst_core::PublicKey;
+    pub use super::blst_core::SecretKey;
+    pub use super::blst_core::Signature;
+    pub use super::verify_signature_sets;
+    pub use super::BlstAggregatePublicKey as AggregatePublicKey;
+    pub use super::BlstAggregateSignature as AggregateSignature;
+    pub use super::SignatureSet;
+}
+
 pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
     'a,
     blst_core::PublicKey,
-    blst_core::AggregatePublicKey,
+    BlstAggregatePublicKey,
     blst_core::Signature,
-    blst_core::AggregateSignature,
+    BlstAggregateSignature,
 >;
 
 pub fn verify_signature_sets<'a>(
@@ -44,7 +55,7 @@ pub fn verify_signature_sets<'a>(
 
     let sigs_result = sets
         .iter()
-        .map(|s| s.signature.point().ok_or(()).map(|s| s.to_signature()))
+        .map(|s| s.signature.point().ok_or(()).map(|s| s.0.to_signature()))
         .collect::<Result<Vec<_>, ()>>();
 
     let sigs = if let Ok(sigs) = sigs_result {
@@ -92,7 +103,24 @@ impl TPublicKey for blst_core::PublicKey {
     }
 }
 
-impl TAggregatePublicKey for blst_core::AggregatePublicKey {
+/// A wrapper that allows for `PartialEq` and `Clone` impls.
+pub struct BlstAggregatePublicKey(blst_core::AggregatePublicKey);
+
+impl Clone for BlstAggregatePublicKey {
+    fn clone(&self) -> Self {
+        Self(blst_core::AggregatePublicKey::from_public_key(
+            &self.0.to_public_key() as *const blst_core::PublicKey,
+        ))
+    }
+}
+
+impl PartialEq for BlstAggregatePublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_public_key() == other.0.to_public_key()
+    }
+}
+
+impl TAggregatePublicKey for BlstAggregatePublicKey {
     fn zero() -> Self {
         unsafe { std::mem::MaybeUninit::<Self>::zeroed().assume_init() }
     }
@@ -106,13 +134,16 @@ impl TAggregatePublicKey for blst_core::AggregatePublicKey {
     }
 
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
-        self.to_public_key().compress()
+        self.0.to_public_key().compress()
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         blst_core::PublicKey::from_bytes(&bytes)
             .map_err(Into::into)
-            .map(|pk| Self::from_public_key(&pk as *const blst_core::PublicKey))
+            .map(|pk| {
+                blst_core::AggregatePublicKey::from_public_key(&pk as *const blst_core::PublicKey)
+            })
+            .map(Self)
     }
 }
 
@@ -130,23 +161,40 @@ impl TSignature<blst_core::PublicKey> for blst_core::Signature {
     }
 }
 
-impl TAggregateSignature<blst_core::PublicKey, blst_core::AggregatePublicKey, blst_core::Signature>
-    for blst_core::AggregateSignature
+/// A wrapper that allows for `PartialEq` and `Clone` impls.
+pub struct BlstAggregateSignature(blst_core::AggregateSignature);
+
+impl Clone for BlstAggregateSignature {
+    fn clone(&self) -> Self {
+        Self(blst_core::AggregateSignature::from_signature(
+            &self.0.to_signature() as *const blst_core::Signature,
+        ))
+    }
+}
+
+impl PartialEq for BlstAggregateSignature {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_signature() == other.0.to_signature()
+    }
+}
+
+impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core::Signature>
+    for BlstAggregateSignature
 {
     fn zero() -> Self {
         todo!("blst_core zero")
     }
 
     fn add_assign(&mut self, other: &blst_core::Signature) {
-        self.add_signature(other)
+        self.0.add_signature(other)
     }
 
     fn add_assign_aggregate(&mut self, other: &Self) {
-        self.add_aggregate(other)
+        self.0.add_aggregate(&other.0)
     }
 
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
-        self.to_signature().to_bytes()
+        self.0.to_signature().to_bytes()
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
@@ -155,6 +203,7 @@ impl TAggregateSignature<blst_core::PublicKey, blst_core::AggregatePublicKey, bl
             .map(|sig| {
                 blst_core::AggregateSignature::from_signature(&sig as *const blst_core::Signature)
             })
+            .map(Self)
     }
 
     fn fast_aggregate_verify(
@@ -163,7 +212,7 @@ impl TAggregateSignature<blst_core::PublicKey, blst_core::AggregatePublicKey, bl
         pubkeys: &[&PublicKey<blst_core::PublicKey>],
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
-        let signature = self.clone().to_signature();
+        let signature = self.clone().0.to_signature();
         signature.fast_aggregate_verify(msg.as_bytes(), DST, &pubkeys) == BLST_ERROR::BLST_SUCCESS
     }
 
@@ -174,7 +223,7 @@ impl TAggregateSignature<blst_core::PublicKey, blst_core::AggregatePublicKey, bl
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();
-        let signature = self.clone().to_signature();
+        let signature = self.clone().0.to_signature();
         signature.aggregate_verify(&msgs, DST, &pubkeys) == BLST_ERROR::BLST_SUCCESS
     }
 }
