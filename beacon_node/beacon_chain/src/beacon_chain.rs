@@ -1638,10 +1638,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
         };
 
-        let mut graffiti: Graffiti = Graffiti::default();
-        // Panic-free because graffiti and self.graffiti are both `Graffiti`.
-        graffiti.copy_from_slice(&self.graffiti);
-
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
@@ -1651,7 +1647,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 body: BeaconBlockBody {
                     randao_reveal,
                     eth1_data,
-                    graffiti,
+                    graffiti: self.graffiti.clone(),
                     proposer_slashings: proposer_slashings.into(),
                     attester_slashings: attester_slashings.into(),
                     attestations: self
