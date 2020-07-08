@@ -4,6 +4,7 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
+use hyper;
 use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
@@ -218,6 +219,15 @@ pub fn get_config<E: EthSpec>(
         client_config.rest_api.port = port
             .parse::<u16>()
             .map_err(|_| "http-port is not a valid u16.")?;
+    }
+
+    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
+        hyper::header::HeaderValue::from_str(allow_origin)
+            .map_err(|_| "Invalid allow-origin value")?;
+
+        client_config.rest_api.allow_origin = allow_origin.to_string();
     }
 
     /*
