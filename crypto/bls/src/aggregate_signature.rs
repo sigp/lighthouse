@@ -127,6 +127,10 @@ where
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
     pub fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool {
+        if pubkeys.is_empty() {
+            return false;
+        }
+
         match self.point.as_ref() {
             Some(point) => point.fast_aggregate_verify(msg, pubkeys),
             None => false,
@@ -134,6 +138,10 @@ where
     }
 
     pub fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&PublicKey<Pub>]) -> bool {
+        if msgs.is_empty() || msgs.len() != pubkeys.len() {
+            return false;
+        }
+
         match self.point.as_ref() {
             Some(point) => point.aggregate_verify(msgs, pubkeys),
             None => false,
