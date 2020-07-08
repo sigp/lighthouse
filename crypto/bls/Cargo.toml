@@ -23,7 +23,7 @@ blst = { git = "https://github.com/sigp/blst.git", branch = "more-traits" }
 rand_chacha = "0.2"
 
 [features]
-default = ["milagro"]
+default = ["supranatural"]
 fake_crypto = []
 milagro = []
 supranatural = []
