@@ -13,6 +13,7 @@ use rand_chacha::ChaCha20Rng;
 use std::iter::ExactSizeIterator;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
+pub const RAND_BITS: usize = 64;
 
 /// Provides the externally-facing, core BLS types.
 pub mod types {
@@ -68,6 +69,7 @@ pub fn verify_signature_sets<'a>(
         .iter()
         .map(|set| {
             // TODO: check for empty singing keys vec.
+            assert!(!set.signing_keys.is_empty());
 
             let signing_keys = set
                 .signing_keys
@@ -87,7 +89,7 @@ pub fn verify_signature_sets<'a>(
     let pks_refs: Vec<&blst_core::PublicKey> = pks.iter().collect();
 
     let err = blst_core::Signature::verify_multiple_aggregate_signatures(
-        &msgs_refs, DST, &pks_refs, &sig_refs, &rands, 64,
+        &msgs_refs, DST, &pks_refs, &sig_refs, &rands, RAND_BITS,
     );
 
     err == blst::BLST_ERROR::BLST_SUCCESS
