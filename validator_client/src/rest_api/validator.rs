@@ -230,7 +230,7 @@ pub async fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
         Err(ApiError::ServerError(
             "Invalid public key returned from beacon chain api".into(),
         ))
-    };
+    }?;
 
     bn1.http
         .validator()

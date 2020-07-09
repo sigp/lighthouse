@@ -60,4 +60,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       node is not synced.",
                 ),
         )
+        .arg(
+            Arg::with_name("http")
+                .long("http")
+                .help("Enable RESTful HTTP API server. Disabled by default.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("http-address")
+                .long("http-address")
+                .value_name("ADDRESS")
+                .help("Set the listen address for the RESTful HTTP API server.")
+                .default_value("127.0.0.1")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("http-port")
+                .long("http-port")
+                .value_name("PORT")
+                .help("Set the listen TCP port for the RESTful HTTP API server.")
+                .default_value("5054")
+                .takes_value(true),
+        )
 }

@@ -25,7 +25,7 @@ pub use validator::{AddValidatorRequest, ValidatorRequest};
 pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
     config: &Config,
     executor: &TaskExecutor,
-    validator_client: Arc<ValidatorStore<T, E>>,
+    validator_client: ValidatorStore<T, E>,
     beacon_node: RemoteBeaconNode<E>,
     log: slog::Logger,
 ) -> Result<SocketAddr, hyper::Error> {
@@ -34,14 +34,14 @@ pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
         let context = Arc::new(RwLock::new(RouterContext {
-            validator_client: Some(validator_client.clone()),
-            beacon_node: Some(beacon_node),
+            validator_client: Some(Arc::new(validator_client.clone())),
+            beacon_node: Some(beacon_node.clone()),
             log: inner_log.clone(),
         }));
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
-                router::route(req, context)
+                router::route(req, context.clone())
             }))
         }
     });

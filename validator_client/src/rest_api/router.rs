@@ -10,9 +10,9 @@ use std::sync::Arc;
 use types::EthSpec;
 
 pub struct RouterContext<T: SlotClock + 'static, E: EthSpec> {
-    validator_client: Option<Arc<ValidatorStore<T, E>>>,
-    beacon_node: Option<RemoteBeaconNode<E>>,
-    log: Logger,
+    pub validator_client: Option<Arc<ValidatorStore<T, E>>>,
+    pub beacon_node: Option<RemoteBeaconNode<E>>,
+    pub log: Logger,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> RouterContext<T, E> {

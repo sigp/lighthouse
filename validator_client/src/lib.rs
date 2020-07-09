@@ -44,6 +44,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
+    validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     config: Config,
 }
 
@@ -222,7 +223,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock)
-            .validator_store(validator_store)
+            .validator_store(validator_store.clone())
             .beacon_node(beacon_node)
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
@@ -233,6 +234,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             fork_service,
             block_service,
             attestation_service,
+            validator_store,
             config,
         })
     }
@@ -263,6 +265,15 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
+
+        rest_api::start_server(
+            &self.config.rest_api,
+            &self.context.executor,
+            self.validator_store.clone(),
+            self.duties_service.beacon_node.clone(),
+            self.context.log().clone(),
+        )
+        .map_err(|e| format!("Unable to start HTTP server: {}", e))?;
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 

@@ -1,6 +1,8 @@
+use crate::rest_api::Config as RestApiConfig;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
 use serde_derive::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
@@ -27,6 +29,8 @@ pub struct Config {
     pub strict_lockfiles: bool,
     /// If true, don't scan the validators dir for new keystores.
     pub disable_auto_discover: bool,
+    /// Configuration for the HTTP API.
+    pub rest_api: RestApiConfig,
 }
 
 impl Default for Config {
@@ -45,6 +49,7 @@ impl Default for Config {
             allow_unsynced_beacon_node: false,
             strict_lockfiles: false,
             disable_auto_discover: false,
+            rest_api: RestApiConfig::default(),
         }
     }
 }
@@ -78,6 +83,28 @@ impl Config {
 
         if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
             config.secrets_dir = secrets_dir;
+        }
+
+        if !config.secrets_dir.exists() {
+            return Err(format!(
+                "The directory for validator passwords (--secrets-dir) does not exist: {:?}",
+                config.secrets_dir
+            ));
+        }
+
+        if cli_args.is_present("http") {
+            config.rest_api.enabled = true;
+        }
+
+        if let Some(address) = cli_args.value_of("http-address") {
+            config.rest_api.listen_address = address
+                .parse::<Ipv4Addr>()
+                .map_err(|_| "http-address is not a valid IPv4 address.")?;
+        }
+        if let Some(port) = cli_args.value_of("http-port") {
+            config.rest_api.port = port
+                .parse::<u16>()
+                .map_err(|_| "http-port is not a valid u16.")?;
         }
 
         Ok(config)

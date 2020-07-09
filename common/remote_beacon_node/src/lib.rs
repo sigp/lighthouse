@@ -12,7 +12,7 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex,
     Epoch, EthSpec, Fork, Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
 };
 use url::Url;
 
@@ -335,6 +335,27 @@ impl<E: EthSpec> Validator<E> {
         let client = self.0.clone();
         let url = self.url("subscribe")?;
         let response = client.json_post::<_>(url, subscriptions).await?;
+
+        match response.status() {
+            StatusCode::OK => Ok(PublishStatus::Valid),
+            StatusCode::ACCEPTED => Ok(PublishStatus::Invalid(
+                response.text().await.map_err(Error::from)?,
+            )),
+            _ => response
+                .error_for_status()
+                .map_err(Error::from)
+                .map(|_| PublishStatus::Unknown),
+        }
+    }
+
+    /// Posts a `VoluntaryExit` to the beacon node expecting it to publish it to the network.
+    pub async fn publish_voluntary_exit(
+        &self,
+        exit: SignedVoluntaryExit,
+    ) -> Result<PublishStatus, Error> {
+        let client = self.0.clone();
+        let url = self.url("exit")?;
+        let response = client.json_post::<_>(url, exit).await?;
 
         match response.status() {
             StatusCode::OK => Ok(PublishStatus::Valid),

@@ -12,7 +12,8 @@ use std::sync::Arc;
 use tempdir::TempDir;
 use types::{
     Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot,
+    SignedVoluntaryExit, Slot,
 };
 use validator_dir::ValidatorDir;
 
@@ -328,4 +329,81 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             &self.spec,
         ))
     }
+
+    pub fn sign_voluntary_exit(
+        &self,
+        validator_pubkey: &PublicKey,
+        mut voluntary_exit: SignedVoluntaryExit,
+    ) -> Option<SignedVoluntaryExit> {
+        // TODO: check for slashing?
+        todo!("sign voluntary exit");
+        /*
+            self.validators
+                .read()
+                .get(validator_pubkey)
+                .and_then(|validator_dir| {
+                    if !validator_dir.is_active {
+                        warn!(
+                            self.log,
+                            "Requesting block signature for inactive validator"
+                        );
+                        return None;
+                    }
+                    let voting_keypair = validator_dir.directory.voting_keypair.as_ref()?;
+                    voluntary_exit.sign(&voting_keypair.sk, &self.fork()?, &self.spec);
+                    Some(voluntary_exit)
+                })
+        */
+    }
+
+    /*
+    /// Create new validator and add it to list of managed validators.
+    /// Returns the voting `PublicKey` of the validator.
+    pub fn add_validator(
+        &self,
+        deposit_amount: u64,
+        directory: Option<PathBuf>,
+    ) -> Result<PublicKey, String> {
+        // TODO: Get validator directory from config?
+        let directory = directory
+            .or_else(|| dirs::home_dir().map(|home| home.join(".lighthouse").join(VALIDATOR_DIR)))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let validator = ValidatorDirectoryBuilder::default()
+            .spec(self.spec.as_ref().clone())
+            .custom_deposit_amount(deposit_amount)
+            .thread_random_keypairs()
+            .create_directory(directory)?
+            .write_keypair_files()?
+            .write_eth1_data_file()?
+            .build()?;
+        let pk = validator
+            .voting_keypair
+            .clone()
+            .expect("Should have a voting keypair")
+            .pk;
+        let _ = self.validators.write().insert(
+            pk.clone(),
+            Validator {
+                is_active: false, // update status to start validator
+                directory: validator,
+            },
+        );
+        Ok(pk)
+    }
+
+    /// Remove validator from list of managed validators.
+    pub fn remove_validator(&self, validator_pubkey: &PublicKey) -> Option<()> {
+        self.validators.write().remove(validator_pubkey).map(|_| ())
+    }
+
+    /// Sets the status of the validator.
+    pub fn set_validator_status(&self, validator_pubkey: &PublicKey, status: bool) -> Option<()> {
+        if let Some(validator) = self.validators.write().get_mut(validator_pubkey) {
+            validator.is_active = status;
+            Some(())
+        } else {
+            None
+        }
+    }
+    */
 }
