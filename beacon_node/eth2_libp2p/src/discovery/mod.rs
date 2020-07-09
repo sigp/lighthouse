@@ -75,7 +75,7 @@ impl QueryType {
             Self::FindPeers => false,
             Self::Subnet { min_ttl, .. } => {
                 if let Some(ttl) = min_ttl {
-                    ttl > &Instant::now()
+                    ttl < &Instant::now()
                 } else {
                     true
                 }
@@ -471,7 +471,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .count();
 
         if peers_on_subnet > TARGET_SUBNET_PEERS {
-            trace!(self.log, "Discovery ignored";
+            debug!(self.log, "Discovery ignored";
                 "reason" => "Already connected to desired peers",
                 "connected_peers_on_subnet" => peers_on_subnet,
                 "target_subnet_peers" => TARGET_SUBNET_PEERS,
