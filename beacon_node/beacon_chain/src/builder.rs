@@ -400,8 +400,8 @@ where
     }
 
     /// Sets the `graffiti` field.
-    pub fn graffiti(mut self, graffiti: &Graffiti) -> Self {
-        self.graffiti = graffiti.clone();
+    pub fn graffiti(mut self, graffiti: Graffiti) -> Self {
+        self.graffiti = graffiti;
         self
     }
 
