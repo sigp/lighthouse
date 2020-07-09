@@ -6138,6 +6138,8 @@ dependencies = [
  "exit-future",
  "futures 0.3.5",
  "hex 0.4.2",
+ "http 0.2.1",
+ "hyper 0.13.6",
  "libc",
  "logging",
  "parking_lot 0.11.0",
