@@ -4,6 +4,7 @@ mod response_builder;
 mod router;
 mod status;
 mod validator;
+mod wallet;
 
 use crate::ValidatorStore;
 pub use config::Config;

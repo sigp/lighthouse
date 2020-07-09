@@ -2,12 +2,27 @@ use crate::{
     filesystem::{create, Error as FilesystemError},
     LockedWallet,
 };
-use eth2_wallet::{bip39::Mnemonic, Error as WalletError, Uuid, Wallet, WalletBuilder};
+use eth2_wallet::{
+    bip39::{Language, Mnemonic, MnemonicType},
+    Error as WalletError, PlainText, Uuid, Wallet, WalletBuilder,
+};
+use rand::{distributions::Alphanumeric, Rng};
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::ffi::OsString;
+use std::fs::{self, File};
 use std::fs::{create_dir_all, read_dir, OpenOptions};
 use std::io;
+use std::io::prelude::*;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+
+/// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
+/// characters.
+///
+/// 62**48 is greater than 255**32, therefore this password has more bits of entropy than a byte
+/// array of length 32.
+const DEFAULT_PASSWORD_LEN: usize = 48;
 
 #[derive(Debug)]
 pub enum Error {
@@ -25,6 +40,10 @@ pub enum Error {
     MissingWalletDir(PathBuf),
     UnableToCreateLockfile(io::Error),
     UuidMismatch((Uuid, Uuid)),
+    PasswordFileMustEndInPass(PathBuf),
+    UnableToWritePasswordFile(io::Error),
+    UnableToReadPasswordFile(io::Error),
+    UnableToWriteMnemonicFile(io::Error),
 }
 
 impl From<io::Error> for Error {
@@ -102,6 +121,48 @@ impl WalletManager {
                 .get(name)
                 .ok_or_else(|| Error::WalletNameUnknown(name.into()))?,
         )
+    }
+
+    pub fn create_wallet_and_secrets(
+        &self,
+        name: String,
+        wallet_type: WalletType,
+        wallet_password_path: PathBuf,
+        mnemonic_output_path: Option<PathBuf>,
+    ) -> Result<(LockedWallet, Mnemonic), Error> {
+        if self.wallets()?.contains_key(&name) {
+            return Err(Error::NameAlreadyTaken(name));
+        }
+
+        // Create a new random mnemonic.
+        //
+        // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
+        let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+
+        // Create a random password if the file does not exist.
+        if !wallet_password_path.exists() {
+            // To prevent users from accidentally supplying their password to the PASSPHRASE_FLAG and
+            // create a file with that name, we require that the password has a .pass suffix.
+            if wallet_password_path.extension() != Some(&OsStr::new("pass")) {
+                return Err(Error::PasswordFileMustEndInPass(wallet_password_path));
+            }
+
+            create_with_600_perms(&wallet_password_path, random_password().as_bytes())
+                .map_err(Error::UnableToWritePasswordFile)?;
+        }
+        let wallet_password = fs::read(&wallet_password_path)
+            .map_err(Error::UnableToReadPasswordFile)
+            .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+
+        if let Some(path) = mnemonic_output_path {
+            create_with_600_perms(&path, mnemonic.phrase().as_bytes())
+                .map_err(Error::UnableToWriteMnemonicFile)?;
+        }
+
+        let wallet =
+            self.create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())?;
+
+        Ok((wallet, mnemonic))
     }
 
     /// Creates a new wallet with the given `name` in `self.dir` with the given `mnemonic` as a
@@ -184,6 +245,48 @@ impl WalletManager {
 
         Ok(wallets)
     }
+}
+
+/// Creates a file with `600 (-rw-------)` permissions.
+// TODO: move to password_utils crate.
+pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), io::Error> {
+    let path = path.as_ref();
+
+    let mut file = File::create(&path)?;
+
+    let mut perm = file.metadata()?.permissions();
+
+    perm.set_mode(0o600);
+
+    file.set_permissions(perm)?;
+
+    file.write_all(bytes)?;
+
+    Ok(())
+}
+
+// TODO: move to password_utils crate.
+pub fn random_password() -> PlainText {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(DEFAULT_PASSWORD_LEN)
+        .collect::<String>()
+        .into_bytes()
+        .into()
+}
+
+/// Remove any number of newline or carriage returns from the end of a vector of bytes.
+pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
+    let mut strip_off = 0;
+    for (i, byte) in bytes.iter().rev().enumerate() {
+        if *byte == b'\n' || *byte == b'\r' {
+            strip_off = i + 1;
+        } else {
+            break;
+        }
+    }
+    bytes.truncate(bytes.len() - strip_off);
+    bytes
 }
 
 #[cfg(test)]

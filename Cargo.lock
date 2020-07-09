@@ -1638,6 +1638,7 @@ version = "0.1.0"
 dependencies = [
  "eth2_keystore",
  "eth2_wallet",
+ "rand 0.7.3",
  "tempfile",
 ]
 
@@ -6135,6 +6136,8 @@ dependencies = [
  "eth2_keystore",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "eth2_wallet",
+ "eth2_wallet_manager",
  "exit-future",
  "futures 0.3.5",
  "hex 0.4.2",

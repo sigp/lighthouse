@@ -172,7 +172,6 @@ pub async fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
     beacon_node: RemoteBeaconNode<E>,
 ) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
-    let bn1 = beacon_node.clone();
     let body = body::to_bytes(req.into_body())
         .await
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
@@ -232,7 +231,8 @@ pub async fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
         ))
     }?;
 
-    bn1.http
+    beacon_node
+        .http
         .validator()
         .publish_voluntary_exit(signed_exit)
         .await
@@ -246,7 +246,8 @@ pub async fn exit_validator<T: SlotClock + 'static, E: EthSpec>(
                 "Failed to publish voluntary exit. Publish status unknown".into(),
             )),
         })
-        .map_err(|e| ApiError::ServerError(format!("RemoteBeaconNode api error: {:?}", e)))?;
+        .map_err(|e| ApiError::ServerError(format!("RemoteBeaconNode api error: {:?}", e)))??;
+
     response_builder?.body_empty()
 }
 
