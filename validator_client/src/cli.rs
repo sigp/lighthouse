@@ -28,6 +28,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("wallets-dir")
+                .long("wallets-dir")
+                .value_name("WALLETS_DIRECTORY")
+                .help(
+                    "The directory which contains Lighthouse wallets. Only required if generating \
+                    keys via the REST API. Defaults to ~/.lighthouse/wallets."
+                )
+                .takes_value(true),
+        )
         .arg(Arg::with_name("auto-register").long("auto-register").help(
             "If present, the validator client will register any new signing keys with \
                        the slashing protection database so that they may be used. WARNING: \

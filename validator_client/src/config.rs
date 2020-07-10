@@ -1,4 +1,3 @@
-use crate::rest_api::Config as RestApiConfig;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
 use serde_derive::{Deserialize, Serialize};
@@ -8,6 +7,7 @@ use std::path::PathBuf;
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
 pub const DEFAULT_SECRETS_DIR: &str = ".lighthouse/secrets";
+pub const DEFAULT_WALLETS_DIR: &str = ".lighthouse/wallets";
 /// Path to the slashing protection database within the datadir.
 pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
@@ -18,6 +18,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// The directory containing the passwords to unlock validator keystores.
     pub secrets_dir: PathBuf,
+    /// The directory containing wallets (used for key generation).
+    pub wallets_dir: PathBuf,
     /// The http endpoint of the beacon node API.
     ///
     /// Should be similar to `http://localhost:8080`
@@ -29,8 +31,12 @@ pub struct Config {
     pub strict_lockfiles: bool,
     /// If true, don't scan the validators dir for new keystores.
     pub disable_auto_discover: bool,
-    /// Configuration for the HTTP API.
-    pub rest_api: RestApiConfig,
+    /// Enable the REST API server.
+    pub api_enabled: bool,
+    /// The IPv4 address the REST API HTTP server will listen on.
+    pub api_listen_address: Ipv4Addr,
+    /// The port the REST API HTTP server will listen on.
+    pub api_port: u16,
 }
 
 impl Default for Config {
@@ -42,14 +48,20 @@ impl Default for Config {
         let secrets_dir = dirs::home_dir()
             .map(|home| home.join(DEFAULT_SECRETS_DIR))
             .unwrap_or_else(|| PathBuf::from("."));
+        let wallets_dir = dirs::home_dir()
+            .map(|home| home.join(DEFAULT_WALLETS_DIR))
+            .unwrap_or_else(|| PathBuf::from("."));
         Self {
             data_dir,
             secrets_dir,
+            wallets_dir,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
             strict_lockfiles: false,
             disable_auto_discover: false,
-            rest_api: RestApiConfig::default(),
+            api_enabled: false,
+            api_listen_address: Ipv4Addr::new(127, 0, 0, 1),
+            api_port: 5054,
         }
     }
 }
@@ -85,6 +97,10 @@ impl Config {
             config.secrets_dir = secrets_dir;
         }
 
+        if let Some(wallets_dir) = parse_optional(cli_args, "wallets-dir")? {
+            config.wallets_dir = wallets_dir;
+        }
+
         if !config.secrets_dir.exists() {
             return Err(format!(
                 "The directory for validator passwords (--secrets-dir) does not exist: {:?}",
@@ -93,16 +109,16 @@ impl Config {
         }
 
         if cli_args.is_present("http") {
-            config.rest_api.enabled = true;
+            config.api_enabled = true;
         }
 
         if let Some(address) = cli_args.value_of("http-address") {
-            config.rest_api.listen_address = address
+            config.api_listen_address = address
                 .parse::<Ipv4Addr>()
                 .map_err(|_| "http-address is not a valid IPv4 address.")?;
         }
         if let Some(port) = cli_args.value_of("http-port") {
-            config.rest_api.port = port
+            config.api_port = port
                 .parse::<u16>()
                 .map_err(|_| "http-port is not a valid u16.")?;
         }

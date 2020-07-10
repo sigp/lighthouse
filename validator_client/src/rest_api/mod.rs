@@ -1,4 +1,3 @@
-mod config;
 mod errors;
 mod response_builder;
 mod router;
@@ -6,8 +5,7 @@ mod status;
 mod validator;
 mod wallet;
 
-use crate::ValidatorStore;
-pub use config::Config;
+use crate::{Config, ValidatorStore};
 use environment::TaskExecutor;
 use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
@@ -26,17 +24,22 @@ pub use validator::{AddValidatorRequest, ValidatorRequest};
 pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
     config: &Config,
     executor: &TaskExecutor,
-    validator_client: ValidatorStore<T, E>,
+    validator_store: ValidatorStore<T, E>,
     beacon_node: RemoteBeaconNode<E>,
     log: slog::Logger,
 ) -> Result<SocketAddr, hyper::Error> {
     let inner_log = log.clone();
 
+    let secrets_dir = config.secrets_dir.clone();
+    let wallets_dir = config.wallets_dir.clone();
+
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
         let context = Arc::new(RwLock::new(RouterContext {
-            validator_client: Some(Arc::new(validator_client.clone())),
+            validator_store: Some(Arc::new(validator_store.clone())),
             beacon_node: Some(beacon_node.clone()),
+            secrets_dir: secrets_dir.clone(),
+            wallets_dir: wallets_dir.clone(),
             log: inner_log.clone(),
         }));
 
@@ -47,7 +50,7 @@ pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
         }
     });
 
-    let bind_addr = (config.listen_address, config.port).into();
+    let bind_addr = (config.api_listen_address, config.api_port).into();
     let server = Server::bind(&bind_addr).serve(make_service);
 
     // Determine the address the server is actually listening on.

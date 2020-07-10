@@ -3,7 +3,7 @@ use crate::{
     LockedWallet,
 };
 use eth2_wallet::{
-    bip39::{Language, Mnemonic, MnemonicType},
+    bip39::{Language, Mnemonic, MnemonicType, Seed as Bip39Seed},
     Error as WalletError, PlainText, Uuid, Wallet, WalletBuilder,
 };
 use rand::{distributions::Alphanumeric, Rng};
@@ -128,16 +128,12 @@ impl WalletManager {
         name: String,
         wallet_type: WalletType,
         wallet_password_path: PathBuf,
+        seed: Option<&[u8]>,
         mnemonic_output_path: Option<PathBuf>,
-    ) -> Result<(LockedWallet, Mnemonic), Error> {
+    ) -> Result<(LockedWallet, Option<Mnemonic>), Error> {
         if self.wallets()?.contains_key(&name) {
             return Err(Error::NameAlreadyTaken(name));
         }
-
-        // Create a new random mnemonic.
-        //
-        // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
-        let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
 
         // Create a random password if the file does not exist.
         if !wallet_password_path.exists() {
@@ -154,15 +150,32 @@ impl WalletManager {
             .map_err(Error::UnableToReadPasswordFile)
             .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
 
-        if let Some(path) = mnemonic_output_path {
-            create_with_600_perms(&path, mnemonic.phrase().as_bytes())
-                .map_err(Error::UnableToWriteMnemonicFile)?;
+        if let Some(seed) = seed {
+            let wallet = self.create_wallet(name, wallet_type, seed, wallet_password.as_bytes())?;
+            Ok((wallet, None))
+        } else {
+            // Create a new random mnemonic.
+            //
+            // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
+            let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+
+            // TODO: `bip39` does not use zeroize. Perhaps we should make a PR upstream?
+            let seed = Bip39Seed::new(&mnemonic, "");
+
+            if let Some(path) = mnemonic_output_path {
+                create_with_600_perms(&path, mnemonic.phrase().as_bytes())
+                    .map_err(Error::UnableToWriteMnemonicFile)?;
+            }
+
+            let wallet = self.create_wallet(
+                name,
+                wallet_type,
+                seed.as_bytes(),
+                wallet_password.as_bytes(),
+            )?;
+
+            Ok((wallet, Some(mnemonic)))
         }
-
-        let wallet =
-            self.create_wallet(name, wallet_type, &mnemonic, wallet_password.as_bytes())?;
-
-        Ok((wallet, mnemonic))
     }
 
     /// Creates a new wallet with the given `name` in `self.dir` with the given `mnemonic` as a
@@ -172,18 +185,18 @@ impl WalletManager {
     ///
     /// - If a wallet with this name already exists.
     /// - If there is a file-system or parsing error.
-    pub fn create_wallet(
+    fn create_wallet(
         &self,
         name: String,
         _wallet_type: WalletType,
-        mnemonic: &Mnemonic,
+        seed: &[u8],
         password: &[u8],
     ) -> Result<LockedWallet, Error> {
         if self.wallets()?.contains_key(&name) {
             return Err(Error::NameAlreadyTaken(name));
         }
 
-        let wallet = WalletBuilder::from_mnemonic(mnemonic, password, name)?.build()?;
+        let wallet = WalletBuilder::from_seed_bytes(seed, password, name)?.build()?;
         let uuid = *wallet.uuid();
 
         let wallet_dir = self.dir.join(format!("{}", uuid));

@@ -7,6 +7,8 @@ use slot_clock::SlotClock;
 use std::path::PathBuf;
 use types::EthSpec;
 
+const MIN_SEED_LENGTH: usize = 32;
+
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct CreateWalletValidatorRequest {
     pub wallet_name: String,
@@ -19,6 +21,15 @@ pub struct CreateWalletValidatorResponse {
     pub wallet_name: String,
     // TODO: zeroize.
     pub mnemonic: Option<String>,
+}
+
+fn wallet_manager(wallet_dir: &PathBuf) -> Result<WalletManager, ApiError> {
+    WalletManager::open(&wallet_dir).map_err(|e| {
+        ApiError::ServerError(format!(
+            "Unable to open wallet directory {:?}: {:?}",
+            wallet_dir, e
+        ))
+    })
 }
 
 pub async fn create_wallet<T: SlotClock + 'static, E: EthSpec>(
@@ -39,23 +50,53 @@ pub async fn create_wallet<T: SlotClock + 'static, E: EthSpec>(
             })
         })?;
 
-    let mgr = WalletManager::open(&wallet_dir).map_err(|e| {
-        ApiError::ServerError(format!(
-            "Unable to open wallet directory {:?}: {:?}",
-            wallet_dir, e
-        ))
-    })?;
+    // Check that the seed is reasonable.
+    if let Some(seed) = body.seed.as_ref() {
+        // Seed must meet a minimum length requirement.
+        if seed.len() < MIN_SEED_LENGTH {
+            return Err(ApiError::BadRequest(format!(
+                "Seed is {} bytes. Must be at least {} bytes.",
+                seed.len(),
+                MIN_SEED_LENGTH
+            )));
+        }
+
+        // Seed cannot be all-zeros.
+        if seed.iter().all(|byte| *byte == 0) {
+            return Err(ApiError::BadRequest(
+                "Seed cannot be all zeros.".to_string(),
+            ));
+        }
+    }
 
     let wallet_password_path = secrets_dir.join(format!("{}.pass", body.wallet_name));
 
-    // TODO: make mnemonic optional.
-
-    let (wallet, mnemonic) = mgr
-        .create_wallet_and_secrets(body.wallet_name, WalletType::Hd, wallet_password_path, None)
+    let (wallet, mnemonic) = wallet_manager(&wallet_dir)?
+        .create_wallet_and_secrets(
+            body.wallet_name,
+            WalletType::Hd,
+            wallet_password_path,
+            body.seed.as_ref().map(|bytes| bytes.as_slice()),
+            None,
+        )
         .map_err(|e| ApiError::ServerError(format!("Unable to create wallet: {:?}", e)))?;
 
     response_builder?.body_no_ssz(&CreateWalletValidatorResponse {
         wallet_name: wallet.wallet().name().into(),
-        mnemonic: Some(mnemonic.into()),
+        mnemonic: mnemonic.map(Into::into),
     })
+}
+
+pub async fn list_wallets<T: SlotClock + 'static, E: EthSpec>(
+    req: Request<Body>,
+    wallet_dir: PathBuf,
+) -> ApiResult {
+    let response_builder = ResponseBuilder::new(&req);
+
+    let names: Vec<String> = wallet_manager(&wallet_dir)?
+        .wallets()
+        .map(|map| map.into_iter().map(|(name, _uuid)| name).collect())
+        .map_err(|e| ApiError::ServerError(format!("Unable to list wallets: {:?}", e)))?;
+
+    response_builder?.body_no_ssz(&names)
 }

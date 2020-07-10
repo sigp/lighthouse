@@ -1,9 +1,26 @@
-use super::config::ApiEncodingFormat;
 use super::errors::{ApiError, ApiResult};
 use http::header;
 use hyper::{Body, Request, Response, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ssz::Encode;
+
+/// Defines the encoding for the API.
+#[derive(Clone, Serialize, Deserialize, Copy)]
+pub enum ApiEncodingFormat {
+    JSON,
+    YAML,
+    SSZ,
+}
+
+impl From<&str> for ApiEncodingFormat {
+    fn from(f: &str) -> ApiEncodingFormat {
+        match f {
+            "application/yaml" => ApiEncodingFormat::YAML,
+            "application/ssz" => ApiEncodingFormat::SSZ,
+            _ => ApiEncodingFormat::JSON,
+        }
+    }
+}
 
 pub struct ResponseBuilder {
     encoding: ApiEncodingFormat,

@@ -1,24 +1,27 @@
 use super::errors::{ApiError, ApiResult};
-use super::validator;
+use super::{validator, wallet};
 use crate::ValidatorStore;
 use hyper::{Body, Error, Method, Request, Response};
 use parking_lot::RwLock;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{debug, Logger};
 use slot_clock::SlotClock;
+use std::path::PathBuf;
 use std::sync::Arc;
 use types::EthSpec;
 
 pub struct RouterContext<T: SlotClock + 'static, E: EthSpec> {
-    pub validator_client: Option<Arc<ValidatorStore<T, E>>>,
+    pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub beacon_node: Option<RemoteBeaconNode<E>>,
+    pub wallets_dir: PathBuf,
+    pub secrets_dir: PathBuf,
     pub log: Logger,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> RouterContext<T, E> {
-    pub fn validator_client(&self) -> Result<Arc<ValidatorStore<T, E>>, ApiError> {
-        self.validator_client.clone().ok_or_else(|| {
-            ApiError::MethodNotAllowed("validator_client not initialized".to_string())
+    pub fn validator_store(&self) -> Result<Arc<ValidatorStore<T, E>>, ApiError> {
+        self.validator_store.clone().ok_or_else(|| {
+            ApiError::MethodNotAllowed("validator_store not initialized".to_string())
         })
     }
 
@@ -70,30 +73,40 @@ pub async fn route_to_api_result<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
     context: Arc<RwLock<RouterContext<T, E>>>,
 ) -> ApiResult {
-    let (validator_client, beacon_node) = {
+    let (validator_store, beacon_node, wallets_dir, secrets_dir) = {
         let context = context.read();
-        (context.validator_client()?, context.beacon_node()?)
+        let wallets_dir = context.wallets_dir.clone();
+        let secrets_dir = context.secrets_dir.clone();
+        (
+            context.validator_store()?,
+            context.beacon_node()?,
+            wallets_dir,
+            secrets_dir,
+        )
     };
 
     match (req.method(), path) {
-        // Methods for Validator
-        (&Method::GET, "/validators/") => {
-            validator::get_validators::<T, E>(req, validator_client, beacon_node).await
+        (&Method::GET, "/wallets") => wallet::list_wallets::<T, E>(req, wallets_dir).await,
+        (&Method::POST, "/wallets") => {
+            wallet::create_wallet::<T, E>(req, wallets_dir, secrets_dir).await
+        }
+        (&Method::GET, "/validators") => {
+            validator::get_validators::<T, E>(req, validator_store, beacon_node).await
         }
         (&Method::POST, "/validators/add") => {
-            validator::add_new_validator::<T, E>(req, validator_client).await
+            validator::add_new_validator::<T, E>(req, validator_store).await
         }
         (&Method::POST, "/validators/remove") => {
-            validator::remove_validator::<T, E>(req, validator_client).await
+            validator::remove_validator::<T, E>(req, validator_store).await
         }
         (&Method::POST, "/validators/start") => {
-            validator::start_validator::<T, E>(req, validator_client).await
+            validator::start_validator::<T, E>(req, validator_store).await
         }
         (&Method::POST, "/validators/stop") => {
-            validator::stop_validator::<T, E>(req, validator_client).await
+            validator::stop_validator::<T, E>(req, validator_store).await
         }
         (&Method::POST, "/validators/exit") => {
-            validator::exit_validator::<T, E>(req, validator_client, beacon_node).await
+            validator::exit_validator::<T, E>(req, validator_store, beacon_node).await
         }
         (&Method::POST, "/validators/withdraw") => implementation_pending_response(req),
 
