@@ -308,15 +308,12 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::{filesystem::read, locked_wallet::LOCK_FILE};
-    use eth2_wallet::bip39::{Language, Mnemonic};
     use tempfile::tempdir;
 
-    const MNEMONIC: &str =
-        "enemy fog enlist laundry nurse hungry discover turkey holiday resemble glad discover";
     const WALLET_PASSWORD: &[u8] = &[43; 43];
 
-    fn get_mnemonic() -> Mnemonic {
-        Mnemonic::from_phrase(MNEMONIC, Language::English).unwrap()
+    fn get_seed() -> &'static [u8] {
+        &[42; 32]
     }
 
     fn create_wallet(mgr: &WalletManager, id: usize) -> LockedWallet {
@@ -324,7 +321,7 @@ mod tests {
             .create_wallet(
                 format!("{}", id),
                 WalletType::Hd,
-                &get_mnemonic(),
+                &get_seed(),
                 WALLET_PASSWORD,
             )
             .expect("should create wallet");
@@ -371,20 +368,10 @@ mod tests {
         let mgr = WalletManager::open(base_dir).unwrap();
         let name = "cats".to_string();
 
-        mgr.create_wallet(
-            name.clone(),
-            WalletType::Hd,
-            &get_mnemonic(),
-            WALLET_PASSWORD,
-        )
-        .expect("should create first wallet");
+        mgr.create_wallet(name.clone(), WalletType::Hd, &get_seed(), WALLET_PASSWORD)
+            .expect("should create first wallet");
 
-        match mgr.create_wallet(
-            name.clone(),
-            WalletType::Hd,
-            &get_mnemonic(),
-            WALLET_PASSWORD,
-        ) {
+        match mgr.create_wallet(name.clone(), WalletType::Hd, &get_seed(), WALLET_PASSWORD) {
             Err(Error::NameAlreadyTaken(_)) => {}
             _ => panic!("expected name error"),
         }
@@ -398,12 +385,7 @@ mod tests {
         let name = "cats".to_string();
 
         let mut w = mgr
-            .create_wallet(
-                name.clone(),
-                WalletType::Hd,
-                &get_mnemonic(),
-                WALLET_PASSWORD,
-            )
+            .create_wallet(name.clone(), WalletType::Hd, &get_seed(), WALLET_PASSWORD)
             .expect("should create first wallet");
 
         let uuid = w.wallet().uuid().clone();

@@ -1,6 +1,9 @@
-use super::errors::{ApiError, ApiResult};
 use super::response_builder::ResponseBuilder;
-use eth2_wallet_manager::{WalletManager, WalletType};
+use super::{
+    common::wallet_manager,
+    errors::{ApiError, ApiResult},
+};
+use eth2_wallet_manager::WalletType;
 use hyper::{body, Body, Request};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -23,15 +26,6 @@ pub struct CreateWalletValidatorResponse {
     pub mnemonic: Option<String>,
 }
 
-fn wallet_manager(wallet_dir: &PathBuf) -> Result<WalletManager, ApiError> {
-    WalletManager::open(&wallet_dir).map_err(|e| {
-        ApiError::ServerError(format!(
-            "Unable to open wallet directory {:?}: {:?}",
-            wallet_dir, e
-        ))
-    })
-}
-
 pub async fn create_wallet<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
     wallet_dir: PathBuf,
@@ -44,7 +38,7 @@ pub async fn create_wallet<T: SlotClock + 'static, E: EthSpec>(
         .and_then(|chunks| {
             serde_json::from_slice(&chunks).map_err(|e| {
                 ApiError::BadRequest(format!(
-                    "Unable to parse JSON into ValidatorRequest: {:?}",
+                    "Unable to parse JSON into CreateWalletValidatorRequest: {:?}",
                     e
                 ))
             })

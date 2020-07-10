@@ -267,8 +267,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         rest_api::start_server(
+            &self.context,
             &self.config,
-            &self.context.executor,
             self.validator_store.clone(),
             self.duties_service.beacon_node.clone(),
             self.context.log().clone(),

@@ -1,14 +1,19 @@
-use super::errors::{ApiError, ApiResult};
-use super::response_builder::ResponseBuilder;
+use super::{
+    common::{random_password, strip_off_newlines, wallet_manager, PlainText},
+    errors::{ApiError, ApiResult},
+    response_builder::ResponseBuilder,
+};
 use crate::ValidatorStore;
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use hyper::{body, Body, Request};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use types::{EthSpec, SignedVoluntaryExit, VoluntaryExit};
+use types::{ChainSpec, EthSpec, SignedVoluntaryExit, VoluntaryExit};
+use validator_dir::{Builder as ValidatorDirBuilder, Eth1DepositData};
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorRequest {
@@ -19,6 +24,19 @@ pub struct ValidatorRequest {
 pub struct AddValidatorRequest {
     pub deposit_amount: u64,
     pub directory: Option<PathBuf>,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct CreateValidatorFromWalletRequest {
+    pub wallet_name: String,
+    pub validator_desc: String,
+    pub deposit_gwei: u64,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct CreateValidatorFromWalletResponse {
+    pub voting_pubkey: String,
+    pub eth1_deposit_data: Eth1DepositData,
 }
 
 /// Get Validator info of all managed validators.
@@ -41,6 +59,78 @@ pub async fn get_validators<T: SlotClock + 'static, E: EthSpec>(
             ))
         })
         .and_then(move |validator_response| response_builder?.body(&validator_response))
+}
+
+pub async fn create_validator_from_wallet<T: SlotClock + 'static, E: EthSpec>(
+    req: Request<Body>,
+    validator_store: Arc<ValidatorStore<T, E>>,
+    wallets_dir: PathBuf,
+    validators_dir: PathBuf,
+    secrets_dir: PathBuf,
+    spec: &ChainSpec,
+) -> ApiResult {
+    let response_builder = ResponseBuilder::new(&req);
+    let body: CreateValidatorFromWalletRequest = body::to_bytes(req.into_body())
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+        .and_then(|chunks| {
+            serde_json::from_slice(&chunks).map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "Unable to parse JSON into CreateValidatorFromWalletRequest: {:?}",
+                    e
+                ))
+            })
+        })?;
+
+    let mut wallet = wallet_manager(&wallets_dir)?
+        .wallet_by_name(&body.wallet_name)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to open wallet {}: {:?}",
+                &body.wallet_name, e
+            ))
+        })?;
+
+    let wallet_password = fs::read(&secrets_dir.join(format!("{}.pass", &body.wallet_name)))
+        .map_err(|_| {
+            ApiError::ServerError("Unable to read wallet password from server".to_string())
+        })
+        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+
+    let voting_password = random_password();
+    let withdrawal_password = random_password();
+
+    let keystores = wallet
+        .next_validator(
+            wallet_password.as_bytes(),
+            voting_password.as_bytes(),
+            withdrawal_password.as_bytes(),
+        )
+        .map_err(|e| ApiError::ServerError(format!("Unable to create validator keys: {:?}", e)))?;
+
+    let voting_pubkey = keystores.voting.pubkey().to_string();
+
+    let validator_dir = ValidatorDirBuilder::new(validators_dir.clone(), secrets_dir.clone())
+        .voting_keystore(keystores.voting, voting_password.as_bytes())
+        .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
+        .create_eth1_tx_data(body.deposit_gwei, &spec)
+        .store_withdrawal_keystore(false)
+        .build()
+        .map_err(|e| {
+            ApiError::ServerError(format!("Unable to build validator directory: {:?}", e))
+        })?;
+
+    let eth1_deposit_data = validator_dir
+        .eth1_deposit_data()
+        .map_err(|e| ApiError::ServerError(format!("Unable to load eth1 deposit data: {:?}", e)))?
+        .ok_or_else(|| ApiError::ServerError("Eth1 deposit data was not created".to_string()))?;
+
+    // TODO: trigger store read
+
+    response_builder?.body_no_ssz(&CreateValidatorFromWalletResponse {
+        voting_pubkey,
+        eth1_deposit_data,
+    })
 }
 
 /// Generates a new validator to the list of managed validators.

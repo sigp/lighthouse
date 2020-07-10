@@ -1,3 +1,4 @@
+mod common;
 mod errors;
 mod response_builder;
 mod router;
@@ -6,7 +7,7 @@ mod validator;
 mod wallet;
 
 use crate::{Config, ValidatorStore};
-use environment::TaskExecutor;
+use environment::RuntimeContext;
 use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
@@ -22,24 +23,29 @@ use types::EthSpec;
 pub use validator::{AddValidatorRequest, ValidatorRequest};
 
 pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
+    context: &RuntimeContext<E>,
     config: &Config,
-    executor: &TaskExecutor,
     validator_store: ValidatorStore<T, E>,
     beacon_node: RemoteBeaconNode<E>,
     log: slog::Logger,
 ) -> Result<SocketAddr, hyper::Error> {
-    let inner_log = log.clone();
+    let inner_log = context.log().clone();
+    let executor = context.executor.clone();
 
+    let validators_dir = config.data_dir.clone();
     let secrets_dir = config.secrets_dir.clone();
     let wallets_dir = config.wallets_dir.clone();
+    let spec = Arc::new(context.eth2_config.spec.clone());
 
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
         let context = Arc::new(RwLock::new(RouterContext {
             validator_store: Some(Arc::new(validator_store.clone())),
             beacon_node: Some(beacon_node.clone()),
+            validators_dir: validators_dir.clone(),
             secrets_dir: secrets_dir.clone(),
             wallets_dir: wallets_dir.clone(),
+            spec: spec.clone(),
             log: inner_log.clone(),
         }));
 

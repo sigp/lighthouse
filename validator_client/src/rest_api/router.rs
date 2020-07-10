@@ -8,13 +8,15 @@ use slog::{debug, Logger};
 use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
 pub struct RouterContext<T: SlotClock + 'static, E: EthSpec> {
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub beacon_node: Option<RemoteBeaconNode<E>>,
     pub wallets_dir: PathBuf,
+    pub validators_dir: PathBuf,
     pub secrets_dir: PathBuf,
+    pub spec: Arc<ChainSpec>,
     pub log: Logger,
 }
 
@@ -73,15 +75,19 @@ pub async fn route_to_api_result<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
     context: Arc<RwLock<RouterContext<T, E>>>,
 ) -> ApiResult {
-    let (validator_store, beacon_node, wallets_dir, secrets_dir) = {
+    let (validator_store, beacon_node, wallets_dir, validators_dir, secrets_dir, spec) = {
         let context = context.read();
         let wallets_dir = context.wallets_dir.clone();
+        let validators_dir = context.validators_dir.clone();
         let secrets_dir = context.secrets_dir.clone();
+        let spec = context.spec.clone();
         (
             context.validator_store()?,
             context.beacon_node()?,
             wallets_dir,
+            validators_dir,
             secrets_dir,
+            spec,
         )
     };
 
@@ -92,6 +98,17 @@ pub async fn route_to_api_result<T: SlotClock + 'static, E: EthSpec>(
         }
         (&Method::GET, "/validators") => {
             validator::get_validators::<T, E>(req, validator_store, beacon_node).await
+        }
+        (&Method::POST, "/validators/create/wallet") => {
+            validator::create_validator_from_wallet::<T, E>(
+                req,
+                validator_store,
+                wallets_dir,
+                validators_dir,
+                secrets_dir,
+                &spec,
+            )
+            .await
         }
         (&Method::POST, "/validators/add") => {
             validator::add_new_validator::<T, E>(req, validator_store).await
