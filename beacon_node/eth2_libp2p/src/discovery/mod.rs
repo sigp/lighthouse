@@ -15,7 +15,7 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::PeerId;
 use lru::LruCache;
-use slog::{crit, debug, info, trace, warn};
+use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
