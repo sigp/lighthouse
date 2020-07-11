@@ -2,7 +2,7 @@ use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::Eth2Enr;
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, BehaviourHandlerOut, DelegateIn, DelegateOut};
 use libp2p::{
@@ -696,6 +696,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         self.peer_manager.notify_disconnect(&peer_id);
         // Inform the application.
         self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
+
+        // Update the prometheus metrics
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
+
+        // Inform the behaviour.
         delegate_to_behaviours!(self, inject_disconnected, peer_id);
     }
 
@@ -734,8 +743,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                 debug!(self.log, "Connection established"; "peer_id" => peer_id.to_string(), "connection" => "Dialed");
             }
         }
-        // report the event to the application
-
+        // report the event to the behaviour
         delegate_to_behaviours!(
             self,
             inject_connection_established,
@@ -752,6 +760,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         if self.peer_manager.is_banned(peer_id) {
             return;
         }
+
+        // increment prometheus metrics
+        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
+
         delegate_to_behaviours!(self, inject_connected, peer_id);
     }
 

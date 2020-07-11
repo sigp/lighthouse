@@ -15,7 +15,7 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::PeerId;
 use lru::LruCache;
-use slog::{crit, debug, info, trace, warn};
+use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
@@ -242,7 +242,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // If there is not already a find peer's query queued, add one
         let query = QueryType::FindPeers;
         if !self.queued_queries.contains(&query) {
-            trace!(self.log, "Queuing a peer discovery request");
+            debug!(self.log, "Queuing a peer discovery request");
             self.queued_queries.push_back(query);
             // update the metrics
             metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
@@ -407,8 +407,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 retries,
             };
             // update the metrics and insert into the queue.
-            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            debug!(self.log, "Queuing subnet query"; "subnet" => *subnet_id, "retries" => retries);
             self.queued_queries.push_back(query);
+            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
     }
 
@@ -430,7 +431,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         continue;
                     }
                     // This is a regular request to find additional peers
-                    debug!(self.log, "Searching for new peers");
+                    debug!(self.log, "Discovery query started");
                     self.find_peer_active = true;
                     self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS);
                 }
@@ -480,12 +481,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
 
         let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
-        debug!(self.log, "Searching for peers for subnet";
+        debug!(self.log, "Discovery query started for subnet";
             "subnet_id" => *subnet_id,
             "connected_peers_on_subnet" => peers_on_subnet,
             "target_subnet_peers" => TARGET_SUBNET_PEERS,
             "peers_to_find" => target_peers,
             "attempt" => retries,
+            "min_ttl" => format!("{:?}", min_ttl),
         );
 
         // start the query, and update the queries map if necessary
