@@ -10,6 +10,7 @@ edition = "2018"
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 eth2_wallet = { path = "../../crypto/eth2_wallet" }
 rand = "0.7.2"
+account_utils = { path = "../account_utils" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

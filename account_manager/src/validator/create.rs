@@ -1,5 +1,9 @@
 use crate::{common::ensure_dir_exists, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+<<<<<<< HEAD
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
+=======
+use account_utils::{random_password, strip_off_newlines};
+>>>>>>> b7a805756... Progress with API impls
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2_wallet::PlainText;

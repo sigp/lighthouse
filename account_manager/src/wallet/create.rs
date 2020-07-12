@@ -2,10 +2,7 @@ use crate::BASE_DIR_FLAG;
 use account_utils::{random_password, strip_off_newlines};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet_manager::{WalletManager, WalletType};
-use std::fs::File;
-use std::io::prelude::*;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -110,29 +107,6 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     println!("\t{}", wallet.wallet().uuid());
     println!();
     println!("You do not need to backup your UUID or keep it secret.");
-
-    Ok(())
-}
-
-/// Creates a file with `600 (-rw-------)` permissions.
-pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), String> {
-    let path = path.as_ref();
-
-    let mut file =
-        File::create(&path).map_err(|e| format!("Unable to create {:?}: {}", path, e))?;
-
-    let mut perm = file
-        .metadata()
-        .map_err(|e| format!("Unable to get {:?} metadata: {}", path, e))?
-        .permissions();
-
-    perm.set_mode(0o600);
-
-    file.set_permissions(perm)
-        .map_err(|e| format!("Unable to set {:?} permissions: {}", path, e))?;
-
-    file.write_all(bytes)
-        .map_err(|e| format!("Unable to write to {:?}: {}", path, e))?;
 
     Ok(())
 }

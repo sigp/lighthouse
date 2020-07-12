@@ -49,6 +49,10 @@ pub enum Error {
 /// Information required to submit a deposit to the Eth1 deposit contract.
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Eth1DepositData {
+    #[serde(
+        serialize_with = "fork_to_hex_str",
+        deserialize_with = "fork_from_hex_str"
+    )]
     /// An RLP encoded Eth1 transaction.
     pub rlp: Vec<u8>,
     /// The deposit data used to generate `self.rlp`.

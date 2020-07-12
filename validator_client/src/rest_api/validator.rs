@@ -1,15 +1,15 @@
 use super::{
-    common::{random_password, strip_off_newlines, wallet_manager, PlainText},
+    common::wallet_manager,
     errors::{ApiError, ApiResult},
     response_builder::ResponseBuilder,
 };
 use crate::ValidatorStore;
+use account_utils::{default_wallet_password, random_password};
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use hyper::{body, Body, Request};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec, SignedVoluntaryExit, VoluntaryExit};
@@ -91,11 +91,9 @@ pub async fn create_validator_from_wallet<T: SlotClock + 'static, E: EthSpec>(
             ))
         })?;
 
-    let wallet_password = fs::read(&secrets_dir.join(format!("{}.pass", &body.wallet_name)))
-        .map_err(|_| {
-            ApiError::ServerError("Unable to read wallet password from server".to_string())
-        })
-        .map(|bytes| PlainText::from(strip_off_newlines(bytes)))?;
+    let wallet_password = default_wallet_password(wallet.wallet(), &secrets_dir).map_err(|_| {
+        ApiError::ServerError("Unable to read wallet password from server".to_string())
+    })?;
 
     let voting_password = random_password();
     let withdrawal_password = random_password();

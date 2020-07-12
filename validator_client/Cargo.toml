@@ -52,3 +52,4 @@ hyper = "0.13.5"
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.2"
+account_utils = { path = "../common/account_utils" }

@@ -3,6 +3,7 @@ use super::{
     common::wallet_manager,
     errors::{ApiError, ApiResult},
 };
+use account_utils::default_wallet_password_path;
 use eth2_wallet_manager::WalletType;
 use hyper::{body, Body, Request};
 use serde_derive::{Deserialize, Serialize};
@@ -63,7 +64,7 @@ pub async fn create_wallet<T: SlotClock + 'static, E: EthSpec>(
         }
     }
 
-    let wallet_password_path = secrets_dir.join(format!("{}.pass", body.wallet_name));
+    let wallet_password_path = default_wallet_password_path(&body.wallet_name, &secrets_dir);
 
     let (wallet, mnemonic) = wallet_manager(&wallet_dir)?
         .create_wallet_and_secrets(
