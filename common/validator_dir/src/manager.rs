@@ -2,10 +2,8 @@ use crate::{Error as ValidatorDirError, ValidatorDir};
 use bls::Keypair;
 use rayon::prelude::*;
 use slog::{info, warn, Logger};
-use std::collections::HashMap;
 use std::fs::read_dir;
 use std::io;
-use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -157,17 +155,20 @@ impl Manager {
             .collect()
     }
 
-    /// Returns a map of directory name to full directory path. E.g., `myval -> /home/vals/myval`.
-    /// Filters out nodes in `self.dir` that are unlikely to be a validator directory.
+    /// Returns Vector of validator full directory paths that match a given pattern
+    /// The pattern is only matched against the validator public key (0x...)
     ///
     /// ## Errors
     ///
     /// Returns an error if a directory is unable to be read.
-    pub fn directory_names(&self) -> Result<HashMap<String, PathBuf>, Error> {
-        Ok(HashMap::from_iter(
-            self.iter_dir()?
-                .into_iter()
-                .map(|path| (format!("{:?}", path), path)),
-        ))
+    pub fn match_directories(&self, pattern: &str) -> Result<Vec<PathBuf>, Error> {
+        Ok(self
+            .iter_dir()?
+            .into_iter()
+            .filter(|p| match p.to_str() {
+                None => false,
+                Some(s) => s[s.rfind("0x").unwrap_or_else(|| s.len())..].contains(pattern),
+            })
+            .collect())
     }
 }

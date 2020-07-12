@@ -54,8 +54,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(VALIDATOR_FLAG)
                 .value_name("VALIDATOR_NAME")
                 .help(
-                    "The name of the directory in --data-dir for which to deposit. \
-                    Set to 'all' to deposit all validators in the --data-dir.",
+                    "Pattern that matches a slice of the validator public key for which to deposit. \
+                    Set to 'all' (equivalent to '0x') to deposit all validators in the --data-dir.",
                 )
                 .takes_value(true)
                 .required(true),
@@ -166,24 +166,21 @@ pub fn cli_run<T: EthSpec>(
         "all" => manager
             .open_all_validators()
             .map_err(|e| format!("Unable to read all validators: {:?}", e)),
-        name => {
-            let path = manager
-                .directory_names()
-                .map_err(|e| {
-                    format!(
-                        "Unable to read --{} directory names: {:?}",
-                        VALIDATOR_DIR_FLAG, e
-                    )
-                })?
-                .get(name)
-                .ok_or_else(|| format!("Unknown validator:  {}", name))?
-                .clone();
-
-            manager
-                .open_validator(&path)
-                .map_err(|e| format!("Unable to open {}: {:?}", name, e))
-                .map(|v| vec![v])
-        }
+        pattern => manager
+            .match_directories(pattern)
+            .map_err(|e| {
+                format!(
+                    "Unable to read --{} directory names: {:?}",
+                    VALIDATOR_DIR_FLAG, e
+                )
+            })?
+            .into_iter()
+            .map(|path| {
+                manager
+                    .open_validator(path.clone())
+                    .map_err(|e| format!("Unable to open {:?}: {:?}", path, e))
+            })
+            .collect(),
     }?;
 
     let eth1_deposit_datas = validators
