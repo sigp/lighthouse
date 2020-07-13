@@ -153,8 +153,8 @@ No.
 
 #### Time-frame for progression
 
-If the beacon chain is finalizing as usual, this should be approximately 2
-epoch (12.8 minutes). However, this will be delayed indefinitely if the chain
+If the beacon chain is finalizing as usual, this should be approximately 3
+epochs (~20 minutes). However, this will be delayed indefinitely if the chain
 is not finalizing.
 
 ### 4. `waiting_in_queue`
