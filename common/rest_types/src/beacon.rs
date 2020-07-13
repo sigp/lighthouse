@@ -4,7 +4,7 @@ use bls::PublicKeyBytes;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use types::beacon_state::EthSpec;
-use types::{BeaconState, CommitteeIndex, Hash256, SignedBeaconBlock, Slot, Validator};
+use types::{BeaconState, CommitteeIndex, Epoch, Hash256, SignedBeaconBlock, Slot, Validator};
 
 /// Information about a block that is at the head of a chain. May or may not represent the
 /// canonical head.
@@ -37,6 +37,7 @@ pub struct CanonicalHeadResponse {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ValidatorResponse {
+    pub epoch: Epoch,
     pub pubkey: PublicKeyBytes,
     pub validator_index: Option<usize>,
     pub balance: Option<u64>,

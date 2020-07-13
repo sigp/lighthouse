@@ -353,6 +353,7 @@ fn validator_response_by_pubkey<E: EthSpec>(
             .clone();
 
         Ok(ValidatorResponse {
+            epoch: state.current_epoch(),
             pubkey: validator_pubkey,
             validator_index: Some(validator_index),
             balance: Some(*balance),
@@ -360,6 +361,7 @@ fn validator_response_by_pubkey<E: EthSpec>(
         })
     } else {
         Ok(ValidatorResponse {
+            epoch: state.current_epoch(),
             pubkey: validator_pubkey,
             validator_index: None,
             balance: None,
