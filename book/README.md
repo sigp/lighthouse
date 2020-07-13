@@ -12,6 +12,9 @@ best source of information for building the book.
 
 ### Example
 
-1. Install mdBook: `$ cargo install mdbook`
-1. Build the book, open it in a browser and build after file changes: `$ mdbook
+1. Install mdBook: `cargo install mdbook`
+1. Install additional components
+   - `cargo install mdbook-toc`
+   - `cargo install mdbook-mermaid`
+1. Build the book, open it in a browser and build after file changes: `mdbook
    serve --open`

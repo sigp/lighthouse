@@ -6,6 +6,14 @@ src = "src"
 title = "Lighthouse Book"
 
 [output.html]
-additional-css =["src/css/custom.css"]
+additional-css =["src/css/custom.css", "mermaid.css"]
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
 default-theme = "coal"
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[preprocessor.toc]
+command = "mdbook-toc"
+renderer = ["html"]
 
