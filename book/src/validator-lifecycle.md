@@ -94,16 +94,16 @@ the validator:
 - has submitted a deposit transaction, but it has not yet been included in the
 	beacon chain.
 
-**Progression**
+#### Progression
 
 The validator can progress past this phase once the Beacon Chain has processed
 the `Deposit` message from the Eth1 deposit contract.
 
-**Progression requires user input?**
+#### User input required for progression
 
 User input is required to submit the deposit and have it included in the eth1 chain. After that, it is up to the beacon chain.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 After the deposit is included in an Eth1 block, it generally takes 0-4 hours
 for the beacon chain to become aware of that Eth1 block. This is because the
@@ -115,7 +115,7 @@ hours).
 A `Deposit` is included in a `BeaconBlock`, causing the Beacon Chain to become
 aware of the validator.
 
-**Progression**
+#### Progression
 
 The validator can progress past this phase when:
 
@@ -123,12 +123,12 @@ The validator can progress past this phase when:
 - The beacon chain has transitioned into the next epoch after the validators
 	`Deposit` was included in a block (no more than 6.4 minutes).
 
-**Progression requires user input?**
+#### User input required for progression
 
 User input is required to submit 32 ETH (or more) in deposits and have those
 included in the beacon chain. After that, it is up to the beacon chain.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 After the user has submitted their deposits, it will take no more than one
 epoch (6.4 minutes) for the beacon chain to detect that the validator has
@@ -140,18 +140,18 @@ indefinitely until the validator submits
 The Beacon Chain has observed that the validator *could* become eligible and it
 is waiting for those conditions to become finalized.
 
-**Progression**
+#### Progression
 
 The validator can progress past this phase when the Beacon Chain finalizes the
 epoch *following* the one where they became eligible for activation. E.g., if
 the validator became eligible in epoch 2, we must wait for epoch 3 to
 finalize.
 
-**Progression requires user input?**
+#### User input required for progression
 
 No.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 If the beacon chain is finalizing as usual, this should be approximately 2
 epoch (12.8 minutes). However, this will be delayed indefinitely if the chain
@@ -163,16 +163,16 @@ The conditions which allow the validator to become active are finalized. The
 validator is now waiting in the activation queue, awaiting its turn to be
 activated.
 
-**Progression**
+#### Progression
 
 The validator can progress past this phase once all validators earlier in the
 queue have been activated.
 
-**Progression requires user input?**
+#### User input required for progression
 
 No.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 Up until there are approximately 330,000 validators, only 4 validators can be
 activated per epoch (6.4 minutes). This activation rate increases very slowly
@@ -185,16 +185,16 @@ The conditions which allow the validator to become active are finalized. The
 validator is now waiting in the activation queue, awaiting its turn to be
 activated.
 
-**Progression**
+#### Progression
 
 The validator must wait for the `activation_epoch` that was determined at the
 beginning of this period.
 
-**Progression requires user input?**
+#### User input required for progression
 
 No.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 The validator will remain in this state for 5 epochs (32 minutes) before
 progressing to the next state.
@@ -204,7 +204,7 @@ progressing to the next state.
 The validator is now active and required to publish attestations and
 potentially produce blocks.
 
-**Progression**
+#### Progression
 
 The validator can progress past this phase for two reasons:
 
@@ -212,13 +212,13 @@ The validator can progress past this phase for two reasons:
 	exit).
 - The validator is slashed.
 
-**Progression requires user input?**
+#### User input required for progression
 
 Yes, the user may choose to submit a `VoluntaryExit` to start the exit. Or, the
 validator must sign two conflicting messages and then have those messages
 submitted in a `ProposerSlashing` or `AttesterSlashing`.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 The user remains in this state indefinitely until they exit or are slashed.
 
@@ -227,16 +227,16 @@ The user remains in this state indefinitely until they exit or are slashed.
 The validator has either voluntarily or involuntarily started exiting. It is
 still active, but it will soon lose that status.
 
-**Progression**
+#### Progression
 
 The validator must wait until the exit epoch arrives. This exit epoch was
 decided by the protocol when the exit was initiated.
 
-**Progression requires user input?**
+#### User input required for progression
 
 No.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 The validator will remain in this state for 5 epochs (32 minutes) before
 progressing to the next state.
@@ -247,16 +247,16 @@ progressing to the next state.
 The validator has exited and is no longer required (or permitted) to publish
 messages for inclusion in the Beacon Chain.
 
-**Progression**
+#### Progression
 
 The validator must wait until the withdrawable epoch arrives. This withdrawable epoch was
 decided by the protocol when the exit was initiated.
 
-**Progression requires user input?**
+#### User input required for progression
 
 No.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 The validator will remain in this state for 256 epochs (~27 hours) before
 progressing to the next state.
@@ -268,14 +268,14 @@ The validator has exited and waited long enough to be withdrawable.
 From the perspective of the Beacon Chain, this is the end of the road for a
 validator.
 
-**Progression**
+#### Progression
 
 N/A.
 
-**Progression requires user input?**
+#### User input required for progression
 
 N/A.
 
-**Progression time-frame**
+#### Time-frame for progression
 
 N/A.
