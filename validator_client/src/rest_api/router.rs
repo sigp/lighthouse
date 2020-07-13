@@ -21,6 +21,12 @@ pub struct RouterContext<T: SlotClock + 'static, E: EthSpec> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> RouterContext<T, E> {
+    pub fn duties_service(&self) -> Result<&DutiesService<T, E>, ApiError> {
+        self.duties_service
+            .as_ref()
+            .ok_or_else(|| ApiError::MethodNotAllowed("duties_service not initialized".to_string()))
+    }
+
     pub fn validator_store(&self) -> Result<&ValidatorStore<T, E>, ApiError> {
         self.validator_store.as_ref().ok_or_else(|| {
             ApiError::MethodNotAllowed("validator_store not initialized".to_string())
@@ -81,6 +87,8 @@ pub async fn route_to_api_result<T: SlotClock + 'static, E: EthSpec>(
                 req,
                 context.validator_store()?,
                 context.beacon_node()?,
+                context.duties_service()?,
+                &context.spec,
             )
             .await
         }

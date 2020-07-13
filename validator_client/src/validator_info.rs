@@ -1,105 +1,113 @@
+use crate::DutiesService;
 use remote_beacon_node::RemoteBeaconNode;
-use types::{ChainSpec, Epoch, EthSpec, PublicKey, Slot, Validator};
+use serde_derive::{Deserialize, Serialize};
+use slot_clock::SlotClock;
+use types::{ChainSpec, Epoch, EthSpec, PublicKey, Validator};
 
-pub struct SlotSpan {
-    a: Slot,
-    b: Slot,
-}
-
-impl SlotSpan {
-    pub fn from_slot_and_epoch<T: EthSpec>(a: Slot, b: Epoch) -> Self {
-        Self {
-            a,
-            b: b.start_slot(T::slots_per_epoch()),
-        }
-    }
-
-    pub fn from_epochs<T: EthSpec>(a: Epoch, b: Epoch) -> Self {
-        Self {
-            a: a.start_slot(T::slots_per_epoch()),
-            b: b.start_slot(T::slots_per_epoch()),
-        }
-    }
-
-    pub fn secs(&self, seconds_per_slot: u64) -> u64 {
-        // Taking advantage of saturating arithmetic on slots.
-        let distance = self.b - self.a;
-        distance.as_u64() * seconds_per_slot
-    }
-}
+/// The number of epochs between when a validator is eligible for activation and when they
+/// *usually* enter the activation queue.
+const EPOCHS_BEFORE_FINALITY: u64 = 3;
 
 pub enum ValidatorState {
     Unknown,
     WaitingForEligibility,
-    WaitingForFinality(SlotSpan),
+    WaitingForFinality(Epoch),
     WaitingInQueue,
-    StandbyForActive(SlotSpan),
+    StandbyForActive(Epoch),
     Active,
-    ActiveAwaitingExit(SlotSpan),
-    Exited(SlotSpan),
+    ActiveAwaitingExit(Epoch),
+    Exited(Epoch),
     Withdrawable,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorStateDisplay {
-    state: &'static str,
-    estimated_seconds_till_transition: Option<u64>,
-    description: &'static str,
+    state: String,
+    next_state: Option<String>,
+    estimated_next_state_time: Option<u64>,
+    description: String,
 }
 
 impl ValidatorStateDisplay {
-    fn new(state: ValidatorState, seconds_per_slot: u64) -> Self {
+    fn new(
+        state: ValidatorState,
+        genesis_time: u64,
+        slots_per_epoch: u64,
+        spec: &ChainSpec,
+    ) -> Self {
+        let time = |epoch: Epoch| -> u64 {
+            let slot = epoch
+                .as_u64()
+                .saturating_mul(slots_per_epoch)
+                .saturating_sub(spec.genesis_slot.as_u64());
+            genesis_time.saturating_add(slot.saturating_mul(spec.milliseconds_per_slot / 1_000))
+        };
+
         match state {
             ValidatorState::Unknown => Self {
-                state: "unknown",
-                estimated_seconds_till_transition: None,
-                description: "The beacon chain is unaware of the validator",
+                state: "unknown".into(),
+                next_state: Some("waiting_for_eligibility".into()),
+                estimated_next_state_time: None,
+                description: "The beacon chain is unaware of the validator".into(),
             },
             ValidatorState::WaitingForEligibility => Self {
-                state: "waiting_for_eligibility",
-                estimated_seconds_till_transition: None,
-                description: "The beacon chain is waiting to confirm the validator balance",
+                state: "waiting_for_eligibility".into(),
+                next_state: Some("waiting_for_finality".into()),
+                estimated_next_state_time: None,
+                description: "The beacon chain is waiting to confirm the validator balance".into(),
             },
-            ValidatorState::WaitingForFinality(span) => Self {
-                state: "waiting_for_finality",
-                estimated_seconds_till_transition: Some(span.secs(seconds_per_slot)),
-                description: "The beacon chain is waiting to finalized the validator balance",
+            ValidatorState::WaitingForFinality(epoch) => Self {
+                state: "waiting_for_finality".into(),
+                next_state: Some("waiting_in_queue".into()),
+                estimated_next_state_time: Some(time(epoch)),
+                description: "The beacon chain is waiting to finalized the validator balance"
+                    .into(),
             },
             ValidatorState::WaitingInQueue => Self {
-                state: "waiting_in_queue",
-                estimated_seconds_till_transition: None,
-                description: "The validator is queued for activation",
+                state: "waiting_in_queue".into(),
+                next_state: Some("standby_for_active".into()),
+                estimated_next_state_time: None,
+                description: "The validator is queued for activation".into(),
             },
-            ValidatorState::StandbyForActive(span) => Self {
-                state: "standby_for_active",
-                estimated_seconds_till_transition: Some(span.secs(seconds_per_slot)),
-                description: "The validator will be activated shortly",
+            ValidatorState::StandbyForActive(epoch) => Self {
+                state: "standby_for_active".into(),
+                next_state: Some("active".into()),
+                estimated_next_state_time: Some(time(epoch)),
+                description: "The validator will be activated shortly".into(),
             },
             ValidatorState::Active => Self {
-                state: "active",
-                estimated_seconds_till_transition: None,
-                description: "The validator is required to perform duties",
+                state: "active".into(),
+                next_state: Some("active_awaiting_exit".into()),
+                estimated_next_state_time: None,
+                description: "The validator is required to perform duties".into(),
             },
-            ValidatorState::ActiveAwaitingExit(span) => Self {
-                state: "active_awaiting_exit",
-                estimated_seconds_till_transition: Some(span.secs(seconds_per_slot)),
-                description: "The validator is active but scheduled for exit",
+            ValidatorState::ActiveAwaitingExit(epoch) => Self {
+                state: "active_awaiting_exit".into(),
+                next_state: Some("exited".into()),
+                estimated_next_state_time: Some(time(epoch)),
+                description: "The validator is active but scheduled for exit".into(),
             },
-            ValidatorState::Exited(span) => Self {
-                state: "exited",
-                estimated_seconds_till_transition: Some(span.secs(seconds_per_slot)),
+            ValidatorState::Exited(epoch) => Self {
+                state: "exited".into(),
+                next_state: Some("withdrawable".into()),
+                estimated_next_state_time: Some(time(epoch)),
                 description: "The validator is no longer required to perform duties and is waiting
-                    to become withdrawable",
+                    to become withdrawable"
+                    .into(),
             },
             ValidatorState::Withdrawable => Self {
-                state: "withdrawable",
-                estimated_seconds_till_transition: None,
+                state: "withdrawable".into(),
+                next_state: None,
+                estimated_next_state_time: None,
                 description: "The validator is no longer required to perform duties and is eligible
-                    for withdraw",
+                    for withdraw"
+                    .into(),
             },
         }
     }
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorInfo {
     status: ValidatorStateDisplay,
     validator_index: Option<usize>,
@@ -107,10 +115,10 @@ pub struct ValidatorInfo {
     validator: Option<Validator>,
 }
 
-pub async fn validator_info<T: EthSpec>(
-    beacon_node: RemoteBeaconNode<T>,
-    validators: &[PublicKey],
-    genesis_time: u64,
+pub async fn get_validator_info<T: SlotClock + 'static, E: EthSpec>(
+    validators: Vec<PublicKey>,
+    beacon_node: RemoteBeaconNode<E>,
+    duties_service: &DutiesService<T, E>,
     spec: &ChainSpec,
 ) -> Result<Vec<ValidatorInfo>, String> {
     let head = beacon_node
@@ -120,12 +128,13 @@ pub async fn validator_info<T: EthSpec>(
         .await
         .map_err(|e| format!("Failed to get head info from beacon node: {:?}", e))?;
 
-    let finalized_epoch = head.finalized_slot.epoch(T::slots_per_epoch());
+    let finalized_epoch = head.finalized_slot.epoch(E::slots_per_epoch());
+    let genesis_time = duties_service.slot_clock.genesis_duration().as_secs();
 
     let validators = beacon_node
         .http
         .beacon()
-        .get_validators(validators.to_vec(), Some(head.state_root))
+        .get_validators(validators, Some(head.state_root))
         .await
         .map_err(|e| format!("Failed to get validator info from beacon node: {:?}", e))?;
 
@@ -136,31 +145,21 @@ pub async fn validator_info<T: EthSpec>(
                 if validator.is_withdrawable_at(v.epoch) {
                     ValidatorState::Withdrawable
                 } else if validator.is_exited_at(v.epoch) {
-                    ValidatorState::Exited(SlotSpan::from_slot_and_epoch::<T>(
-                        head.slot,
-                        validator.withdrawable_epoch,
-                    ))
+                    ValidatorState::Exited(validator.withdrawable_epoch)
                 } else if validator.is_active_at(v.epoch) {
                     if validator.exit_epoch < spec.far_future_epoch {
-                        ValidatorState::ActiveAwaitingExit(SlotSpan::from_slot_and_epoch::<T>(
-                            head.slot,
-                            validator.exit_epoch,
-                        ))
+                        ValidatorState::ActiveAwaitingExit(validator.exit_epoch)
                     } else {
                         ValidatorState::Active
                     }
                 } else {
                     if validator.activation_epoch < spec.far_future_epoch {
-                        ValidatorState::StandbyForActive(SlotSpan::from_slot_and_epoch::<T>(
-                            head.slot,
-                            validator.activation_epoch,
-                        ))
+                        ValidatorState::StandbyForActive(validator.activation_epoch)
                     } else if validator.activation_eligibility_epoch < spec.far_future_epoch {
                         if finalized_epoch < validator.activation_eligibility_epoch {
-                            ValidatorState::WaitingForFinality(SlotSpan::from_epochs::<T>(
-                                finalized_epoch,
-                                validator.activation_eligibility_epoch,
-                            ))
+                            ValidatorState::WaitingForFinality(
+                                validator.activation_eligibility_epoch + EPOCHS_BEFORE_FINALITY,
+                            )
                         } else {
                             ValidatorState::WaitingInQueue
                         }
@@ -173,7 +172,12 @@ pub async fn validator_info<T: EthSpec>(
             };
 
             ValidatorInfo {
-                status: ValidatorStateDisplay::new(status, spec.milliseconds_per_slot / 1_000),
+                status: ValidatorStateDisplay::new(
+                    status,
+                    genesis_time,
+                    E::slots_per_epoch(),
+                    &spec,
+                ),
                 validator_index: v.validator_index.clone(),
                 balance: v.balance.clone(),
                 validator: v.validator.clone(),

@@ -3,7 +3,7 @@ use super::{
     errors::{ApiError, ApiResult},
     response_builder::ResponseBuilder,
 };
-use crate::ValidatorStore;
+use crate::{validator_info::get_validator_info, DutiesService, ValidatorStore};
 use account_utils::{default_wallet_password, random_password};
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use hyper::{body, Body, Request};
@@ -44,21 +44,17 @@ pub async fn get_validators<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
     validator_store: &ValidatorStore<T, E>,
     beacon_node: RemoteBeaconNode<E>,
+    duties_service: &DutiesService<T, E>,
+    spec: &ChainSpec,
 ) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
     let validators = validator_store.voting_pubkeys();
-    beacon_node
-        .http
-        .beacon()
-        .get_validators(validators, None)
+
+    let validator_info = get_validator_info(validators, beacon_node, duties_service, spec)
         .await
-        .map_err(|e| {
-            ApiError::ServerError(format!(
-                "Failed to get validator info from beacon node: {:?}",
-                e
-            ))
-        })
-        .and_then(move |validator_response| response_builder?.body(&validator_response))
+        .map_err(|e| ApiError::ServerError(e))?;
+
+    response_builder?.body_no_ssz(&validator_info)
 }
 
 pub async fn create_validator_from_wallet<T: SlotClock + 'static, E: EthSpec>(
