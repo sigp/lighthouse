@@ -41,10 +41,6 @@ impl ManualSlotClock {
         self.set_slot(self.now().unwrap().as_u64() + 1)
     }
 
-    pub fn genesis_duration(&self) -> &Duration {
-        &self.genesis_duration
-    }
-
     /// Returns the duration between UNIX epoch and the start of `slot`.
     pub fn start_of(&self, slot: Slot) -> Option<Duration> {
         let slot = slot
@@ -114,6 +110,10 @@ impl SlotClock for ManualSlotClock {
 
     fn now_duration(&self) -> Option<Duration> {
         Some(*self.current_time.read())
+    }
+
+    fn genesis_duration(&self) -> Duration {
+        self.genesis_duration
     }
 
     fn slot_of(&self, now: Duration) -> Option<Slot> {

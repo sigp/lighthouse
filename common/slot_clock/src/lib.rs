@@ -34,6 +34,9 @@ pub trait SlotClock: Send + Sync + Sized {
     /// Returns `None` if the present time is before the UNIX epoch (unlikely).
     fn now_duration(&self) -> Option<Duration>;
 
+    /// Returns the genesis time as a duration since the UNIX epoch.
+    fn genesis_duration(&self) -> Duration;
+
     /// Returns the slot of the given duration since the UNIX epoch.
     fn slot_of(&self, now: Duration) -> Option<Slot>;
 
