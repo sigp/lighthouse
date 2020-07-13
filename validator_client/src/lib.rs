@@ -270,7 +270,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             &self.context,
             &self.config,
             self.validator_store.clone(),
-            self.duties_service.beacon_node.clone(),
+            self.duties_service.clone(),
             self.context.log().clone(),
         )
         .map_err(|e| format!("Unable to start HTTP server: {}", e))?;

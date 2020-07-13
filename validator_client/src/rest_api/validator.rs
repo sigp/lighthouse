@@ -42,7 +42,7 @@ pub struct CreateValidatorFromWalletResponse {
 /// Get Validator info of all managed validators.
 pub async fn get_validators<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: &ValidatorStore<T, E>,
     beacon_node: RemoteBeaconNode<E>,
 ) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
@@ -63,10 +63,10 @@ pub async fn get_validators<T: SlotClock + 'static, E: EthSpec>(
 
 pub async fn create_validator_from_wallet<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    validator_store: Arc<ValidatorStore<T, E>>,
-    wallets_dir: PathBuf,
-    validators_dir: PathBuf,
-    secrets_dir: PathBuf,
+    validator_store: &ValidatorStore<T, E>,
+    wallets_dir: &PathBuf,
+    validators_dir: &PathBuf,
+    secrets_dir: &PathBuf,
     spec: &ChainSpec,
 ) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);

@@ -29,8 +29,8 @@ pub struct CreateWalletValidatorResponse {
 
 pub async fn create_wallet<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    wallet_dir: PathBuf,
-    secrets_dir: PathBuf,
+    wallet_dir: &PathBuf,
+    secrets_dir: &PathBuf,
 ) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
     let body: CreateWalletValidatorRequest = body::to_bytes(req.into_body())
@@ -84,7 +84,7 @@ pub async fn create_wallet<T: SlotClock + 'static, E: EthSpec>(
 
 pub async fn list_wallets<T: SlotClock + 'static, E: EthSpec>(
     req: Request<Body>,
-    wallet_dir: PathBuf,
+    wallet_dir: &PathBuf,
 ) -> ApiResult {
     let response_builder = ResponseBuilder::new(&req);
 

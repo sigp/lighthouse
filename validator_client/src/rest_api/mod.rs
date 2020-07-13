@@ -6,14 +6,12 @@ mod status;
 mod validator;
 mod wallet;
 
-use crate::{Config, ValidatorStore};
+use crate::{Config, DutiesService, ValidatorStore};
 use environment::RuntimeContext;
 use futures::future::TryFutureExt;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server};
-use parking_lot::RwLock;
-use remote_beacon_node::RemoteBeaconNode;
 use router::RouterContext;
 use slog::{info, warn};
 use slot_clock::SlotClock;
@@ -26,7 +24,7 @@ pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
     context: &RuntimeContext<E>,
     config: &Config,
     validator_store: ValidatorStore<T, E>,
-    beacon_node: RemoteBeaconNode<E>,
+    duties_service: DutiesService<T, E>,
     log: slog::Logger,
 ) -> Result<SocketAddr, hyper::Error> {
     let inner_log = context.log().clone();
@@ -39,15 +37,16 @@ pub fn start_server<T: SlotClock + Clone + 'static, E: EthSpec>(
 
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
-        let context = Arc::new(RwLock::new(RouterContext {
-            validator_store: Some(Arc::new(validator_store.clone())),
-            beacon_node: Some(beacon_node.clone()),
+        let context = Arc::new(RouterContext {
+            validator_store: Some(validator_store.clone()),
+            duties_service: Some(duties_service.clone()),
+            beacon_node: Some(duties_service.beacon_node.clone()),
             validators_dir: validators_dir.clone(),
             secrets_dir: secrets_dir.clone(),
             wallets_dir: wallets_dir.clone(),
             spec: spec.clone(),
             log: inner_log.clone(),
-        }));
+        });
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
