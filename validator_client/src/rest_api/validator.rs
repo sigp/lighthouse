@@ -126,7 +126,7 @@ pub async fn create_validator_from_wallet<T: SlotClock + 'static, E: EthSpec>(
     // TODO: trigger store read
 
     response_builder?.body_no_ssz(&CreateValidatorFromWalletResponse {
-        voting_pubkey,
+        voting_pubkey: format!("0x{}", voting_pubkey),
         eth1_deposit_data,
     })
 }

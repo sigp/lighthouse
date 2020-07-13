@@ -21,6 +21,7 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 hex = "0.4.2"
 serde = "1.0.110"
 serde_derive = "1.0.110"
+serde_hex = { path = "../../consensus/serde_hex" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

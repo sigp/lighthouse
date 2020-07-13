@@ -1,5 +1,27 @@
-use serde::de::{self, Visitor};
+use hex;
+use serde::{
+    de::{self, Visitor},
+    Deserializer, Serializer,
+};
 use std::fmt;
+
+/// Used with the `serialize_with` field attribute, this allows a `Vec<u8>` to be serialized as a
+/// 0x-prefixed hex string.
+pub fn bytes_to_hex_str<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("0x{}", &hex::encode(bytes)))
+}
+
+/// Used with the `deserialize_with` field attribute, this allows a `Vec<u8>` to be deserialized
+/// from a 0x-prefixed hex string.
+pub fn bytes_from_hex_str<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserializer.deserialize_str(PrefixedHexVisitor)
+}
 
 pub fn encode<T: AsRef<[u8]>>(data: T) -> String {
     let hex = hex::encode(data);

@@ -5,6 +5,7 @@ use crate::builder::{
 use deposit_contract::decode_eth1_tx_data;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use serde_derive::{Deserialize, Serialize};
+use serde_hex::{bytes_from_hex_str, bytes_to_hex_str};
 use std::fs::{read, remove_file, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -50,8 +51,8 @@ pub enum Error {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct Eth1DepositData {
     #[serde(
-        serialize_with = "fork_to_hex_str",
-        deserialize_with = "fork_from_hex_str"
+        serialize_with = "bytes_to_hex_str",
+        deserialize_with = "bytes_from_hex_str"
     )]
     /// An RLP encoded Eth1 transaction.
     pub rlp: Vec<u8>,
