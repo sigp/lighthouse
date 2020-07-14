@@ -4,7 +4,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
-mod initialized_validator;
+mod initialized_validators;
 mod is_synced;
 mod notifier;
 mod validator_definitions;

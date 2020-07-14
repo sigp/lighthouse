@@ -19,7 +19,7 @@ pub enum Error {
     UnableToWriteFile(io::Error),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ValidatorDefinition {
     LocalKeystore {
         voting_keystore_path: PathBuf,
@@ -101,6 +101,10 @@ impl ValidatorDefinitions {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
         fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
+    }
+
+    pub fn as_slice(&self) -> &[ValidatorDefinition] {
+        self.0.as_slice()
     }
 }
 

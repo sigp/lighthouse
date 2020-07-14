@@ -31,6 +31,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "account_utils"
+version = "0.1.0"
+dependencies = [
+ "eth2_keystore",
+ "eth2_wallet",
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5967,6 +5976,7 @@ dependencies = [
 name = "validator_client"
 version = "0.1.2"
 dependencies = [
+ "account_utils",
  "bls",
  "clap",
  "clap_utils",
@@ -5975,6 +5985,7 @@ dependencies = [
  "environment",
  "eth2_config",
  "eth2_interop_keypairs",
+ "eth2_keystore",
  "eth2_ssz",
  "eth2_ssz_derive",
  "exit-future",
@@ -5989,6 +6000,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_yaml",
  "slashing_protection",
  "slog",
  "slog-async",

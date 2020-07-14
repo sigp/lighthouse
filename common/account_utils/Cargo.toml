@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 rand = "0.7.2"
 eth2_wallet = { path = "../../crypto/eth2_wallet" }
+eth2_keystore = { path = "../../crypto/eth2_keystore" }

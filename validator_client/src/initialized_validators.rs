@@ -1,12 +1,14 @@
 use crate::validator_definitions::ValidatorDefinition;
 use account_utils::read_password;
 use eth2_keystore::Keystore;
-use slog::{warn, Logger};
-use std::fs::{File, OpenOptions};
+use slog::{error, warn, Logger};
+use std::collections::HashSet;
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::PathBuf;
 use types::Keypair;
 
+#[derive(Debug)]
 pub enum Error {
     LockfileExists(PathBuf),
     UnableToCreateLockfile(io::Error),
@@ -29,7 +31,7 @@ pub enum InitializedValidator {
 impl InitializedValidator {
     pub fn from_definition(
         def: ValidatorDefinition,
-        strict: bool,
+        respect_lockfiles: bool,
         log: &Logger,
     ) -> Result<Self, Error> {
         match def {
@@ -62,7 +64,7 @@ impl InitializedValidator {
                     })?;
 
                 if voting_keystore_lockfile_path.exists() {
-                    if strict {
+                    if respect_lockfiles {
                         return Err(Error::LockfileExists(voting_keystore_lockfile_path));
                     } else {
                         warn!(
@@ -87,5 +89,74 @@ impl InitializedValidator {
                 })
             }
         }
+    }
+}
+
+impl Drop for InitializedValidator {
+    fn drop(&mut self) {
+        match self {
+            InitializedValidator::LocalKeystore {
+                voting_keystore_lockfile_path,
+                ..
+            } => {
+                if voting_keystore_lockfile_path.exists() {
+                    if let Err(e) = fs::remove_file(&voting_keystore_lockfile_path) {
+                        eprintln!(
+                            "Failed to remove {:?}: {:?}",
+                            voting_keystore_lockfile_path, e
+                        )
+                    }
+                } else {
+                    eprintln!("Lockfile missing: {:?}", voting_keystore_lockfile_path)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct InitializedValidators {
+    validators: Vec<InitializedValidator>,
+    known_voting_keystore_paths: HashSet<PathBuf>,
+}
+
+impl InitializedValidators {
+    pub fn initialize(
+        &mut self,
+        defs: &[ValidatorDefinition],
+        respect_lockfiles: bool,
+        log: &Logger,
+    ) -> Result<(), Error> {
+        for def in defs {
+            match def {
+                ValidatorDefinition::LocalKeystore {
+                    voting_keystore_path,
+                    voting_keystore_password_path,
+                } => {
+                    if self
+                        .known_voting_keystore_paths
+                        .contains(voting_keystore_password_path)
+                    {
+                        continue;
+                    }
+
+                    match InitializedValidator::from_definition(def.clone(), respect_lockfiles, log)
+                    {
+                        Ok(init) => {
+                            self.known_voting_keystore_paths
+                                .insert(voting_keystore_path.clone());
+                            self.validators.push(init)
+                        }
+                        Err(e) => error!(
+                            log,
+                            "Failed to initialize validator";
+                            "error" => format!("{:?}", e),
+                            "validator" => format!("{:?}", def)
+                        ),
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }

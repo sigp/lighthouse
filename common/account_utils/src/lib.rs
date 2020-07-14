@@ -1,3 +1,4 @@
+use eth2_keystore::Keystore;
 use eth2_wallet::Wallet;
 use rand::{distributions::Alphanumeric, Rng};
 use std::fs::{self, File};
@@ -27,6 +28,21 @@ pub fn default_wallet_password<P: AsRef<Path>>(
 ) -> Result<PlainText, io::Error> {
     let path = default_wallet_password_path(wallet.name(), secrets_dir);
     fs::read(path).map(|bytes| PlainText::from(strip_off_newlines(bytes)))
+}
+
+/// Returns the "default" path where a keystore should store its password file.
+pub fn default_keystore_password_path<P: AsRef<Path>>(
+    keystore: &Keystore,
+    secrets_dir: P,
+) -> PathBuf {
+    secrets_dir
+        .as_ref()
+        .join(format!("0x{}", keystore.pubkey()))
+}
+
+/// Reads a password file into a Zeroize-ing `PlainText` struct, with new-lines removed.
+pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
+    fs::read(path).map(strip_off_newlines).map(Into::into)
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.
