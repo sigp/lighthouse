@@ -404,14 +404,14 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         }
                         Ok(msg) => {
                             // if this message isn't a duplicate, notify the network
-                        self.add_event(BehaviourEvent::PubsubMessage {
-                            id,
-                            source: propagation_source,
-                            topics: gs_msg.topics,
-                            message: msg,
-                        });
+                            self.add_event(BehaviourEvent::PubsubMessage {
+                                id,
+                                source: propagation_source,
+                                topics: gs_msg.topics,
+                                message: msg,
+                            });
+                        }
                     }
-                }
                 } else {
                     match PubsubMessage::<TSpec>::decode(&gs_msg.topics, &gs_msg.data) {
                         Err(e) => {
