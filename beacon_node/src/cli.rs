@@ -165,7 +165,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
                 .value_name("ORIGIN")
-                .help("Set the value of the Access-Control-Allow-Origin response HTTP header")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
                 .default_value("")
                 .takes_value(true),
         )
