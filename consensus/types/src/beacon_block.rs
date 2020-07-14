@@ -41,7 +41,7 @@ impl<T: EthSpec> BeaconBlock<T> {
                     block_hash: Hash256::zero(),
                     deposit_count: 0,
                 },
-                graffiti: [0; 32],
+                graffiti: Graffiti::default(),
                 proposer_slashings: VariableList::empty(),
                 attester_slashings: VariableList::empty(),
                 attestations: VariableList::empty(),

@@ -49,12 +49,6 @@ use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
-// Text included in blocks.
-// Must be 32-bytes or panic.
-//
-//                          |-------must be this long------|
-pub const GRAFFITI: &str = "sigp/lighthouse-0.1.2-prerelease";
-
 /// The time-out before failure during an operation to take a read/write RwLock on the canonical
 /// head.
 pub const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
@@ -224,6 +218,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub disabled_forks: Vec<String>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
+    /// Arbitrary bytes included in the blocks.
+    pub(crate) graffiti: Graffiti,
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
@@ -1615,9 +1611,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header.canonical_root()
         };
 
-        let mut graffiti: [u8; 32] = [0; 32];
-        graffiti.copy_from_slice(GRAFFITI.as_bytes());
-
         let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
@@ -1649,7 +1642,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 body: BeaconBlockBody {
                     randao_reveal,
                     eth1_data,
-                    graffiti,
+                    graffiti: self.graffiti.clone(),
                     proposer_slashings: proposer_slashings.into(),
                     attester_slashings: attester_slashings.into(),
                     attestations: self
