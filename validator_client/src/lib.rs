@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod initialized_validator;
 mod is_synced;
 mod notifier;
 mod validator_definitions;
@@ -86,9 +87,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             ValidatorDefinitions::open(&config.data_dir)
                 .map_err(|e| format!("Unable to open validator definitions: {:?}", e))?;
         } else {
-            ValidatorDefinitions::open_or_auto_populate(&config.data_dir).map_err(|e| {
-                format!("Unable to open or populate validator definitions: {:?}", e)
-            })?;
+            ValidatorDefinitions::open_or_auto_populate(
+                &config.data_dir,
+                &config.secrets_dir,
+                &log,
+            )
+            .map_err(|e| format!("Unable to open or populate validator definitions: {:?}", e))?;
         };
 
         let validators_result = if config.strict {
