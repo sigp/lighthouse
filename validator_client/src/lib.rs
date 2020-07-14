@@ -6,6 +6,7 @@ mod duties_service;
 mod fork_service;
 mod is_synced;
 mod notifier;
+mod validator_definitions;
 mod validator_store;
 
 pub use cli::cli_app;
@@ -27,6 +28,7 @@ use slot_clock::SystemTimeSlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
 use types::EthSpec;
+use validator_definitions::ValidatorDefinitions;
 use validator_dir::Manager as ValidatorManager;
 use validator_store::ValidatorStore;
 
@@ -79,6 +81,15 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let validator_manager = ValidatorManager::open(&config.data_dir)
             .map_err(|e| format!("unable to read data_dir: {:?}", e))?;
+
+        let validator_defs = if config.strict {
+            ValidatorDefinitions::open(&config.data_dir)
+                .map_err(|e| format!("Unable to open validator definitions: {:?}", e))?;
+        } else {
+            ValidatorDefinitions::open_or_auto_populate(&config.data_dir).map_err(|e| {
+                format!("Unable to open or populate validator definitions: {:?}", e)
+            })?;
+        };
 
         let validators_result = if config.strict {
             validator_manager.decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
