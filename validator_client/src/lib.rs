@@ -21,6 +21,7 @@ use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use fork_service::{ForkService, ForkServiceBuilder};
 use futures::channel::mpsc;
+use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
 use slog::{error, info, warn, Logger};
@@ -30,7 +31,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
 use types::EthSpec;
 use validator_definitions::ValidatorDefinitions;
-use validator_dir::Manager as ValidatorManager;
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -80,29 +80,27 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             );
         }
 
-        let validator_manager = ValidatorManager::open(&config.data_dir)
-            .map_err(|e| format!("unable to read data_dir: {:?}", e))?;
+        let mut validator_defs = ValidatorDefinitions::open_or_create(&config.data_dir)
+            .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
 
-        let validator_defs = if config.strict {
-            ValidatorDefinitions::open(&config.data_dir)
-                .map_err(|e| format!("Unable to open validator definitions: {:?}", e))?;
-        } else {
-            ValidatorDefinitions::open_or_auto_populate(
-                &config.data_dir,
-                &config.secrets_dir,
-                &log,
-            )
-            .map_err(|e| format!("Unable to open or populate validator definitions: {:?}", e))?;
-        };
+        if !config.strict {
+            let new_validators = validator_defs
+                .discover_local_keystores(&config.data_dir, &config.secrets_dir, &log)
+                .map_err(|e| format!("Unable to discover local validator keystores: {:?}", e))?;
+            validator_defs
+                .save(&config.data_dir)
+                .map_err(|e| format!("Unable to update validator definitions: {:?}", e))?;
+            info!(
+                log,
+                "Completed validator discovery";
+                "new_validators" => new_validators,
+            );
+        }
 
-        let validators_result = if config.strict {
-            validator_manager.decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
-        } else {
-            validator_manager.force_decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
-        };
-
-        let validators = validators_result
-            .map_err(|e| format!("unable to decrypt all validator directories: {:?}", e))?;
+        let mut validators = InitializedValidators::default();
+        validators
+            .initialize_definitions(validator_defs.as_slice(), config.strict, &log)
+            .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
         info!(
             log,
@@ -196,6 +194,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
             validators,
+            validator_defs,
             &config,
             genesis_validators_root,
             context.eth2_config.spec.clone(),

@@ -3,8 +3,10 @@ use eth2_keystore::Keystore;
 use serde_derive::{Deserialize, Serialize};
 use serde_yaml;
 use slog::{error, Logger};
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io;
+use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
@@ -27,18 +29,14 @@ pub enum ValidatorDefinition {
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 
 impl ValidatorDefinitions {
-    pub fn open_or_auto_populate<P: AsRef<Path>>(
-        validators_dir: P,
-        secrets_dir: P,
-        log: &Logger,
-    ) -> Result<Self, Error> {
+    pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
-            let this = ValidatorDefinitions::auto_populate(&validators_dir, &secrets_dir, log)?;
+            let this = Self::default();
             this.save(&validators_dir)?;
         }
         Self::open(validators_dir)
@@ -46,10 +44,75 @@ impl ValidatorDefinitions {
 
     pub fn open<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
+        // TODO: OpenOptions
         let file = File::open(config_path).map_err(Error::UnableToOpenFile)?;
         serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
     }
 
+    pub fn discover_local_keystores<P: AsRef<Path>>(
+        &mut self,
+        validators_dir: P,
+        secrets_dir: P,
+        log: &Logger,
+    ) -> Result<usize, Error> {
+        let mut keystore_paths = vec![];
+        recursively_find_voting_keystores(validators_dir, &mut keystore_paths)
+            .map_err(Error::UnableToSearchForKeystores)?;
+
+        let known_paths: HashSet<&PathBuf> =
+            HashSet::from_iter(self.0.iter().filter_map(|def| match def {
+                ValidatorDefinition::LocalKeystore {
+                    voting_keystore_path,
+                    ..
+                } => Some(voting_keystore_path),
+            }));
+
+        let mut new_defs = keystore_paths
+            .into_iter()
+            .filter_map(|voting_keystore_path| {
+                if known_paths.contains(&voting_keystore_path) {
+                    return None;
+                }
+
+                let keystore_result = OpenOptions::new()
+                    .read(true)
+                    .create(false)
+                    .open(&voting_keystore_path)
+                    .map_err(|e| format!("{:?}", e))
+                    .and_then(|file| {
+                        Keystore::from_json_reader(file).map_err(|e| format!("{:?}", e))
+                    });
+
+                let voting_keystore_password_path = match keystore_result {
+                    Ok(keystore) => {
+                        default_keystore_password_path(&keystore, secrets_dir.as_ref().clone())
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Unable to read validator keystore";
+                            "error" => e,
+                            "keystore" => format!("{:?}", voting_keystore_path)
+                        );
+                        return None;
+                    }
+                };
+
+                Some(ValidatorDefinition::LocalKeystore {
+                    voting_keystore_path,
+                    voting_keystore_password_path,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let new_defs_count = new_defs.len();
+
+        self.0.append(&mut new_defs);
+
+        Ok(new_defs_count)
+    }
+
+    /*
     pub fn auto_populate<P: AsRef<Path>>(
         validators_dir: P,
         secrets_dir: P,
@@ -96,6 +159,7 @@ impl ValidatorDefinitions {
 
         Ok(Self(definitions))
     }
+    */
 
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);

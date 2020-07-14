@@ -2,11 +2,11 @@ use crate::validator_definitions::ValidatorDefinition;
 use account_utils::read_password;
 use eth2_keystore::Keystore;
 use slog::{error, warn, Logger};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::PathBuf;
-use types::Keypair;
+use types::{Keypair, PublicKey};
 
 #[derive(Debug)]
 pub enum Error {
@@ -29,6 +29,18 @@ pub enum InitializedValidator {
 }
 
 impl InitializedValidator {
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            InitializedValidator::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
+        }
+    }
+
+    pub fn keypair(&self) -> &Keypair {
+        match self {
+            InitializedValidator::LocalKeystore { voting_keypair, .. } => voting_keypair,
+        }
+    }
+
     pub fn from_definition(
         def: ValidatorDefinition,
         respect_lockfiles: bool,
@@ -116,12 +128,28 @@ impl Drop for InitializedValidator {
 
 #[derive(Default)]
 pub struct InitializedValidators {
-    validators: Vec<InitializedValidator>,
+    validators: HashMap<PublicKey, InitializedValidator>,
     known_voting_keystore_paths: HashSet<PathBuf>,
 }
 
 impl InitializedValidators {
-    pub fn initialize(
+    pub fn len(&self) -> usize {
+        self.validators.len()
+    }
+
+    pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKey> {
+        self.validators.keys()
+    }
+
+    pub fn voting_pubkeys(&self) -> Vec<&PublicKey> {
+        self.validators.keys().collect()
+    }
+
+    pub fn voting_keypair(&self, public_key: &PublicKey) -> Option<&Keypair> {
+        self.validators.get(public_key).map(|v| v.keypair())
+    }
+
+    pub fn initialize_definitions(
         &mut self,
         defs: &[ValidatorDefinition],
         respect_lockfiles: bool,
@@ -145,7 +173,7 @@ impl InitializedValidators {
                         Ok(init) => {
                             self.known_voting_keystore_paths
                                 .insert(voting_keystore_path.clone());
-                            self.validators.push(init)
+                            self.validators.insert(init.public_key().clone(), init);
                         }
                         Err(e) => error!(
                             log,
