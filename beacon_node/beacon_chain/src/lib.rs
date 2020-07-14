@@ -2,6 +2,10 @@
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
+
 pub mod attestation_verification;
 mod beacon_chain;
 mod beacon_fork_choice_store;

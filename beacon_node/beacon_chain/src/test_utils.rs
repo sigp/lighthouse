@@ -3,6 +3,7 @@ pub use crate::beacon_chain::{
 };
 use crate::migrate::{BlockingMigrator, Migrate, NullMigrator};
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::slog::Drain;
 use crate::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
@@ -107,7 +108,10 @@ impl<E: EthSpec> BeaconChainHarness<HarnessType<E>> {
 
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
-        let log = NullLoggerBuilder.build().expect("logger should build");
+        let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
+        let drain = slog_term::FullFormat::new(decorator).build();
+        let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+
         let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log)
@@ -147,7 +151,9 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = E::default_spec();
 
-        let log = NullLoggerBuilder.build().expect("logger should build");
+        let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
+        let drain = slog_term::FullFormat::new(decorator).build();
+        let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
@@ -771,5 +777,110 @@ where
     /// Returns the secret key for the given validator index.
     fn get_sk(&self, validator_index: usize) -> &SecretKey {
         &self.keypairs[validator_index].sk
+    }
+}
+
+pub struct BeaconChainYoke<T: BeaconChainTypes> {
+    pub chain: BeaconChain<T>,
+    pub keypairs: Vec<Keypair>,
+    pub spec: ChainSpec,
+    pub data_dir: TempDir,
+}
+
+impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
+    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>, config: StoreConfig) -> Self {
+        // Setting the target aggregators to really high means that _all_ validators in the
+        // committee are required to produce an aggregate. This is overkill, however with small
+        // validator counts it's the only way to be certain there is _at least one_ aggregator per
+        // committee.
+        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32, config)
+    }
+
+    pub fn new_with_target_aggregators(
+        eth_spec_instance: E,
+        keypairs: Vec<Keypair>,
+        target_aggregators_per_committee: u64,
+        config: StoreConfig,
+    ) -> Self {
+        let data_dir = tempdir().unwrap();
+        let mut spec = E::default_spec();
+
+        spec.target_aggregators_per_committee = target_aggregators_per_committee;
+
+        let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
+        let drain = slog_term::FullFormat::new(decorator).build();
+        let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+
+        let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
+
+        let chain = BeaconChainBuilder::new(eth_spec_instance)
+            .logger(log)
+            .custom_spec(spec.clone())
+            .store(Arc::new(store))
+            .store_migrator(NullMigrator)
+            .data_dir(data_dir.path().to_path_buf())
+            .genesis_state(
+                interop_genesis_state::<E>(&keypairs, HARNESS_GENESIS_TIME, &spec).unwrap(),
+            )
+            .unwrap()
+            .dummy_eth1_backend()
+            .unwrap()
+            .null_event_handler()
+            .testing_slot_clock(HARNESS_SLOT_TIME)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        Self {
+            spec: chain.spec.clone(),
+            chain,
+            keypairs,
+            data_dir,
+        }
+    }
+
+    pub fn get_current_state(&self) -> BeaconState<E> {
+        self.chain.head().unwrap().beacon_state
+    }
+
+    pub fn get_current_slot(&self) -> Slot {
+        self.chain.slot().unwrap()
+    }
+
+    pub fn make_block(
+        &self,
+        _state: BeaconState<E>,
+        _slot: Slot,
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        unimplemented!();
+    }
+
+    pub fn make_attestations(
+        &self,
+        _block_hash: SignedBeaconBlockHash,
+        _attestation_slot: Slot,
+    ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
+        unimplemented!();
+    }
+
+    pub fn process_block(
+        &mut self,
+        block: SignedBeaconBlock<E>,
+        slot: Slot,
+        _attestations: Vec<Vec<(Attestation<E>, SubnetId)>>,
+    ) {
+        assert_eq!(self.chain.slot().unwrap(), slot);
+        self.chain.process_block(block).unwrap();
+        self.chain.fork_choice().unwrap();
+        // .. process attestations
+        unimplemented!();
+    }
+
+    pub fn get_block(&self, _block_hash: SignedBeaconBlockHash) -> SignedBeaconBlock<E> {
+        unimplemented!();
+    }
+
+    pub fn get_state(&self, _state_hash: BeaconStateHash) -> BeaconState<E> {
+        unimplemented!();
     }
 }
