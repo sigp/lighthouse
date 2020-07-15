@@ -780,6 +780,7 @@ where
     }
 }
 
+
 pub struct BeaconChainYoke<T: BeaconChainTypes> {
     pub chain: BeaconChain<T>,
     pub keypairs: Vec<Keypair>,
@@ -788,29 +789,28 @@ pub struct BeaconChainYoke<T: BeaconChainTypes> {
 }
 
 impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
-    pub fn new(eth_spec_instance: E, keypairs: Vec<Keypair>, config: StoreConfig) -> Self {
-        // Setting the target aggregators to really high means that _all_ validators in the
-        // committee are required to produce an aggregate. This is overkill, however with small
-        // validator counts it's the only way to be certain there is _at least one_ aggregator per
-        // committee.
-        Self::new_with_target_aggregators(eth_spec_instance, keypairs, 1 << 32, config)
-    }
-
-    pub fn new_with_target_aggregators(
+    pub fn new(
         eth_spec_instance: E,
-        keypairs: Vec<Keypair>,
-        target_aggregators_per_committee: u64,
-        config: StoreConfig,
+        honest_validator_count: usize,
+        adversarial_validator_count: usize,
     ) -> Self {
         let data_dir = tempdir().unwrap();
         let mut spec = E::default_spec();
 
-        spec.target_aggregators_per_committee = target_aggregators_per_committee;
+        // Setting the target aggregators to really high means that _all_ validators in the
+        // committee are required to produce an aggregate. This is overkill, however with small
+        // validator counts it's the only way to be certain there is _at least one_ aggregator per
+        // committee.
+        spec.target_aggregators_per_committee = 1 << 32;
+
+        let validator_count = honest_validator_count + adversarial_validator_count;
+        let keypairs = types::test_utils::generate_deterministic_keypairs(validator_count);
 
         let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
         let drain = slog_term::FullFormat::new(decorator).build();
         let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
 
+        let config = StoreConfig::default();
         let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
