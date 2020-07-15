@@ -6,7 +6,7 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
-use crate::validator_definitions::{SigningDefinition, ValidatorDefinition};
+use crate::validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions};
 use account_utils::read_password;
 use eth2_keystore::Keystore;
 use slog::{error, warn, Logger};
@@ -176,15 +176,36 @@ impl Drop for InitializedValidator {
 /// `ValidatorDefinition`.
 ///
 /// Forms the fundamental list of validators that are managed by this validator client instance.
-#[derive(Default)]
 pub struct InitializedValidators {
+    respect_lockfiles: bool,
+    validators_dir: PathBuf,
+    definitions: ValidatorDefinitions,
     /// The canonical set of validators.
     validators: HashMap<PublicKey, InitializedValidator>,
     /// An ancillary set that is used to cheaply detect if a validator keystore is already known.
     known_voting_keystore_paths: HashSet<PathBuf>,
+    log: Logger,
 }
 
 impl InitializedValidators {
+    pub fn from_definitions(
+        definitions: ValidatorDefinitions,
+        validators_dir: PathBuf,
+        respect_lockfiles: bool,
+        log: Logger,
+    ) -> Result<Self, Error> {
+        let mut this = Self {
+            respect_lockfiles,
+            validators_dir,
+            definitions,
+            validators: HashMap::default(),
+            known_voting_keystore_paths: HashSet::default(),
+            log,
+        };
+        this.update_validators()?;
+        Ok(this)
+    }
+
     /// The count of validators contained in `self`.
     pub fn len(&self) -> usize {
         self.validators.len()
@@ -203,6 +224,14 @@ impl InitializedValidators {
             .map(|v| v.voting_keypair())
     }
 
+    pub fn enable_validator(&mut self, voting_public_key: &PublicKey) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub fn disable_validator(&mut self, voting_public_key: &PublicKey) -> Result<(), Error> {
+        todo!()
+    }
+
     /// Scans `defs` and attempts to initialize and validators which are not already known.
     ///
     /// If a validator is unable to be initialized an `error` log is raised but the function does
@@ -214,13 +243,8 @@ impl InitializedValidators {
     ///
     /// - A `LocalKeystore` validator uses a voting keystore path that is already known.
     /// - A validator with the same voting public key already exists.
-    pub fn initialize_definitions(
-        &mut self,
-        defs: &[ValidatorDefinition],
-        respect_lockfiles: bool,
-        log: &Logger,
-    ) -> Result<(), Error> {
-        for def in defs {
+    fn update_validators(&mut self) -> Result<(), Error> {
+        for def in self.definitions.as_slice() {
             // An enabled validator definition should be added to ``
             match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
@@ -234,8 +258,11 @@ impl InitializedValidators {
                         continue;
                     }
 
-                    match InitializedValidator::from_definition(def.clone(), respect_lockfiles, log)
-                    {
+                    match InitializedValidator::from_definition(
+                        def.clone(),
+                        self.respect_lockfiles,
+                        &self.log,
+                    ) {
                         Ok(init) => {
                             // Avoid replacing an existing validator.
                             if self.validators.contains_key(init.voting_public_key()) {
@@ -248,7 +275,7 @@ impl InitializedValidators {
                                 .insert(voting_keystore_path.clone());
                         }
                         Err(e) => error!(
-                            log,
+                            self.log,
                             "Failed to initialize validator";
                             "error" => format!("{:?}", e),
                             "validator" => format!("{:?}", def)

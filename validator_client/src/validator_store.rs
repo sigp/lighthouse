@@ -2,7 +2,6 @@ use crate::{
     config::{Config, SLASHING_PROTECTION_FILENAME},
     fork_service::ForkService,
     initialized_validators::InitializedValidators,
-    validator_definitions::ValidatorDefinitions,
 };
 use parking_lot::RwLock;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
@@ -45,7 +44,6 @@ impl PartialEq for LocalValidator {
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
     validators: Arc<RwLock<InitializedValidators>>,
-    validator_defs: Arc<RwLock<ValidatorDefinitions>>,
     slashing_protection: SlashingDatabase,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
@@ -58,7 +56,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn new(
         validators: InitializedValidators,
-        validator_defs: ValidatorDefinitions,
         config: &Config,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
@@ -76,7 +73,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         Ok(Self {
             validators: Arc::new(RwLock::new(validators)),
-            validator_defs: Arc::new(RwLock::new(validator_defs)),
             slashing_protection,
             genesis_validators_root,
             spec: Arc::new(spec),

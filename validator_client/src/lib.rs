@@ -88,10 +88,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             );
         }
 
-        let mut validators = InitializedValidators::default();
-        validators
-            .initialize_definitions(validator_defs.as_slice(), config.strict, &log)
-            .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
+        let validators = InitializedValidators::from_definitions(
+            validator_defs,
+            config.data_dir.clone(),
+            config.strict,
+            log.clone(),
+        )
+        .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
         info!(
             log,
@@ -185,7 +188,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
             validators,
-            validator_defs,
             &config,
             genesis_validators_root,
             context.eth2_config.spec.clone(),
