@@ -37,7 +37,11 @@ pub enum Error {
 }
 
 /// A validator that is ready to sign messages.
+///
+/// Presently there is only a single variant, however we expect more variants to arise (e.g.,
+/// remote signing).
 pub enum InitializedValidator {
+    /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     LocalKeystore {
         voting_keystore_path: PathBuf,
         voting_keystore_lockfile_path: PathBuf,
@@ -165,7 +169,9 @@ impl Drop for InitializedValidator {
 /// Forms the fundamental list of validators that are managed by this validator client instance.
 #[derive(Default)]
 pub struct InitializedValidators {
+    /// The canonical set of validators.
     validators: HashMap<PublicKey, InitializedValidator>,
+    /// An ancillary set that is used to cheaply detect if a validator keystore is already known.
     known_voting_keystore_paths: HashSet<PathBuf>,
 }
 

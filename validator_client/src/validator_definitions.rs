@@ -1,3 +1,8 @@
+//! Provides a file format for defining validators that should be initialized by this validator.
+//!
+//! Serves as the source-of-truth of which validators this validator client should attempt to load
+//! into the `crate::intialized_validators::InitializedValidators` struct.
+
 use account_utils::default_keystore_password_path;
 use eth2_keystore::Keystore;
 use serde_derive::{Deserialize, Serialize};
@@ -10,20 +15,31 @@ use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
+/// The file name for the serialized `ValidatorDefinitions` struct.
 const CONFIG_FILENAME: &str = "validator_definitions.yml";
 
 #[derive(Debug)]
 pub enum Error {
+    /// The config file could not be opened.
     UnableToOpenFile(io::Error),
+    /// The config file could not be parsed as YAML.
     UnableToParseFile(serde_yaml::Error),
+    /// There was an error whilst performing the recursive keystore search function.
     UnableToSearchForKeystores(io::Error),
+    /// The config file could not be serialized as YAML.
     UnableToEncodeFile(serde_yaml::Error),
+    /// The config file could not be written to the filesystem.
     UnableToWriteFile(io::Error),
 }
 
+/// A validator that should be initialized by this validator client.
+///
+/// Presently there is only a single variant, however we expect more variants to arise (e.g.,
+/// remote signing).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ValidatorDefinition {
+    /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     #[serde(rename = "local_keystore")]
     LocalKeystore {
         voting_keystore_path: PathBuf,
@@ -31,10 +47,13 @@ pub enum ValidatorDefinition {
     },
 }
 
+/// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
+/// list of validators to be initialized by this validator client.
 #[derive(Default, Serialize, Deserialize)]
 pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 
 impl ValidatorDefinitions {
+    /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
@@ -44,6 +63,7 @@ impl ValidatorDefinitions {
         Self::open(validators_dir)
     }
 
+    /// Open an existing file, returning an error if the file does not exist.
     pub fn open<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let file = OpenOptions::new()
@@ -55,6 +75,18 @@ impl ValidatorDefinitions {
         serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
     }
 
+    /// Perform a recursive, exhaustive search through `validators_dir` and add any keystores
+    /// matching the `validator_dir::VOTING_KEYSTORE_FILE` file name.
+    ///
+    /// Returns the count of *new* keystores that were added to `self` during this search.
+    ///
+    /// ## Notes
+    ///
+    /// Determines the path for the password file based upon the scheme defined by
+    /// `account_utils::default_keystore_password_path`.
+    ///
+    /// If a keystore cannot be parsed the function does not exit early. Instead it logs an `error`
+    /// and continues searching.
     pub fn discover_local_keystores<P: AsRef<Path>>(
         &mut self,
         validators_dir: P,
@@ -118,17 +150,28 @@ impl ValidatorDefinitions {
         Ok(new_defs_count)
     }
 
+    /// Encodes `self` as a YAML string it writes it to the `CONFIG_FILENAME` file in the
+    /// `validators_dir` directory.
+    ///
+    /// Will create a new file if it does not exist or over-write any existing file.
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
         fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
     }
 
+    /// Returns a slice of all `ValidatorDefinition` in `self`.
     pub fn as_slice(&self) -> &[ValidatorDefinition] {
         self.0.as_slice()
     }
 }
 
+/// Perform an exhaustive tree search of `dir`, adding any discovered voting keystore paths to
+/// `matches`.
+///
+/// ## Errors
+///
+/// Returns with an error immediately if any filesystem error is raised.
 pub fn recursively_find_voting_keystores<P: AsRef<Path>>(
     dir: P,
     matches: &mut Vec<PathBuf>,
