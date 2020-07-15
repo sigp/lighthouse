@@ -6,7 +6,9 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
-use crate::validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions};
+use crate::validator_definitions::{
+    self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
+};
 use account_utils::read_password;
 use eth2_keystore::Keystore;
 use slog::{error, warn, Logger};
@@ -39,6 +41,8 @@ pub enum Error {
     UnableToDecryptKeystore(eth2_keystore::Error),
     /// There was a filesystem error when reading the keystore password from disk.
     UnableToReadVotingKeystorePassword(io::Error),
+    /// There was an error updating the on-disk validator definitions file.
+    UnableToSaveDefinitions(validator_definitions::Error),
 }
 
 /// A method used by a validator to sign messages.
@@ -90,7 +94,6 @@ impl InitializedValidator {
             // Load the keystore, password, decrypt the keypair and create a lockfile for a
             // EIP-2335 keystore on the local filesystem.
             SigningDefinition::LocalKeystore {
-                voting_public_key,
                 voting_keystore_path,
                 voting_keystore_password_path,
             } => {
@@ -104,9 +107,9 @@ impl InitializedValidator {
                     .decrypt_keypair(password.as_bytes())
                     .map_err(Error::UnableToDecryptKeystore)?;
 
-                if voting_keypair.pk != voting_public_key {
+                if voting_keypair.pk != def.voting_public_key {
                     return Err(Error::VotingPublicKeyMismatch {
-                        definition: voting_public_key,
+                        definition: def.voting_public_key,
                         keystore: voting_keypair.pk,
                     });
                 }
@@ -185,20 +188,26 @@ impl Drop for InitializedValidator {
     }
 }
 
-/// A set of `InitializedValidator` objects which can be initialized from a list of
-/// `ValidatorDefinition`.
+/// A set of `InitializedValidator` objects which is initialized from a list of
+/// `ValidatorDefinition`. The `ValidatorDefinition` file is maintained as `self` is modified.
 ///
 /// Forms the fundamental list of validators that are managed by this validator client instance.
 pub struct InitializedValidators {
+    /// If `true`, no validator will be opened if a lockfile exists. If `false`, a warning will be
+    /// raised for an existing lockfile, but it will ultimately be ignored.
     respect_lockfiles: bool,
-    validators_dir: PathBuf,
+    /// A list of validator definitions which can be stored on-disk.
     definitions: ValidatorDefinitions,
+    /// The directory that the `self.definitions` will be saved into.
+    validators_dir: PathBuf,
     /// The canonical set of validators.
     validators: HashMap<PublicKey, InitializedValidator>,
+    /// For logging via `slog`.
     log: Logger,
 }
 
 impl InitializedValidators {
+    /// Instantiates `Self`, initializing all validators in `definitions`.
     pub fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
@@ -216,50 +225,75 @@ impl InitializedValidators {
         Ok(this)
     }
 
-    /// The count of validators contained in `self`.
-    pub fn len(&self) -> usize {
-        self.validators.len()
+    /// The count of enabled validators contained in `self`.
+    pub fn num_enabled(&self) -> usize {
+        self.validators.iter().filter(|(_, v)| v.enabled).count()
     }
 
-    /// Iterate through all voting public keys in `self`.
+    /// The count of disabled validators contained in `self`.
+    pub fn num_disabled(&self) -> usize {
+        self.validators.iter().filter(|(_, v)| !v.enabled).count()
+    }
+
+    /// Iterate through all **enabled** voting public keys in `self`.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKey> {
-        self.validators.keys()
+        self.validators
+            .iter()
+            .filter(|(_, v)| v.enabled)
+            .map(|(pubkey, _)| pubkey)
     }
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if that validator is known to
-    /// `self`.
+    /// `self` **and** the validator is enabled.
     pub fn voting_keypair(&self, voting_public_key: &PublicKey) -> Option<&Keypair> {
         self.validators
             .get(voting_public_key)
+            .filter(|v| v.enabled)
             .map(|v| v.voting_keypair())
     }
 
-    pub fn enable_validator(&mut self, voting_public_key: &PublicKey) -> Result<(), Error> {
-        todo!()
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_validator_status(
+        &mut self,
+        voting_public_key: &PublicKey,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        self.validators
+            .get_mut(voting_public_key)
+            .map(|init| init.enabled = enabled);
+
+        self.definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+            .map(|def| def.enabled = enabled);
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
     }
 
-    pub fn disable_validator(&mut self, voting_public_key: &PublicKey) -> Result<(), Error> {
-        todo!()
-    }
-
-    /// Scans `defs` and attempts to initialize and validators which are not already known.
+    /// Scans `self.definitions` and attempts to initialize and validators which are not already
+    /// initialized.
     ///
     /// If a validator is unable to be initialized an `error` log is raised but the function does
     /// not terminate; it will attempt to load more validators.
     ///
     /// ## Notes
     ///
-    /// A validator is considered "already known" and skipped if:
-    ///
-    /// - A validator with the same voting public key already exists.
+    /// A validator is considered "already known" and skipped if the public key is already known.
+    /// I.e., if there are two different definitions with the same public key then the second will
+    /// be ignored.
     fn update_validators(&mut self) -> Result<(), Error> {
         for def in self.definitions.as_slice() {
             // An enabled validator definition should be added to ``
             match &def.signing_definition {
-                SigningDefinition::LocalKeystore {
-                    voting_public_key, ..
-                } => {
-                    if self.validators.contains_key(&voting_public_key) {
+                SigningDefinition::LocalKeystore { .. } => {
+                    if self.validators.contains_key(&def.voting_public_key) {
                         continue;
                     }
 

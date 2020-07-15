@@ -43,7 +43,6 @@ pub enum SigningDefinition {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     #[serde(rename = "local_keystore")]
     LocalKeystore {
-        voting_public_key: PublicKey,
         voting_keystore_path: PathBuf,
         voting_keystore_password_path: PathBuf,
     },
@@ -52,6 +51,7 @@ pub enum SigningDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ValidatorDefinition {
     pub enabled: bool,
+    pub voting_public_key: PublicKey,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
 }
@@ -161,8 +161,8 @@ impl ValidatorDefinitions {
 
                 Some(ValidatorDefinition {
                     enabled: true,
+                    voting_public_key,
                     signing_definition: SigningDefinition::LocalKeystore {
-                        voting_public_key,
                         voting_keystore_path,
                         voting_keystore_password_path,
                     },
@@ -190,6 +190,11 @@ impl ValidatorDefinitions {
     /// Returns a slice of all `ValidatorDefinition` in `self`.
     pub fn as_slice(&self) -> &[ValidatorDefinition] {
         self.0.as_slice()
+    }
+
+    /// Returns a mutable slice of all `ValidatorDefinition` in `self`.
+    pub fn as_mut_slice(&mut self) -> &mut [ValidatorDefinition] {
+        self.0.as_mut_slice()
     }
 }
 

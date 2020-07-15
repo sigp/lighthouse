@@ -102,7 +102,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     pub fn num_voting_validators(&self) -> usize {
-        self.validators.read().len()
+        self.validators.read().num_enabled()
     }
 
     fn fork(&self) -> Option<Fork> {
