@@ -16,7 +16,6 @@ pub use config::Config;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use config::SLASHING_PROTECTION_FILENAME;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use fork_service::{ForkService, ForkServiceBuilder};
@@ -24,7 +23,7 @@ use futures::channel::mpsc;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{error, info, warn, Logger};
+use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -71,14 +70,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "beacon_node" => &config.http_server,
             "datadir" => format!("{:?}", config.data_dir),
         );
-
-        if !config.data_dir.join(SLASHING_PROTECTION_FILENAME).exists() && !config.auto_register {
-            warn!(
-                log,
-                "Will not register any validators";
-                "msg" => "strongly consider using --auto-register on the first use",
-            );
-        }
 
         let mut validator_defs = ValidatorDefinitions::open_or_create(&config.data_dir)
             .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
@@ -208,11 +199,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
-        if config.auto_register {
-            info!(log, "Registering all validators for slashing protection");
-            validator_store.register_all_validators_for_slashing_protection()?;
-            info!(log, "Validator auto-registration complete");
-        }
+        validator_store.register_all_validators_for_slashing_protection()?;
 
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())
