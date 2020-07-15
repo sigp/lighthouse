@@ -1,3 +1,11 @@
+//! Provides management of "initialized" validators.
+//!
+//! A validator is "initialized" if it is ready for signing blocks, attestations, etc in this
+//! validator client.
+//!
+//! The `InitializedValidators` struct in this file serves as the source-of-truth of which
+//! validators are managed by this validator client.
+
 use crate::validator_definitions::ValidatorDefinition;
 use account_utils::read_password;
 use eth2_keystore::Keystore;
@@ -10,15 +18,25 @@ use types::{Keypair, PublicKey};
 
 #[derive(Debug)]
 pub enum Error {
+    /// Refused to opee a validator with an existing lockfile since that validator may be in-use by
+    /// another process.
     LockfileExists(PathBuf),
+    /// There was a filesystem error when creating the lockfile.
     UnableToCreateLockfile(io::Error),
+    /// There was a filesystem error when opening the keystore.
     UnableToOpenVotingKeystore(io::Error),
+    /// The keystore path is not as expected. It should be a file, not `..` or something obscure
+    /// like that.
     BadVotingKeystorePath(PathBuf),
+    /// The keystore could not be parsed, it is likely bad JSON.
     UnableToParseVotingKeystore(eth2_keystore::Error),
+    /// The keystore could not be decrypted. The password might be wrong.
     UnableToDecryptKeystore(eth2_keystore::Error),
+    /// There was a filesystem error when reading the keystore password from disk.
     UnableToReadVotingKeystorePassword(io::Error),
 }
 
+/// A validator that is ready to sign messages.
 pub enum InitializedValidator {
     LocalKeystore {
         voting_keystore_path: PathBuf,
@@ -29,24 +47,33 @@ pub enum InitializedValidator {
 }
 
 impl InitializedValidator {
-    pub fn public_key(&self) -> &PublicKey {
+    /// Returns the voting public key for this validator.
+    pub fn voting_public_key(&self) -> &PublicKey {
         match self {
             InitializedValidator::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
         }
     }
 
-    pub fn keypair(&self) -> &Keypair {
+    /// Returns the voting keypair for this validator.
+    pub fn voting_keypair(&self) -> &Keypair {
         match self {
             InitializedValidator::LocalKeystore { voting_keypair, .. } => voting_keypair,
         }
     }
 
+    /// Instantiate `self` from a `ValidatorDefinition`.
+    ///
+    /// ## Errors
+    ///
+    /// If the validator is unable to be initialized for whatever reason.
     pub fn from_definition(
         def: ValidatorDefinition,
         respect_lockfiles: bool,
         log: &Logger,
     ) -> Result<Self, Error> {
         match def {
+            // Load the keystore, password, decrypt the keypair and create a lockfile for a
+            // EIP-2335 keystore on the local filesystem.
             ValidatorDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path,
@@ -61,6 +88,7 @@ impl InitializedValidator {
                     .decrypt_keypair(password.as_bytes())
                     .map_err(Error::UnableToDecryptKeystore)?;
 
+                // Append a `.lock` suffix to the voting keystore.
                 let voting_keystore_lockfile_path = voting_keystore_path
                     .file_name()
                     .ok_or_else(|| Error::BadVotingKeystorePath(voting_keystore_path.clone()))
@@ -79,6 +107,8 @@ impl InitializedValidator {
                     if respect_lockfiles {
                         return Err(Error::LockfileExists(voting_keystore_lockfile_path));
                     } else {
+                        // If **not** respecting lockfiles, just raise a warning if the voting
+                        // keypair cannot be unlocked.
                         warn!(
                             log,
                             "Ignoring validator lockfile";
@@ -86,7 +116,9 @@ impl InitializedValidator {
                         );
                     }
                 } else {
+                    // Create a new lockfile.
                     OpenOptions::new()
+                        // TODO: can remove this write?
                         .write(true)
                         .create_new(true)
                         .open(&voting_keystore_lockfile_path)
@@ -104,6 +136,7 @@ impl InitializedValidator {
     }
 }
 
+/// Custom drop implementation to allow for `LocalKeystore` to remove lockfiles.
 impl Drop for InitializedValidator {
     fn drop(&mut self) {
         match self {
@@ -126,6 +159,10 @@ impl Drop for InitializedValidator {
     }
 }
 
+/// A set of `InitializedValidator` objects which can be initialized from a list of
+/// `ValidatorDefinition`.
+///
+/// Forms the fundamental list of validators that are managed by this validator client instance.
 #[derive(Default)]
 pub struct InitializedValidators {
     validators: HashMap<PublicKey, InitializedValidator>,
@@ -133,22 +170,35 @@ pub struct InitializedValidators {
 }
 
 impl InitializedValidators {
+    /// The count of validators contained in `self`.
     pub fn len(&self) -> usize {
         self.validators.len()
     }
 
+    /// Iterate through all voting public keys in `self`.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKey> {
         self.validators.keys()
     }
 
-    pub fn voting_pubkeys(&self) -> Vec<&PublicKey> {
-        self.validators.keys().collect()
+    /// Returns the voting `Keypair` for a given voting `PublicKey`, if that validator is known to
+    /// `self`.
+    pub fn voting_keypair(&self, voting_public_key: &PublicKey) -> Option<&Keypair> {
+        self.validators
+            .get(voting_public_key)
+            .map(|v| v.voting_keypair())
     }
 
-    pub fn voting_keypair(&self, public_key: &PublicKey) -> Option<&Keypair> {
-        self.validators.get(public_key).map(|v| v.keypair())
-    }
-
+    /// Scans `defs` and attempts to initialize and validators which are not already known.
+    ///
+    /// If a validator is unable to be initialized an `error` log is raised but the function does
+    /// not terminate; it will attempt to load more validators.
+    ///
+    /// ## Notes
+    ///
+    /// A validator is considered "already known" and skipped if:
+    ///
+    /// - A `LocalKeystore` validator uses a voting keystore path that is already known.
+    /// - A validator with the same voting public key already exists.
     pub fn initialize_definitions(
         &mut self,
         defs: &[ValidatorDefinition],
@@ -171,9 +221,15 @@ impl InitializedValidators {
                     match InitializedValidator::from_definition(def.clone(), respect_lockfiles, log)
                     {
                         Ok(init) => {
+                            // Avoid replacing an existing validator.
+                            if self.validators.contains_key(init.voting_public_key()) {
+                                continue;
+                            }
+
+                            self.validators
+                                .insert(init.voting_public_key().clone(), init);
                             self.known_voting_keystore_paths
                                 .insert(voting_keystore_path.clone());
-                            self.validators.insert(init.public_key().clone(), init);
                         }
                         Err(e) => error!(
                             log,
