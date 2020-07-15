@@ -10,7 +10,7 @@ use crate::validator_definitions::{SigningDefinition, ValidatorDefinition, Valid
 use account_utils::read_password;
 use eth2_keystore::Keystore;
 use slog::{error, warn, Logger};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::PathBuf;
@@ -23,6 +23,11 @@ pub enum Error {
     LockfileExists(PathBuf),
     /// There was a filesystem error when creating the lockfile.
     UnableToCreateLockfile(io::Error),
+    /// The voting public key in the definition did not match the one in the keystore.
+    VotingPublicKeyMismatch {
+        definition: PublicKey,
+        keystore: PublicKey,
+    },
     /// There was a filesystem error when opening the keystore.
     UnableToOpenVotingKeystore(io::Error),
     /// The keystore path is not as expected. It should be a file, not `..` or something obscure
@@ -85,6 +90,7 @@ impl InitializedValidator {
             // Load the keystore, password, decrypt the keypair and create a lockfile for a
             // EIP-2335 keystore on the local filesystem.
             SigningDefinition::LocalKeystore {
+                voting_public_key,
                 voting_keystore_path,
                 voting_keystore_password_path,
             } => {
@@ -97,6 +103,13 @@ impl InitializedValidator {
                 let voting_keypair = voting_keystore
                     .decrypt_keypair(password.as_bytes())
                     .map_err(Error::UnableToDecryptKeystore)?;
+
+                if voting_keypair.pk != voting_public_key {
+                    return Err(Error::VotingPublicKeyMismatch {
+                        definition: voting_public_key,
+                        keystore: voting_keypair.pk,
+                    });
+                }
 
                 // Append a `.lock` suffix to the voting keystore.
                 let voting_keystore_lockfile_path = voting_keystore_path
@@ -182,8 +195,6 @@ pub struct InitializedValidators {
     definitions: ValidatorDefinitions,
     /// The canonical set of validators.
     validators: HashMap<PublicKey, InitializedValidator>,
-    /// An ancillary set that is used to cheaply detect if a validator keystore is already known.
-    known_voting_keystore_paths: HashSet<PathBuf>,
     log: Logger,
 }
 
@@ -199,7 +210,6 @@ impl InitializedValidators {
             validators_dir,
             definitions,
             validators: HashMap::default(),
-            known_voting_keystore_paths: HashSet::default(),
             log,
         };
         this.update_validators()?;
@@ -241,20 +251,15 @@ impl InitializedValidators {
     ///
     /// A validator is considered "already known" and skipped if:
     ///
-    /// - A `LocalKeystore` validator uses a voting keystore path that is already known.
     /// - A validator with the same voting public key already exists.
     fn update_validators(&mut self) -> Result<(), Error> {
         for def in self.definitions.as_slice() {
             // An enabled validator definition should be added to ``
             match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
-                    voting_keystore_path,
-                    voting_keystore_password_path,
+                    voting_public_key, ..
                 } => {
-                    if self
-                        .known_voting_keystore_paths
-                        .contains(voting_keystore_password_path)
-                    {
+                    if self.validators.contains_key(&voting_public_key) {
                         continue;
                     }
 
@@ -264,15 +269,8 @@ impl InitializedValidators {
                         &self.log,
                     ) {
                         Ok(init) => {
-                            // Avoid replacing an existing validator.
-                            if self.validators.contains_key(init.voting_public_key()) {
-                                continue;
-                            }
-
                             self.validators
                                 .insert(init.voting_public_key().clone(), init);
-                            self.known_voting_keystore_paths
-                                .insert(voting_keystore_path.clone());
                         }
                         Err(e) => error!(
                             self.log,

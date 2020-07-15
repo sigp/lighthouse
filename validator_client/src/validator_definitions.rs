@@ -13,6 +13,7 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
+use types::PublicKey;
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -42,6 +43,7 @@ pub enum SigningDefinition {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     #[serde(rename = "local_keystore")]
     LocalKeystore {
+        voting_public_key: PublicKey,
         voting_keystore_path: PathBuf,
         voting_keystore_password_path: PathBuf,
     },
@@ -128,8 +130,8 @@ impl ValidatorDefinitions {
                         Keystore::from_json_reader(file).map_err(|e| format!("{:?}", e))
                     });
 
-                let voting_keystore_password_path = match keystore_result {
-                    Ok(keystore) => default_keystore_password_path(&keystore, secrets_dir.as_ref()),
+                let keystore = match keystore_result {
+                    Ok(keystore) => keystore,
                     Err(e) => {
                         error!(
                             log,
@@ -141,9 +143,26 @@ impl ValidatorDefinitions {
                     }
                 };
 
+                let voting_keystore_password_path =
+                    default_keystore_password_path(&keystore, secrets_dir.as_ref());
+                let voting_public_key =
+                    match serde_yaml::from_str(&format!("0x{}", keystore.pubkey())) {
+                        Ok(pubkey) => pubkey,
+                        Err(e) => {
+                            error!(
+                                log,
+                                "Invalid keystore public key";
+                                "error" => format!("{:?}", e),
+                                "keystore" => format!("{:?}", voting_keystore_path)
+                            );
+                            return None;
+                        }
+                    };
+
                 Some(ValidatorDefinition {
                     enabled: true,
                     signing_definition: SigningDefinition::LocalKeystore {
+                        voting_public_key,
                         voting_keystore_path,
                         voting_keystore_password_path,
                     },
