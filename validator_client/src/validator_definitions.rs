@@ -98,11 +98,11 @@ impl ValidatorDefinitions {
             .map_err(Error::UnableToSearchForKeystores)?;
 
         let known_paths: HashSet<&PathBuf> =
-            HashSet::from_iter(self.0.iter().filter_map(|def| match def {
+            HashSet::from_iter(self.0.iter().map(|def| match def {
                 ValidatorDefinition::LocalKeystore {
                     voting_keystore_path,
                     ..
-                } => Some(voting_keystore_path),
+                } => voting_keystore_path,
             }));
 
         let mut new_defs = keystore_paths
@@ -122,9 +122,7 @@ impl ValidatorDefinitions {
                     });
 
                 let voting_keystore_password_path = match keystore_result {
-                    Ok(keystore) => {
-                        default_keystore_password_path(&keystore, secrets_dir.as_ref().clone())
-                    }
+                    Ok(keystore) => default_keystore_password_path(&keystore, secrets_dir.as_ref()),
                     Err(e) => {
                         error!(
                             log,

@@ -101,7 +101,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .iter_voting_pubkeys()
-            .map(|pk| pk.clone())
+            .cloned()
             .collect()
     }
 
