@@ -4,6 +4,7 @@
 name = "account_manager"
 version = "0.0.1"
 dependencies = [
+ "account_utils",
  "bls",
  "clap",
  "clap_utils",

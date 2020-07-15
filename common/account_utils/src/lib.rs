@@ -88,9 +88,40 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
+    use super::strip_off_newlines;
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn test_strip_off() {
+        let expected = "hello world".as_bytes().to_vec();
+
+        assert_eq!(
+            strip_off_newlines("hello world\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\n\n\n\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r\r\r\r\r".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world\r\n\r\n".as_bytes().to_vec()),
+            expected
+        );
+        assert_eq!(
+            strip_off_newlines("hello world".as_bytes().to_vec()),
+            expected
+        );
     }
 }
