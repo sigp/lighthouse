@@ -1,3 +1,6 @@
+//! Provides functions that are used for key/account management across multiple crates in the
+//! Lighthouse project.
+
 use eth2_keystore::Keystore;
 use eth2_wallet::Wallet;
 use rand::{distributions::Alphanumeric, Rng};
@@ -46,7 +49,6 @@ pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
 }
 
 /// Creates a file with `600 (-rw-------)` permissions.
-// TODO: move to password_utils crate.
 pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), io::Error> {
     let path = path.as_ref();
 
@@ -63,7 +65,7 @@ pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<()
     Ok(())
 }
 
-// TODO: move to password_utils crate.
+/// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN`.
 pub fn random_password() -> PlainText {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)

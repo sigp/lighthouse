@@ -104,7 +104,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 network
                     .add_validator_client(
                         ValidatorConfig {
-                            auto_register: true,
+                            strict: false,
                             ..ValidatorConfig::default()
                         },
                         i,
