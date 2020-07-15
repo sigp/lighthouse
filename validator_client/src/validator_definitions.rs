@@ -38,13 +38,20 @@ pub enum Error {
 /// remote signing).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum ValidatorDefinition {
+pub enum SigningDefinition {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     #[serde(rename = "local_keystore")]
     LocalKeystore {
         voting_keystore_path: PathBuf,
         voting_keystore_password_path: PathBuf,
     },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ValidatorDefinition {
+    pub enabled: bool,
+    #[serde(flatten)]
+    pub signing_definition: SigningDefinition,
 }
 
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
@@ -98,8 +105,8 @@ impl ValidatorDefinitions {
             .map_err(Error::UnableToSearchForKeystores)?;
 
         let known_paths: HashSet<&PathBuf> =
-            HashSet::from_iter(self.0.iter().map(|def| match def {
-                ValidatorDefinition::LocalKeystore {
+            HashSet::from_iter(self.0.iter().map(|def| match &def.signing_definition {
+                SigningDefinition::LocalKeystore {
                     voting_keystore_path,
                     ..
                 } => voting_keystore_path,
@@ -134,9 +141,12 @@ impl ValidatorDefinitions {
                     }
                 };
 
-                Some(ValidatorDefinition::LocalKeystore {
-                    voting_keystore_path,
-                    voting_keystore_password_path,
+                Some(ValidatorDefinition {
+                    enabled: true,
+                    signing_definition: SigningDefinition::LocalKeystore {
+                        voting_keystore_path,
+                        voting_keystore_password_path,
+                    },
                 })
             })
             .collect::<Vec<_>>();

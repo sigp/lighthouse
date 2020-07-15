@@ -6,7 +6,7 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
-use crate::validator_definitions::ValidatorDefinition;
+use crate::validator_definitions::{SigningDefinition, ValidatorDefinition};
 use account_utils::read_password;
 use eth2_keystore::Keystore;
 use slog::{error, warn, Logger};
@@ -36,11 +36,11 @@ pub enum Error {
     UnableToReadVotingKeystorePassword(io::Error),
 }
 
-/// A validator that is ready to sign messages.
+/// A method used by a validator to sign messages.
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
 /// remote signing).
-pub enum InitializedValidator {
+pub enum SigningMethod {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     LocalKeystore {
         voting_keystore_path: PathBuf,
@@ -50,18 +50,24 @@ pub enum InitializedValidator {
     },
 }
 
+/// A validator that is ready to sign messages.
+pub struct InitializedValidator {
+    pub enabled: bool,
+    signing_method: SigningMethod,
+}
+
 impl InitializedValidator {
     /// Returns the voting public key for this validator.
     pub fn voting_public_key(&self) -> &PublicKey {
-        match self {
-            InitializedValidator::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
+        match &self.signing_method {
+            SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
         }
     }
 
     /// Returns the voting keypair for this validator.
     pub fn voting_keypair(&self) -> &Keypair {
-        match self {
-            InitializedValidator::LocalKeystore { voting_keypair, .. } => voting_keypair,
+        match &self.signing_method {
+            SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
         }
     }
 
@@ -75,10 +81,10 @@ impl InitializedValidator {
         respect_lockfiles: bool,
         log: &Logger,
     ) -> Result<Self, Error> {
-        match def {
+        match def.signing_definition {
             // Load the keystore, password, decrypt the keypair and create a lockfile for a
             // EIP-2335 keystore on the local filesystem.
-            ValidatorDefinition::LocalKeystore {
+            SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path,
             } => {
@@ -129,11 +135,14 @@ impl InitializedValidator {
                         .map_err(Error::UnableToCreateLockfile)?;
                 }
 
-                Ok(InitializedValidator::LocalKeystore {
-                    voting_keystore_path,
-                    voting_keystore_lockfile_path,
-                    voting_keystore,
-                    voting_keypair,
+                Ok(Self {
+                    enabled: def.enabled,
+                    signing_method: SigningMethod::LocalKeystore {
+                        voting_keystore_path,
+                        voting_keystore_lockfile_path,
+                        voting_keystore,
+                        voting_keypair,
+                    },
                 })
             }
         }
@@ -143,8 +152,8 @@ impl InitializedValidator {
 /// Custom drop implementation to allow for `LocalKeystore` to remove lockfiles.
 impl Drop for InitializedValidator {
     fn drop(&mut self) {
-        match self {
-            InitializedValidator::LocalKeystore {
+        match &self.signing_method {
+            SigningMethod::LocalKeystore {
                 voting_keystore_lockfile_path,
                 ..
             } => {
@@ -212,8 +221,9 @@ impl InitializedValidators {
         log: &Logger,
     ) -> Result<(), Error> {
         for def in defs {
-            match def {
-                ValidatorDefinition::LocalKeystore {
+            // An enabled validator definition should be added to ``
+            match &def.signing_definition {
+                SigningDefinition::LocalKeystore {
                     voting_keystore_path,
                     voting_keystore_password_path,
                 } => {
