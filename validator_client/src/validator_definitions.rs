@@ -4,7 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_yaml;
 use slog::{error, Logger};
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
@@ -22,7 +22,9 @@ pub enum Error {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum ValidatorDefinition {
+    #[serde(rename = "local_keystore")]
     LocalKeystore {
         voting_keystore_path: PathBuf,
         voting_keystore_password_path: PathBuf,
@@ -44,8 +46,12 @@ impl ValidatorDefinitions {
 
     pub fn open<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
-        // TODO: OpenOptions
-        let file = File::open(config_path).map_err(Error::UnableToOpenFile)?;
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .create_new(false)
+            .open(&config_path)
+            .map_err(Error::UnableToOpenFile)?;
         serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
     }
 
@@ -111,55 +117,6 @@ impl ValidatorDefinitions {
 
         Ok(new_defs_count)
     }
-
-    /*
-    pub fn auto_populate<P: AsRef<Path>>(
-        validators_dir: P,
-        secrets_dir: P,
-        log: &Logger,
-    ) -> Result<Self, Error> {
-        let mut keystores = vec![];
-        recursively_find_voting_keystores(validators_dir, &mut keystores)
-            .map_err(Error::UnableToSearchForKeystores)?;
-
-        let keystores_and_passwords = keystores.into_iter().filter_map(|voting_keystore_path| {
-            let keystore_result = OpenOptions::new()
-                .read(true)
-                .create(false)
-                .open(&voting_keystore_path)
-                .map_err(|e| format!("{:?}", e))
-                .and_then(|file| Keystore::from_json_reader(file).map_err(|e| format!("{:?}", e)));
-
-            match keystore_result {
-                Ok(keystore) => Some((
-                    voting_keystore_path,
-                    default_keystore_password_path(&keystore, secrets_dir.as_ref().clone()),
-                )),
-                Err(e) => {
-                    error!(
-                        log,
-                        "Unable to read validator keystore";
-                        "error" => e,
-                        "keystore" => format!("{:?}", voting_keystore_path)
-                    );
-                    None
-                }
-            }
-        });
-
-        let definitions = keystores_and_passwords
-            .into_iter()
-            .map(|(voting_keystore_path, voting_keystore_password_path)| {
-                ValidatorDefinition::LocalKeystore {
-                    voting_keystore_path,
-                    voting_keystore_password_path,
-                }
-            })
-            .collect();
-
-        Ok(Self(definitions))
-    }
-    */
 
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
