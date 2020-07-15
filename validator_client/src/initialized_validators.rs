@@ -11,7 +11,7 @@ use crate::validator_definitions::{
 };
 use account_utils::read_password;
 use eth2_keystore::Keystore;
-use slog::{error, warn, Logger};
+use slog::{error, info, warn, Logger};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io;
@@ -43,6 +43,8 @@ pub enum Error {
     UnableToReadVotingKeystorePassword(io::Error),
     /// There was an error updating the on-disk validator definitions file.
     UnableToSaveDefinitions(validator_definitions::Error),
+    /// It is not legal to try and initialize a disabled validator definition.
+    UnableToInitializeDisabledValidator,
 }
 
 /// A method used by a validator to sign messages.
@@ -61,7 +63,6 @@ pub enum SigningMethod {
 
 /// A validator that is ready to sign messages.
 pub struct InitializedValidator {
-    pub enabled: bool,
     signing_method: SigningMethod,
 }
 
@@ -90,6 +91,10 @@ impl InitializedValidator {
         respect_lockfiles: bool,
         log: &Logger,
     ) -> Result<Self, Error> {
+        if !def.enabled {
+            return Err(Error::UnableToInitializeDisabledValidator);
+        }
+
         match def.signing_definition {
             // Load the keystore, password, decrypt the keypair and create a lockfile for a
             // EIP-2335 keystore on the local filesystem.
@@ -152,7 +157,6 @@ impl InitializedValidator {
                 }
 
                 Ok(Self {
-                    enabled: def.enabled,
                     signing_method: SigningMethod::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_lockfile_path,
@@ -227,20 +231,17 @@ impl InitializedValidators {
 
     /// The count of enabled validators contained in `self`.
     pub fn num_enabled(&self) -> usize {
-        self.validators.iter().filter(|(_, v)| v.enabled).count()
+        self.validators.len()
     }
 
     /// The count of disabled validators contained in `self`.
-    pub fn num_disabled(&self) -> usize {
-        self.validators.iter().filter(|(_, v)| !v.enabled).count()
+    pub fn num_total(&self) -> usize {
+        self.definitions.as_slice().len()
     }
 
     /// Iterate through all **enabled** voting public keys in `self`.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKey> {
-        self.validators
-            .iter()
-            .filter(|(_, v)| v.enabled)
-            .map(|(pubkey, _)| pubkey)
+        self.validators.iter().map(|(pubkey, _)| pubkey)
     }
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if that validator is known to
@@ -248,7 +249,6 @@ impl InitializedValidators {
     pub fn voting_keypair(&self, voting_public_key: &PublicKey) -> Option<&Keypair> {
         self.validators
             .get(voting_public_key)
-            .filter(|v| v.enabled)
             .map(|v| v.voting_keypair())
     }
 
@@ -260,15 +260,13 @@ impl InitializedValidators {
         voting_public_key: &PublicKey,
         enabled: bool,
     ) -> Result<(), Error> {
-        self.validators
-            .get_mut(voting_public_key)
-            .map(|init| init.enabled = enabled);
-
         self.definitions
             .as_mut_slice()
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
             .map(|def| def.enabled = enabled);
+
+        self.update_validators()?;
 
         self.definitions
             .save(&self.validators_dir)
@@ -290,30 +288,43 @@ impl InitializedValidators {
     /// be ignored.
     fn update_validators(&mut self) -> Result<(), Error> {
         for def in self.definitions.as_slice() {
-            // An enabled validator definition should be added to ``
-            match &def.signing_definition {
-                SigningDefinition::LocalKeystore { .. } => {
-                    if self.validators.contains_key(&def.voting_public_key) {
-                        continue;
-                    }
-
-                    match InitializedValidator::from_definition(
-                        def.clone(),
-                        self.respect_lockfiles,
-                        &self.log,
-                    ) {
-                        Ok(init) => {
-                            self.validators
-                                .insert(init.voting_public_key().clone(), init);
+            if def.enabled {
+                match &def.signing_definition {
+                    SigningDefinition::LocalKeystore { .. } => {
+                        if self.validators.contains_key(&def.voting_public_key) {
+                            continue;
                         }
-                        Err(e) => error!(
-                            self.log,
-                            "Failed to initialize validator";
-                            "error" => format!("{:?}", e),
-                            "validator" => format!("{:?}", def)
-                        ),
+
+                        match InitializedValidator::from_definition(
+                            def.clone(),
+                            self.respect_lockfiles,
+                            &self.log,
+                        ) {
+                            Ok(init) => {
+                                self.validators
+                                    .insert(init.voting_public_key().clone(), init);
+                                info!(
+                                    self.log,
+                                    "Enabled validator";
+                                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
+                                );
+                            }
+                            Err(e) => error!(
+                                self.log,
+                                "Failed to initialize validator";
+                                "error" => format!("{:?}", e),
+                                "validator" => format!("{:?}", def)
+                            ),
+                        }
                     }
                 }
+            } else {
+                self.validators.remove(&def.voting_public_key);
+                info!(
+                    self.log,
+                    "Disabled validator";
+                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
+                );
             }
         }
         Ok(())

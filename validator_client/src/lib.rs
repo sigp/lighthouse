@@ -98,8 +98,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         info!(
             log,
-            "Decrypted validator keystores";
-            "count" => validators.num_enabled() + validators.num_disabled(),
+            "Initialized validators";
+            "disabled" => validators.num_total().saturating_sub(validators.num_enabled()),
+            "enabled" => validators.num_enabled(),
         );
 
         let beacon_node =
