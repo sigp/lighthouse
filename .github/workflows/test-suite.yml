@@ -6,10 +6,12 @@ on:
       - master
       - staging
       - trying
+      - 'pr/*'
   pull_request:
 
 jobs:
   cargo-fmt:
+    name: cargo-fmt
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
@@ -18,6 +20,7 @@ jobs:
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
   release-tests-ubuntu:
+    name: release-tests-ubuntu
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -29,6 +32,7 @@ jobs:
     - name: Run tests in release
       run: make test-release
   release-tests-and-install-macos:
+    name: release-tests-and-install-macos
     runs-on: macos-latest
     needs: cargo-fmt
     steps:
@@ -42,6 +46,7 @@ jobs:
     - name: Install Lighthouse
       run: make
   debug-tests-ubuntu:
+    name: debug-tests-ubuntu
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -53,6 +58,7 @@ jobs:
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
+    name: state-transition-vectors-ubuntu
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -62,6 +68,7 @@ jobs:
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
   ef-tests-ubuntu:
+    name: ef-tests-ubuntu
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -71,6 +78,7 @@ jobs:
     - name: Run eth2.0-spec-tests with and without fake_crypto
       run: make test-ef
   dockerfile-ubuntu:
+    name: dockerfile-ubuntu
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -78,6 +86,7 @@ jobs:
     - name: Build the root Dockerfile
       run: docker build .
   eth1-simulator-ubuntu:
+    name: eth1-simulator-ubuntu
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -87,6 +96,7 @@ jobs:
     - name: Run the beacon chain sim that starts from an eth1 contract
       run: cargo run --release --bin simulator eth1-sim
   no-eth1-simulator-ubuntu:
+    name: no-eth1-simulator-ubuntu
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -96,6 +106,7 @@ jobs:
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
   check-benchmarks:
+    name: check-benchmarks
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -103,6 +114,7 @@ jobs:
     - name: Typecheck benchmark code without running it
       run: make check-benches
   clippy:
+    name: clippy
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -110,6 +122,7 @@ jobs:
     - name: Lint code for quality and style with Clippy
       run: make lint
   arbitrary-check:
+    name: arbitrary-check
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -117,6 +130,7 @@ jobs:
     - name: Validate state_processing feature arbitrary-fuzz
       run:  make arbitrary-fuzz
   cargo-audit:
+    name: cargo-audit
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
@@ -124,6 +138,7 @@ jobs:
     - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
       run:  make audit
   cargo-udeps:
+    name: cargo-udeps
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
