@@ -10,11 +10,11 @@ signatures.
 Users that create validators using the `lighthouse account` tool in the
 standard directories and do not start their `lighthouse vc` with the `--strict`
 flag should not need to understand the contents of this document. However,
-users with more complex needs may find this document crucial.
+users with more complex needs may find this document useful.
 
 ## Introducing the `validator_definitions.yml` file
 
-The `validator_definitions.yml` file is located in the `validator_dir`, which
+The `validator_definitions.yml` file is located in the `validator-dir`, which
 defaults to `~/.lighthouse/validators`. It is a
 [YAML](https://en.wikipedia.org/wiki/YAML) encoded file defining exactly which
 validators the validator client will (and won't) act for.
@@ -66,10 +66,10 @@ routine will start (more on that later). To recap:
 ### Automatic validator discovery
 
 When the `--strict` flag is **not** provided, the validator will search the
-`validator_dir` for validators and add any new validators to the
+`validator-dir` for validators and add any *new* validators to the
 `validator_definitions.yml` with `enabled: true`.
 
-The routine for this search begins in the `validator_dir`, where it obtains a
+The routine for this search begins in the `validator-dir`, where it obtains a
 list of all files in that directory and all sub-directories (i.e., recursive
 directory-tree search). For each file named `voting-keystore.json` it creates a
 new validator definition by the following process:
@@ -78,7 +78,7 @@ new validator definition by the following process:
 1. Set `voting_public_key` to the `pubkey` value from the `voting-keystore.json`.
 1. Set `type` to `local_keystore`.
 1. Set `voting_keystore_path` to the full path of the discovered keystore.
-1. Set `voting_keystore_password_path` to be a file in the `secrets_dir` with a
+1. Set `voting_keystore_password_path` to be a file in the `secrets-dir` with a
 name identical to the `voting_public_key` value.
 
 #### Discovery Example
@@ -126,7 +126,7 @@ Notably, the `sally/three/my-voting-keystore.json` file was *not* added to the
 file, since the file name is not exactly `voting-keystore.json`.
 
 In order for the validator client to decrypt the validators, they will need to
-ensure their `secrets_dir` is organised as below:
+ensure their `secrets-dir` is organised as below:
 
 ```
 ~/.lighthouse/secrets
@@ -154,7 +154,7 @@ when starting the validator client to ensure it has been able to initialize
 ## How the `validator_definitions.yml` file is processed
 
 If it validator client were to start using the [first example
-`validator_definitions.yml` file](#example) would print the follow log,
+`validator_definitions.yml` file](#example) it would print the following log,
 acknowledging there there are two validators and one is disabled:
 
 ```
@@ -166,7 +166,7 @@ the active validator, the validator client will:
 
 1. Load an EIP-2335 keystore from the `voting_keystore_path`.
 1. Read the contents of the file at `voting_keystore_password_path` and use it
-to decrypt the keystore (see prior step) and obtain a BLS keypair.
+to decrypt the keystore and obtain a BLS keypair.
 1. Verify that the decrypted BLS keypair matches the `voting_public_key`.
 1.  Create a `voting-keystore.json.lock` file adjacent to the
 `voting_keystore_path`, indicating that the voting keystore is in-use and
