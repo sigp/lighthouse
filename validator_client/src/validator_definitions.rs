@@ -1,7 +1,7 @@
 //! Provides a file format for defining validators that should be initialized by this validator.
 //!
-//! Serves as the source-of-truth of which validators this validator client should attempt to load
-//! into the `crate::intialized_validators::InitializedValidators` struct.
+//! Serves as the source-of-truth of which validators this validator client should attempt (or not
+//! attempt) to load //! into the `crate::intialized_validators::InitializedValidators` struct.
 
 use account_utils::default_keystore_password_path;
 use eth2_keystore::Keystore;
@@ -33,7 +33,7 @@ pub enum Error {
     UnableToWriteFile(io::Error),
 }
 
-/// A validator that should be initialized by this validator client.
+/// Defines how the validator client should attempt to sign messages for this validator.
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
 /// remote signing).
@@ -48,6 +48,10 @@ pub enum SigningDefinition {
     },
 }
 
+/// A validator that may be initialized by this validator client.
+///
+/// Presently there is only a single variant, however we expect more variants to arise (e.g.,
+/// remote signing).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ValidatorDefinition {
     pub enabled: bool,

@@ -67,20 +67,6 @@ pub struct InitializedValidator {
 }
 
 impl InitializedValidator {
-    /// Returns the voting public key for this validator.
-    pub fn voting_public_key(&self) -> &PublicKey {
-        match &self.signing_method {
-            SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
-        }
-    }
-
-    /// Returns the voting keypair for this validator.
-    pub fn voting_keypair(&self) -> &Keypair {
-        match &self.signing_method {
-            SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
-        }
-    }
-
     /// Instantiate `self` from a `ValidatorDefinition`.
     ///
     /// ## Errors
@@ -149,7 +135,6 @@ impl InitializedValidator {
                 } else {
                     // Create a new lockfile.
                     OpenOptions::new()
-                        // TODO: can remove this write?
                         .write(true)
                         .create_new(true)
                         .open(&voting_keystore_lockfile_path)
@@ -165,6 +150,20 @@ impl InitializedValidator {
                     },
                 })
             }
+        }
+    }
+
+    /// Returns the voting public key for this validator.
+    pub fn voting_public_key(&self) -> &PublicKey {
+        match &self.signing_method {
+            SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
+        }
+    }
+
+    /// Returns the voting keypair for this validator.
+    pub fn voting_keypair(&self) -> &Keypair {
+        match &self.signing_method {
+            SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
         }
     }
 }
@@ -234,7 +233,7 @@ impl InitializedValidators {
         self.validators.len()
     }
 
-    /// The count of disabled validators contained in `self`.
+    /// The total count of enabled and disabled validators contained in `self`.
     pub fn num_total(&self) -> usize {
         self.definitions.as_slice().len()
     }
@@ -253,6 +252,12 @@ impl InitializedValidators {
     }
 
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
+    ///
+    /// ## Notes
+    ///
+    /// Enabling or disabling a validator will cause `self.definitions` to be updated and saved to
+    /// disk. A newly enabled validator will be added to `self.validators`, whilst a newly disabled
+    /// validator will be removed from `self.validators`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
     pub fn set_validator_status(
