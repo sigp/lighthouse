@@ -1,4 +1,4 @@
-# Validator Discovery
+# Validator Management
 
 The `lighthouse vc` command starts a *validator client* instance which connects
 to a beacon node performs the duties of a staked validator.
@@ -102,7 +102,7 @@ Lets assume the following directory structure:
 ```
 
 There is no `validator_definitions.yml` file present, so we can run `lighthouse
-vc` (**without** `--strict`) and it will create the following `validator_definitions.yml`:
+vc` (**without** `--disable-auto-discover`) and it will create the following `validator_definitions.yml`:
 
 ```yaml
 ---
