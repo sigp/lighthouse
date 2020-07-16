@@ -74,7 +74,7 @@ impl InitializedValidator {
     /// If the validator is unable to be initialized for whatever reason.
     pub fn from_definition(
         def: ValidatorDefinition,
-        respect_lockfiles: bool,
+        strict_lockfiles: bool,
         log: &Logger,
     ) -> Result<Self, Error> {
         if !def.enabled {
@@ -121,7 +121,7 @@ impl InitializedValidator {
                     })?;
 
                 if voting_keystore_lockfile_path.exists() {
-                    if respect_lockfiles {
+                    if strict_lockfiles {
                         return Err(Error::LockfileExists(voting_keystore_lockfile_path));
                     } else {
                         // If **not** respecting lockfiles, just raise a warning if the voting
@@ -198,7 +198,7 @@ impl Drop for InitializedValidator {
 pub struct InitializedValidators {
     /// If `true`, no validator will be opened if a lockfile exists. If `false`, a warning will be
     /// raised for an existing lockfile, but it will ultimately be ignored.
-    respect_lockfiles: bool,
+    strict_lockfiles: bool,
     /// A list of validator definitions which can be stored on-disk.
     definitions: ValidatorDefinitions,
     /// The directory that the `self.definitions` will be saved into.
@@ -214,11 +214,11 @@ impl InitializedValidators {
     pub fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
-        respect_lockfiles: bool,
+        strict_lockfiles: bool,
         log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
-            respect_lockfiles,
+            strict_lockfiles,
             validators_dir,
             definitions,
             validators: HashMap::default(),
@@ -302,7 +302,7 @@ impl InitializedValidators {
 
                         match InitializedValidator::from_definition(
                             def.clone(),
-                            self.respect_lockfiles,
+                            self.strict_lockfiles,
                             &self.log,
                         ) {
                             Ok(init) => {

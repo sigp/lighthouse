@@ -8,9 +8,10 @@ validators it will act for and how it should obtain their cryptographic
 signatures.
 
 Users that create validators using the `lighthouse account` tool in the
-standard directories and do not start their `lighthouse vc` with the `--strict`
-flag should not need to understand the contents of this document. However,
-users with more complex needs may find this document useful.
+standard directories and do not start their `lighthouse vc` with the
+`--disable-auto-discover` flag should not need to understand the contents of
+this document. However, users with more complex needs may find this document
+useful.
 
 ## Introducing the `validator_definitions.yml` file
 
@@ -55,17 +56,18 @@ Each permitted field of the file is listed below for reference:
 ## Populating the `validator_definitions.yml` file
 
 When validator client starts and the `validator_definitions.yml` file doesn't
-exist, a new file will be created. If the `--strict` flag is provided, the new
-file will be empty and the validator client will not start any validators. If
-the `--strict` flag is **not** provided, an *automatic validator discovery*
-routine will start (more on that later). To recap:
+exist, a new file will be created. If the `--disable-auto-discover` flag is
+provided, the new file will be empty and the validator client will not start
+any validators. If the `--disable-auto-discover` flag is **not** provided, an
+*automatic validator discovery* routine will start (more on that later). To
+recap:
 
 - `lighthouse vc`: validators are automatically discovered.
-- `lighthouse vc --strict`: validators are **not** automatically discovered.
+- `lighthouse vc --disable-auto-discover`: validators are **not** automatically discovered.
 
 ### Automatic validator discovery
 
-When the `--strict` flag is **not** provided, the validator will search the
+When the `--disable-auto-discover` flag is **not** provided, the validator will search the
 `validator-dir` for validators and add any *new* validators to the
 `validator_definitions.yml` with `enabled: true`.
 
