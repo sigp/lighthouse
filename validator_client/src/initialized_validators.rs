@@ -27,8 +27,8 @@ pub enum Error {
     UnableToCreateLockfile(io::Error),
     /// The voting public key in the definition did not match the one in the keystore.
     VotingPublicKeyMismatch {
-        definition: PublicKey,
-        keystore: PublicKey,
+        definition: Box<PublicKey>,
+        keystore: Box<PublicKey>,
     },
     /// There was a filesystem error when opening the keystore.
     UnableToOpenVotingKeystore(io::Error),
@@ -114,8 +114,8 @@ impl InitializedValidator {
 
                 if voting_keypair.pk != def.voting_public_key {
                     return Err(Error::VotingPublicKeyMismatch {
-                        definition: def.voting_public_key,
-                        keystore: voting_keypair.pk,
+                        definition: Box::new(def.voting_public_key),
+                        keystore: Box::new(voting_keypair.pk),
                     });
                 }
 
