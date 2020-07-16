@@ -11,6 +11,7 @@
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
 * [Local Testnets](./local-testnets.md)
+* [Validator Discovery](./validator-discovery.md)
 * [API](./api.md)
 	* [HTTP (RESTful JSON)](./http.md)
 	    * [/node](./http/node.md)
