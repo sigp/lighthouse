@@ -81,6 +81,61 @@ new validator definition by the following process:
 1. Set `voting_keystore_password_path` to be a file in the `secrets_dir` with a
 name identical to the `voting_public_key` value.
 
+#### Discovery Example
+
+Lets assume the following directory structure:
+
+```
+~/.lighthouse/validators
+├── john
+│   └── voting-keystore.json
+├── sally
+│   ├── one
+│   │   └── voting-keystore.json
+│   ├── three
+│   │   └── my-voting-keystore.json
+│   └── two
+│       └── voting-keystore.json
+└── slashing_protection.sqlite
+```
+
+There is no `validator_definitions.yml` file present, so we can run `lighthouse
+vc` (**without** `--strict`) and it will create the following `validator_definitions.yml`:
+
+```yaml
+---
+- enabled: true
+  voting_public_key: "0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477"
+  type: local_keystore
+  voting_keystore_path: /home/paul/.lighthouse/validators/sally/one/voting-keystore.json
+  voting_keystore_password_path: /home/paul/.lighthouse/secrets/0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477
+- enabled: true
+  voting_public_key: "0xaa440c566fcf34dedf233baf56cf5fb05bb420d9663b4208272545608c27c13d5b08174518c758ecd814f158f2b4a337"
+  type: local_keystore
+  voting_keystore_path: /home/paul/.lighthouse/validators/sally/two/voting-keystore.json
+  voting_keystore_password_path: /home/paul/.lighthouse/secrets/0xaa440c566fcf34dedf233baf56cf5fb05bb420d9663b4208272545608c27c13d5b08174518c758ecd814f158f2b4a337
+- enabled: true
+  voting_public_key: "0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007"
+  type: local_keystore
+  voting_keystore_path: /home/paul/.lighthouse/validators/john/voting-keystore.json
+  voting_keystore_password_path: /home/paul/.lighthouse/secrets/0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007
+```
+
+All `voting-keystore.json` files have been detected and added to the file.
+Notably, the `sally/three/my-voting-keystore.json` file was *not* added to the
+file, since the file name is not exactly `voting-keystore.json`.
+
+In order for the validator client to decrypt the validators, they will need to
+ensure their `secrets_dir` is organised as below:
+
+```
+~/.lighthouse/secrets
+├── 0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477
+├── 0xaa440c566fcf34dedf233baf56cf5fb05bb420d9663b4208272545608c27c13d5b08174518c758ecd814f158f2b4a337
+└── 0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007
+```
+
+
 ### Manual configuration
 
 The automatic validator discovery process works out-of-the-box with validators
@@ -98,7 +153,7 @@ when starting the validator client to ensure it has been able to initialize
 
 ## How the `validator_definitions.yml` file is processed
 
-If it validator client were to start using the [example
+If it validator client were to start using the [first example
 `validator_definitions.yml` file](#example) would print the follow log,
 acknowledging there there are two validators and one is disabled:
 
