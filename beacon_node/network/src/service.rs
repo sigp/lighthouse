@@ -344,8 +344,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
                                         let subnet = subnet_and_attestation.0;
                                         let attestation = &subnet_and_attestation.1;
-                                        // checks if we have an aggregator for the slot. If so, we process
-                                        // the attestation
+                                        // checks if we have an aggregator for the slot. If so, we should process
+                                        // the attestation, else we just just propagate the Attestation.
                                         let should_process = service.attestation_service.should_process_attestation(
                                             subnet,
                                             attestation,
