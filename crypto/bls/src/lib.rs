@@ -1,3 +1,23 @@
+//! This library provides a wrapper around several BLS implementations to provide
+//! Lighthouse-specific functionality.
+//!
+//! This crate should not perform direct cryptographic operations, instead it should do these via
+//! external libraries. However, seeing as it is an interface to a real cryptographic library, it
+//! may contain logic that affects the outcomes of cryptographic operations.
+//!
+//! A source of complexity in this crate is that *multiple* BLS implementations (a.k.a. "backends")
+//! are supported via compile-time flags. There are three backends supported via features:
+//!
+//! - `supranational`: the pure-assembly, highly optimized version from the `blst` crate.
+//! - `milagro`: the classic pure-Rust `milagro_bls` crate.
+//! - `fake_crypto`: an always-returns-valid implementation that is only useful for testing
+//!     scenarios which intend to *ignore* real cryptography.
+//!
+//! This crate uses traits to reduce code-duplication between the two implementations. For example,
+//! the `PublicKey` struct exported from this crate is generic across the `TPublicKey` trait (i.e.,
+//! `PublicKey<TPublicKey>`). `TPublicKey` is implemented by all three backends (see the `impls.rs`
+//! module). When compiling with the `milagro` feature, we export `PublicKey<milagro::PublicKey>`.
+
 #[macro_use]
 mod macros;
 mod aggregate_public_key;
