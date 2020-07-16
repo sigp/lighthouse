@@ -11,6 +11,7 @@ pub enum ApiError {
     UnsupportedType(String),
     ImATeapot(String),       // Just in case.
     ProcessingError(String), // A 202 error, for when a block/attestation cannot be processed, but still transmitted.
+    InvalidHeaderValue(String),
 }
 
 pub type ApiResult = Result<Response<Body>, ApiError>;
@@ -26,6 +27,7 @@ impl ApiError {
             ApiError::UnsupportedType(desc) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, desc),
             ApiError::ImATeapot(desc) => (StatusCode::IM_A_TEAPOT, desc),
             ApiError::ProcessingError(desc) => (StatusCode::ACCEPTED, desc),
+            ApiError::InvalidHeaderValue(desc) => (StatusCode::INTERNAL_SERVER_ERROR, desc),
         }
     }
 }
@@ -74,6 +76,12 @@ impl From<hyper::error::Error> for ApiError {
 impl From<std::io::Error> for ApiError {
     fn from(e: std::io::Error) -> ApiError {
         ApiError::ServerError(format!("IO error: {:?}", e))
+    }
+}
+
+impl From<hyper::header::InvalidHeaderValue> for ApiError {
+    fn from(e: hyper::header::InvalidHeaderValue) -> ApiError {
+        ApiError::InvalidHeaderValue(format!("Invalid CORS header value: {:?}", e))
     }
 }
 
