@@ -100,7 +100,7 @@ where
         block.signing_root(domain)
     };
 
-    Ok(SignatureSet::single(
+    Ok(SignatureSet::single_pubkey(
         &signed_block.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
@@ -129,7 +129,7 @@ where
 
     let message = block.slot.epoch(T::slots_per_epoch()).signing_root(domain);
 
-    Ok(SignatureSet::single(
+    Ok(SignatureSet::single_pubkey(
         &block.body.randao_reveal,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
@@ -183,7 +183,7 @@ fn block_header_signature_set<'a, T: EthSpec>(
 
     let message = signed_header.message.signing_root(domain);
 
-    Ok(SignatureSet::single(
+    Ok(SignatureSet::single_pubkey(
         &signed_header.signature,
         pubkey,
         message,
@@ -220,7 +220,7 @@ where
 
     let message = indexed_attestation.data.signing_root(domain);
 
-    Ok(SignatureSet::new(signature, pubkeys, message))
+    Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
 
 /// Returns the signature set for the given `indexed_attestation` but pubkeys are supplied directly
@@ -255,7 +255,7 @@ where
 
     let message = indexed_attestation.data.signing_root(domain);
 
-    Ok(SignatureSet::new(signature, pubkeys, message))
+    Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
 
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.
@@ -310,7 +310,7 @@ pub fn deposit_signature_set<'a>(
 
     // Note: Deposits are valid across forks, thus the deposit domain is computed
     // with the fok zeroed.
-    SignatureSet::single(signature, Cow::Borrowed(pubkey), *message)
+    SignatureSet::single_pubkey(signature, Cow::Borrowed(pubkey), *message)
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
@@ -337,7 +337,7 @@ where
 
     let message = exit.signing_root(domain);
 
-    Ok(SignatureSet::single(
+    Ok(SignatureSet::single_pubkey(
         &signed_exit.signature,
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
@@ -367,7 +367,7 @@ where
     let signature = &signed_aggregate_and_proof.message.selection_proof;
     let validator_index = signed_aggregate_and_proof.message.aggregator_index;
 
-    Ok(SignatureSet::single(
+    Ok(SignatureSet::single_pubkey(
         signature,
         get_pubkey(validator_index as usize)
             .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,
@@ -403,7 +403,7 @@ where
     let signature = &signed_aggregate_and_proof.signature;
     let validator_index = signed_aggregate_and_proof.message.aggregator_index;
 
-    Ok(SignatureSet::single(
+    Ok(SignatureSet::single_pubkey(
         signature,
         get_pubkey(validator_index as usize)
             .ok_or_else(|| Error::ValidatorUnknown(validator_index))?,

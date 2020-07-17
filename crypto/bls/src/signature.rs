@@ -10,19 +10,35 @@ use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
+/// The byte-length of a BLS signature when serialized in compressed form.
 pub const SIGNATURE_BYTES_LEN: usize = 96;
+
+/// The compressed bytes used to represent `Signature::empty()`.
 pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
+/// Implemented on some struct from a BLS library so it may be used as the `point` in an
+/// `Signature`.
 pub trait TSignature<PublicKey>: Sized + Clone {
+    /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
+    /// Deserialize `self` from compressed bytes.
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 
+    /// Returns `true` if `self` is a signature across `msg` by `pubkey`.
     fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool;
 }
 
+/// A BLS signature that is generic across:
+///
+/// - `Pub`: A BLS public key.
+/// - `Sig`: A BLS signature.
+///
+/// Provides generic functionality whilst deferring all serious cryptographic operations to the
+/// generics.
 #[derive(Clone, PartialEq)]
 pub struct Signature<Pub, Sig> {
+    /// The underlying point which performs *actual* cryptographic operations.
     point: Option<Sig>,
     _phantom: PhantomData<Pub>,
 }
@@ -31,6 +47,13 @@ impl<Pub, Sig> Signature<Pub, Sig>
 where
     Sig: TSignature<Pub>,
 {
+    /// Initialize self to the "empty" value. This value is serialized as all-zeros.
+    ///
+    /// ## Notes
+    ///
+    /// This function is not necessarily useful from a BLS cryptography perspective, it mostly
+    /// exists to satisfy the Eth2 specification which expects the all-zeros serialization to be
+    /// meaningful.
     pub fn empty() -> Self {
         Self {
             point: None,
@@ -38,14 +61,19 @@ where
         }
     }
 
+    /// Returns `true` if `self` is equal to the "empty" value.
+    ///
+    /// E.g., `Self::empty().is_empty() == true`
     pub fn is_empty(&self) -> bool {
         self.point.is_none()
     }
 
+    /// Returns a reference to the underlying BLS point.
     pub(crate) fn point(&self) -> Option<&Sig> {
         self.point.as_ref()
     }
 
+    /// Instantiates `Self` from a `point`.
     pub(crate) fn from_point(point: Sig) -> Self {
         Self {
             point: Some(point),
@@ -53,6 +81,7 @@ where
         }
     }
 
+    /// Serialize `self` as compressed bytes.
     pub fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
         if let Some(point) = &self.point {
             point.serialize()
@@ -61,6 +90,7 @@ where
         }
     }
 
+    /// Deserialize `self` from compressed bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         let point = if bytes == &NONE_SIGNATURE[..] {
             None
@@ -80,6 +110,7 @@ where
     Sig: TSignature<Pub>,
     Pub: TPublicKey + Clone,
 {
+    /// Returns `true` if `self` is a signature across `msg` by `pubkey`.
     pub fn verify(&self, pubkey: &PublicKey<Pub>, msg: Hash256) -> bool {
         if let Some(point) = &self.point {
             point.verify(pubkey.point(), msg)

@@ -8,6 +8,7 @@ use crate::{
 use std::borrow::Cow;
 use std::marker::PhantomData;
 
+/// A generic way to represent a `Signature` or `AggregateSignature`.
 pub struct GenericSignature<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
@@ -51,6 +52,11 @@ where
     }
 }
 
+/// A generic way to represent a signature across a message by multiple public keys.
+///
+/// This struct is primarily useful in a collection (e.g., `Vec<SignatureSet>`) so we can perform
+/// multiple-signature verification which is much faster than verifying each signature
+/// individually.
 #[derive(Clone)]
 pub struct SignatureSet<'a, Pub, AggPub, Sig, AggSig>
 where
@@ -72,7 +78,8 @@ where
     Sig: TSignature<Pub> + Clone,
     AggSig: TAggregateSignature<Pub, AggPub, Sig> + Clone,
 {
-    pub fn single(
+    /// Instantiate self where `signature` is only signed by a single public key.
+    pub fn single_pubkey(
         signature: impl Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>,
         signing_key: Cow<'a, PublicKey<Pub>>,
         message: Hash256,
@@ -85,7 +92,8 @@ where
         }
     }
 
-    pub fn new(
+    /// Instantiate self where `signature` is signed by multiple public keys.
+    pub fn multiple_pubkeys(
         signature: impl Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>,
         signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
         message: Hash256,
@@ -98,6 +106,8 @@ where
         }
     }
 
+    /// Returns `true` if `self.signature` is a signature across `self.message` by
+    /// `self.signing_keys`.
     pub fn is_valid(self) -> bool {
         let pubkeys = self
             .signing_keys

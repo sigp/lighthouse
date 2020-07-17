@@ -27,23 +27,25 @@ pub trait TAggregatePublicKey: Sized + Clone {
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 }
 
-/// A BLS aggregate public key that is generic across some BLS point (`Pub`).
+/// A BLS aggregate public key that is generic across some BLS point (`AggPub`).
 ///
-/// Provides generic functionality whilst deferring all serious cryptographic operations to `Pub`.
+/// Provides generic functionality whilst deferring all serious cryptographic operations to `AggPub`.
 #[derive(Clone, PartialEq)]
-pub struct AggregatePublicKey<Pub> {
+pub struct AggregatePublicKey<AggPub> {
     /// The underlying point which performs *actual* cryptographic operations.
-    point: Pub,
+    point: AggPub,
 }
 
-impl<Pub> AggregatePublicKey<Pub>
+impl<AggPub> AggregatePublicKey<AggPub>
 where
-    Pub: TAggregatePublicKey,
+    AggPub: TAggregatePublicKey,
 {
     /// Initialize `Self` to a "zero" value which can then have other public keys aggregated upon
     /// it.
     pub fn zero() -> Self {
-        Self { point: Pub::zero() }
+        Self {
+            point: AggPub::zero(),
+        }
     }
 
     /// Aggregates another `Self` onto `self`.
@@ -69,45 +71,45 @@ where
     /// Deserialize `self` from compressed bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self {
-            point: Pub::deserialize(bytes)?,
+            point: AggPub::deserialize(bytes)?,
         })
     }
 }
 
-impl<Pub: Eq> Eq for AggregatePublicKey<Pub> {}
+impl<AggPub: Eq> Eq for AggregatePublicKey<AggPub> {}
 
 /// Hashes the `self.serialize()` bytes.
-impl<Pub: TAggregatePublicKey> Hash for AggregatePublicKey<Pub> {
+impl<AggPub: TAggregatePublicKey> Hash for AggregatePublicKey<AggPub> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.serialize()[..].hash(state);
     }
 }
 
-impl<Pub: TAggregatePublicKey> Encode for AggregatePublicKey<Pub> {
+impl<AggPub: TAggregatePublicKey> Encode for AggregatePublicKey<AggPub> {
     impl_ssz_encode!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<Pub: TAggregatePublicKey> Decode for AggregatePublicKey<Pub> {
+impl<AggPub: TAggregatePublicKey> Decode for AggregatePublicKey<AggPub> {
     impl_ssz_decode!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<Pub: TAggregatePublicKey> TreeHash for AggregatePublicKey<Pub> {
+impl<AggPub: TAggregatePublicKey> TreeHash for AggregatePublicKey<AggPub> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<Pub: TAggregatePublicKey> Serialize for AggregatePublicKey<Pub> {
+impl<AggPub: TAggregatePublicKey> Serialize for AggregatePublicKey<AggPub> {
     impl_serde_serialize!();
 }
 
-impl<'de, Pub: TAggregatePublicKey> Deserialize<'de> for AggregatePublicKey<Pub> {
+impl<'de, AggPub: TAggregatePublicKey> Deserialize<'de> for AggregatePublicKey<AggPub> {
     impl_serde_deserialize!();
 }
 
-impl<Pub: TAggregatePublicKey> fmt::Debug for AggregatePublicKey<Pub> {
+impl<AggPub: TAggregatePublicKey> fmt::Debug for AggregatePublicKey<AggPub> {
     impl_debug!();
 }
 
 #[cfg(feature = "arbitrary")]
-impl<Pub: TAggregatePublicKey + 'static> arbitrary::Arbitrary for AggregatePublicKey<Pub> {
+impl<AggPub: TAggregatePublicKey + 'static> arbitrary::Arbitrary for AggregatePublicKey<AggPub> {
     impl_arbitrary!(PUBLIC_KEY_BYTES_LEN);
 }

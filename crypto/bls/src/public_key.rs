@@ -7,16 +7,25 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use tree_hash::TreeHash;
 
+/// The byte-length of a BLS public key when serialized in compressed form.
 pub const PUBLIC_KEY_BYTES_LEN: usize = 48;
 
+/// Implemented on some struct from a BLS library so it may be used as the `point` in a
+/// `PublicKey`.
 pub trait TPublicKey: Sized + Clone {
+    /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN];
 
+    /// Deserialize `self` from compressed bytes.
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 }
 
+/// A BLS aggregate public key that is generic across some BLS point (`Pub`).
+///
+/// Provides generic functionality whilst deferring all serious cryptographic operations to `Pub`.
 #[derive(Clone, PartialEq)]
 pub struct PublicKey<Pub> {
+    /// The underlying point which performs *actual* cryptographic operations.
     point: Pub,
 }
 
@@ -24,22 +33,27 @@ impl<Pub> PublicKey<Pub>
 where
     Pub: TPublicKey,
 {
+    /// Instantiates `Self` from a `point`.
     pub(crate) fn from_point(point: Pub) -> Self {
         Self { point }
     }
 
+    /// Returns a reference to the underlying BLS point.
     pub(crate) fn point(&self) -> &Pub {
         &self.point
     }
 
+    /// Returns `self.serialize()` as a `0x`-prefixed hex string.
     pub fn to_hex_string(&self) -> String {
         format!("{:?}", self)
     }
 
+    /// Serialize `self` as compressed bytes.
     pub fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         self.point.serialize()
     }
 
+    /// Deserialize `self` from compressed bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self {
             point: Pub::deserialize(bytes)?,
@@ -49,6 +63,7 @@ where
 
 impl<Pub: Eq> Eq for PublicKey<Pub> {}
 
+/// Hashes the `self.serialize()` bytes.
 impl<Pub: TPublicKey> Hash for PublicKey<Pub> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.serialize()[..].hash(state);

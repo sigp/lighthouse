@@ -7,7 +7,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 /// A simple wrapper around `PublicKey` and `SecretKey`.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Keypair<Pub, Sec, Sig> {
     pub pk: PublicKey<Pub>,
     pub sk: SecretKey<Sig, Pub, Sec>,

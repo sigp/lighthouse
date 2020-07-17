@@ -12,6 +12,12 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
+/// A wrapper around some bytes that may or may not be a `PublicKey` in compressed form.
+///
+/// This struct is useful for two things:
+///
+/// - Lazily verifying a serialized public key.
+/// - Storing some bytes that are actually invalid (required in the case of a `Deposit` message).
 #[derive(Clone)]
 pub struct PublicKeyBytes<Pub> {
     bytes: [u8; PUBLIC_KEY_BYTES_LEN],
@@ -22,12 +28,16 @@ impl<Pub> PublicKeyBytes<Pub>
 where
     Pub: TPublicKey,
 {
+    /// Decompress and deserialize the bytes in `self` into an actual public key.
+    ///
+    /// May fail if the bytes are invalid.
     pub fn decompress(&self) -> Result<PublicKey<Pub>, Error> {
         Pub::deserialize(&self.bytes).map(PublicKey::from_point)
     }
 }
 
 impl<Pub> PublicKeyBytes<Pub> {
+    /// Instantiates `Self` with all-zeros.
     pub fn empty() -> Self {
         Self {
             bytes: [0; PUBLIC_KEY_BYTES_LEN],
@@ -35,14 +45,24 @@ impl<Pub> PublicKeyBytes<Pub> {
         }
     }
 
+    /// Returns a slice of the bytes contained in `self`.
+    ///
+    /// The bytes are not verified (i.e., they may not represent a valid BLS point).
     pub fn as_serialized(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Clones the bytes in `self`.
+    ///
+    /// The bytes are not verified (i.e., they may not represent a valid BLS point).
     pub fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         self.bytes.clone()
     }
 
+    /// Instantiates `Self` from bytes.
+    ///
+    /// The bytes are not fully verified (i.e., they may not represent a valid BLS point). Only the
+    /// byte-length is checked.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() == PUBLIC_KEY_BYTES_LEN {
             let mut pk_bytes = [0; PUBLIC_KEY_BYTES_LEN];
@@ -74,6 +94,7 @@ impl<Pub> Hash for PublicKeyBytes<Pub> {
     }
 }
 
+/// Serializes the `PublicKey` in compressed form, storing the bytes in the newly created `Self`.
 impl<Pub> From<PublicKey<Pub>> for PublicKeyBytes<Pub>
 where
     Pub: TPublicKey,
@@ -86,6 +107,7 @@ where
     }
 }
 
+/// Alias to `self.decompress()`.
 impl<Pub> TryInto<PublicKey<Pub>> for &PublicKeyBytes<Pub>
 where
     Pub: TPublicKey,

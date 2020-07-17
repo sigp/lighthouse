@@ -12,6 +12,12 @@ use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
+/// A wrapper around some bytes that may or may not be a `Signature` in compressed form.
+///
+/// This struct is useful for two things:
+///
+/// - Lazily verifying a serialized signature.
+/// - Storing some bytes that are actually invalid (required in the case of a `Deposit` message).
 #[derive(Clone)]
 pub struct SignatureBytes<Pub, Sig> {
     bytes: [u8; SIGNATURE_BYTES_LEN],
@@ -24,12 +30,16 @@ where
     Sig: TSignature<Pub>,
     Pub: TPublicKey,
 {
+    /// Decompress and deserialize the bytes in `self` into an actual signature.
+    ///
+    /// May fail if the bytes are invalid.
     pub fn decompress(&self) -> Result<Signature<Pub, Sig>, Error> {
         Sig::deserialize(&self.bytes).map(Signature::from_point)
     }
 }
 
 impl<Pub, Sig> SignatureBytes<Pub, Sig> {
+    /// Instantiates `Self` with all-zeros.
     pub fn empty() -> Self {
         Self {
             bytes: [0; SIGNATURE_BYTES_LEN],
@@ -38,10 +48,17 @@ impl<Pub, Sig> SignatureBytes<Pub, Sig> {
         }
     }
 
+    /// Clones the bytes in `self`.
+    ///
+    /// The bytes are not verified (i.e., they may not represent a valid BLS point).
     pub fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
         self.bytes.clone()
     }
 
+    /// Instantiates `Self` from bytes.
+    ///
+    /// The bytes are not fully verified (i.e., they may not represent a valid BLS point). Only the
+    /// byte-length is checked.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() == SIGNATURE_BYTES_LEN {
             let mut pk_bytes = [0; SIGNATURE_BYTES_LEN];
@@ -66,6 +83,7 @@ impl<Pub, Sig> PartialEq for SignatureBytes<Pub, Sig> {
     }
 }
 
+/// Serializes the `Signature` in compressed form, storing the bytes in the newly created `Self`.
 impl<Pub, Sig> From<Signature<Pub, Sig>> for SignatureBytes<Pub, Sig>
 where
     Pub: TPublicKey,
@@ -80,6 +98,7 @@ where
     }
 }
 
+/// Alias to `self.decompress()`.
 impl<Pub, Sig> TryInto<Signature<Pub, Sig>> for &SignatureBytes<Pub, Sig>
 where
     Pub: TPublicKey,
