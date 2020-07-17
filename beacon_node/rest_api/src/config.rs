@@ -38,6 +38,9 @@ pub struct Config {
     pub listen_address: Ipv4Addr,
     /// The port the REST API HTTP server will listen on.
     pub port: u16,
+    /// If something else than "", a 'Access-Control-Allow-Origin' header will be present in
+    /// responses.  Put *, to allow any origin.
+    pub allow_origin: String,
 }
 
 impl Default for Config {
@@ -46,6 +49,7 @@ impl Default for Config {
             enabled: false,
             listen_address: Ipv4Addr::new(127, 0, 0, 1),
             port: 5052,
+            allow_origin: "".to_string(),
         }
     }
 }

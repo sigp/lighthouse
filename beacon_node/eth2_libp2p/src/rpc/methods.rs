@@ -116,6 +116,18 @@ pub enum GoodbyeReason {
     /// Error/fault in the RPC.
     Fault = 3,
 
+    /// Teku uses this code for not being able to verify a network.
+    UnableToVerifyNetwork = 128,
+
+    /// The node has too many connected peers.
+    TooManyPeers = 129,
+
+    /// Scored poorly.
+    BadScore = 250,
+
+    /// The peer is banned
+    Banned = 251,
+
     /// Unknown reason.
     Unknown = 0,
 }
@@ -126,6 +138,10 @@ impl From<u64> for GoodbyeReason {
             1 => GoodbyeReason::ClientShutdown,
             2 => GoodbyeReason::IrrelevantNetwork,
             3 => GoodbyeReason::Fault,
+            128 => GoodbyeReason::UnableToVerifyNetwork,
+            129 => GoodbyeReason::TooManyPeers,
+            250 => GoodbyeReason::BadScore,
+            251 => GoodbyeReason::Banned,
             _ => GoodbyeReason::Unknown,
         }
     }
@@ -381,6 +397,10 @@ impl std::fmt::Display for GoodbyeReason {
             GoodbyeReason::ClientShutdown => write!(f, "Client Shutdown"),
             GoodbyeReason::IrrelevantNetwork => write!(f, "Irrelevant Network"),
             GoodbyeReason::Fault => write!(f, "Fault"),
+            GoodbyeReason::UnableToVerifyNetwork => write!(f, "Unable to verify network"),
+            GoodbyeReason::TooManyPeers => write!(f, "Too many peers"),
+            GoodbyeReason::BadScore => write!(f, "Bad Score"),
+            GoodbyeReason::Banned => write!(f, "Banned"),
             GoodbyeReason::Unknown => write!(f, "Unknown Reason"),
         }
     }

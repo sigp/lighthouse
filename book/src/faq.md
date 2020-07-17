@@ -46,13 +46,13 @@ period. In times of very, very severe network issues, the network may even fail
 to vote in new Eth1 blocks, stopping all new validator deposits!
 
 > Note: you can see the list of validators included in the beacon chain using
-> our REST API: [/beacon/validators/all](./http_beacon.md#beaconvalidatorsall)
+> our REST API: [/beacon/validators/all](./http/beacon.md#beaconvalidatorsall)
 
 ### 2. Waiting for a validator to be activated
 
 If a validator has provided an invalid public key or signature, they will
 _never_ be activated or even show up in
-[/beacon/validators/all](https://lighthouse-book.sigmaprime.io/http_beacon.html#beaconvalidatorsall).
+[/beacon/validators/all](./http/beacon.html#beaconvalidatorsall).
 They will simply be forgotten by the beacon chain! But, if those parameters were
 correct, once the Eth1 delays have elapsed and the validator appears in the
 beacon chain, there's _another_ delay before the validator becomes "active"

@@ -52,9 +52,9 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// Identical to `start_from_client_config`, however the `client_config` is generated from the
     /// given `matches` and potentially configuration files on the local filesystem or other
     /// configurations hosted remotely.
-    pub async fn new_from_cli<'a, 'b>(
+    pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: &ArgMatches<'b>,
+        matches: &ArgMatches<'_>,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(
             &matches,

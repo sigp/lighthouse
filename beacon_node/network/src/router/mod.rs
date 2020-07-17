@@ -1,7 +1,8 @@
 //! This module handles incoming network messages.
 //!
-//! It routes the messages to appropriate services, such as the Sync
-//! and processes those that are
+//! It routes the messages to appropriate services.
+//! It handles requests at the application layer in its associated processor and directs
+//! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
 pub mod processor;
@@ -165,15 +166,6 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::Status(status_message) => {
                 self.processor
                     .on_status_request(peer_id, id, status_message)
-            }
-            Request::Goodbye(goodbye_reason) => {
-                debug!(
-                    self.log, "Peer sent Goodbye";
-                    "peer_id" => peer_id.to_string(),
-                    "reason" => format!("{:?}", goodbye_reason),
-                    "client" => self.network_globals.client(&peer_id).to_string(),
-                );
-                self.processor.on_disconnect(peer_id);
             }
             Request::BlocksByRange(request) => self
                 .processor

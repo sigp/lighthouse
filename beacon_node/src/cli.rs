@@ -1,5 +1,11 @@
 use clap::{App, Arg};
 
+// Default text included in blocks.
+// Must be 32-bytes or will not build.
+//
+//                              |-------must be this long------|
+const DEFAULT_GRAFFITI: &str = "sigp/lighthouse-0.1.2-prerelease";
+
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
         .visible_aliases(&["b", "bn", "beacon"])
@@ -155,6 +161,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("5052")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("http-allow-origin")
+                .long("http-allow-origin")
+                .value_name("ORIGIN")
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header.  Use * to allow any origin (not recommended in production)")
+                .default_value("")
+                .takes_value(true),
+        )
         /* Websocket related arguments */
         .arg(
             Arg::with_name("ws")
@@ -226,5 +240,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("purge-db")
                 .long("purge-db")
                 .help("If present, the chain database will be deleted. Use with caution.")
+        )
+
+        /*
+         * Misc.
+         */
+        .arg(
+            Arg::with_name("graffiti")
+                .long("graffiti")
+                .help("Specify your custom graffiti to be included in blocks.")
+                .value_name("GRAFFITI")
+                .default_value(DEFAULT_GRAFFITI)
+                .takes_value(true)
         )
 }

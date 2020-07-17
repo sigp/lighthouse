@@ -15,7 +15,7 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::PeerId;
 use lru::LruCache;
-use slog::{crit, debug, info, trace, warn};
+use slog::{crit, debug, info, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::{
@@ -75,7 +75,7 @@ impl QueryType {
             Self::FindPeers => false,
             Self::Subnet { min_ttl, .. } => {
                 if let Some(ttl) = min_ttl {
-                    ttl > &Instant::now()
+                    ttl < &Instant::now()
                 } else {
                     true
                 }
@@ -90,7 +90,7 @@ impl QueryType {
     pub fn min_ttl(&self) -> Option<Instant> {
         match self {
             Self::FindPeers => None,
-            Self::Subnet { min_ttl, .. } => min_ttl.clone(),
+            Self::Subnet { min_ttl, .. } => *min_ttl,
         }
     }
 }
@@ -197,7 +197,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 debug!(
                     log,
                     "Could not add peer to the local routing table";
-                    "error" => format!("{}", e)
+                    "error" => e.to_string()
                 )
             });
         }
@@ -242,7 +242,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // If there is not already a find peer's query queued, add one
         let query = QueryType::FindPeers;
         if !self.queued_queries.contains(&query) {
-            trace!(self.log, "Queuing a peer discovery request");
+            debug!(self.log, "Queuing a peer discovery request");
             self.queued_queries.push_back(query);
             // update the metrics
             metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
@@ -267,7 +267,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             debug!(
                 self.log,
                 "Could not add peer to the local routing table";
-                "error" => format!("{}", e)
+                "error" => e.to_string()
             )
         }
     }
@@ -350,7 +350,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY.into(), enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY, enr_fork_id.as_ssz_bytes())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -407,8 +407,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 retries,
             };
             // update the metrics and insert into the queue.
-            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            debug!(self.log, "Queuing subnet query"; "subnet" => *subnet_id, "retries" => retries);
             self.queued_queries.push_back(query);
+            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
     }
 
@@ -430,7 +431,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         continue;
                     }
                     // This is a regular request to find additional peers
-                    debug!(self.log, "Searching for new peers");
+                    debug!(self.log, "Discovery query started");
                     self.find_peer_active = true;
                     self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS);
                 }
@@ -452,11 +453,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     // Returns a boolean indicating if we are currently processing the maximum number of
     // concurrent queries or not.
     fn at_capacity(&self) -> bool {
-        if self.active_queries.len() >= MAX_CONCURRENT_QUERIES {
-            true
-        } else {
-            false
-        }
+        self.active_queries.len() >= MAX_CONCURRENT_QUERIES
     }
 
     /// Runs a discovery request for a given subnet_id if one already exists.
@@ -475,7 +472,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .count();
 
         if peers_on_subnet > TARGET_SUBNET_PEERS {
-            trace!(self.log, "Discovery ignored";
+            debug!(self.log, "Discovery ignored";
                 "reason" => "Already connected to desired peers",
                 "connected_peers_on_subnet" => peers_on_subnet,
                 "target_subnet_peers" => TARGET_SUBNET_PEERS,
@@ -484,12 +481,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
 
         let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
-        debug!(self.log, "Searching for peers for subnet";
+        debug!(self.log, "Discovery query started for subnet";
             "subnet_id" => *subnet_id,
             "connected_peers_on_subnet" => peers_on_subnet,
             "target_subnet_peers" => TARGET_SUBNET_PEERS,
             "peers_to_find" => target_peers,
             "attempt" => retries,
+            "min_ttl" => format!("{:?}", min_ttl),
         );
 
         // start the query, and update the queries map if necessary
@@ -526,7 +524,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             QueryType::Subnet { subnet_id, .. } => {
                 // build the subnet predicate as a combination of the eth2_fork_predicate and the
                 // subnet predicate
-                let subnet_predicate = subnet_predicate::<TSpec>(subnet_id.clone(), &self.log);
+                let subnet_predicate = subnet_predicate::<TSpec>(*subnet_id, &self.log);
                 Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && subnet_predicate(enr))
             }
         };
@@ -645,6 +643,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             // to disk.
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
+                            // update  network globals
+                            *self.network_globals.local_enr.write() = enr;
                             return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
                         }
                         _ => {} // Ignore all other discv5 server events

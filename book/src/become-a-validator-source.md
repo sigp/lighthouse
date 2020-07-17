@@ -72,9 +72,9 @@ slot: 16835, ...
 
 ## 4. Generate your validator key
 
-First, [create a wallet](./wallet-create) that can be used to generate
+First, [create a wallet](./wallet-create.md) that can be used to generate
 validator keys. Then, from that wallet [create a
-validator](./validator-create). A two-step example follows:
+validator](./validator-create.md). A two-step example follows:
 
 ### 4.1 Create a Wallet
 
@@ -117,7 +117,7 @@ used to restore your validator if there is a data loss.
 Create a validator from the wallet with:
 
 ```bash
-lighthouse account validator create --wallet-name my-validators --wallet-passphrase my-validators.pass
+lighthouse account validator create --wallet-name my-validators --wallet-passphrase my-validators.pass --count 1
 ```
 
 The output will look like this:

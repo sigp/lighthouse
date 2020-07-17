@@ -95,7 +95,7 @@ fn test_cache_initialization<'a, T: EthSpec>(
     state.build_committee_cache(relative_epoch, spec).unwrap();
 
     // Assert a call to a cache-using function passes.
-    let _ = state.get_beacon_proposer_index(slot, spec).unwrap();
+    state.get_beacon_committee(slot, 0).unwrap();
 
     // Drop the cache.
     state.drop_committee_cache(relative_epoch);
