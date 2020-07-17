@@ -68,14 +68,6 @@ impl TAggregatePublicKey for AggregatePublicKey {
         Self([0; PUBLIC_KEY_BYTES_LEN])
     }
 
-    fn add_assign(&mut self, _other: &Self) {
-        // Do nothing.
-    }
-
-    fn add_assign_multiple<'a>(&'a mut self, _others: impl Iterator<Item = &'a Self>) {
-        // Do nothing.
-    }
-
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
         bytes[..].copy_from_slice(&self.0);

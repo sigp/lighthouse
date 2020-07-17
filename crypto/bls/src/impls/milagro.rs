@@ -90,18 +90,6 @@ impl TAggregatePublicKey for milagro::AggregatePublicKey {
     fn zero() -> Self {
         Self::new()
     }
-    fn add_assign(&mut self, other: &Self) {
-        // Note: this function does not call `self.point.affine()` so signature verification will
-        // fail.
-        //
-        // It is recommended to use `Self::add_assign_multiple` instead.
-        self.point.add(&other.point);
-    }
-
-    fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>) {
-        others.for_each(|other| self.add_assign(other));
-        self.point.affine();
-    }
 
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];

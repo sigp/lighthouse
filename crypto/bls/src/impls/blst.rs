@@ -127,14 +127,6 @@ impl TAggregatePublicKey for BlstAggregatePublicKey {
         unsafe { std::mem::MaybeUninit::<Self>::zeroed().assume_init() }
     }
 
-    fn add_assign(&mut self, other: &Self) {
-        todo!("blst_core add_assign")
-    }
-
-    fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>) {
-        todo!("blst_core add_assign_multiple")
-    }
-
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
         self.0.to_public_key().compress()
     }

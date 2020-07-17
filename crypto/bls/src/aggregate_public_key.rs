@@ -14,12 +14,6 @@ pub trait TAggregatePublicKey: Sized + Clone {
     /// it.
     fn zero() -> Self;
 
-    /// Aggregates another `Self` onto `self`.
-    fn add_assign(&mut self, other: &Self);
-
-    /// Aggregates the `others` onto `self`.
-    fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>);
-
     /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN];
 
@@ -46,16 +40,6 @@ where
         Self {
             point: AggPub::zero(),
         }
-    }
-
-    /// Aggregates another `Self` onto `self`.
-    pub fn add_assign(&mut self, other: &Self) {
-        self.point.add_assign(&other.point)
-    }
-
-    /// Aggregates the `others` onto `self`.
-    pub fn add_assign_multiple<'a>(&'a mut self, others: impl Iterator<Item = &'a Self>) {
-        self.point.add_assign_multiple(others.map(|pk| &pk.point))
     }
 
     /// Returns `self.serialize()` as a `0x`-prefixed hex string.
