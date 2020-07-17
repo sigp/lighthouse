@@ -171,7 +171,7 @@ impl Keystore {
                 },
                 uuid,
                 path,
-                pubkey: format!("{:?}", keypair.pk)[2..].to_string(),
+                pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
             },
         })
@@ -200,7 +200,7 @@ impl Keystore {
 
         let keypair = keypair_from_secret(plain_text.as_bytes())?;
         // Verify that the derived `PublicKey` matches `self`.
-        if format!("{:?}", keypair.pk)[2..] != self.json.pubkey {
+        if keypair.pk.to_hex_string()[2..] != self.json.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
 
