@@ -1,3 +1,6 @@
+/// Contains the functions required for a `TreeHash` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
 macro_rules! impl_tree_hash {
     ($byte_size: expr) => {
         fn tree_hash_type() -> tree_hash::TreeHashType {
@@ -23,6 +26,9 @@ macro_rules! impl_tree_hash {
     };
 }
 
+/// Contains the functions required for a `ssz::Encode` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
 macro_rules! impl_ssz_encode {
     ($byte_size: expr) => {
         fn is_ssz_fixed_len() -> bool {
@@ -43,6 +49,9 @@ macro_rules! impl_ssz_encode {
     };
 }
 
+/// Contains the functions required for a `ssz::Decode` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
 macro_rules! impl_ssz_decode {
     ($byte_size: expr) => {
         fn is_ssz_fixed_len() -> bool {
@@ -67,6 +76,9 @@ macro_rules! impl_ssz_decode {
     };
 }
 
+/// Contains the functions required for a `serde::Serialize` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
 macro_rules! impl_serde_serialize {
     () => {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -78,6 +90,9 @@ macro_rules! impl_serde_serialize {
     };
 }
 
+/// Contains the functions required for a `serde::Deserialize` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
 macro_rules! impl_serde_deserialize {
     () => {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -91,6 +106,9 @@ macro_rules! impl_serde_deserialize {
     };
 }
 
+/// Contains the functions required for a `Debug` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
 macro_rules! impl_debug {
     () => {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -99,6 +117,9 @@ macro_rules! impl_debug {
     };
 }
 
+/// Contains the functions required for an `Arbitrary` implementation.
+///
+/// Does not include the `Impl` section since it gets very complicated when it comes to generics.
 #[cfg(feature = "arbitrary")]
 macro_rules! impl_arbitrary {
     ($byte_size: expr) => {
