@@ -1,7 +1,7 @@
 use crate::{
     aggregate_public_key::TAggregatePublicKey,
     aggregate_signature::{AggregateSignature, TAggregateSignature},
-    public_key::{PublicKey, TPublicKey},
+    public_key::{GenericPublicKey, TPublicKey},
     signature::{Signature, TSignature},
     Hash256,
 };
@@ -66,7 +66,7 @@ where
     AggSig: Clone,
 {
     pub signature: Cow<'a, AggregateSignature<Pub, AggPub, Sig, AggSig>>,
-    pub(crate) signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
+    pub(crate) signing_keys: Vec<Cow<'a, GenericPublicKey<Pub>>>,
     pub(crate) message: Hash256,
     _phantom: PhantomData<Sig>,
 }
@@ -81,7 +81,7 @@ where
     /// Instantiate self where `signature` is only signed by a single public key.
     pub fn single_pubkey(
         signature: impl Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>,
-        signing_key: Cow<'a, PublicKey<Pub>>,
+        signing_key: Cow<'a, GenericPublicKey<Pub>>,
         message: Hash256,
     ) -> Self {
         Self {
@@ -95,7 +95,7 @@ where
     /// Instantiate self where `signature` is signed by multiple public keys.
     pub fn multiple_pubkeys(
         signature: impl Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>,
-        signing_keys: Vec<Cow<'a, PublicKey<Pub>>>,
+        signing_keys: Vec<Cow<'a, GenericPublicKey<Pub>>>,
         message: Hash256,
     ) -> Self {
         Self {

@@ -1,5 +1,5 @@
 use crate::{
-    public_key::{PublicKey, TPublicKey},
+    public_key::{GenericPublicKey, TPublicKey},
     Error, PUBLIC_KEY_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
@@ -19,24 +19,24 @@ use tree_hash::TreeHash;
 /// - Lazily verifying a serialized public key.
 /// - Storing some bytes that are actually invalid (required in the case of a `Deposit` message).
 #[derive(Clone)]
-pub struct PublicKeyBytes<Pub> {
+pub struct GenericPublicKeyBytes<Pub> {
     bytes: [u8; PUBLIC_KEY_BYTES_LEN],
     _phantom: PhantomData<Pub>,
 }
 
-impl<Pub> PublicKeyBytes<Pub>
+impl<Pub> GenericPublicKeyBytes<Pub>
 where
     Pub: TPublicKey,
 {
     /// Decompress and deserialize the bytes in `self` into an actual public key.
     ///
     /// May fail if the bytes are invalid.
-    pub fn decompress(&self) -> Result<PublicKey<Pub>, Error> {
-        Pub::deserialize(&self.bytes).map(PublicKey::from_point)
+    pub fn decompress(&self) -> Result<GenericPublicKey<Pub>, Error> {
+        Pub::deserialize(&self.bytes).map(GenericPublicKey::from_point)
     }
 }
 
-impl<Pub> PublicKeyBytes<Pub> {
+impl<Pub> GenericPublicKeyBytes<Pub> {
     /// Instantiates `Self` with all-zeros.
     pub fn empty() -> Self {
         Self {
@@ -80,26 +80,26 @@ impl<Pub> PublicKeyBytes<Pub> {
     }
 }
 
-impl<Pub> PartialEq for PublicKeyBytes<Pub> {
+impl<Pub> PartialEq for GenericPublicKeyBytes<Pub> {
     fn eq(&self, other: &Self) -> bool {
         &self.bytes[..] == &other.bytes[..]
     }
 }
 
-impl<Pub> Eq for PublicKeyBytes<Pub> {}
+impl<Pub> Eq for GenericPublicKeyBytes<Pub> {}
 
-impl<Pub> Hash for PublicKeyBytes<Pub> {
+impl<Pub> Hash for GenericPublicKeyBytes<Pub> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.bytes[..].hash(state);
     }
 }
 
 /// Serializes the `PublicKey` in compressed form, storing the bytes in the newly created `Self`.
-impl<Pub> From<PublicKey<Pub>> for PublicKeyBytes<Pub>
+impl<Pub> From<GenericPublicKey<Pub>> for GenericPublicKeyBytes<Pub>
 where
     Pub: TPublicKey,
 {
-    fn from(pk: PublicKey<Pub>) -> Self {
+    fn from(pk: GenericPublicKey<Pub>) -> Self {
         Self {
             bytes: pk.serialize(),
             _phantom: PhantomData,
@@ -108,42 +108,42 @@ where
 }
 
 /// Alias to `self.decompress()`.
-impl<Pub> TryInto<PublicKey<Pub>> for &PublicKeyBytes<Pub>
+impl<Pub> TryInto<GenericPublicKey<Pub>> for &GenericPublicKeyBytes<Pub>
 where
     Pub: TPublicKey,
 {
     type Error = Error;
 
-    fn try_into(self) -> Result<PublicKey<Pub>, Self::Error> {
+    fn try_into(self) -> Result<GenericPublicKey<Pub>, Self::Error> {
         self.decompress()
     }
 }
 
-impl<Pub> Encode for PublicKeyBytes<Pub> {
+impl<Pub> Encode for GenericPublicKeyBytes<Pub> {
     impl_ssz_encode!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<Pub> Decode for PublicKeyBytes<Pub> {
+impl<Pub> Decode for GenericPublicKeyBytes<Pub> {
     impl_ssz_decode!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<Pub> TreeHash for PublicKeyBytes<Pub> {
+impl<Pub> TreeHash for GenericPublicKeyBytes<Pub> {
     impl_tree_hash!(PUBLIC_KEY_BYTES_LEN);
 }
 
-impl<Pub> Serialize for PublicKeyBytes<Pub> {
+impl<Pub> Serialize for GenericPublicKeyBytes<Pub> {
     impl_serde_serialize!();
 }
 
-impl<'de, Pub> Deserialize<'de> for PublicKeyBytes<Pub> {
+impl<'de, Pub> Deserialize<'de> for GenericPublicKeyBytes<Pub> {
     impl_serde_deserialize!();
 }
 
-impl<Pub> fmt::Debug for PublicKeyBytes<Pub> {
+impl<Pub> fmt::Debug for GenericPublicKeyBytes<Pub> {
     impl_debug!();
 }
 
 #[cfg(feature = "arbitrary")]
-impl<Pub: 'static> arbitrary::Arbitrary for PublicKeyBytes<Pub> {
+impl<Pub: 'static> arbitrary::Arbitrary for GenericPublicKeyBytes<Pub> {
     impl_arbitrary!(PUBLIC_KEY_BYTES_LEN);
 }

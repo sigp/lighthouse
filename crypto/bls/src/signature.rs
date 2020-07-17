@@ -1,5 +1,5 @@
 use crate::{
-    public_key::{PublicKey, TPublicKey},
+    public_key::{GenericPublicKey, TPublicKey},
     Error, Hash256,
 };
 use serde::de::{Deserialize, Deserializer};
@@ -18,7 +18,7 @@ pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
 /// Implemented on some struct from a BLS library so it may be used as the `point` in an
 /// `Signature`.
-pub trait TSignature<PublicKey>: Sized + Clone {
+pub trait TSignature<GenericPublicKey>: Sized + Clone {
     /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
@@ -26,7 +26,7 @@ pub trait TSignature<PublicKey>: Sized + Clone {
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 
     /// Returns `true` if `self` is a signature across `msg` by `pubkey`.
-    fn verify(&self, pubkey: &PublicKey, msg: Hash256) -> bool;
+    fn verify(&self, pubkey: &GenericPublicKey, msg: Hash256) -> bool;
 }
 
 /// A BLS signature that is generic across:
@@ -111,7 +111,7 @@ where
     Pub: TPublicKey + Clone,
 {
     /// Returns `true` if `self` is a signature across `msg` by `pubkey`.
-    pub fn verify(&self, pubkey: &PublicKey<Pub>, msg: Hash256) -> bool {
+    pub fn verify(&self, pubkey: &GenericPublicKey<Pub>, msg: Hash256) -> bool {
         if let Some(point) = &self.point {
             point.verify(pubkey.point(), msg)
         } else {

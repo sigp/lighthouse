@@ -12,11 +12,11 @@ macro_rules! define_mod {
 
             pub use bls_variant::{verify_signature_sets, SignatureSet};
 
-            pub type PublicKey = crate::public_key::PublicKey<bls_variant::PublicKey>;
+            pub type PublicKey = crate::public_key::GenericPublicKey<bls_variant::PublicKey>;
             pub type AggregatePublicKey =
                 crate::aggregate_public_key::AggregatePublicKey<bls_variant::AggregatePublicKey>;
             pub type PublicKeyBytes =
-                crate::public_key_bytes::PublicKeyBytes<bls_variant::PublicKey>;
+                crate::public_key_bytes::GenericPublicKeyBytes<bls_variant::PublicKey>;
             pub type Signature =
                 crate::signature::Signature<bls_variant::PublicKey, bls_variant::Signature>;
             pub type AggregateSignature = crate::aggregate_signature::AggregateSignature<
@@ -25,7 +25,7 @@ macro_rules! define_mod {
                 bls_variant::Signature,
                 bls_variant::AggregateSignature,
             >;
-            pub type SignatureBytes = crate::signature_bytes::SignatureBytes<
+            pub type SignatureBytes = crate::signature_bytes::GenericSignatureBytes<
                 bls_variant::PublicKey,
                 bls_variant::Signature,
             >;

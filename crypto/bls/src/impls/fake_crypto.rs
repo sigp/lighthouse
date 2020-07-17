@@ -1,7 +1,7 @@
 use crate::{
     aggregate_public_key::TAggregatePublicKey,
     aggregate_signature::TAggregateSignature,
-    public_key::{PublicKey as CratePublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, SecretHash,
@@ -163,12 +163,16 @@ impl TAggregateSignature<PublicKey, AggregatePublicKey, Signature> for Aggregate
     fn fast_aggregate_verify(
         &self,
         _msg: Hash256,
-        _pubkeys: &[&CratePublicKey<PublicKey>],
+        _pubkeys: &[&GenericPublicKey<PublicKey>],
     ) -> bool {
         true
     }
 
-    fn aggregate_verify(&self, _msgs: &[Hash256], _pubkeys: &[&CratePublicKey<PublicKey>]) -> bool {
+    fn aggregate_verify(
+        &self,
+        _msgs: &[Hash256],
+        _pubkeys: &[&GenericPublicKey<PublicKey>],
+    ) -> bool {
         true
     }
 }

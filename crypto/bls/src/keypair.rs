@@ -1,5 +1,5 @@
 use crate::{
-    public_key::{PublicKey, TPublicKey},
+    public_key::{GenericPublicKey, TPublicKey},
     secret_key::{SecretKey, TSecretKey},
     signature::TSignature,
 };
@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 /// A simple wrapper around `PublicKey` and `SecretKey`.
 #[derive(Clone)]
 pub struct Keypair<Pub, Sec, Sig> {
-    pub pk: PublicKey<Pub>,
+    pub pk: GenericPublicKey<Pub>,
     pub sk: SecretKey<Sig, Pub, Sec>,
     _phantom: PhantomData<Sig>,
 }
@@ -24,7 +24,7 @@ where
     ///
     /// This function does not check to ensure that `pk` is derived from `sk`. It would be a logic
     /// error to supply such a `pk`.
-    pub fn from_components(pk: PublicKey<Pub>, sk: SecretKey<Sig, Pub, Sec>) -> Self {
+    pub fn from_components(pk: GenericPublicKey<Pub>, sk: SecretKey<Sig, Pub, Sec>) -> Self {
         Self {
             pk,
             sk,

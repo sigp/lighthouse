@@ -1,7 +1,7 @@
 use crate::{
     aggregate_public_key::TAggregatePublicKey,
     aggregate_signature::TAggregateSignature,
-    public_key::{PublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::TSecretKey,
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, SecretHash,
@@ -204,7 +204,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     fn fast_aggregate_verify(
         &self,
         msg: Hash256,
-        pubkeys: &[&PublicKey<blst_core::PublicKey>],
+        pubkeys: &[&GenericPublicKey<blst_core::PublicKey>],
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         let signature = self.0.clone().to_signature();
@@ -214,7 +214,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     fn aggregate_verify(
         &self,
         msgs: &[Hash256],
-        pubkeys: &[&PublicKey<blst_core::PublicKey>],
+        pubkeys: &[&GenericPublicKey<blst_core::PublicKey>],
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();

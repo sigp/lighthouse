@@ -19,13 +19,13 @@ use tree_hash::TreeHash;
 /// - Lazily verifying a serialized signature.
 /// - Storing some bytes that are actually invalid (required in the case of a `Deposit` message).
 #[derive(Clone)]
-pub struct SignatureBytes<Pub, Sig> {
+pub struct GenericSignatureBytes<Pub, Sig> {
     bytes: [u8; SIGNATURE_BYTES_LEN],
     _phantom_public_key: PhantomData<Pub>,
     _phantom_signature: PhantomData<Sig>,
 }
 
-impl<Pub, Sig> SignatureBytes<Pub, Sig>
+impl<Pub, Sig> GenericSignatureBytes<Pub, Sig>
 where
     Sig: TSignature<Pub>,
     Pub: TPublicKey,
@@ -38,7 +38,7 @@ where
     }
 }
 
-impl<Pub, Sig> SignatureBytes<Pub, Sig> {
+impl<Pub, Sig> GenericSignatureBytes<Pub, Sig> {
     /// Instantiates `Self` with all-zeros.
     pub fn empty() -> Self {
         Self {
@@ -77,14 +77,14 @@ impl<Pub, Sig> SignatureBytes<Pub, Sig> {
     }
 }
 
-impl<Pub, Sig> PartialEq for SignatureBytes<Pub, Sig> {
+impl<Pub, Sig> PartialEq for GenericSignatureBytes<Pub, Sig> {
     fn eq(&self, other: &Self) -> bool {
         &self.bytes[..] == &other.bytes[..]
     }
 }
 
 /// Serializes the `Signature` in compressed form, storing the bytes in the newly created `Self`.
-impl<Pub, Sig> From<Signature<Pub, Sig>> for SignatureBytes<Pub, Sig>
+impl<Pub, Sig> From<Signature<Pub, Sig>> for GenericSignatureBytes<Pub, Sig>
 where
     Pub: TPublicKey,
     Sig: TSignature<Pub>,
@@ -99,7 +99,7 @@ where
 }
 
 /// Alias to `self.decompress()`.
-impl<Pub, Sig> TryInto<Signature<Pub, Sig>> for &SignatureBytes<Pub, Sig>
+impl<Pub, Sig> TryInto<Signature<Pub, Sig>> for &GenericSignatureBytes<Pub, Sig>
 where
     Pub: TPublicKey,
     Sig: TSignature<Pub>,
@@ -111,31 +111,31 @@ where
     }
 }
 
-impl<Pub, Sig> Encode for SignatureBytes<Pub, Sig> {
+impl<Pub, Sig> Encode for GenericSignatureBytes<Pub, Sig> {
     impl_ssz_encode!(SIGNATURE_BYTES_LEN);
 }
 
-impl<Pub, Sig> Decode for SignatureBytes<Pub, Sig> {
+impl<Pub, Sig> Decode for GenericSignatureBytes<Pub, Sig> {
     impl_ssz_decode!(SIGNATURE_BYTES_LEN);
 }
 
-impl<Pub, Sig> TreeHash for SignatureBytes<Pub, Sig> {
+impl<Pub, Sig> TreeHash for GenericSignatureBytes<Pub, Sig> {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
 }
 
-impl<Pub, Sig> Serialize for SignatureBytes<Pub, Sig> {
+impl<Pub, Sig> Serialize for GenericSignatureBytes<Pub, Sig> {
     impl_serde_serialize!();
 }
 
-impl<'de, Pub, Sig> Deserialize<'de> for SignatureBytes<Pub, Sig> {
+impl<'de, Pub, Sig> Deserialize<'de> for GenericSignatureBytes<Pub, Sig> {
     impl_serde_deserialize!();
 }
 
-impl<Pub, Sig> fmt::Debug for SignatureBytes<Pub, Sig> {
+impl<Pub, Sig> fmt::Debug for GenericSignatureBytes<Pub, Sig> {
     impl_debug!();
 }
 
 #[cfg(feature = "arbitrary")]
-impl<Pub: 'static, Sig: 'static> arbitrary::Arbitrary for SignatureBytes<Pub, Sig> {
+impl<Pub: 'static, Sig: 'static> arbitrary::Arbitrary for GenericSignatureBytes<Pub, Sig> {
     impl_arbitrary!(SIGNATURE_BYTES_LEN);
 }

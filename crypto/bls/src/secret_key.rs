@@ -1,5 +1,5 @@
 use crate::{
-    public_key::{PublicKey, TPublicKey},
+    public_key::{GenericPublicKey, TPublicKey},
     signature::{Signature, TSignature},
     Error, Hash256, SecretHash,
 };
@@ -56,8 +56,8 @@ where
     }
 
     /// Returns the public key that corresponds to self.
-    pub fn public_key(&self) -> PublicKey<Pub> {
-        PublicKey::from_point(self.point.public_key())
+    pub fn public_key(&self) -> GenericPublicKey<Pub> {
+        GenericPublicKey::from_point(self.point.public_key())
     }
 
     /// Serialize `self` as compressed bytes.

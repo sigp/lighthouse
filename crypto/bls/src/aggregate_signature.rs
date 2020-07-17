@@ -1,6 +1,6 @@
 use crate::{
     aggregate_public_key::TAggregatePublicKey,
-    public_key::{PublicKey, TPublicKey},
+    public_key::{GenericPublicKey, TPublicKey},
     signature::{Signature, TSignature},
     Error, Hash256, SIGNATURE_BYTES_LEN,
 };
@@ -35,7 +35,7 @@ pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 
     /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed `msg`.
-    fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool;
+    fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&GenericPublicKey<Pub>]) -> bool;
 
     /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed their
     /// corresponding message in `msgs`.
@@ -43,7 +43,7 @@ pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
     /// ## Notes
     ///
     /// This function only exists for EF tests, it's presently not used in production.
-    fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&PublicKey<Pub>]) -> bool;
+    fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&GenericPublicKey<Pub>]) -> bool;
 }
 
 /// A BLS aggregate signature that is generic across:
@@ -171,7 +171,7 @@ where
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
     /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed `msg`.
-    pub fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool {
+    pub fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&GenericPublicKey<Pub>]) -> bool {
         if pubkeys.is_empty() {
             return false;
         }
@@ -188,7 +188,7 @@ where
     /// ## Notes
     ///
     /// This function only exists for EF tests, it's presently not used in production.
-    pub fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&PublicKey<Pub>]) -> bool {
+    pub fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&GenericPublicKey<Pub>]) -> bool {
         if msgs.is_empty() || msgs.len() != pubkeys.len() {
             return false;
         }

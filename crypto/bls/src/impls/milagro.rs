@@ -1,7 +1,7 @@
 use crate::{
     aggregate_public_key::TAggregatePublicKey,
     aggregate_signature::TAggregateSignature,
-    public_key::{PublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, SecretHash,
@@ -150,7 +150,7 @@ impl TAggregateSignature<milagro::PublicKey, milagro::AggregatePublicKey, milagr
     fn fast_aggregate_verify(
         &self,
         msg: Hash256,
-        pubkeys: &[&PublicKey<milagro::PublicKey>],
+        pubkeys: &[&GenericPublicKey<milagro::PublicKey>],
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         self.fast_aggregate_verify(msg.as_bytes(), &pubkeys)
@@ -159,7 +159,7 @@ impl TAggregateSignature<milagro::PublicKey, milagro::AggregatePublicKey, milagr
     fn aggregate_verify(
         &self,
         msgs: &[Hash256],
-        pubkeys: &[&PublicKey<milagro::PublicKey>],
+        pubkeys: &[&GenericPublicKey<milagro::PublicKey>],
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
         let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();
