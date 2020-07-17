@@ -61,7 +61,7 @@ where
     }
 }
 
-impl<Pub: TPublicKey + Eq> Eq for GenericPublicKey<Pub> {}
+impl<Pub: TPublicKey> Eq for GenericPublicKey<Pub> {}
 
 impl<Pub: TPublicKey> PartialEq for GenericPublicKey<Pub> {
     fn eq(&self, other: &Self) -> bool {

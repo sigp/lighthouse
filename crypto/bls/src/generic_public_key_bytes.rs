@@ -80,13 +80,13 @@ impl<Pub> GenericPublicKeyBytes<Pub> {
     }
 }
 
+impl<Pub> Eq for GenericPublicKeyBytes<Pub> {}
+
 impl<Pub> PartialEq for GenericPublicKeyBytes<Pub> {
     fn eq(&self, other: &Self) -> bool {
         &self.bytes[..] == &other.bytes[..]
     }
 }
-
-impl<Pub> Eq for GenericPublicKeyBytes<Pub> {}
 
 impl<Pub> Hash for GenericPublicKeyBytes<Pub> {
     fn hash<H: Hasher>(&self, state: &mut H) {
