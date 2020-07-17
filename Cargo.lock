@@ -528,7 +528,6 @@ dependencies = [
  "hex 0.3.2",
  "milagro_bls",
  "rand 0.7.3",
- "rand_chacha",
  "serde",
  "serde_derive",
  "serde_hex",

@@ -8,8 +8,7 @@ use crate::{
 };
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
-use rand::{Rng, RngCore, SeedableRng};
-use rand_chacha::ChaCha20Rng;
+use rand::Rng;
 use std::iter::ExactSizeIterator;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
@@ -226,10 +225,8 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
 
 impl TSecretKey<blst_core::Signature, blst_core::PublicKey> for blst_core::SecretKey {
     fn random() -> Self {
-        let seed = [0u8; 32];
-        let mut rng = ChaCha20Rng::from_seed(seed);
-        let mut ikm = [0u8; 32];
-        rng.fill_bytes(&mut ikm);
+        let rng = &mut rand::thread_rng();
+        let ikm: [u8; 32] = rng.gen();
 
         Self::key_gen(&ikm, &[]).unwrap()
     }
