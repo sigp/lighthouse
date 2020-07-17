@@ -1,7 +1,7 @@
 use crate::{
-    aggregate_public_key::TAggregatePublicKey,
-    public_key::{GenericPublicKey, TPublicKey},
-    signature::{GenericSignature, TSignature},
+    generic_aggregate_public_key::TAggregatePublicKey,
+    generic_public_key::{GenericPublicKey, TPublicKey},
+    generic_signature::{GenericSignature, TSignature},
     Error, Hash256, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};

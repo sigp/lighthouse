@@ -1,9 +1,9 @@
 use crate::{
-    aggregate_public_key::TAggregatePublicKey,
-    aggregate_signature::TAggregateSignature,
-    public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
-    secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
-    signature::{TSignature, SIGNATURE_BYTES_LEN},
+    generic_aggregate_public_key::TAggregatePublicKey,
+    generic_aggregate_signature::TAggregateSignature,
+    generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
+    generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, SecretHash,
 };
 pub use milagro_bls as milagro;
@@ -21,7 +21,7 @@ pub mod types {
     pub use super::SignatureSet;
 }
 
-pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
+pub type SignatureSet<'a> = crate::generic_signature_set::GenericSignatureSet<
     'a,
     milagro::PublicKey,
     milagro::AggregatePublicKey,

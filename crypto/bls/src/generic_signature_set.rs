@@ -1,8 +1,8 @@
 use crate::{
-    aggregate_public_key::TAggregatePublicKey,
-    aggregate_signature::{GenericAggregateSignature, TAggregateSignature},
-    public_key::{GenericPublicKey, TPublicKey},
-    signature::{GenericSignature, TSignature},
+    generic_aggregate_public_key::TAggregatePublicKey,
+    generic_aggregate_signature::{GenericAggregateSignature, TAggregateSignature},
+    generic_public_key::{GenericPublicKey, TPublicKey},
+    generic_signature::{GenericSignature, TSignature},
     Hash256,
 };
 use std::borrow::Cow;
@@ -54,11 +54,11 @@ where
 
 /// A generic way to represent a signature across a message by multiple public keys.
 ///
-/// This struct is primarily useful in a collection (e.g., `Vec<SignatureSet>`) so we can perform
+/// This struct is primarily useful in a collection (e.g., `Vec<GenericSignatureSet>`) so we can perform
 /// multiple-signature verification which is much faster than verifying each signature
 /// individually.
 #[derive(Clone)]
-pub struct SignatureSet<'a, Pub, AggPub, Sig, AggSig>
+pub struct GenericSignatureSet<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
     AggPub: Clone,
@@ -71,7 +71,7 @@ where
     _phantom: PhantomData<Sig>,
 }
 
-impl<'a, Pub, AggPub, Sig, AggSig> SignatureSet<'a, Pub, AggPub, Sig, AggSig>
+impl<'a, Pub, AggPub, Sig, AggSig> GenericSignatureSet<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
     AggPub: TAggregatePublicKey + Clone,

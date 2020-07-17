@@ -1,9 +1,9 @@
 use crate::{
-    aggregate_public_key::TAggregatePublicKey,
-    aggregate_signature::TAggregateSignature,
-    public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
-    secret_key::TSecretKey,
-    signature::{TSignature, SIGNATURE_BYTES_LEN},
+    generic_aggregate_public_key::TAggregatePublicKey,
+    generic_aggregate_signature::TAggregateSignature,
+    generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    generic_secret_key::TSecretKey,
+    generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, SecretHash,
 };
 pub use blst::min_pk as blst_core;
@@ -25,7 +25,7 @@ pub mod types {
     pub use super::SignatureSet;
 }
 
-pub type SignatureSet<'a> = crate::signature_set::SignatureSet<
+pub type SignatureSet<'a> = crate::generic_signature_set::GenericSignatureSet<
     'a,
     blst_core::PublicKey,
     BlstAggregatePublicKey,

@@ -1,6 +1,6 @@
 use crate::{
-    public_key::TPublicKey,
-    signature::{GenericSignature, TSignature},
+    generic_public_key::TPublicKey,
+    generic_signature::{GenericSignature, TSignature},
     Error, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};

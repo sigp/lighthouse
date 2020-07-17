@@ -1,5 +1,5 @@
 use crate::{
-    public_key::{GenericPublicKey, TPublicKey},
+    generic_public_key::{GenericPublicKey, TPublicKey},
     Error, Hash256,
 };
 use serde::de::{Deserialize, Deserializer};

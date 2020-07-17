@@ -1,6 +1,6 @@
 use crate::{
-    public_key::{GenericPublicKey, TPublicKey},
-    signature::{GenericSignature, TSignature},
+    generic_public_key::{GenericPublicKey, TPublicKey},
+    generic_signature::{GenericSignature, TSignature},
     Error, Hash256, SecretHash,
 };
 use std::marker::PhantomData;

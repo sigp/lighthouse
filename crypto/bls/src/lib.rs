@@ -20,25 +20,25 @@
 
 #[macro_use]
 mod macros;
-mod aggregate_public_key;
-mod aggregate_signature;
+mod generic_aggregate_public_key;
+mod generic_aggregate_signature;
+mod generic_keypair;
+mod generic_public_key;
+mod generic_public_key_bytes;
+mod generic_secret_key;
+mod generic_signature;
+mod generic_signature_bytes;
+mod generic_signature_set;
 mod get_withdrawal_credentials;
 mod impls;
-mod keypair;
-mod public_key;
-mod public_key_bytes;
 mod secret_hash;
-mod secret_key;
-mod signature;
-mod signature_bytes;
-mod signature_set;
 
+pub use generic_public_key::PUBLIC_KEY_BYTES_LEN;
+pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
+pub use generic_signature::SIGNATURE_BYTES_LEN;
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use impls::*;
-pub use public_key::PUBLIC_KEY_BYTES_LEN;
 pub use secret_hash::SecretHash;
-pub use secret_key::SECRET_KEY_BYTES_LEN;
-pub use signature::SIGNATURE_BYTES_LEN;
 
 use blst::BLST_ERROR as BlstError;
 use milagro_bls::AmclError;

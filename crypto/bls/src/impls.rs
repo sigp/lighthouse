@@ -10,32 +10,36 @@ macro_rules! define_mod {
         pub mod $name {
             use $mod as bls_variant;
 
+            use crate::generic_aggregate_public_key::GenericAggregatePublicKey;
+            use crate::generic_aggregate_signature::GenericAggregateSignature;
+            use crate::generic_keypair::GenericKeypair;
+            use crate::generic_public_key::GenericPublicKey;
+            use crate::generic_public_key_bytes::GenericPublicKeyBytes;
+            use crate::generic_secret_key::GenericSecretKey;
+            use crate::generic_signature::GenericSignature;
+            use crate::generic_signature_bytes::GenericSignatureBytes;
+
             pub use bls_variant::{verify_signature_sets, SignatureSet};
 
-            pub type PublicKey = crate::public_key::GenericPublicKey<bls_variant::PublicKey>;
-            pub type AggregatePublicKey = crate::aggregate_public_key::GenericAggregatePublicKey<
-                bls_variant::AggregatePublicKey,
-            >;
-            pub type PublicKeyBytes =
-                crate::public_key_bytes::GenericPublicKeyBytes<bls_variant::PublicKey>;
-            pub type Signature =
-                crate::signature::GenericSignature<bls_variant::PublicKey, bls_variant::Signature>;
-            pub type AggregateSignature = crate::aggregate_signature::GenericAggregateSignature<
+            pub type PublicKey = GenericPublicKey<bls_variant::PublicKey>;
+            pub type AggregatePublicKey =
+                GenericAggregatePublicKey<bls_variant::AggregatePublicKey>;
+            pub type PublicKeyBytes = GenericPublicKeyBytes<bls_variant::PublicKey>;
+            pub type Signature = GenericSignature<bls_variant::PublicKey, bls_variant::Signature>;
+            pub type AggregateSignature = GenericAggregateSignature<
                 bls_variant::PublicKey,
                 bls_variant::AggregatePublicKey,
                 bls_variant::Signature,
                 bls_variant::AggregateSignature,
             >;
-            pub type SignatureBytes = crate::signature_bytes::GenericSignatureBytes<
-                bls_variant::PublicKey,
-                bls_variant::Signature,
-            >;
-            pub type SecretKey = crate::secret_key::GenericSecretKey<
+            pub type SignatureBytes =
+                GenericSignatureBytes<bls_variant::PublicKey, bls_variant::Signature>;
+            pub type SecretKey = GenericSecretKey<
                 bls_variant::Signature,
                 bls_variant::PublicKey,
                 bls_variant::SecretKey,
             >;
-            pub type Keypair = crate::keypair::Keypair<
+            pub type Keypair = GenericKeypair<
                 bls_variant::PublicKey,
                 bls_variant::SecretKey,
                 bls_variant::Signature,

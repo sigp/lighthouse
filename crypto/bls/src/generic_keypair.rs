@@ -1,20 +1,20 @@
 use crate::{
-    public_key::{GenericPublicKey, TPublicKey},
-    secret_key::{GenericSecretKey, TSecretKey},
-    signature::TSignature,
+    generic_public_key::{GenericPublicKey, TPublicKey},
+    generic_secret_key::{GenericSecretKey, TSecretKey},
+    generic_signature::TSignature,
 };
 use std::fmt;
 use std::marker::PhantomData;
 
 /// A simple wrapper around `PublicKey` and `GenericSecretKey`.
 #[derive(Clone)]
-pub struct Keypair<Pub, Sec, Sig> {
+pub struct GenericKeypair<Pub, Sec, Sig> {
     pub pk: GenericPublicKey<Pub>,
     pub sk: GenericSecretKey<Sig, Pub, Sec>,
     _phantom: PhantomData<Sig>,
 }
 
-impl<Pub, Sec, Sig> Keypair<Pub, Sec, Sig>
+impl<Pub, Sec, Sig> GenericKeypair<Pub, Sec, Sig>
 where
     Pub: TPublicKey,
     Sec: TSecretKey<Sig, Pub>,
@@ -43,7 +43,7 @@ where
     }
 }
 
-impl<Pub, Sec, Sig> fmt::Debug for Keypair<Pub, Sec, Sig>
+impl<Pub, Sec, Sig> fmt::Debug for GenericKeypair<Pub, Sec, Sig>
 where
     Pub: TPublicKey,
 {
