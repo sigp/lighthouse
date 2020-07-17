@@ -2,6 +2,9 @@ mod blst;
 mod fake_crypto;
 mod milagro;
 
+/// Defines all the fundamental BLS points which should be exported by this crate by making
+/// concrete the generic type parameters using the points from some external BLS library (e.g.,
+/// Milagro, BLST).
 macro_rules! define_mod {
     ($name: ident, $mod: path) => {
         pub mod $name {

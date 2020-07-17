@@ -2,7 +2,7 @@ use crate::{
     aggregate_public_key::TAggregatePublicKey,
     public_key::{PublicKey, TPublicKey},
     signature::{Signature, TSignature},
-    Error, Hash256,
+    Error, Hash256, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -12,28 +12,52 @@ use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
-pub const SIGNATURE_BYTES_LEN: usize = 96;
-pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
+/// The compressed bytes used to represent `AggregateSignature::empty()`.
+pub const EMPTY_SIGNATURE_SERIALIZATION: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
+/// Implemented on some struct from a BLS library so it may be used as the `point` in an
+/// `AggregateSignature`.
 pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
+    /// Initialize `Self` to a "zero" value which can then have other signatures aggregated upon
+    /// it.
     fn zero() -> Self;
 
+    /// Aggregates a signature onto `self`.
     fn add_assign(&mut self, other: &Sig);
 
+    /// Aggregates an aggregate signature onto `self`.
     fn add_assign_aggregate(&mut self, other: &Self);
 
+    /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
+    /// Deserialize `self` from compressed bytes.
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 
+    /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed `msg`.
     fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool;
 
-    // Note: this only exists for tests.
+    /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed their
+    /// corresponding message in `msgs`.
+    ///
+    /// ## Notes
+    ///
+    /// This function only exists for EF tests, it's presently not used in production.
     fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&PublicKey<Pub>]) -> bool;
 }
 
+/// A BLS aggregate signature that is generic across:
+///
+/// - `Pub`: A BLS public key.
+/// - `AggPub`: A BLS aggregate public key.
+/// - `Sig`: A BLS signature.
+/// - `AggSig`: A BLS aggregate signature.
+///
+/// Provides generic functionality whilst deferring all serious cryptographic operations to the
+/// generics.
 #[derive(Clone, PartialEq)]
 pub struct AggregateSignature<Pub, AggPub, Sig, AggSig> {
+    /// The underlying point which performs *actual* cryptographic operations.
     point: Option<AggSig>,
     _phantom_pub: PhantomData<Pub>,
     _phantom_agg_pub: PhantomData<AggPub>,
@@ -45,6 +69,8 @@ where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
+    /// Initialize `Self` to a "zero" value which can then have other signatures aggregated upon
+    /// it.
     pub fn zero() -> Self {
         Self {
             point: Some(AggSig::zero()),
@@ -54,6 +80,16 @@ where
         }
     }
 
+    /// Initialize self to the "empty" value. This value is serialized as all-zeros.
+    ///
+    /// This value can have another signature aggregated atop of it. When this happens, `self` is
+    /// simply set to the value of the signature that is being aggregated onto it.
+    ///
+    /// ## Notes
+    ///
+    /// This function is not necessarily useful from a BLS cryptography perspective, it mostly
+    /// exists to satisfy the Eth2 specification which expects the all-zeros serialization to be
+    /// meaningful.
     pub fn empty() -> Self {
         Self {
             point: None,
@@ -63,14 +99,19 @@ where
         }
     }
 
+    /// Returns `true` if `self` is equal to the "empty" value.
+    ///
+    /// E.g., `Self::empty().is_empty() == true`
     pub fn is_empty(&self) -> bool {
         self.point.is_none()
     }
 
+    /// Returns a reference to the underlying BLS point.
     pub(crate) fn point(&self) -> Option<&AggSig> {
         self.point.as_ref()
     }
 
+    /// Aggregates a signature onto `self`.
     pub fn add_assign(&mut self, other: &Signature<Pub, Sig>) {
         if let Some(other_point) = other.point() {
             if let Some(self_point) = &mut self.point {
@@ -83,6 +124,7 @@ where
         }
     }
 
+    /// Aggregates an aggregate signature onto `self`.
     pub fn add_assign_aggregate(&mut self, other: &Self) {
         if let Some(other_point) = other.point() {
             if let Some(self_point) = &mut self.point {
@@ -95,16 +137,18 @@ where
         }
     }
 
+    /// Serialize `self` as compressed bytes.
     pub fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
         if let Some(point) = &self.point {
             point.serialize()
         } else {
-            NONE_SIGNATURE
+            EMPTY_SIGNATURE_SERIALIZATION
         }
     }
 
+    /// Deserialize `self` from compressed bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        let point = if bytes == &NONE_SIGNATURE[..] {
+        let point = if bytes == &EMPTY_SIGNATURE_SERIALIZATION[..] {
             None
         } else {
             Some(AggSig::deserialize(bytes)?)
@@ -126,6 +170,7 @@ where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
+    /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed `msg`.
     pub fn fast_aggregate_verify(&self, msg: Hash256, pubkeys: &[&PublicKey<Pub>]) -> bool {
         if pubkeys.is_empty() {
             return false;
@@ -137,6 +182,12 @@ where
         }
     }
 
+    /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed their
+    /// corresponding message in `msgs`.
+    ///
+    /// ## Notes
+    ///
+    /// This function only exists for EF tests, it's presently not used in production.
     pub fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&PublicKey<Pub>]) -> bool {
         if msgs.is_empty() || msgs.len() != pubkeys.len() {
             return false;

@@ -6,6 +6,7 @@ use crate::{
 use std::fmt;
 use std::marker::PhantomData;
 
+/// A simple wrapper around `PublicKey` and `SecretKey`.
 #[derive(Clone, PartialEq)]
 pub struct Keypair<Pub, Sec, Sig> {
     pub pk: PublicKey<Pub>,
@@ -19,6 +20,10 @@ where
     Sec: TSecretKey<Sig, Pub>,
     Sig: TSignature<Pub>,
 {
+    /// Instantiate `Self` from a public and secret key.
+    ///
+    /// This function does not check to ensure that `pk` is derived from `sk`. It would be a logic
+    /// error to supply such a `pk`.
     pub fn from_components(pk: PublicKey<Pub>, sk: SecretKey<Sig, Pub, Sec>) -> Self {
         Self {
             pk,
@@ -27,6 +32,7 @@ where
         }
     }
 
+    /// Instantiates `Self` from a randomly generated secret key.
     pub fn random() -> Self {
         let sk = SecretKey::random();
         Self {

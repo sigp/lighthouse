@@ -47,9 +47,13 @@ pub type Hash256 = ethereum_types::H256;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
+    /// An error was raised from the Milagro BLS library.
     MilagroError(AmclError),
+    /// An error was raised from the Supranational BLST BLS library.
     BlstError(BlstError),
+    /// The provided bytes were an incorrect length.
     InvalidByteLength { got: usize, expected: usize },
+    /// The provided secret key bytes were an incorrect length.
     InvalidSecretKeyLength { got: usize, expected: usize },
 }
 
