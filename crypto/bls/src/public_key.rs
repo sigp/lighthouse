@@ -23,7 +23,7 @@ pub trait TPublicKey: Sized + Clone {
 /// A BLS aggregate public key that is generic across some BLS point (`Pub`).
 ///
 /// Provides generic functionality whilst deferring all serious cryptographic operations to `Pub`.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct GenericPublicKey<Pub> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Pub,
@@ -61,7 +61,13 @@ where
     }
 }
 
-impl<Pub: Eq> Eq for GenericPublicKey<Pub> {}
+impl<Pub: TPublicKey + Eq> Eq for GenericPublicKey<Pub> {}
+
+impl<Pub: TPublicKey> PartialEq for GenericPublicKey<Pub> {
+    fn eq(&self, other: &Self) -> bool {
+        &self.serialize()[..] == &other.serialize()[..]
+    }
+}
 
 /// Hashes the `self.serialize()` bytes.
 impl<Pub: TPublicKey> Hash for GenericPublicKey<Pub> {
