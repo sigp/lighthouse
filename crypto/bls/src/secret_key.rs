@@ -1,6 +1,6 @@
 use crate::{
     public_key::{GenericPublicKey, TPublicKey},
-    signature::{Signature, TSignature},
+    signature::{GenericSignature, TSignature},
     Error, Hash256, SecretHash,
 };
 use std::marker::PhantomData;
@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 pub const SECRET_KEY_BYTES_LEN: usize = 32;
 
 /// Implemented on some struct from a BLS library so it may be used as the `point` in a
-/// `SecretKey`.
+/// `GenericSecretKey`.
 pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
     /// Instantiate `Self` from some source of entropy.
     fn random() -> Self;
@@ -28,14 +28,14 @@ pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
 }
 
 #[derive(Clone)]
-pub struct SecretKey<Sig, Pub, Sec> {
+pub struct GenericSecretKey<Sig, Pub, Sec> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Sec,
     _phantom_signature: PhantomData<Sig>,
     _phantom_public_key: PhantomData<Pub>,
 }
 
-impl<Sig, Pub, Sec> SecretKey<Sig, Pub, Sec>
+impl<Sig, Pub, Sec> GenericSecretKey<Sig, Pub, Sec>
 where
     Sig: TSignature<Pub>,
     Pub: TPublicKey,
@@ -51,8 +51,8 @@ where
     }
 
     /// Signs `msg`.
-    pub fn sign(&self, msg: Hash256) -> Signature<Pub, Sig> {
-        Signature::from_point(self.point.sign(msg))
+    pub fn sign(&self, msg: Hash256) -> GenericSignature<Pub, Sig> {
+        GenericSignature::from_point(self.point.sign(msg))
     }
 
     /// Returns the public key that corresponds to self.

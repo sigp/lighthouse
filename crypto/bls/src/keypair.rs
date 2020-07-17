@@ -1,16 +1,16 @@
 use crate::{
     public_key::{GenericPublicKey, TPublicKey},
-    secret_key::{SecretKey, TSecretKey},
+    secret_key::{GenericSecretKey, TSecretKey},
     signature::TSignature,
 };
 use std::fmt;
 use std::marker::PhantomData;
 
-/// A simple wrapper around `PublicKey` and `SecretKey`.
+/// A simple wrapper around `PublicKey` and `GenericSecretKey`.
 #[derive(Clone)]
 pub struct Keypair<Pub, Sec, Sig> {
     pub pk: GenericPublicKey<Pub>,
-    pub sk: SecretKey<Sig, Pub, Sec>,
+    pub sk: GenericSecretKey<Sig, Pub, Sec>,
     _phantom: PhantomData<Sig>,
 }
 
@@ -24,7 +24,7 @@ where
     ///
     /// This function does not check to ensure that `pk` is derived from `sk`. It would be a logic
     /// error to supply such a `pk`.
-    pub fn from_components(pk: GenericPublicKey<Pub>, sk: SecretKey<Sig, Pub, Sec>) -> Self {
+    pub fn from_components(pk: GenericPublicKey<Pub>, sk: GenericSecretKey<Sig, Pub, Sec>) -> Self {
         Self {
             pk,
             sk,
@@ -34,7 +34,7 @@ where
 
     /// Instantiates `Self` from a randomly generated secret key.
     pub fn random() -> Self {
-        let sk = SecretKey::random();
+        let sk = GenericSecretKey::random();
         Self {
             pk: sk.public_key(),
             sk,

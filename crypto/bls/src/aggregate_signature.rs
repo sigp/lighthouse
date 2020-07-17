@@ -1,7 +1,7 @@
 use crate::{
     aggregate_public_key::TAggregatePublicKey,
     public_key::{GenericPublicKey, TPublicKey},
-    signature::{Signature, TSignature},
+    signature::{GenericSignature, TSignature},
     Error, Hash256, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
@@ -12,11 +12,11 @@ use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
-/// The compressed bytes used to represent `AggregateSignature::empty()`.
+/// The compressed bytes used to represent `GenericAggregateSignature::empty()`.
 pub const EMPTY_SIGNATURE_SERIALIZATION: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
 /// Implemented on some struct from a BLS library so it may be used as the `point` in an
-/// `AggregateSignature`.
+/// `GenericAggregateSignature`.
 pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
     /// Initialize `Self` to a "zero" value which can then have other signatures aggregated upon
     /// it.
@@ -56,7 +56,7 @@ pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
 /// Provides generic functionality whilst deferring all serious cryptographic operations to the
 /// generics.
 #[derive(Clone, PartialEq)]
-pub struct AggregateSignature<Pub, AggPub, Sig, AggSig> {
+pub struct GenericAggregateSignature<Pub, AggPub, Sig, AggSig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<AggSig>,
     _phantom_pub: PhantomData<Pub>,
@@ -64,7 +64,7 @@ pub struct AggregateSignature<Pub, AggPub, Sig, AggSig> {
     _phantom_sig: PhantomData<Sig>,
 }
 
-impl<Pub, AggPub, Sig, AggSig> AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
@@ -112,7 +112,7 @@ where
     }
 
     /// Aggregates a signature onto `self`.
-    pub fn add_assign(&mut self, other: &Signature<Pub, Sig>) {
+    pub fn add_assign(&mut self, other: &GenericSignature<Pub, Sig>) {
         if let Some(other_point) = other.point() {
             if let Some(self_point) = &mut self.point {
                 self_point.add_assign(other_point)
@@ -163,7 +163,7 @@ where
     }
 }
 
-impl<Pub, AggPub, Sig, AggSig> AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
     AggPub: TAggregatePublicKey + Clone,
@@ -200,7 +200,7 @@ where
     }
 }
 
-impl<Pub, AggPub, Sig, AggSig> Encode for AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> Encode for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
@@ -208,7 +208,7 @@ where
     impl_ssz_encode!(SIGNATURE_BYTES_LEN);
 }
 
-impl<Pub, AggPub, Sig, AggSig> Decode for AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> Decode for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
@@ -216,7 +216,7 @@ where
     impl_ssz_decode!(SIGNATURE_BYTES_LEN);
 }
 
-impl<Pub, AggPub, Sig, AggSig> TreeHash for AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> TreeHash for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
@@ -224,7 +224,7 @@ where
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
 }
 
-impl<Pub, AggPub, Sig, AggSig> Serialize for AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> Serialize for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
@@ -233,7 +233,7 @@ where
 }
 
 impl<'de, Pub, AggPub, Sig, AggSig> Deserialize<'de>
-    for AggregateSignature<Pub, AggPub, Sig, AggSig>
+    for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
@@ -241,7 +241,7 @@ where
     impl_serde_deserialize!();
 }
 
-impl<Pub, AggPub, Sig, AggSig> fmt::Debug for AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> fmt::Debug for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
@@ -250,7 +250,8 @@ where
 }
 
 #[cfg(feature = "arbitrary")]
-impl<Pub, AggPub, Sig, AggSig> arbitrary::Arbitrary for AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<Pub, AggPub, Sig, AggSig> arbitrary::Arbitrary
+    for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Pub: 'static,
     AggPub: 'static,

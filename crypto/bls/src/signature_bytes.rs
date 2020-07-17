@@ -1,6 +1,6 @@
 use crate::{
     public_key::TPublicKey,
-    signature::{Signature, TSignature},
+    signature::{GenericSignature, TSignature},
     Error, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
@@ -12,7 +12,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
-/// A wrapper around some bytes that may or may not be a `Signature` in compressed form.
+/// A wrapper around some bytes that may or may not be a `GenericSignature` in compressed form.
 ///
 /// This struct is useful for two things:
 ///
@@ -33,8 +33,8 @@ where
     /// Decompress and deserialize the bytes in `self` into an actual signature.
     ///
     /// May fail if the bytes are invalid.
-    pub fn decompress(&self) -> Result<Signature<Pub, Sig>, Error> {
-        Sig::deserialize(&self.bytes).map(Signature::from_point)
+    pub fn decompress(&self) -> Result<GenericSignature<Pub, Sig>, Error> {
+        Sig::deserialize(&self.bytes).map(GenericSignature::from_point)
     }
 }
 
@@ -83,13 +83,13 @@ impl<Pub, Sig> PartialEq for GenericSignatureBytes<Pub, Sig> {
     }
 }
 
-/// Serializes the `Signature` in compressed form, storing the bytes in the newly created `Self`.
-impl<Pub, Sig> From<Signature<Pub, Sig>> for GenericSignatureBytes<Pub, Sig>
+/// Serializes the `GenericSignature` in compressed form, storing the bytes in the newly created `Self`.
+impl<Pub, Sig> From<GenericSignature<Pub, Sig>> for GenericSignatureBytes<Pub, Sig>
 where
     Pub: TPublicKey,
     Sig: TSignature<Pub>,
 {
-    fn from(sig: Signature<Pub, Sig>) -> Self {
+    fn from(sig: GenericSignature<Pub, Sig>) -> Self {
         Self {
             bytes: sig.serialize(),
             _phantom_signature: PhantomData,
@@ -99,14 +99,14 @@ where
 }
 
 /// Alias to `self.decompress()`.
-impl<Pub, Sig> TryInto<Signature<Pub, Sig>> for &GenericSignatureBytes<Pub, Sig>
+impl<Pub, Sig> TryInto<GenericSignature<Pub, Sig>> for &GenericSignatureBytes<Pub, Sig>
 where
     Pub: TPublicKey,
     Sig: TSignature<Pub>,
 {
     type Error = Error;
 
-    fn try_into(self) -> Result<Signature<Pub, Sig>, Error> {
+    fn try_into(self) -> Result<GenericSignature<Pub, Sig>, Error> {
         self.decompress()
     }
 }

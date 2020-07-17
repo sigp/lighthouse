@@ -1,52 +1,52 @@
 use crate::{
     aggregate_public_key::TAggregatePublicKey,
-    aggregate_signature::{AggregateSignature, TAggregateSignature},
+    aggregate_signature::{GenericAggregateSignature, TAggregateSignature},
     public_key::{GenericPublicKey, TPublicKey},
-    signature::{Signature, TSignature},
+    signature::{GenericSignature, TSignature},
     Hash256,
 };
 use std::borrow::Cow;
 use std::marker::PhantomData;
 
-/// A generic way to represent a `Signature` or `AggregateSignature`.
-pub struct GenericSignature<'a, Pub, AggPub, Sig, AggSig>
+/// A generic way to represent a `GenericSignature` or `GenericAggregateSignature`.
+pub struct WrappedSignature<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
     AggPub: Clone,
     Sig: Clone,
     AggSig: Clone,
 {
-    aggregate: Cow<'a, AggregateSignature<Pub, AggPub, Sig, AggSig>>,
+    aggregate: Cow<'a, GenericAggregateSignature<Pub, AggPub, Sig, AggSig>>,
 }
 
-impl<'a, Pub, AggPub, Sig, AggSig> Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>
-    for &'a Signature<Pub, Sig>
+impl<'a, Pub, AggPub, Sig, AggSig> Into<WrappedSignature<'a, Pub, AggPub, Sig, AggSig>>
+    for &'a GenericSignature<Pub, Sig>
 where
     Pub: TPublicKey + Clone,
     AggPub: Clone,
     Sig: TSignature<Pub> + Clone,
     AggSig: TAggregateSignature<Pub, AggPub, Sig> + Clone,
 {
-    fn into(self) -> GenericSignature<'a, Pub, AggPub, Sig, AggSig> {
-        let mut aggregate: AggregateSignature<Pub, AggPub, Sig, AggSig> =
-            AggregateSignature::zero();
+    fn into(self) -> WrappedSignature<'a, Pub, AggPub, Sig, AggSig> {
+        let mut aggregate: GenericAggregateSignature<Pub, AggPub, Sig, AggSig> =
+            GenericAggregateSignature::zero();
         aggregate.add_assign(self);
-        GenericSignature {
+        WrappedSignature {
             aggregate: Cow::Owned(aggregate),
         }
     }
 }
 
-impl<'a, Pub, AggPub, Sig, AggSig> Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>
-    for &'a AggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<'a, Pub, AggPub, Sig, AggSig> Into<WrappedSignature<'a, Pub, AggPub, Sig, AggSig>>
+    for &'a GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
     AggPub: Clone,
     Sig: Clone,
     AggSig: Clone,
 {
-    fn into(self) -> GenericSignature<'a, Pub, AggPub, Sig, AggSig> {
-        GenericSignature {
+    fn into(self) -> WrappedSignature<'a, Pub, AggPub, Sig, AggSig> {
+        WrappedSignature {
             aggregate: Cow::Borrowed(self),
         }
     }
@@ -65,7 +65,7 @@ where
     Sig: Clone,
     AggSig: Clone,
 {
-    pub signature: Cow<'a, AggregateSignature<Pub, AggPub, Sig, AggSig>>,
+    pub signature: Cow<'a, GenericAggregateSignature<Pub, AggPub, Sig, AggSig>>,
     pub(crate) signing_keys: Vec<Cow<'a, GenericPublicKey<Pub>>>,
     pub(crate) message: Hash256,
     _phantom: PhantomData<Sig>,
@@ -80,7 +80,7 @@ where
 {
     /// Instantiate self where `signature` is only signed by a single public key.
     pub fn single_pubkey(
-        signature: impl Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>,
+        signature: impl Into<WrappedSignature<'a, Pub, AggPub, Sig, AggSig>>,
         signing_key: Cow<'a, GenericPublicKey<Pub>>,
         message: Hash256,
     ) -> Self {
@@ -94,7 +94,7 @@ where
 
     /// Instantiate self where `signature` is signed by multiple public keys.
     pub fn multiple_pubkeys(
-        signature: impl Into<GenericSignature<'a, Pub, AggPub, Sig, AggSig>>,
+        signature: impl Into<WrappedSignature<'a, Pub, AggPub, Sig, AggSig>>,
         signing_keys: Vec<Cow<'a, GenericPublicKey<Pub>>>,
         message: Hash256,
     ) -> Self {

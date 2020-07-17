@@ -13,11 +13,11 @@ use tree_hash::TreeHash;
 /// The byte-length of a BLS signature when serialized in compressed form.
 pub const SIGNATURE_BYTES_LEN: usize = 96;
 
-/// The compressed bytes used to represent `Signature::empty()`.
+/// The compressed bytes used to represent `GenericSignature::empty()`.
 pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
 /// Implemented on some struct from a BLS library so it may be used as the `point` in an
-/// `Signature`.
+/// `GenericSignature`.
 pub trait TSignature<GenericPublicKey>: Sized + Clone {
     /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
@@ -37,13 +37,13 @@ pub trait TSignature<GenericPublicKey>: Sized + Clone {
 /// Provides generic functionality whilst deferring all serious cryptographic operations to the
 /// generics.
 #[derive(Clone, PartialEq)]
-pub struct Signature<Pub, Sig> {
+pub struct GenericSignature<Pub, Sig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<Sig>,
     _phantom: PhantomData<Pub>,
 }
 
-impl<Pub, Sig> Signature<Pub, Sig>
+impl<Pub, Sig> GenericSignature<Pub, Sig>
 where
     Sig: TSignature<Pub>,
 {
@@ -105,7 +105,7 @@ where
     }
 }
 
-impl<Pub, Sig> Signature<Pub, Sig>
+impl<Pub, Sig> GenericSignature<Pub, Sig>
 where
     Sig: TSignature<Pub>,
     Pub: TPublicKey + Clone,
@@ -120,33 +120,33 @@ where
     }
 }
 
-impl<PublicKey, T: TSignature<PublicKey>> Encode for Signature<PublicKey, T> {
+impl<PublicKey, T: TSignature<PublicKey>> Encode for GenericSignature<PublicKey, T> {
     impl_ssz_encode!(SIGNATURE_BYTES_LEN);
 }
 
-impl<PublicKey, T: TSignature<PublicKey>> Decode for Signature<PublicKey, T> {
+impl<PublicKey, T: TSignature<PublicKey>> Decode for GenericSignature<PublicKey, T> {
     impl_ssz_decode!(SIGNATURE_BYTES_LEN);
 }
 
-impl<PublicKey, T: TSignature<PublicKey>> TreeHash for Signature<PublicKey, T> {
+impl<PublicKey, T: TSignature<PublicKey>> TreeHash for GenericSignature<PublicKey, T> {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
 }
 
-impl<PublicKey, T: TSignature<PublicKey>> Serialize for Signature<PublicKey, T> {
+impl<PublicKey, T: TSignature<PublicKey>> Serialize for GenericSignature<PublicKey, T> {
     impl_serde_serialize!();
 }
 
-impl<'de, PublicKey, T: TSignature<PublicKey>> Deserialize<'de> for Signature<PublicKey, T> {
+impl<'de, PublicKey, T: TSignature<PublicKey>> Deserialize<'de> for GenericSignature<PublicKey, T> {
     impl_serde_deserialize!();
 }
 
-impl<PublicKey, T: TSignature<PublicKey>> fmt::Debug for Signature<PublicKey, T> {
+impl<PublicKey, T: TSignature<PublicKey>> fmt::Debug for GenericSignature<PublicKey, T> {
     impl_debug!();
 }
 
 #[cfg(feature = "arbitrary")]
 impl<PublicKey: 'static, T: TSignature<PublicKey> + 'static> arbitrary::Arbitrary
-    for Signature<PublicKey, T>
+    for GenericSignature<PublicKey, T>
 {
     impl_arbitrary!(SIGNATURE_BYTES_LEN);
 }
