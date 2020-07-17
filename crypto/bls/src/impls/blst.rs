@@ -41,8 +41,12 @@ pub fn verify_signature_sets<'a>(
     let rng = &mut rand::thread_rng();
 
     let mut rands: Vec<blst_scalar> = Vec::with_capacity(sets.len());
+    let mut msgs_refs = Vec::with_capacity(sets.len());
+    let mut sigs = Vec::with_capacity(sets.len());
+    let mut pks = Vec::with_capacity(sets.len());
 
-    for _ in 0..sets.len() {
+    for set in &sets {
+        // Generate random scalars.
         let mut vals = [0u64; 4];
         vals[0] = rng.gen();
         let mut rand_i = std::mem::MaybeUninit::<blst_scalar>::uninit();
@@ -50,42 +54,39 @@ pub fn verify_signature_sets<'a>(
             blst::blst_scalar_from_uint64(rand_i.as_mut_ptr(), vals.as_ptr());
             rands.push(rand_i.assume_init());
         }
+
+        // Grab a slice of the message, to satisfy the blst API.
+        msgs_refs.push(set.message.as_bytes());
+
+        // Convert the aggregate signature into a signature.
+        if let Some(point) = set.signature.point() {
+            sigs.push(point.0.to_signature())
+        } else {
+            // Any "empty" signature should cause a signature failure.
+            return false;
+        }
+
+        // Sanity check.
+        if set.signing_keys.is_empty() {
+            // A signature that has no signing keys is invalid.
+            return false;
+        }
+
+        // Collect all the public keys into a point, to satisfy the blst API.
+        //
+        // Note: we could potentially have the `SignatureSet` take a pubkey point instead of a
+        // `GenericPublicKey` and avoid this allocation.
+        let signing_keys = set
+            .signing_keys
+            .iter()
+            .map(|pk| pk.point())
+            .collect::<Vec<_>>();
+
+        // Aggregate all the public keys.
+        pks.push(blst_core::AggregatePublicKey::aggregate(&signing_keys).to_public_key());
     }
-    let msgs_refs: Vec<&[u8]> = sets.iter().map(|s| s.message.as_bytes()).collect();
 
-    let sigs_result = sets
-        .iter()
-        .map(|s| s.signature.point().ok_or(()).map(|s| s.0.to_signature()))
-        .collect::<Result<Vec<_>, ()>>();
-
-    let sigs = if let Ok(sigs) = sigs_result {
-        sigs
-    } else {
-        return false;
-    };
-
-    let pks: Vec<blst_core::PublicKey> = sets
-        .iter()
-        .map(|set| {
-            // TODO: check for empty singing keys vec.
-            assert!(!set.signing_keys.is_empty());
-
-            let signing_keys = set
-                .signing_keys
-                .iter()
-                .map(|pk| pk.point())
-                .collect::<Vec<_>>();
-
-            blst_core::AggregatePublicKey::aggregate(&signing_keys).to_public_key()
-        })
-        .collect();
-
-    let sig_refs = sigs
-        .iter()
-        .map(|s| s)
-        .collect::<Vec<&blst_core::Signature>>();
-
-    let pks_refs: Vec<&blst_core::PublicKey> = pks.iter().collect();
+    let (sig_refs, pks_refs): (Vec<_>, Vec<_>) = sigs.iter().zip(pks.iter()).unzip();
 
     let err = blst_core::Signature::verify_multiple_aggregate_signatures(
         &msgs_refs, DST, &pks_refs, &sig_refs, &rands, RAND_BITS,
