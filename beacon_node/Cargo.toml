@@ -39,3 +39,4 @@ eth2_libp2p = { path = "./eth2_libp2p" }
 eth2_ssz = "0.1.2"
 serde = "1.0.110"
 clap_utils = { path = "../common/clap_utils" }
+hyper = "0.13.5"
