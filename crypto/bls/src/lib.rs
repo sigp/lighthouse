@@ -14,9 +14,10 @@
 //!     scenarios which intend to *ignore* real cryptography.
 //!
 //! This crate uses traits to reduce code-duplication between the two implementations. For example,
-//! the `PublicKey` struct exported from this crate is generic across the `TPublicKey` trait (i.e.,
-//! `PublicKey<TPublicKey>`). `TPublicKey` is implemented by all three backends (see the `impls.rs`
-//! module). When compiling with the `milagro` feature, we export `PublicKey<milagro::PublicKey>`.
+//! the `GenericPublicKey` struct exported from this crate is generic across the `TPublicKey` trait
+//! (i.e., `PublicKey<TPublicKey>`). `TPublicKey` is implemented by all three backends (see the
+//! `impls.rs` module). When compiling with the `milagro` feature, we export
+//! `type PublicKey = GenericPublicKey<milagro::PublicKey>`.
 
 #[macro_use]
 mod macros;
@@ -30,8 +31,9 @@ mod generic_signature;
 mod generic_signature_bytes;
 mod generic_signature_set;
 mod get_withdrawal_credentials;
-mod impls;
 mod secret_hash;
+
+pub mod impls;
 
 pub use generic_public_key::PUBLIC_KEY_BYTES_LEN;
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
@@ -68,6 +70,18 @@ impl From<BlstError> for Error {
     }
 }
 
+/// Generic implementations which are only generally useful for docs.
+pub mod generics {
+    pub use crate::generic_aggregate_public_key::GenericAggregatePublicKey;
+    pub use crate::generic_aggregate_signature::GenericAggregateSignature;
+    pub use crate::generic_keypair::GenericKeypair;
+    pub use crate::generic_public_key::GenericPublicKey;
+    pub use crate::generic_public_key_bytes::GenericPublicKeyBytes;
+    pub use crate::generic_secret_key::GenericSecretKey;
+    pub use crate::generic_signature::GenericSignature;
+    pub use crate::generic_signature_bytes::GenericSignatureBytes;
+}
+
 /// Defines all the fundamental BLS points which should be exported by this crate by making
 /// concrete the generic type parameters using the points from some external BLS library (e.g.,
 /// Milagro, BLST).
@@ -76,14 +90,7 @@ macro_rules! define_mod {
         pub mod $name {
             use $mod as bls_variant;
 
-            use crate::generic_aggregate_public_key::GenericAggregatePublicKey;
-            use crate::generic_aggregate_signature::GenericAggregateSignature;
-            use crate::generic_keypair::GenericKeypair;
-            use crate::generic_public_key::GenericPublicKey;
-            use crate::generic_public_key_bytes::GenericPublicKeyBytes;
-            use crate::generic_secret_key::GenericSecretKey;
-            use crate::generic_signature::GenericSignature;
-            use crate::generic_signature_bytes::GenericSignatureBytes;
+            use crate::generics::*;
 
             pub use bls_variant::{verify_signature_sets, SignatureSet};
 
@@ -116,6 +123,7 @@ macro_rules! define_mod {
 
 define_mod!(milagro_implementations, crate::impls::milagro::types);
 define_mod!(blst_implementations, crate::impls::blst::types);
+#[cfg(feature = "fake_crypto")]
 define_mod!(
     fake_crypto_implementations,
     crate::impls::fake_crypto::types
