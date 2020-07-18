@@ -1,9 +1,10 @@
 ///! The subnet predicate used for searching for a particular subnet.
 use super::*;
+use std::ops::Deref;
 
 /// Returns the predicate for a given subnet.
 pub fn subnet_predicate<TSpec>(
-    subnet_id: SubnetId,
+    subnet_ids: Vec<SubnetId>,
     log: &slog::Logger,
 ) -> impl Fn(&Enr) -> bool + Send
 where
@@ -23,10 +24,17 @@ where
                 }
             };
 
-            return bitfield.get(*subnet_id as usize).unwrap_or_else(|_| {
-                                   debug!(log_clone, "Peer found but not on desired subnet"; "peer_id" => format!("{}", enr.peer_id()));
-                false
-            });
+            let matches: Vec<SubnetId> = subnet_ids
+                .clone()
+                .into_iter()
+                .filter(|id| bitfield.get(*id.deref() as usize).unwrap_or(false))
+                .collect();
+
+            if matches.is_empty() {
+                debug!(log_clone, "Peer found but not on an of the desired subnets"; "peer_id" => format!("{}", enr.peer_id()));
+                return false;
+            }
+            return true;
         }
         false
     }
