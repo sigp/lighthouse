@@ -444,7 +444,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 Some(QueryType::Subnet(subnet_query)) => {
                     subnet_queries.push(subnet_query);
 
-                    if subnet_queries.len() == MAX_SUBNETS_IN_QUERY || self.queued_queries.is_empty() {
+                    if subnet_queries.len() == MAX_SUBNETS_IN_QUERY
+                        || self.queued_queries.is_empty()
+                    {
                         // This query is for searching for peers of a particular subnet
                         self.start_subnet_query(subnet_queries.as_slice());
                         subnet_queries.clear()
@@ -623,7 +625,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         &mut self,
         results: Vec<(Option<Instant>, Vec<Enr>)>,
     ) -> HashMap<PeerId, Option<Instant>> {
-
         // output mapping
         let mut enrs_to_min_ttl: HashMap<PeerId, Option<Instant>> = HashMap::new();
 
@@ -632,28 +633,28 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             for enr in result.1.iter().cloned() {
                 self.cached_enrs.put(enr.peer_id(), enr.clone());
 
-                let resuls_min_ttl = result.0.clone();
-                let stored_min_ttl = enrs_to_min_ttl.get(&enr.peer_id());
-
                 // map ENR's to the min_ttl furthest in the future
-                match (resuls_min_ttl, stored_min_ttl) {
-                    // only update the map if the next min_ttl is greater
+                match (result.0.clone(), enrs_to_min_ttl.get(&enr.peer_id())) {
+                    // update the mapping if the min_ttl is greater
                     (Some(min_ttl), Some(Some(other_min_ttl))) => {
                         if min_ttl.saturating_duration_since(*other_min_ttl) > DURATION_DIFFERENCE {
                             enrs_to_min_ttl.insert(enr.peer_id(), Some(min_ttl));
                         }
                     }
+                    // update the mapping if we have a specified min_ttl
                     (Some(min_ttl), Some(None)) => {
                         enrs_to_min_ttl.insert(enr.peer_id(), Some(min_ttl));
                     }
+                    // first seen min_ttl for this enr
                     (Some(min_ttl), None) => {
                         enrs_to_min_ttl.insert(enr.peer_id(), Some(min_ttl));
                     }
-                    (None, Some(Some(_))) => {}
-                    (None, Some(None)) => {}
+                    // first seen min_ttl for this enr
                     (None, None) => {
                         enrs_to_min_ttl.insert(enr.peer_id(), None);
                     }
+                    (None, Some(Some(_))) => {} // Don't replace the existing specific min_ttl
+                    (None, Some(None)) => {}    // No-op because this is a duplicate
                 }
             }
         }
