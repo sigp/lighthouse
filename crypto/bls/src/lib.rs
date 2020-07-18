@@ -35,9 +35,9 @@ mod secret_hash;
 
 pub mod impls;
 
-pub use generic_public_key::PUBLIC_KEY_BYTES_LEN;
+pub use generic_public_key::{INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN};
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
-pub use generic_signature::SIGNATURE_BYTES_LEN;
+pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use secret_hash::SecretHash;
 

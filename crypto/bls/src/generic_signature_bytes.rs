@@ -1,7 +1,7 @@
 use crate::{
     generic_public_key::TPublicKey,
     generic_signature::{GenericSignature, TSignature},
-    Error, SIGNATURE_BYTES_LEN,
+    Error, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -34,7 +34,8 @@ where
     ///
     /// May fail if the bytes are invalid.
     pub fn decompress(&self) -> Result<GenericSignature<Pub, Sig>, Error> {
-        Sig::deserialize(&self.bytes).map(GenericSignature::from_point)
+        let is_infinity = &self.bytes[..] == &INFINITY_SIGNATURE[..];
+        Sig::deserialize(&self.bytes).map(|point| GenericSignature::from_point(point, is_infinity))
     }
 }
 

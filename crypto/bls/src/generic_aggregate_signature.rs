@@ -2,7 +2,7 @@ use crate::{
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_public_key::{GenericPublicKey, TPublicKey},
     generic_signature::{GenericSignature, TSignature},
-    Error, Hash256, SIGNATURE_BYTES_LEN,
+    Error, Hash256, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -59,6 +59,8 @@ pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
 pub struct GenericAggregateSignature<Pub, AggPub, Sig, AggSig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<AggSig>,
+    /// True if this point is equal to the `INFINITY_SIGNATURE`.
+    pub(crate) is_infinity: bool,
     _phantom_pub: PhantomData<Pub>,
     _phantom_agg_pub: PhantomData<AggPub>,
     _phantom_sig: PhantomData<Sig>,
@@ -74,6 +76,7 @@ where
     pub fn zero() -> Self {
         Self {
             point: Some(AggSig::zero()),
+            is_infinity: false,
             _phantom_pub: PhantomData,
             _phantom_agg_pub: PhantomData,
             _phantom_sig: PhantomData,
@@ -93,6 +96,7 @@ where
     pub fn empty() -> Self {
         Self {
             point: None,
+            is_infinity: false,
             _phantom_pub: PhantomData,
             _phantom_agg_pub: PhantomData,
             _phantom_sig: PhantomData,
@@ -156,6 +160,7 @@ where
 
         Ok(Self {
             point,
+            is_infinity: bytes == &INFINITY_SIGNATURE[..],
             _phantom_pub: PhantomData,
             _phantom_agg_pub: PhantomData,
             _phantom_sig: PhantomData,
@@ -176,6 +181,13 @@ where
             return false;
         }
 
+        if self.is_infinity
+            && pubkeys.len() == 1
+            && pubkeys.first().map_or(false, |pk| pk.is_infinity)
+        {
+            return true;
+        }
+
         match self.point.as_ref() {
             Some(point) => point.fast_aggregate_verify(msg, pubkeys),
             None => false,
@@ -191,6 +203,13 @@ where
     pub fn aggregate_verify(&self, msgs: &[Hash256], pubkeys: &[&GenericPublicKey<Pub>]) -> bool {
         if msgs.is_empty() || msgs.len() != pubkeys.len() {
             return false;
+        }
+
+        if self.is_infinity
+            && pubkeys.len() == 1
+            && pubkeys.first().map_or(false, |pk| pk.is_infinity)
+        {
+            return true;
         }
 
         match self.point.as_ref() {

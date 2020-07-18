@@ -38,6 +38,10 @@ pub fn verify_signature_sets<'a>(
 ) -> bool {
     let sets = signature_sets.collect::<Vec<_>>();
 
+    if sets.is_empty() {
+        return false;
+    }
+
     let rng = &mut rand::thread_rng();
 
     let mut rands: Vec<blst_scalar> = Vec::with_capacity(sets.len());
@@ -46,6 +50,15 @@ pub fn verify_signature_sets<'a>(
     let mut pks = Vec::with_capacity(sets.len());
 
     for set in &sets {
+        // If this set is simply an infinity signature and infinity pubkey then skip verification.
+        // This has the effect of always declaring that this sig/pubkey combination is valid.
+        if set.signature.is_infinity
+            && set.signing_keys.len() == 1
+            && set.signing_keys.first().map_or(false, |pk| pk.is_infinity)
+        {
+            continue;
+        }
+
         // Generate random scalars.
         let mut vals = [0u64; 4];
         vals[0] = rng.gen();
@@ -84,6 +97,12 @@ pub fn verify_signature_sets<'a>(
 
         // Aggregate all the public keys.
         pks.push(blst_core::AggregatePublicKey::aggregate(&signing_keys).to_public_key());
+    }
+
+    // Due to an earlier check, the only case this can be empty is if all the sets consisted of
+    // infinity pubkeys/sigs. In such a case we wish to return `true`.
+    if msgs_refs.is_empty() {
+        return true;
     }
 
     let (sig_refs, pks_refs): (Vec<_>, Vec<_>) = sigs.iter().zip(pks.iter()).unzip();

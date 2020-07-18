@@ -52,12 +52,14 @@ where
 
     /// Signs `msg`.
     pub fn sign(&self, msg: Hash256) -> GenericSignature<Pub, Sig> {
-        GenericSignature::from_point(self.point.sign(msg))
+        let is_infinity = false;
+        GenericSignature::from_point(self.point.sign(msg), is_infinity)
     }
 
     /// Returns the public key that corresponds to self.
     pub fn public_key(&self) -> GenericPublicKey<Pub> {
-        GenericPublicKey::from_point(self.point.public_key())
+        let is_infinity = false;
+        GenericPublicKey::from_point(self.point.public_key(), is_infinity)
     }
 
     /// Serialize `self` as compressed bytes.

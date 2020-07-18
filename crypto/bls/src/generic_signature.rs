@@ -13,6 +13,14 @@ use tree_hash::TreeHash;
 /// The byte-length of a BLS signature when serialized in compressed form.
 pub const SIGNATURE_BYTES_LEN: usize = 96;
 
+/// Represents the signature at infinity.
+pub const INFINITY_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [
+    0xc0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0,
+];
+
 /// The compressed bytes used to represent `GenericSignature::empty()`.
 pub const NONE_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATURE_BYTES_LEN];
 
@@ -40,6 +48,8 @@ pub trait TSignature<GenericPublicKey>: Sized + Clone {
 pub struct GenericSignature<Pub, Sig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<Sig>,
+    /// True if this point is equal to the `INFINITY_SIGNATURE`.
+    is_infinity: bool,
     _phantom: PhantomData<Pub>,
 }
 
@@ -57,6 +67,7 @@ where
     pub fn empty() -> Self {
         Self {
             point: None,
+            is_infinity: false,
             _phantom: PhantomData,
         }
     }
@@ -74,9 +85,10 @@ where
     }
 
     /// Instantiates `Self` from a `point`.
-    pub(crate) fn from_point(point: Sig) -> Self {
+    pub(crate) fn from_point(point: Sig, is_infinity: bool) -> Self {
         Self {
             point: Some(point),
+            is_infinity,
             _phantom: PhantomData,
         }
     }
@@ -100,6 +112,7 @@ where
 
         Ok(Self {
             point,
+            is_infinity: bytes == &INFINITY_SIGNATURE[..],
             _phantom: PhantomData,
         })
     }
@@ -112,6 +125,10 @@ where
 {
     /// Returns `true` if `self` is a signature across `msg` by `pubkey`.
     pub fn verify(&self, pubkey: &GenericPublicKey<Pub>, msg: Hash256) -> bool {
+        if self.is_infinity && pubkey.is_infinity {
+            return true;
+        }
+
         if let Some(point) = &self.point {
             point.verify(pubkey.point(), msg)
         } else {

@@ -1,4 +1,4 @@
-use crate::{Error, PUBLIC_KEY_BYTES_LEN};
+use crate::{Error, INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_hex::{encode as hex_encode, PrefixedHexVisitor};
@@ -28,6 +28,8 @@ pub trait TAggregatePublicKey: Sized + Clone {
 pub struct GenericAggregatePublicKey<AggPub> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: AggPub,
+    /// True if this point is equal to the `INFINITY_PUBLIC_KEY`.
+    is_infinity: bool,
 }
 
 impl<AggPub> GenericAggregatePublicKey<AggPub>
@@ -39,6 +41,7 @@ where
     pub fn zero() -> Self {
         Self {
             point: AggPub::zero(),
+            is_infinity: false,
         }
     }
 
@@ -56,6 +59,7 @@ where
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self {
             point: AggPub::deserialize(bytes)?,
+            is_infinity: bytes == &INFINITY_PUBLIC_KEY[..],
         })
     }
 }
