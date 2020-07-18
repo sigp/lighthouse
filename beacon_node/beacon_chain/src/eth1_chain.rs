@@ -82,7 +82,7 @@ where
     backend: T,
     /// When `true`, the backend will be ignored and dummy data from the 2019 Canada interop method
     /// will be used instead.
-    pub use_dummy_backend: bool,
+    use_dummy_backend: bool,
     _phantom: PhantomData<E>,
 }
 
@@ -96,6 +96,13 @@ where
             backend,
             use_dummy_backend: false,
             _phantom: PhantomData,
+        }
+    }
+
+    pub fn new_dummy(backend: T) -> Self {
+        Self {
+            use_dummy_backend: true,
+            ..Self::new(backend)
         }
     }
 
