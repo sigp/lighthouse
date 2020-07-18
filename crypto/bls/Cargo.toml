@@ -20,7 +20,7 @@ zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
 blst = { git = "https://github.com/sigp/blst.git", commit = "968c846a2dc46e836e407bbdbac1a38a597ebc46" }
 
 [features]
-default = ["supranatural"]
+default = ["supranational"]
 fake_crypto = []
 milagro = []
-supranatural = []
+supranational = []

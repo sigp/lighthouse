@@ -132,12 +132,12 @@ define_mod!(
 #[cfg(all(
     feature = "milagro",
     not(feature = "fake_crypto"),
-    not(feature = "supranatural")
+    not(feature = "supranational")
 ))]
 pub use milagro_implementations::*;
 
 #[cfg(all(
-    feature = "supranatural",
+    feature = "supranational",
     not(feature = "fake_crypto"),
     not(feature = "milagro")
 ))]
