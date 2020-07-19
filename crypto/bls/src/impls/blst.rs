@@ -4,7 +4,7 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     generic_secret_key::TSecretKey,
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, SecretHash,
+    Error, Hash256, SecretHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
 };
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
@@ -143,7 +143,10 @@ impl PartialEq for BlstAggregatePublicKey {
 
 impl TAggregatePublicKey for BlstAggregatePublicKey {
     fn zero() -> Self {
-        unsafe { std::mem::MaybeUninit::<Self>::zeroed().assume_init() }
+        blst_core::PublicKey::from_bytes(&INFINITY_PUBLIC_KEY)
+            .map(|pk| blst_core::AggregatePublicKey::from_public_key(&pk))
+            .map(Self)
+            .expect("should decode infinity public key")
     }
 
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
@@ -193,9 +196,10 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     for BlstAggregateSignature
 {
     fn zero() -> Self {
-        Self(unsafe {
-            std::mem::MaybeUninit::<blst_core::AggregateSignature>::zeroed().assume_init()
-        })
+        blst_core::Signature::from_bytes(&INFINITY_SIGNATURE)
+            .map(|sig| blst_core::AggregateSignature::from_signature(&sig))
+            .map(Self)
+            .expect("should decode infinity signature")
     }
 
     fn add_assign(&mut self, other: &blst_core::Signature) {

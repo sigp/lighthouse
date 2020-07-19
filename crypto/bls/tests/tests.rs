@@ -20,6 +20,14 @@ macro_rules! test_suite {
         }
 
         #[test]
+        fn infinity_agg_pubkey() {
+            assert_eq!(
+                &AggregatePublicKey::zero().serialize()[..],
+                &INFINITY_PUBLIC_KEY[..]
+            )
+        }
+
+        #[test]
         fn ssz_round_trip_sig_empty() {
             ssz_round_trip(Signature::empty())
         }
