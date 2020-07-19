@@ -130,7 +130,7 @@ pub struct BlstAggregatePublicKey(blst_core::AggregatePublicKey);
 impl Clone for BlstAggregatePublicKey {
     fn clone(&self) -> Self {
         Self(blst_core::AggregatePublicKey::from_public_key(
-            &self.0.to_public_key() as *const blst_core::PublicKey,
+            &self.0.to_public_key(),
         ))
     }
 }
@@ -153,9 +153,7 @@ impl TAggregatePublicKey for BlstAggregatePublicKey {
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         blst_core::PublicKey::from_bytes(&bytes)
             .map_err(Into::into)
-            .map(|pk| {
-                blst_core::AggregatePublicKey::from_public_key(&pk as *const blst_core::PublicKey)
-            })
+            .map(|pk| blst_core::AggregatePublicKey::from_public_key(&pk))
             .map(Self)
     }
 }
@@ -180,7 +178,7 @@ pub struct BlstAggregateSignature(blst_core::AggregateSignature);
 impl Clone for BlstAggregateSignature {
     fn clone(&self) -> Self {
         Self(blst_core::AggregateSignature::from_signature(
-            &self.0.to_signature() as *const blst_core::Signature,
+            &self.0.to_signature(),
         ))
     }
 }
@@ -215,9 +213,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         blst_core::Signature::from_bytes(bytes)
             .map_err(Into::into)
-            .map(|sig| {
-                blst_core::AggregateSignature::from_signature(&sig as *const blst_core::Signature)
-            })
+            .map(|sig| blst_core::AggregateSignature::from_signature(&sig))
             .map(Self)
     }
 
