@@ -96,8 +96,30 @@ macro_rules! test_suite {
                 }
             }
 
+            pub fn empty_sig(mut self) -> Self {
+                self.sig = AggregateSignature::empty();
+                self
+            }
+
+            pub fn wrong_sig(mut self) -> Self {
+                let sk = SecretKey::deserialize(&[1; 32]).unwrap();
+                self.sig = AggregateSignature::zero();
+                self.sig.add_assign(&sk.sign(Hash256::from_low_u64_be(1)));
+                self
+            }
+
             pub fn infinity_sig(mut self) -> Self {
                 self.sig = AggregateSignature::deserialize(&INFINITY_SIGNATURE[..]).unwrap();
+                self
+            }
+
+            pub fn aggregate_empty_sig(mut self) -> Self {
+                self.sig.add_assign(&Signature::empty());
+                self
+            }
+
+            pub fn aggregate_empty_agg_sig(mut self) -> Self {
+                self.sig.add_assign_aggregate(&AggregateSignature::empty());
                 self
             }
 
@@ -118,14 +140,25 @@ macro_rules! test_suite {
                 self
             }
 
-            pub fn assert_fast_aggregate_verify(self, is_valid: bool) {
+            pub fn assert_single_message_verify(self, is_valid: bool) {
                 assert!(self.msgs.len() == 1);
                 let msg = self.msgs.first().unwrap();
                 let pubkeys = self.pubkeys.iter().collect::<Vec<_>>();
+
                 assert_eq!(
                     self.sig.fast_aggregate_verify(*msg, &pubkeys),
                     is_valid,
-                    "expected {} but got {}",
+                    "fast_aggregate_verify expected {} but got {}",
+                    is_valid,
+                    !is_valid
+                );
+
+                let msgs = pubkeys.iter().map(|_| msg.clone()).collect::<Vec<_>>();
+
+                assert_eq!(
+                    self.sig.aggregate_verify(&msgs, &pubkeys),
+                    is_valid,
+                    "aggregate_verify expected {} but got {}",
                     is_valid,
                     !is_valid
                 );
@@ -134,31 +167,31 @@ macro_rules! test_suite {
 
         #[test]
         fn fast_aggregate_verify_0_pubkeys() {
-            AggregateSignatureTester::new_with_single_msg(0).assert_fast_aggregate_verify(false)
+            AggregateSignatureTester::new_with_single_msg(0).assert_single_message_verify(false)
         }
 
         #[test]
         fn fast_aggregate_verify_1_pubkey() {
-            AggregateSignatureTester::new_with_single_msg(1).assert_fast_aggregate_verify(true)
+            AggregateSignatureTester::new_with_single_msg(1).assert_single_message_verify(true)
         }
 
         #[test]
         fn fast_aggregate_verify_128_pubkeys() {
-            AggregateSignatureTester::new_with_single_msg(128).assert_fast_aggregate_verify(true)
+            AggregateSignatureTester::new_with_single_msg(128).assert_single_message_verify(true)
         }
 
         #[test]
         fn fast_aggregate_verify_infinity_signature_with_1_regular_public_key() {
             AggregateSignatureTester::new_with_single_msg(1)
                 .infinity_sig()
-                .assert_fast_aggregate_verify(false)
+                .assert_single_message_verify(false)
         }
 
         #[test]
         fn fast_aggregate_verify_infinity_signature_with_128_regular_public_keys() {
             AggregateSignatureTester::new_with_single_msg(128)
                 .infinity_sig()
-                .assert_fast_aggregate_verify(false)
+                .assert_single_message_verify(false)
         }
 
         #[test]
@@ -166,7 +199,7 @@ macro_rules! test_suite {
             AggregateSignatureTester::new_with_single_msg(1)
                 .infinity_sig()
                 .single_infinity_pubkey()
-                .assert_fast_aggregate_verify(true)
+                .assert_single_message_verify(true)
         }
 
         #[test]
@@ -174,18 +207,56 @@ macro_rules! test_suite {
             AggregateSignatureTester::new_with_single_msg(1)
                 .aggregate_infinity_sig()
                 .push_infinity_pubkey()
-                .assert_fast_aggregate_verify(true)
+                .assert_single_message_verify(true)
         }
 
         /// This test is demonstrating that we can declare that the infinity pubkey signed any
         /// signature, without even needing to modify the signature.
-        ///
-        /// TODO: double check that this is valid.
         #[test]
         fn fast_aggregate_verify_infinity_signature_with_one_additional_infinity_pubkey() {
             AggregateSignatureTester::new_with_single_msg(1)
                 .push_infinity_pubkey()
-                .assert_fast_aggregate_verify(true)
+                .assert_single_message_verify(true)
+        }
+
+        #[test]
+        fn fast_aggregate_verify_infinity_signature_with_four_additional_infinity_pubkeys() {
+            AggregateSignatureTester::new_with_single_msg(1)
+                .push_infinity_pubkey()
+                .push_infinity_pubkey()
+                .push_infinity_pubkey()
+                .push_infinity_pubkey()
+                .assert_single_message_verify(true)
+        }
+
+        #[test]
+        fn fast_aggregate_verify_wrong_signature() {
+            AggregateSignatureTester::new_with_single_msg(1)
+                .wrong_sig()
+                .assert_single_message_verify(false)
+        }
+
+        #[test]
+        fn fast_aggregate_verify_empty_signature() {
+            AggregateSignatureTester::new_with_single_msg(1)
+                .empty_sig()
+                .assert_single_message_verify(false)
+        }
+
+        /// Aggregating an "empty" signature should have no effect.
+        #[test]
+        fn fast_aggregate_verify_with_aggregated_empty_sig() {
+            AggregateSignatureTester::new_with_single_msg(1)
+                .aggregate_empty_sig()
+                .assert_single_message_verify(true)
+        }
+
+        /// Aggregating an "empty" aggregate signature should have no effect.
+        #[test]
+        fn fast_aggregate_verify_with_aggregated_empty_agg_sig() {
+            AggregateSignatureTester::new_with_single_msg(1)
+                .aggregate_empty_agg_sig()
+                .assert_single_message_verify(true)
         }
     };
 }
@@ -194,6 +265,7 @@ mod blst {
     test_suite!(blst_implementations);
 }
 
+#[cfg(not(debug_assertions))]
 mod milagro {
     test_suite!(milagro_implementations);
 }
