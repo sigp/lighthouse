@@ -165,21 +165,25 @@ macro_rules! test_suite {
             }
         }
 
+        /// An aggregate without any signatures should not verify.
         #[test]
         fn fast_aggregate_verify_0_pubkeys() {
             AggregateSignatureTester::new_with_single_msg(0).assert_single_message_verify(false)
         }
 
+        /// An aggregate of size 1 should verify.
         #[test]
         fn fast_aggregate_verify_1_pubkey() {
             AggregateSignatureTester::new_with_single_msg(1).assert_single_message_verify(true)
         }
 
+        /// An aggregate of size 128 should verify.
         #[test]
         fn fast_aggregate_verify_128_pubkeys() {
             AggregateSignatureTester::new_with_single_msg(128).assert_single_message_verify(true)
         }
 
+        /// The infinity signature should not verify against 1 non-infinity pubkey.
         #[test]
         fn fast_aggregate_verify_infinity_signature_with_1_regular_public_key() {
             AggregateSignatureTester::new_with_single_msg(1)
@@ -187,6 +191,7 @@ macro_rules! test_suite {
                 .assert_single_message_verify(false)
         }
 
+        /// The infinity signature should not verify against 128 non-infinity pubkeys.
         #[test]
         fn fast_aggregate_verify_infinity_signature_with_128_regular_public_keys() {
             AggregateSignatureTester::new_with_single_msg(128)
@@ -194,6 +199,7 @@ macro_rules! test_suite {
                 .assert_single_message_verify(false)
         }
 
+        /// The infinity signature and one infinity pubkey should verify.
         #[test]
         fn fast_aggregate_verify_infinity_signature_with_one_infinity_pubkey() {
             AggregateSignatureTester::new_with_single_msg(1)
@@ -202,25 +208,45 @@ macro_rules! test_suite {
                 .assert_single_message_verify(true)
         }
 
+        /// Adding a infinity signature (without an infinity pubkey) should verify.
         #[test]
-        fn fast_aggregate_verify_infinity_signature_with_one_additional_infinity_pubkey_and_matching_sig() {
+        fn fast_aggregate_verify_with_one_aggregated_infinity_sig() {
+            AggregateSignatureTester::new_with_single_msg(1)
+                .aggregate_infinity_sig()
+                .assert_single_message_verify(true)
+        }
+
+        /// Adding four infinity signatures (without any infinity pubkeys) should verify.
+        #[test]
+        fn fast_aggregate_verify_with_four_aggregated_infinity_sig() {
+            AggregateSignatureTester::new_with_single_msg(1)
+                .aggregate_infinity_sig()
+                .aggregate_infinity_sig()
+                .aggregate_infinity_sig()
+                .aggregate_infinity_sig()
+                .assert_single_message_verify(true)
+        }
+
+        /// Adding a infinity pubkey and an infinity signature should verify.
+        #[test]
+        fn fast_aggregate_verify_with_one_additional_infinity_pubkey_and_matching_sig() {
             AggregateSignatureTester::new_with_single_msg(1)
                 .aggregate_infinity_sig()
                 .push_infinity_pubkey()
                 .assert_single_message_verify(true)
         }
 
-        /// This test is demonstrating that we can declare that the infinity pubkey signed any
-        /// signature, without even needing to modify the signature.
+        /// Adding a single infinity pubkey **without** updating the signature **should verify**.
         #[test]
-        fn fast_aggregate_verify_infinity_signature_with_one_additional_infinity_pubkey() {
+        fn fast_aggregate_verify_with_one_additional_infinity_pubkey() {
             AggregateSignatureTester::new_with_single_msg(1)
                 .push_infinity_pubkey()
                 .assert_single_message_verify(true)
         }
 
+        /// Adding multiple infinity pubkeys **without** updating the signature **should verify**.
         #[test]
-        fn fast_aggregate_verify_infinity_signature_with_four_additional_infinity_pubkeys() {
+        fn fast_aggregate_verify_with_four_additional_infinity_pubkeys() {
             AggregateSignatureTester::new_with_single_msg(1)
                 .push_infinity_pubkey()
                 .push_infinity_pubkey()
@@ -229,6 +255,7 @@ macro_rules! test_suite {
                 .assert_single_message_verify(true)
         }
 
+        /// The wrong signature should not verify.
         #[test]
         fn fast_aggregate_verify_wrong_signature() {
             AggregateSignatureTester::new_with_single_msg(1)
@@ -236,6 +263,7 @@ macro_rules! test_suite {
                 .assert_single_message_verify(false)
         }
 
+        /// An "empty" signature should not verify.
         #[test]
         fn fast_aggregate_verify_empty_signature() {
             AggregateSignatureTester::new_with_single_msg(1)
