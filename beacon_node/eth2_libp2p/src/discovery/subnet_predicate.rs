@@ -31,10 +31,21 @@ where
                 .collect();
 
             if matches.is_empty() {
-                debug!(log_clone, "Peer found but not on an of the desired subnets"; "peer_id" => format!("{}", enr.peer_id()));
+                debug!(
+                    log_clone,
+                    "Peer found but not on any of the desired subnets";
+                    "peer_id" => format!("{}", enr.peer_id())
+                );
                 return false;
+            } else {
+                debug!(
+                   log_clone,
+                   "Peer found on desired subnet(s)";
+                   "peer_id" => format!("{}", enr.peer_id()),
+                   "subnets" => format!("{:?}", matches.as_slice())
+                );
+                return true;
             }
-            return true;
         }
         false
     }
