@@ -5,6 +5,45 @@ macro_rules! test_suite {
         use super::*;
         use bls::$impls::*;
 
+        #[test]
+        fn partial_eq_empty_sig() {
+            assert_eq!(Signature::empty(), Signature::empty())
+        }
+
+        #[test]
+        fn partial_eq_empty_sig_and_non_empty_sig() {
+            assert!(Signature::empty() != SignatureTester::default().sig)
+        }
+
+        #[test]
+        fn partial_eq_empty_agg_sig() {
+            assert_eq!(AggregateSignature::empty(), AggregateSignature::empty())
+        }
+
+        #[test]
+        fn partial_eq_empty_agg_sig_and_real_agg_sig() {
+            assert!(
+                AggregateSignature::empty() != AggregateSignatureTester::new_with_single_msg(1).sig
+            )
+        }
+
+        #[test]
+        fn partial_eq_zero_agg_sig() {
+            assert_eq!(AggregateSignature::zero(), AggregateSignature::zero())
+        }
+
+        #[test]
+        fn partial_eq_zero_agg_sig_and_real_agg_sig() {
+            assert!(
+                AggregateSignature::zero() != AggregateSignatureTester::new_with_single_msg(1).sig
+            )
+        }
+
+        #[test]
+        fn partial_eq_zero_agg_sig_and_empty_agg_sig() {
+            assert!(AggregateSignature::zero() != AggregateSignature::empty())
+        }
+
         struct SignatureTester {
             sig: Signature,
             pubkey: PublicKey,
