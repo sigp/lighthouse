@@ -1,9 +1,38 @@
 use bls::{Hash256, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE};
+use ssz::{Decode, Encode};
+use std::fmt::Debug;
+
+fn ssz_round_trip<T: Encode + Decode + PartialEq + Debug>(item: T) {
+    assert_eq!(item, T::from_ssz_bytes(&item.as_ssz_bytes()).unwrap());
+}
 
 macro_rules! test_suite {
     ($impls: ident) => {
         use super::*;
         use bls::$impls::*;
+
+        #[test]
+        fn infinity_agg_sig() {
+            assert_eq!(
+                &AggregateSignature::zero().serialize()[..],
+                &INFINITY_SIGNATURE[..]
+            )
+        }
+
+        #[test]
+        fn ssz_round_trip_sig_empty() {
+            ssz_round_trip(Signature::empty())
+        }
+
+        #[test]
+        fn ssz_round_trip_agg_sig_empty() {
+            ssz_round_trip(AggregateSignature::empty())
+        }
+
+        #[test]
+        fn ssz_round_trip_agg_sig_zero() {
+            ssz_round_trip(AggregateSignature::zero())
+        }
 
         #[test]
         fn partial_eq_empty_sig() {

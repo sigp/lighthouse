@@ -76,7 +76,7 @@ where
     pub fn zero() -> Self {
         Self {
             point: Some(AggSig::zero()),
-            is_infinity: false,
+            is_infinity: true,
             _phantom_pub: PhantomData,
             _phantom_agg_pub: PhantomData,
             _phantom_sig: PhantomData,
