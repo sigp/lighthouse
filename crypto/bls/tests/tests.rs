@@ -16,7 +16,11 @@ macro_rules! test_suite {
             assert_eq!(
                 &AggregateSignature::zero().serialize()[..],
                 &INFINITY_SIGNATURE[..]
-            )
+            );
+            assert_eq!(
+                AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
+                AggregateSignature::zero(),
+            );
         }
 
         #[test]
@@ -24,7 +28,11 @@ macro_rules! test_suite {
             assert_eq!(
                 &AggregatePublicKey::zero().serialize()[..],
                 &INFINITY_PUBLIC_KEY[..]
-            )
+            );
+            assert_eq!(
+                AggregatePublicKey::deserialize(&INFINITY_PUBLIC_KEY).unwrap(),
+                AggregatePublicKey::zero(),
+            );
         }
 
         #[test]
