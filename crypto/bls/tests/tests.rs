@@ -1,5 +1,6 @@
 use bls::{Hash256, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE};
 use ssz::{Decode, Encode};
+use std::borrow::Cow;
 use std::fmt::Debug;
 
 fn ssz_round_trip<T: Encode + Decode + PartialEq + Debug>(item: T) {
@@ -10,6 +11,13 @@ macro_rules! test_suite {
     ($impls: ident) => {
         use super::*;
         use bls::$impls::*;
+
+        fn secret_from_u64(i: u64) -> SecretKey {
+            let mut secret_bytes = [0; 32];
+            // Use i + 1 to avoid the all-zeros secret key.
+            secret_bytes[32 - 8..].copy_from_slice(&(i + 1).to_be_bytes());
+            SecretKey::deserialize(&secret_bytes).unwrap()
+        }
 
         #[test]
         fn infinity_agg_sig() {
@@ -29,9 +37,7 @@ macro_rules! test_suite {
             ssz_round_trip(agg_sig.clone());
 
             let msg = Hash256::from_low_u64_be(42);
-            let mut secret_bytes = [0; 32];
-            secret_bytes[31] = 42;
-            let secret = SecretKey::deserialize(&secret_bytes).unwrap();
+            let secret = secret_from_u64(42);
 
             let sig = secret.sign(msg);
             ssz_round_trip(sig.clone());
@@ -127,6 +133,13 @@ macro_rules! test_suite {
 
             pub fn assert_verify(self, is_valid: bool) {
                 assert_eq!(self.sig.verify(&self.pubkey, self.msg), is_valid);
+
+                // Check a single-signature signature set.
+                assert_eq!(
+                    SignatureSet::single_pubkey(&self.sig, Cow::Borrowed(&self.pubkey), self.msg,)
+                        .is_valid(),
+                    is_valid
+                )
             }
         }
 
@@ -170,10 +183,7 @@ macro_rules! test_suite {
                 let msg = Hash256::from_low_u64_be(42);
 
                 for i in 0..num_pubkeys {
-                    let mut secret_bytes = [0; 32];
-                    // Use i + 1 to avoid the all-zeros secret key.
-                    secret_bytes[32 - 8..].copy_from_slice(&(i + 1).to_be_bytes());
-                    let secret = SecretKey::deserialize(&secret_bytes).unwrap();
+                    let secret = secret_from_u64(i);
                     pubkeys.push(secret.public_key());
                     sig.add_assign(&secret.sign(msg));
                 }
@@ -374,6 +384,214 @@ macro_rules! test_suite {
             AggregateSignatureTester::new_with_single_msg(1)
                 .aggregate_empty_agg_sig()
                 .assert_single_message_verify(true)
+        }
+
+        struct OwnedSignatureSet {
+            signature: AggregateSignature,
+            signing_keys: Vec<PublicKey>,
+            message: Hash256,
+            should_be_valid: bool,
+        }
+
+        impl OwnedSignatureSet {
+            pub fn multiple_pubkeys(&self) -> SignatureSet {
+                let signing_keys = self.signing_keys.iter().map(Cow::Borrowed).collect();
+                SignatureSet::multiple_pubkeys(&self.signature, signing_keys, self.message)
+            }
+
+            pub fn run_checks(&self) {
+                assert_eq!(
+                    self.multiple_pubkeys().is_valid(),
+                    self.should_be_valid,
+                    "multiple pubkey expected {} but got {}",
+                    self.should_be_valid,
+                    !self.should_be_valid
+                )
+            }
+        }
+
+        #[derive(Default)]
+        struct SignatureSetTester {
+            owned_sets: Vec<OwnedSignatureSet>,
+        }
+
+        impl SignatureSetTester {
+            pub fn push_valid_set(mut self, num_signers: usize) -> Self {
+                let mut signature = AggregateSignature::zero();
+                let message = Hash256::from_low_u64_be(42);
+
+                let signing_keys = (0..num_signers)
+                    .map(|i| {
+                        let secret = secret_from_u64(i as u64);
+                        signature.add_assign(&secret.sign(message));
+
+                        secret.public_key()
+                    })
+                    .collect();
+
+                self.owned_sets.push(OwnedSignatureSet {
+                    signature,
+                    signing_keys,
+                    message,
+                    should_be_valid: true,
+                });
+
+                self
+            }
+
+            pub fn push_invalid_set(mut self) -> Self {
+                let mut signature = AggregateSignature::zero();
+                let message = Hash256::from_low_u64_be(42);
+
+                signature.add_assign(&secret_from_u64(0).sign(message));
+
+                self.owned_sets.push(OwnedSignatureSet {
+                    signature,
+                    signing_keys: vec![secret_from_u64(42).public_key()],
+                    message,
+                    should_be_valid: false,
+                });
+
+                self
+            }
+
+            pub fn push_invalid_sig_infinity_set(mut self) -> Self {
+                let mut signature = AggregateSignature::zero();
+                signature.add_assign(&secret_from_u64(42).sign(Hash256::zero()));
+                self.owned_sets.push(OwnedSignatureSet {
+                    signature,
+                    signing_keys: vec![PublicKey::deserialize(&INFINITY_PUBLIC_KEY).unwrap()],
+                    message: Hash256::zero(),
+                    should_be_valid: false,
+                });
+                self
+            }
+
+            pub fn push_invalid_pubkey_infinity_set(mut self) -> Self {
+                self.owned_sets.push(OwnedSignatureSet {
+                    signature: AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
+                    signing_keys: vec![secret_from_u64(42).public_key()],
+                    message: Hash256::zero(),
+                    should_be_valid: false,
+                });
+                self
+            }
+
+            pub fn push_valid_infinity_set(mut self) -> Self {
+                self.owned_sets.push(OwnedSignatureSet {
+                    signature: AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
+                    signing_keys: vec![PublicKey::deserialize(&INFINITY_PUBLIC_KEY).unwrap()],
+                    message: Hash256::zero(),
+                    should_be_valid: true,
+                });
+                self
+            }
+
+            pub fn run_checks(self) {
+                assert!(!self.owned_sets.is_empty(), "empty test is meaningless");
+
+                for owned_set in &self.owned_sets {
+                    owned_set.run_checks()
+                }
+
+                let should_be_valid = self
+                    .owned_sets
+                    .iter()
+                    .all(|owned_set| owned_set.should_be_valid);
+
+                let signature_sets = self
+                    .owned_sets
+                    .iter()
+                    .map(|owned_set| owned_set.multiple_pubkeys())
+                    .collect::<Vec<_>>();
+
+                assert_eq!(
+                    verify_signature_sets(signature_sets.iter()),
+                    should_be_valid
+                );
+            }
+        }
+
+        #[test]
+        fn signature_set_1_valid_set_with_1_signer() {
+            SignatureSetTester::default().push_valid_set(1).run_checks()
+        }
+
+        #[test]
+        fn signature_set_1_invalid_set() {
+            SignatureSetTester::default()
+                .push_invalid_set()
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_1_valid_set_with_2_signers() {
+            SignatureSetTester::default().push_valid_set(2).run_checks()
+        }
+
+        #[test]
+        fn signature_set_1_valid_set_with_128_signers() {
+            SignatureSetTester::default()
+                .push_valid_set(128)
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_2_valid_set_with_one_signer_each() {
+            SignatureSetTester::default()
+                .push_valid_set(1)
+                .push_valid_set(1)
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_2_valid_set_with_2_signers_each() {
+            SignatureSetTester::default()
+                .push_valid_set(2)
+                .push_valid_set(2)
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_2_valid_set_with_1_invalid_set() {
+            SignatureSetTester::default()
+                .push_valid_set(2)
+                .push_invalid_set()
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_1_valid_set_with_1_infinity_set() {
+            SignatureSetTester::default()
+                .push_valid_infinity_set()
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_3_sets_with_one_valid_infinity_set() {
+            SignatureSetTester::default()
+                .push_valid_set(2)
+                .push_valid_infinity_set()
+                .push_valid_set(2)
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_3_sets_with_one_invalid_pubkey_infinity_set() {
+            SignatureSetTester::default()
+                .push_valid_set(2)
+                .push_invalid_pubkey_infinity_set()
+                .push_valid_set(2)
+                .run_checks()
+        }
+
+        #[test]
+        fn signature_set_3_sets_with_one_invalid_sig_infinity_set() {
+            SignatureSetTester::default()
+                .push_valid_set(2)
+                .push_invalid_sig_infinity_set()
+                .push_valid_set(2)
+                .run_checks()
         }
     };
 }
