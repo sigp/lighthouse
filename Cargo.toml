@@ -68,12 +68,6 @@ members = [
     "validator_client/slashing_protection",
 ]
 
-[profile.release]
-opt-level = 2
-
-[profile.bench]
-opt-level = 2
-
 [patch]
 [patch.crates-io]
 tree_hash = { path = "consensus/tree_hash" }
