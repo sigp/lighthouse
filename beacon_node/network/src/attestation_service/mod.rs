@@ -271,7 +271,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
     /// verification, re-propagates and returns false.
     pub fn should_process_attestation(
-        &mut self,
+        &self,
         subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
