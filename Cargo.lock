@@ -396,7 +396,7 @@ dependencies = [
  "exit-future",
  "futures 0.3.5",
  "genesis",
- "hyper 0.13.6",
+ "hyper 0.13.7",
  "logging",
  "node_test_rig",
  "rand 0.7.3",
