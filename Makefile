@@ -35,6 +35,7 @@ check-benches:
 run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
+	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
