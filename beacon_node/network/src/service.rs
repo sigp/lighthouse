@@ -344,27 +344,24 @@ fn spawn_service<T: BeaconChainTypes>(
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
                                         let subnet = subnet_and_attestation.0;
                                         let attestation = &subnet_and_attestation.1;
-                                        // checks if we have an aggregator for the slot. If so, we process
-                                        // the attestation
-                                        if service.attestation_service.should_process_attestation(
+                                        // checks if we have an aggregator for the slot. If so, we should process
+                                        // the attestation, else we just just propagate the Attestation.
+                                        let should_process = service.attestation_service.should_process_attestation(
                                             subnet,
                                             attestation,
-                                        ) {
-                                            let _ = service
-                                                .router_send
-                                                .send(RouterMessage::PubsubMessage(id, source, message))
-                                                .map_err(|_| {
-                                                    debug!(service.log, "Failed to send pubsub message to router");
-                                                });
-                                        } else {
-                                            metrics::inc_counter(&metrics::GOSSIP_UNAGGREGATED_ATTESTATIONS_IGNORED)
-                                        }
+                                        );
+                                        let _ = service
+                                            .router_send
+                                            .send(RouterMessage::PubsubMessage(id, source, message, should_process))
+                                            .map_err(|_| {
+                                                debug!(service.log, "Failed to send pubsub message to router");
+                                            });
                                     }
                                     _ => {
                                         // all else is sent to the router
                                         let _ = service
                                             .router_send
-                                            .send(RouterMessage::PubsubMessage(id, source, message))
+                                            .send(RouterMessage::PubsubMessage(id, source, message, true))
                                             .map_err(|_| {
                                                 debug!(service.log, "Failed to send pubsub message to router");
                                             });

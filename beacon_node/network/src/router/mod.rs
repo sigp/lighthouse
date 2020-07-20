@@ -63,8 +63,9 @@ pub enum RouterMessage<T: EthSpec> {
         error: RPCError,
     },
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
-    /// message and the message itself.
-    PubsubMessage(MessageId, PeerId, PubsubMessage<T>),
+    /// message, the message itself and a bool which indicates if the message should be processed
+    /// by the beacon chain after successful verification.
+    PubsubMessage(MessageId, PeerId, PubsubMessage<T>, bool),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
 }
@@ -152,8 +153,8 @@ impl<T: BeaconChainTypes> Router<T> {
                     "client" => self.network_globals.client(&peer_id).to_string());
                 self.processor.on_rpc_error(peer_id, request_id);
             }
-            RouterMessage::PubsubMessage(id, peer_id, gossip) => {
-                self.handle_gossip(id, peer_id, gossip);
+            RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
+                self.handle_gossip(id, peer_id, gossip, should_process);
             }
         }
     }
@@ -200,12 +201,16 @@ impl<T: BeaconChainTypes> Router<T> {
         }
     }
 
-    /// Handle RPC messages
+    /// Handle RPC messages.
+    /// Note: `should_process` is currently only useful for the `Attestation` variant.
+    /// if `should_process` is `false`, we only propagate the message on successful verification,
+    /// else, we propagate **and** import into the beacon chain.
     fn handle_gossip(
         &mut self,
         id: MessageId,
         peer_id: PeerId,
         gossip_message: PubsubMessage<T::EthSpec>,
+        should_process: bool,
     ) {
         match gossip_message {
             // Attestations should never reach the router.
@@ -228,8 +233,10 @@ impl<T: BeaconChainTypes> Router<T> {
                     )
                 {
                     self.propagate_message(id, peer_id.clone());
-                    self.processor
-                        .import_unaggregated_attestation(peer_id, gossip_verified);
+                    if should_process {
+                        self.processor
+                            .import_unaggregated_attestation(peer_id, gossip_verified);
+                    }
                 }
             }
             PubsubMessage::BeaconBlock(block) => {
