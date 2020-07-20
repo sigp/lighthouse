@@ -24,18 +24,6 @@ macro_rules! test_suite {
         }
 
         #[test]
-        fn infinity_agg_pubkey() {
-            assert_eq!(
-                &AggregatePublicKey::zero().serialize()[..],
-                &INFINITY_PUBLIC_KEY[..]
-            );
-            assert_eq!(
-                AggregatePublicKey::deserialize(&INFINITY_PUBLIC_KEY).unwrap(),
-                AggregatePublicKey::zero(),
-            );
-        }
-
-        #[test]
         fn ssz_round_trip_multiple_types() {
             let mut agg_sig = AggregateSignature::zero();
             ssz_round_trip(agg_sig.clone());
