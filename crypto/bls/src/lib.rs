@@ -126,11 +126,7 @@ define_mod!(
     crate::impls::fake_crypto::types
 );
 
-#[cfg(all(
-    feature = "milagro",
-    not(feature = "fake_crypto"),
-    not(feature = "supranational")
-))]
+#[cfg(all(feature = "milagro", not(feature = "fake_crypto"),))]
 pub use milagro_implementations::*;
 
 #[cfg(all(
