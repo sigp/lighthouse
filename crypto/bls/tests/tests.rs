@@ -100,6 +100,7 @@ macro_rules! test_suite {
             assert!(AggregateSignature::zero() != AggregateSignature::empty())
         }
 
+        /// A helper struct for composing tests via the builder pattern.
         struct SignatureTester {
             sig: Signature,
             pubkey: PublicKey,
@@ -170,6 +171,7 @@ macro_rules! test_suite {
                 .assert_verify(false)
         }
 
+        /// A helper struct for composing tests via the builder pattern.
         struct AggregateSignatureTester {
             sig: AggregateSignature,
             pubkeys: Vec<PublicKey>,
@@ -386,6 +388,7 @@ macro_rules! test_suite {
                 .assert_single_message_verify(true)
         }
 
+        /// A helper struct to make it easer to deal with `SignatureSet` lifetimes.
         struct OwnedSignatureSet {
             signature: AggregateSignature,
             signing_keys: Vec<PublicKey>,
@@ -410,6 +413,7 @@ macro_rules! test_suite {
             }
         }
 
+        /// A helper struct for composing tests via the builder pattern.
         #[derive(Default)]
         struct SignatureSetTester {
             owned_sets: Vec<OwnedSignatureSet>,
