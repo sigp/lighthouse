@@ -92,7 +92,7 @@ where
 
 // TODO: use lazy static
 fn agg_sig() -> AggregateSignature {
-    let mut agg_sig = AggregateSignature::zero();
+    let mut agg_sig = AggregateSignature::infinity();
     agg_sig.add_assign(&sig());
     agg_sig
 }

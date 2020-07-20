@@ -73,7 +73,7 @@ fn junk_signature() -> Signature {
 }
 
 fn junk_aggregate_signature() -> AggregateSignature {
-    let mut agg_sig = AggregateSignature::zero();
+    let mut agg_sig = AggregateSignature::empty();
     agg_sig.add_assign(&junk_signature());
     agg_sig
 }

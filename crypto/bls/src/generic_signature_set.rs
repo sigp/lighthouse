@@ -29,7 +29,7 @@ where
 {
     fn into(self) -> WrappedSignature<'a, Pub, AggPub, Sig, AggSig> {
         let mut aggregate: GenericAggregateSignature<Pub, AggPub, Sig, AggSig> =
-            GenericAggregateSignature::zero();
+            GenericAggregateSignature::infinity();
         aggregate.add_assign(self);
         WrappedSignature {
             aggregate: Cow::Owned(aggregate),

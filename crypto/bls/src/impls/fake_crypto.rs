@@ -4,7 +4,7 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, SecretHash,
+    Error, Hash256, SecretHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
 };
 /// Provides the externally-facing, core BLS types.
 pub mod types {
@@ -35,8 +35,8 @@ pub fn verify_signature_sets<'a>(
 pub struct PublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
 
 impl PublicKey {
-    fn zero() -> Self {
-        Self([0; PUBLIC_KEY_BYTES_LEN])
+    fn infinity() -> Self {
+        Self(INFINITY_PUBLIC_KEY)
     }
 }
 
@@ -46,7 +46,7 @@ impl TPublicKey for PublicKey {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        let mut pubkey = Self::zero();
+        let mut pubkey = Self::infinity();
         pubkey.0[..].copy_from_slice(&bytes[0..PUBLIC_KEY_BYTES_LEN]);
         Ok(pubkey)
     }
@@ -64,7 +64,7 @@ impl PartialEq for PublicKey {
 pub struct AggregatePublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
 
 impl TAggregatePublicKey for AggregatePublicKey {
-    fn zero() -> Self {
+    fn infinity() -> Self {
         Self([0; PUBLIC_KEY_BYTES_LEN])
     }
 
@@ -95,7 +95,7 @@ impl PartialEq for AggregatePublicKey {
 pub struct Signature([u8; SIGNATURE_BYTES_LEN]);
 
 impl Signature {
-    fn zero() -> Self {
+    fn infinity() -> Self {
         Self([0; SIGNATURE_BYTES_LEN])
     }
 }
@@ -106,7 +106,7 @@ impl TSignature<PublicKey> for Signature {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        let mut signature = Self::zero();
+        let mut signature = Self::infinity();
         signature.0[..].copy_from_slice(&bytes[0..SIGNATURE_BYTES_LEN]);
         Ok(signature)
     }
@@ -126,14 +126,14 @@ impl PartialEq for Signature {
 pub struct AggregateSignature([u8; SIGNATURE_BYTES_LEN]);
 
 impl AggregateSignature {
-    fn zero() -> Self {
-        Self([0; SIGNATURE_BYTES_LEN])
+    fn infinity() -> Self {
+        Self(INFINITY_SIGNATURE)
     }
 }
 
 impl TAggregateSignature<PublicKey, AggregatePublicKey, Signature> for AggregateSignature {
-    fn zero() -> Self {
-        Self::zero()
+    fn infinity() -> Self {
+        Self::infinity()
     }
 
     fn add_assign(&mut self, _other: &Signature) {
@@ -194,11 +194,11 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
     }
 
     fn public_key(&self) -> PublicKey {
-        PublicKey::zero()
+        PublicKey::infinity()
     }
 
     fn sign(&self, _msg: Hash256) -> Signature {
-        Signature::zero()
+        Signature::infinity()
     }
 
     fn serialize(&self) -> SecretHash {

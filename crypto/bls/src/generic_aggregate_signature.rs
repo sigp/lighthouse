@@ -18,9 +18,9 @@ pub const EMPTY_SIGNATURE_SERIALIZATION: [u8; SIGNATURE_BYTES_LEN] = [0; SIGNATU
 /// Implemented on some struct from a BLS library so it may be used as the `point` in an
 /// `GenericAggregateSignature`.
 pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
-    /// Initialize `Self` to a "zero" value which can then have other signatures aggregated upon
-    /// it.
-    fn zero() -> Self;
+    /// Initialize `Self` to the infinity value which can then have other signatures aggregated
+    /// upon it.
+    fn infinity() -> Self;
 
     /// Aggregates a signature onto `self`.
     fn add_assign(&mut self, other: &Sig);
@@ -71,11 +71,11 @@ where
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
-    /// Initialize `Self` to a "zero" value which can then have other signatures aggregated upon
-    /// it.
-    pub fn zero() -> Self {
+    /// Initialize `Self` to the infinity value which can then have other signatures aggregated
+    /// upon it.
+    pub fn infinity() -> Self {
         Self {
-            point: Some(AggSig::zero()),
+            point: Some(AggSig::infinity()),
             is_infinity: true,
             _phantom_pub: PhantomData,
             _phantom_agg_pub: PhantomData,
@@ -86,7 +86,7 @@ where
     /// Initialize self to the "empty" value. This value is serialized as all-zeros.
     ///
     /// This value can have another signature aggregated atop of it. When this happens, `self` is
-    /// simply set to the value of the signature that is being aggregated onto it.
+    /// simply set to infinity before having the other signature aggregated onto it.
     ///
     /// ## Notes
     ///
@@ -122,7 +122,7 @@ where
             if let Some(self_point) = &mut self.point {
                 self_point.add_assign(other_point)
             } else {
-                let mut self_point = AggSig::zero();
+                let mut self_point = AggSig::infinity();
                 self_point.add_assign(other_point);
                 self.point = Some(self_point)
             }
@@ -136,7 +136,7 @@ where
             if let Some(self_point) = &mut self.point {
                 self_point.add_assign_aggregate(other_point)
             } else {
-                let mut self_point = AggSig::zero();
+                let mut self_point = AggSig::infinity();
                 self_point.add_assign_aggregate(other_point);
                 self.point = Some(self_point)
             }

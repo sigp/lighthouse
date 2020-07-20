@@ -583,7 +583,7 @@ where
 
                             let message = attestation.data.signing_root(domain);
 
-                            let mut agg_sig = AggregateSignature::zero();
+                            let mut agg_sig = AggregateSignature::infinity();
 
                             agg_sig.add_assign(&self.get_sk(*validator_index).sign(message));
 

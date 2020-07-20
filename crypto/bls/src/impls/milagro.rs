@@ -87,7 +87,7 @@ impl TPublicKey for milagro::PublicKey {
 }
 
 impl TAggregatePublicKey for milagro::AggregatePublicKey {
-    fn zero() -> Self {
+    fn infinity() -> Self {
         Self::from_bytes(&INFINITY_PUBLIC_KEY).expect("should decode infinity public key")
     }
 
@@ -123,7 +123,7 @@ impl TSignature<milagro::PublicKey> for milagro::Signature {
 impl TAggregateSignature<milagro::PublicKey, milagro::AggregatePublicKey, milagro::Signature>
     for milagro::AggregateSignature
 {
-    fn zero() -> Self {
+    fn infinity() -> Self {
         milagro::AggregateSignature::new()
     }
 

@@ -72,7 +72,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             ])
             .unwrap(),
             data: AttestationData::default(),
-            signature: AggregateSignature::zero(),
+            signature: AggregateSignature::empty(),
         };
 
         let deposit_data = DepositData {
@@ -95,7 +95,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
             data: AttestationData::default(),
-            signature: AggregateSignature::zero(),
+            signature: AggregateSignature::empty(),
         };
 
         let deposit = Deposit {

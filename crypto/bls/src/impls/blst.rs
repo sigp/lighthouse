@@ -146,7 +146,7 @@ impl PartialEq for BlstAggregatePublicKey {
 }
 
 impl TAggregatePublicKey for BlstAggregatePublicKey {
-    fn zero() -> Self {
+    fn infinity() -> Self {
         blst_core::PublicKey::from_bytes(&INFINITY_PUBLIC_KEY)
             .map(|pk| blst_core::AggregatePublicKey::from_public_key(&pk))
             .map(Self)
@@ -199,7 +199,7 @@ impl PartialEq for BlstAggregateSignature {
 impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core::Signature>
     for BlstAggregateSignature
 {
-    fn zero() -> Self {
+    fn infinity() -> Self {
         blst_core::Signature::from_bytes(&INFINITY_SIGNATURE)
             .map(|sig| blst_core::AggregateSignature::from_signature(&sig))
             .map(Self)

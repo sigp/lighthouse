@@ -312,7 +312,7 @@ fn aggregated_gossip_verification() {
             let aggregation_bits = &mut a.message.aggregate.aggregation_bits;
             aggregation_bits.difference_inplace(&aggregation_bits.clone());
             assert!(aggregation_bits.is_zero());
-            a.message.aggregate.signature = AggregateSignature::zero();
+            a.message.aggregate.signature = AggregateSignature::infinity();
             a
         },
         AttnError::EmptyAggregationBitfield
@@ -400,7 +400,7 @@ fn aggregated_gossip_verification() {
         {
             let mut a = valid_aggregate.clone();
 
-            let mut agg_sig = AggregateSignature::zero();
+            let mut agg_sig = AggregateSignature::infinity();
             agg_sig.add_assign(&aggregator_sk.sign(Hash256::from_low_u64_be(42)));
             a.message.aggregate.signature = agg_sig;
 
@@ -730,7 +730,7 @@ fn unaggregated_gossip_verification() {
         {
             let mut a = valid_attestation.clone();
 
-            let mut agg_sig = AggregateSignature::zero();
+            let mut agg_sig = AggregateSignature::infinity();
             agg_sig.add_assign(&validator_sk.sign(Hash256::from_low_u64_be(42)));
             a.signature = agg_sig;
 

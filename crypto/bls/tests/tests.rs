@@ -22,18 +22,18 @@ macro_rules! test_suite {
         #[test]
         fn infinity_agg_sig() {
             assert_eq!(
-                &AggregateSignature::zero().serialize()[..],
+                &AggregateSignature::infinity().serialize()[..],
                 &INFINITY_SIGNATURE[..]
             );
             assert_eq!(
                 AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
-                AggregateSignature::zero(),
+                AggregateSignature::infinity(),
             );
         }
 
         #[test]
         fn ssz_round_trip_multiple_types() {
-            let mut agg_sig = AggregateSignature::zero();
+            let mut agg_sig = AggregateSignature::infinity();
             ssz_round_trip(agg_sig.clone());
 
             let msg = Hash256::from_low_u64_be(42);
@@ -57,8 +57,8 @@ macro_rules! test_suite {
         }
 
         #[test]
-        fn ssz_round_trip_agg_sig_zero() {
-            ssz_round_trip(AggregateSignature::zero())
+        fn ssz_round_trip_agg_sig_infinity() {
+            ssz_round_trip(AggregateSignature::infinity())
         }
 
         #[test]
@@ -84,20 +84,24 @@ macro_rules! test_suite {
         }
 
         #[test]
-        fn partial_eq_zero_agg_sig() {
-            assert_eq!(AggregateSignature::zero(), AggregateSignature::zero())
-        }
-
-        #[test]
-        fn partial_eq_zero_agg_sig_and_real_agg_sig() {
-            assert!(
-                AggregateSignature::zero() != AggregateSignatureTester::new_with_single_msg(1).sig
+        fn partial_eq_infinity_agg_sig() {
+            assert_eq!(
+                AggregateSignature::infinity(),
+                AggregateSignature::infinity()
             )
         }
 
         #[test]
-        fn partial_eq_zero_agg_sig_and_empty_agg_sig() {
-            assert!(AggregateSignature::zero() != AggregateSignature::empty())
+        fn partial_eq_infinity_agg_sig_and_real_agg_sig() {
+            assert!(
+                AggregateSignature::infinity()
+                    != AggregateSignatureTester::new_with_single_msg(1).sig
+            )
+        }
+
+        #[test]
+        fn partial_eq_infinity_agg_sig_and_empty_agg_sig() {
+            assert!(AggregateSignature::infinity() != AggregateSignature::empty())
         }
 
         /// A helper struct for composing tests via the builder pattern.
@@ -181,7 +185,7 @@ macro_rules! test_suite {
         impl AggregateSignatureTester {
             fn new_with_single_msg(num_pubkeys: u64) -> Self {
                 let mut pubkeys = Vec::with_capacity(num_pubkeys as usize);
-                let mut sig = AggregateSignature::zero();
+                let mut sig = AggregateSignature::infinity();
                 let msg = Hash256::from_low_u64_be(42);
 
                 for i in 0..num_pubkeys {
@@ -204,7 +208,7 @@ macro_rules! test_suite {
 
             pub fn wrong_sig(mut self) -> Self {
                 let sk = SecretKey::deserialize(&[1; 32]).unwrap();
-                self.sig = AggregateSignature::zero();
+                self.sig = AggregateSignature::infinity();
                 self.sig.add_assign(&sk.sign(Hash256::from_low_u64_be(1)));
                 self
             }
@@ -421,7 +425,7 @@ macro_rules! test_suite {
 
         impl SignatureSetTester {
             pub fn push_valid_set(mut self, num_signers: usize) -> Self {
-                let mut signature = AggregateSignature::zero();
+                let mut signature = AggregateSignature::infinity();
                 let message = Hash256::from_low_u64_be(42);
 
                 let signing_keys = (0..num_signers)
@@ -444,7 +448,7 @@ macro_rules! test_suite {
             }
 
             pub fn push_invalid_set(mut self) -> Self {
-                let mut signature = AggregateSignature::zero();
+                let mut signature = AggregateSignature::infinity();
                 let message = Hash256::from_low_u64_be(42);
 
                 signature.add_assign(&secret_from_u64(0).sign(message));
@@ -460,7 +464,7 @@ macro_rules! test_suite {
             }
 
             pub fn push_invalid_sig_infinity_set(mut self) -> Self {
-                let mut signature = AggregateSignature::zero();
+                let mut signature = AggregateSignature::infinity();
                 signature.add_assign(&secret_from_u64(42).sign(Hash256::zero()));
                 self.owned_sets.push(OwnedSignatureSet {
                     signature,

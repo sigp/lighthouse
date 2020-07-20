@@ -14,7 +14,7 @@ impl BlsCase for BlsAggregateSigs {}
 
 impl Case for BlsAggregateSigs {
     fn result(&self, _case_index: usize) -> Result<(), Error> {
-        let mut aggregate_signature = AggregateSignature::zero();
+        let mut aggregate_signature = AggregateSignature::infinity();
 
         for key_str in &self.input {
             let sig = hex::decode(&key_str[2..])
@@ -29,7 +29,7 @@ impl Case for BlsAggregateSigs {
         // as our mutating `aggregate_signature.add` API doesn't play nicely with aggregating 0
         // inputs.
         let output_bytes = if self.output == "~" {
-            AggregateSignature::zero().serialize().to_vec()
+            AggregateSignature::infinity().serialize().to_vec()
         } else {
             hex::decode(&self.output[2..])
                 .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?
