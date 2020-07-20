@@ -36,6 +36,23 @@ macro_rules! test_suite {
         }
 
         #[test]
+        fn ssz_round_trip_multiple_types() {
+            let mut agg_sig = AggregateSignature::zero();
+            ssz_round_trip(agg_sig.clone());
+
+            let msg = Hash256::from_low_u64_be(42);
+            let mut secret_bytes = [0; 32];
+            secret_bytes[31] = 42;
+            let secret = SecretKey::deserialize(&secret_bytes).unwrap();
+
+            let sig = secret.sign(msg);
+            ssz_round_trip(sig.clone());
+
+            agg_sig.add_assign(&sig);
+            ssz_round_trip(agg_sig);
+        }
+
+        #[test]
         fn ssz_round_trip_sig_empty() {
             ssz_round_trip(Signature::empty())
         }

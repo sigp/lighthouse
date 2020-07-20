@@ -49,7 +49,7 @@ pub struct GenericSignature<Pub, Sig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<Sig>,
     /// True if this point is equal to the `INFINITY_SIGNATURE`.
-    is_infinity: bool,
+    pub(crate) is_infinity: bool,
     _phantom: PhantomData<Pub>,
 }
 
