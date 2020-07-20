@@ -134,6 +134,7 @@ where
         let eth_spec_instance = self.eth_spec_instance.clone();
         let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
+        let graffiti = config.graffiti.clone();
 
         let store =
             store.ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
@@ -151,7 +152,8 @@ where
             .store_migrator(store_migrator)
             .data_dir(data_dir)
             .custom_spec(spec.clone())
-            .disabled_forks(disabled_forks);
+            .disabled_forks(disabled_forks)
+            .graffiti(graffiti);
 
         let chain_exists = builder
             .store_contains_beacon_chain()

@@ -4,13 +4,14 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
+use hyper;
 use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
 
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
@@ -220,6 +221,15 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "http-port is not a valid u16.")?;
     }
 
+    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
+        hyper::header::HeaderValue::from_str(allow_origin)
+            .map_err(|_| "Invalid allow-origin value")?;
+
+        client_config.rest_api.allow_origin = allow_origin.to_string();
+    }
+
     /*
      * Websocket server
      */
@@ -341,6 +351,22 @@ pub fn get_config<E: EthSpec>(
         };
     } else {
         client_config.genesis = ClientGenesis::DepositContract;
+    }
+
+    if let Some(graffiti) = cli_args.value_of("graffiti") {
+        let graffiti_bytes = graffiti.as_bytes();
+        if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
+            return Err(format!(
+                "Your graffiti is too long! {} bytes maximum!",
+                GRAFFITI_BYTES_LEN
+            ));
+        } else {
+            // `client_config.graffiti` is initialized by default to be all 0.
+            // We simply copy the bytes from `graffiti_bytes` in there.
+            //
+            // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
+            client_config.graffiti[..graffiti_bytes.len()].copy_from_slice(graffiti_bytes);
+        }
     }
 
     Ok(client_config)
