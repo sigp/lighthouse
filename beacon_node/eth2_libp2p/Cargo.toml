@@ -32,7 +32,7 @@ snap = "1.0.0"
 void = "1.0.2"
 tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
-discv5 = { version = "0.1.0-alpha.6", features = ["libp2p"] }
+discv5 = { version = "0.1.0-alpha.7", features = ["libp2p"] }
 tiny-keccak = "2.0.2"
 environment = { path = "../../lighthouse/environment" }
 

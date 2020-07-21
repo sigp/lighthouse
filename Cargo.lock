@@ -1209,9 +1209,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "discv5"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d98b6912fcca9a6491fc1addcd4d205323005d922d65cb67bfed8748bc8a89b6"
+checksum = "d7083584562c5b36f929dbe621437a911eef4f8ac73bab1b1c64c8f556212943"
 dependencies = [
  "arrayvec",
  "digest 0.8.1",
@@ -1228,7 +1228,7 @@ dependencies = [
  "multihash",
  "net2",
  "openssl",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.0",
  "rand 0.7.3",
  "rlp",
  "sha2 0.8.2",
