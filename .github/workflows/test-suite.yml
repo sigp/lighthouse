@@ -8,7 +8,9 @@ on:
       - trying
       - 'pr/*'
   pull_request:
-
+env:
+  # Deny warnings in CI
+  RUSTFLAGS: "-D warnings"
 jobs:
   cargo-fmt:
     name: cargo-fmt
@@ -149,3 +151,6 @@ jobs:
       run: cargo install cargo-udeps --locked
     - name: Run cargo udeps to identify unused crates in the dependency graph
       run: make udeps
+    env:
+      # Allow warnings on Nightly
+      RUSTFLAGS: ""
