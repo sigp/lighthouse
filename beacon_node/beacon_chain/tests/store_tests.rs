@@ -1039,7 +1039,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
     let canonical_chain_slot: u64 = yoke.get_current_slot().into();
 
     // Fill up 1st epoch.  Contains a fork.
-    let first_epoch_slots: Vec<Slot> = ((slots_per_epoch)..(2 * slots_per_epoch))
+    let first_epoch_slots: Vec<Slot> = ((slots_per_epoch + 1)..(2 * slots_per_epoch))
         .map(Slot::new)
         .collect();
     let (stray_blocks, stray_states, stray_head, _) = yoke.add_attested_blocks_at_slots(
