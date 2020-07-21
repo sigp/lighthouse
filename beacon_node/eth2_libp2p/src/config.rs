@@ -94,8 +94,8 @@ impl Default for Config {
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_secs(1))
-            .history_length(385) // A heartbeat is 1 second. We want to keep an epoch worth of history,
             .manual_propagation() // require validation before propagation
+            .no_source_id()
             .message_id_fn(gossip_message_id)
             .build();
 
@@ -104,8 +104,8 @@ impl Default for Config {
             .enable_packet_filter()
             .session_cache_capacity(1000)
             .request_timeout(Duration::from_secs(4))
-            .request_retries(2)
-            .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
+            .request_retries(1)
+            .enr_peer_update_min(10)
             .query_parallelism(5)
             .query_timeout(Duration::from_secs(30))
             .query_peer_timeout(Duration::from_secs(2))

@@ -20,7 +20,6 @@ pub const VERSION: &str = git_version!(
     fallback = crate_version!()
 );
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
-pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
@@ -156,6 +155,13 @@ fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
 ) -> Result<(), String> {
+    if std::mem::size_of::<usize>() != 8 {
+        return Err(format!(
+            "{}bit architecture is not supported (64bit only).",
+            std::mem::size_of::<usize>() * 8
+        ));
+    }
+
     let debug_level = matches
         .value_of("debug-level")
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
@@ -178,15 +184,6 @@ fn run<E: EthSpec>(
             .parse::<PathBuf>()
             .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
         environment.log_to_json_file(path, debug_level, log_format)?;
-    }
-
-    if std::mem::size_of::<usize>() != 8 {
-        crit!(
-            log,
-            "Lighthouse only supports 64bit CPUs";
-            "detected" => format!("{}bit", std::mem::size_of::<usize>() * 8)
-        );
-        return Err("Invalid CPU architecture".into());
     }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator

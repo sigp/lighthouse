@@ -100,3 +100,4 @@ pub use bls::{
     Signature, SignatureBytes,
 };
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
+pub use utils::{Graffiti, GRAFFITI_BYTES_LEN};

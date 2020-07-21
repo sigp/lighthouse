@@ -669,6 +669,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let peer_count = self.network_globals.connected_or_dialing_peers();
         if peer_count < self.target_peers {
             // If we need more peers, queue a discovery lookup.
+            debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
             self.discovery.discover_peers();
         }
 

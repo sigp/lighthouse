@@ -285,7 +285,7 @@ impl DutiesStore {
                     duties.compute_selection_proof(validator_store)?;
 
                     // Determine if a re-subscription is required.
-                    let should_resubscribe = duties.subscription_eq(known_duties);
+                    let should_resubscribe = !duties.subscription_eq(known_duties);
 
                     // Replace the existing duties.
                     *known_duties = duties;

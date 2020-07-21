@@ -395,7 +395,11 @@ where
 
         let mut socket = Framed::new(socket, codec);
 
-        let future = async { socket.send(self).await.map(|_| socket) };
+        let future = async {
+            socket.send(self).await?;
+            socket.close().await?;
+            Ok(socket)
+        };
         Box::pin(future)
     }
 }

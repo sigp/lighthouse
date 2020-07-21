@@ -5,10 +5,10 @@ use clap::{App, Arg};
 // TODO: Add DOS prevention CLI params
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("boot_node")
-        .about("Start a special Lighthouse process that only serves as a discv5 boot-node. This
-        process will *not* import blocks or perform most typical beacon node functions. Instead, it
-        will simply run the discv5 service and assist nodes on the network to discover each other.
-        This is the recommended way to provide a network boot-node since it has a reduced attack
+        .about("Start a special Lighthouse process that only serves as a discv5 boot-node. This \
+        process will *not* import blocks or perform most typical beacon node functions. Instead, it \
+        will simply run the discv5 service and assist nodes on the network to discover each other. \
+        This is the recommended way to provide a network boot-node since it has a reduced attack \
         surface compared to a full beacon node.")
         .settings(&[clap::AppSettings::ColoredHelp])
         .arg(
