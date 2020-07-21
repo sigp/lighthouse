@@ -277,3 +277,29 @@ fn is_voting_keystore(file_name: &str) -> bool {
 
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn voting_keystore_filename() {
+        assert!(is_voting_keystore(VOTING_KEYSTORE_FILE));
+        assert!(!is_voting_keystore("cats"));
+        assert!(!is_voting_keystore(&format!("a{}", VOTING_KEYSTORE_FILE)));
+        assert!(!is_voting_keystore(&format!("{}b", VOTING_KEYSTORE_FILE)));
+        assert!(is_voting_keystore(
+            "keystore-m_12381_3600_0_0_0-1593476250.json"
+        ));
+        assert!(is_voting_keystore(
+            "keystore-m_12381_3600_1_0_0-1593476250.json"
+        ));
+        assert!(is_voting_keystore("keystore-m_12381_3600_1_0_0-1593.json"));
+        assert!(!is_voting_keystore(
+            "keystore-m_12381_3600_0_0-1593476250.json"
+        ));
+        assert!(!is_voting_keystore(
+            "keystore-m_12381_3600_1_0-1593476250.json"
+        ));
+    }
+}
