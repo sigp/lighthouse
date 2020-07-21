@@ -16,7 +16,7 @@ use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::TestingSlotClock;
 use state_processing::per_slot_processing;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
@@ -1109,5 +1109,33 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
         let attestations = self.make_attestations(validators, &new_state, block_hash, slot);
         self.process_attestations(attestations);
         (block_hash, new_state)
+    }
+
+    pub fn add_attested_blocks_at_slots(&self, mut state: BeaconState<E>, slots: &[Slot], validators: &[usize]) -> (
+        HashMap<Slot, SignedBeaconBlockHash>,
+        HashMap<Slot, BeaconStateHash>,
+        SignedBeaconBlockHash,
+        BeaconState<E>,
+    ) {
+        assert!(slots.len() > 0);
+        let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
+        let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
+        let mut latest_block_hash: Option<SignedBeaconBlockHash> = None;
+        for slot in slots {
+            let (block_hash, new_state) = self.add_attested_block_at_slot(*slot, state, validators);
+            state = new_state;
+            block_hash_from_slot.insert((*slot).into(), block_hash);
+            state_hash_from_slot.insert((*slot).into(), state.tree_hash_root().into());
+            latest_block_hash = Some(block_hash);
+        }
+        (block_hash_from_slot, state_hash_from_slot, latest_block_hash.unwrap(), state)
+    }
+
+    pub fn get_finalized_checkpoints_hashes(&self) -> HashSet<SignedBeaconBlockHash> {
+        let chain_dump = self.chain.chain_dump().unwrap();
+        chain_dump.iter()
+            .cloned()
+            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint.root.into())
+            .collect()
     }
 }

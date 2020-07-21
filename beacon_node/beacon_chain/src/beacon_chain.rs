@@ -2054,7 +2054,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let genesis_block_hash = Hash256::zero();
         writeln!(output, "digraph beacon {{").unwrap();
-        writeln!(output, "\t_{:?}[label=\"genesis\"];", genesis_block_hash).unwrap();
+        writeln!(output, "\t_{:?}[label=\"zero\"];", genesis_block_hash).unwrap();
 
         // Canonical head needs to be processed first as otherwise finalized blocks aren't detected
         // properly.

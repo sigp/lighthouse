@@ -1029,26 +1029,14 @@ fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
     let mut state = yoke.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
-    let mut canonical_blocks_zeroth_epoch: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
-    for slot in 1..=slots_per_epoch {
-        let (block_hash, new_state) = yoke.add_attested_block_at_slot(slot.into(), state, &yoke.get_honest_validators());
-        state = new_state;
-        canonical_blocks_zeroth_epoch.insert(slot.into(), block_hash);
-    }
+    let zeroth_epoch_slots: Vec<Slot> = (1..slots_per_epoch).map(Slot::new).collect();
+    let (_, _, _, new_state) = yoke.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &yoke.get_honest_validators());
+    state = new_state;
     let canonical_chain_slot: u64 = yoke.get_current_slot().into();
 
     // Fill up 1st epoch.  Contains a fork.
-    let mut stray_blocks: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
-    let mut stray_states: HashMap<Slot, BeaconStateHash> = HashMap::new();
-    let mut stray_head: Option<SignedBeaconBlockHash> = None;
-    let mut stray_state = state.clone();
-    for slot in (slots_per_epoch+1)..2*slots_per_epoch {
-        let (block_hash, new_state) = yoke.add_attested_block_at_slot(slot.into(), stray_state, &yoke.get_adversarial_validators());
-        stray_state = new_state;
-        stray_states.insert(slot.into(), stray_state.tree_hash_root().into());
-        stray_blocks.insert(slot.into(), block_hash);
-        stray_head = Some(block_hash);
-    }
+    let first_epoch_slots: Vec<Slot> = ((slots_per_epoch)..(2*slots_per_epoch)).map(Slot::new).collect();
+    let (stray_blocks, stray_states, stray_head, _) = yoke.add_attested_blocks_at_slots(state.clone(), &first_epoch_slots, &yoke.get_adversarial_validators());
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
@@ -1070,29 +1058,25 @@ fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
         );
     }
 
-    let chain_dump = yoke.chain.chain_dump().unwrap();
     assert_eq!(
-        get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::zero().into()].into_iter().collect(),
+        yoke.get_finalized_checkpoints_hashes(),
+        [Hash256::zero().into()].iter().cloned().collect(),
     );
 
     // Trigger finalization
-    for slot in canonical_chain_slot+2..=(canonical_chain_slot + slots_per_epoch * 4) {
-        let (_, new_state) = yoke.add_attested_block_at_slot(slot.into(), state, &yoke.get_honest_validators());
-        state = new_state;
-    }
+    let slots: Vec<Slot> = ((canonical_chain_slot+1)..=(canonical_chain_slot + slots_per_epoch * 5)).map(Slot::new).collect();
+    let (canonical_chain_blocks, _, _, _) = yoke.add_attested_blocks_at_slots(state, &slots, &yoke.get_honest_validators());
 
     // Postconditions
-    let chain_dump = yoke.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
     assert_eq!(
-        finalized_blocks,
-        vec![
+        yoke.get_finalized_checkpoints_hashes(),
+        [
             Hash256::zero().into(),
-            canonical_blocks_zeroth_epoch[&Slot::new(slots_per_epoch as u64)],
+            canonical_chain_blocks[&Slot::new(slots_per_epoch)],
         ]
-        .into_iter()
-        .collect()
+        .iter()
+        .cloned()
+        .collect(),
     );
 
     for &block_hash in stray_blocks.values() {
@@ -1114,7 +1098,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
         );
     }
 
-    assert!(yoke.chain.knows_head(&stray_head.unwrap()));
+    assert!(yoke.chain.knows_head(&stray_head));
 }
 
 #[test]
