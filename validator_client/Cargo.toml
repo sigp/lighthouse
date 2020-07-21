@@ -47,3 +47,4 @@ validator_dir = { path = "../common/validator_dir" }
 clap_utils = { path = "../common/clap_utils" }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
+zeroize = { version = "1.0.0", features = ["zeroize_derive"] }

@@ -45,6 +45,8 @@ pub enum Error {
     UnableToSaveDefinitions(validator_definitions::Error),
     /// It is not legal to try and initialize a disabled validator definition.
     UnableToInitializeDisabledValidator,
+    /// It is not legal to try and initialize a disabled validator definition.
+    PasswordUnknown(PathBuf),
 }
 
 /// A method used by a validator to sign messages.
@@ -87,13 +89,25 @@ impl InitializedValidator {
             SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path,
+                voting_keystore_password,
             } => {
                 let keystore_file =
                     File::open(&voting_keystore_path).map_err(Error::UnableToOpenVotingKeystore)?;
                 let voting_keystore = Keystore::from_json_reader(keystore_file)
                     .map_err(Error::UnableToParseVotingKeystore)?;
-                let password = read_password(voting_keystore_password_path)
-                    .map_err(Error::UnableToReadVotingKeystorePassword)?;
+
+                let password = match (voting_keystore_password_path, voting_keystore_password) {
+                    // If the password is supplied, use it and ignore the path (if supplied).
+                    (_, Some(password)) => password.into(),
+                    // If only the path is supplied, use the path.
+                    (Some(path), None) => {
+                        read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
+                    }
+                    // If there is no password available, we are unable to initialize the
+                    // validator.
+                    (None, None) => return Err(Error::PasswordUnknown(voting_keystore_path)),
+                };
+
                 let voting_keypair = voting_keystore
                     .decrypt_keypair(password.as_bytes())
                     .map_err(Error::UnableToDecryptKeystore)?;
@@ -318,7 +332,7 @@ impl InitializedValidators {
                                 self.log,
                                 "Failed to initialize validator";
                                 "error" => format!("{:?}", e),
-                                "validator" => format!("{:?}", def)
+                                "validator" => format!("{:?}", def.voting_public_key)
                             ),
                         }
                     }

@@ -35,7 +35,7 @@ Here's an example file with two validators:
   voting_public_key: "0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477"
   type: local_keystore
   voting_keystore_path: /home/paul/.lighthouse/validators/0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477/voting-keystore.json
-  voting_keystore_password_path: /home/paul/.lighthouse/secrets/0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477
+  voting_keystore_password: myStrongpa55word123&$
 ```
 In this example we can see two validators:
 
@@ -51,7 +51,11 @@ Each permitted field of the file is listed below for reference:
 - `voting_public_key`: A validator public key.
 - `type`: How the validator signs messages (currently restricted to `local_keystore`).
 - `voting_keystore_path`: The path to a EIP-2335 keystore.
-- `voting_keystore_password_path`: The path to password for the EIP-2335 keystore.
+- `voting_keystore_password_path`: The path to the password for the EIP-2335 keystore.
+- `voting_keystore_password`: The password to the EIP-2335 keystore.
+
+> **Note**: Either `voting_keystore_password_path` or `voting_keystore_password` *must* be
+> supplied. If both are supplied, `voting_keystore_password_path` is ignored.
 
 ## Populating the `validator_definitions.yml` file
 
@@ -167,8 +171,11 @@ The validator client will simply ignore the disabled validator. However, for
 the active validator, the validator client will:
 
 1. Load an EIP-2335 keystore from the `voting_keystore_path`.
-1. Read the contents of the file at `voting_keystore_password_path` and use it
-to decrypt the keystore and obtain a BLS keypair.
+1. If the `voting_keystore_password` field is present, use it as the keystore
+   password. Otherwise, attempt to read the file at
+   `voting_keystore_password_path` and use the contents as the keystore
+   password.
+1. Use the keystore password to decrypt the keystore and obtain a BLS keypair.
 1. Verify that the decrypted BLS keypair matches the `voting_public_key`.
 1.  Create a `voting-keystore.json.lock` file adjacent to the
 `voting_keystore_path`, indicating that the voting keystore is in-use and

@@ -6033,6 +6033,7 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_dir",
+ "zeroize",
 ]
 
 [[package]]

@@ -3,7 +3,7 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load //! into the `crate::intialized_validators::InitializedValidators` struct.
 
-use account_utils::default_keystore_password_path;
+use account_utils::{create_with_600_perms, default_keystore_password_path, PlainText};
 use eth2_keystore::Keystore;
 use serde_derive::{Deserialize, Serialize};
 use serde_yaml;
@@ -15,6 +15,7 @@ use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use types::PublicKey;
 use validator_dir::VOTING_KEYSTORE_FILE;
+use zeroize::Zeroize;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
 const CONFIG_FILENAME: &str = "validator_definitions.yml";
@@ -33,18 +34,35 @@ pub enum Error {
     UnableToWriteFile(io::Error),
 }
 
+/// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
+///
+/// Useful for ensuring that password memory is zeroed-out on drop.
+#[derive(Clone, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+#[serde(transparent)]
+pub struct ZeroizeString(String);
+
+impl Into<PlainText> for ZeroizeString {
+    fn into(self) -> PlainText {
+        PlainText::from(self.0.as_bytes().to_vec())
+    }
+}
+
 /// Defines how the validator client should attempt to sign messages for this validator.
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
 /// remote signing).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SigningDefinition {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     #[serde(rename = "local_keystore")]
     LocalKeystore {
         voting_keystore_path: PathBuf,
-        voting_keystore_password_path: PathBuf,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        voting_keystore_password_path: Option<PathBuf>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        voting_keystore_password: Option<ZeroizeString>,
     },
 }
 
@@ -52,7 +70,7 @@ pub enum SigningDefinition {
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
 /// remote signing).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
@@ -147,8 +165,12 @@ impl ValidatorDefinitions {
                     }
                 };
 
-                let voting_keystore_password_path =
-                    default_keystore_password_path(&keystore, secrets_dir.as_ref());
+                let voting_keystore_password_path = Some(default_keystore_password_path(
+                    &keystore,
+                    secrets_dir.as_ref(),
+                ))
+                .filter(|path| path.exists());
+
                 let voting_public_key =
                     match serde_yaml::from_str(&format!("0x{}", keystore.pubkey())) {
                         Ok(pubkey) => pubkey,
@@ -169,6 +191,7 @@ impl ValidatorDefinitions {
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
+                        voting_keystore_password: None,
                     },
                 })
             })
@@ -188,7 +211,12 @@ impl ValidatorDefinitions {
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
-        fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
+
+        if config_path.exists() {
+            fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
+        } else {
+            create_with_600_perms(&config_path, &bytes).map_err(Error::UnableToWriteFile)
+        }
     }
 
     /// Returns a slice of all `ValidatorDefinition` in `self`.
