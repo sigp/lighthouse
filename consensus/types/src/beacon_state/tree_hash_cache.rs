@@ -211,7 +211,7 @@ impl ValidatorsListTreeHashCache {
             .list_cache
             .recalculate_merkle_root(&mut list_arena, leaves.into_iter())?;
 
-        std::mem::replace(&mut self.list_arena, list_arena);
+        self.list_arena = list_arena;
 
         Ok(mix_in_length(&list_root, validators.len()))
     }
