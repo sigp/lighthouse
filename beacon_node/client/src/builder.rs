@@ -460,7 +460,7 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
+            .ok_or_else(|| "tee_event_handler requires a runtime_context")?
             .service_context("ws".into());
 
         let log = context.log().clone();
