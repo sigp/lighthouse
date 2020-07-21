@@ -363,8 +363,8 @@ impl InitializedValidators {
     /// Scans `self.definitions` and attempts to initialize and validators which are not already
     /// initialized.
     ///
-    /// If a validator is unable to be initialized an `error` log is raised but the function does
-    /// not terminate; it will attempt to load more validators.
+    /// The function exits early with an error if any enabled validator is unable to be
+    /// initialized.
     ///
     /// ## Notes
     ///
@@ -397,12 +397,17 @@ impl InitializedValidators {
                                     "voting_pubkey" => format!("{:?}", def.voting_public_key)
                                 );
                             }
-                            Err(e) => error!(
-                                self.log,
-                                "Failed to initialize validator";
-                                "error" => format!("{:?}", e),
-                                "validator" => format!("{:?}", def.voting_public_key)
-                            ),
+                            Err(e) => {
+                                error!(
+                                    self.log,
+                                    "Failed to initialize validator";
+                                    "error" => format!("{:?}", e),
+                                    "validator" => format!("{:?}", def.voting_public_key)
+                                );
+
+                                // Exit on an invalid validator.
+                                return Err(e);
+                            }
                         }
                     }
                 }

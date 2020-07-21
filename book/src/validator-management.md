@@ -150,16 +150,13 @@ details of this process are only interesting to those who are using keystores
 generated with another tool or have a non-standard requirements.
 
 If you are one of these users, manually edit the `validator_definitions.yml`
-file to suit your requirements. If the file is poorly formatted, the validator
-client will refuse to start. However, if one or more of the validators have
-incorrect paths the validator client will still start and attempt to run
-whichever validators it can. As such, care should be taken to observe the logs
-when starting the validator client to ensure it has been able to initialize
-*all* validators.
+file to suit your requirements. If the file is poorly formatted or any one of
+the validators is unable to be initialized, the validator client will refuse to
+start.
 
 ## How the `validator_definitions.yml` file is processed
 
-If it validator client were to start using the [first example
+If a validator client were to start using the [first example
 `validator_definitions.yml` file](#example) it would print the following log,
 acknowledging there there are two validators and one is disabled:
 
