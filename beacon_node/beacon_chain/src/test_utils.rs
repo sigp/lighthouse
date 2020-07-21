@@ -806,7 +806,8 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
         spec.target_aggregators_per_committee = 1 << 32;
 
         let validator_count = honest_validator_count + adversarial_validator_count;
-        let validators_keypairs = types::test_utils::generate_deterministic_keypairs(validator_count);
+        let validators_keypairs =
+            types::test_utils::generate_deterministic_keypairs(validator_count);
 
         let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
         let drain = slog_term::FullFormat::new(decorator).build();
@@ -822,7 +823,8 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
             .store_migrator(NullMigrator)
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
-                interop_genesis_state::<E>(&validators_keypairs, HARNESS_GENESIS_TIME, &spec).unwrap(),
+                interop_genesis_state::<E>(&validators_keypairs, HARNESS_GENESIS_TIME, &spec)
+                    .unwrap(),
             )
             .unwrap()
             .dummy_eth1_backend()
@@ -892,11 +894,17 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
 
         let randao_reveal = {
             let epoch = slot.epoch(E::slots_per_epoch());
-            let domain =
-                self.spec
-                    .get_domain(epoch, Domain::Randao, &state.fork, state.genesis_validators_root);
+            let domain = self.spec.get_domain(
+                epoch,
+                Domain::Randao,
+                &state.fork,
+                state.genesis_validators_root,
+            );
             let message = epoch.signing_root(domain);
-            Signature::new(message.as_bytes(), &self.validators_keypairs[proposer_index].sk)
+            Signature::new(
+                message.as_bytes(),
+                &self.validators_keypairs[proposer_index].sk,
+            )
         };
 
         let (block, state) = self
@@ -904,11 +912,15 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
             .produce_block_on_state(state, slot, randao_reveal, None)
             .unwrap();
 
-        let signed_block = block.sign(&self.validators_keypairs[proposer_index].sk, &state.fork, state.genesis_validators_root, &self.spec);
+        let signed_block = block.sign(
+            &self.validators_keypairs[proposer_index].sk,
+            &state.fork,
+            state.genesis_validators_root,
+            &self.spec,
+        );
 
         (signed_block, state)
     }
-
 
     /// A list of attestations for each committee for the given slot.
     ///
@@ -922,9 +934,7 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
     ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
-        let committee_count = state
-            .get_committee_count_at_slot(state.slot)
-            .unwrap();
+        let committee_count = state.get_committee_count_at_slot(state.slot).unwrap();
 
         state
             .get_beacon_committees_at_slot(state.slot)
@@ -948,10 +958,7 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
                             )
                             .unwrap();
 
-                        attestation
-                            .aggregation_bits
-                            .set(i, true)
-                            .unwrap();
+                        attestation.aggregation_bits.set(i, true).unwrap();
 
                         attestation.signature = {
                             let domain = self.spec.get_domain(
@@ -993,8 +1000,12 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
         state: &BeaconState<E>,
         block_hash: SignedBeaconBlockHash,
         slot: Slot,
-    ) -> Vec<(Vec<(Attestation<E>, SubnetId)>, Option<SignedAggregateAndProof<E>>)> {
-        let unaggregated_attestations = self.make_unaggregated_attestations(&attesting_validators, &state, block_hash, slot);
+    ) -> Vec<(
+        Vec<(Attestation<E>, SubnetId)>,
+        Option<SignedAggregateAndProof<E>>,
+    )> {
+        let unaggregated_attestations =
+            self.make_unaggregated_attestations(&attesting_validators, &state, block_hash, slot);
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> = unaggregated_attestations
             .iter()
@@ -1059,21 +1070,26 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
                 signed_aggregate
             }).collect();
 
-        unaggregated_attestations.into_iter().zip(aggregated_attestations).collect()
+        unaggregated_attestations
+            .into_iter()
+            .zip(aggregated_attestations)
+            .collect()
     }
 
-    pub fn process_block(
-        &self,
-        slot: Slot,
-        block: SignedBeaconBlock<E>,
-    ) -> SignedBeaconBlockHash {
+    pub fn process_block(&self, slot: Slot, block: SignedBeaconBlock<E>) -> SignedBeaconBlockHash {
         assert_eq!(self.chain.slot().unwrap(), slot);
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block).unwrap().into();
         self.chain.fork_choice().unwrap();
         block_hash
     }
 
-    pub fn process_attestations(&self, attestations: Vec<(Vec<(Attestation<E>, SubnetId)>, Option<SignedAggregateAndProof<E>>)>) {
+    pub fn process_attestations(
+        &self,
+        attestations: Vec<(
+            Vec<(Attestation<E>, SubnetId)>,
+            Option<SignedAggregateAndProof<E>>,
+        )>,
+    ) {
         for (unaggregated_attestations, maybe_signed_aggregate) in attestations.into_iter() {
             for (attestation, subnet_id) in unaggregated_attestations {
                 self.chain
@@ -1084,34 +1100,47 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
             }
 
             if let Some(signed_aggregate) = maybe_signed_aggregate {
-                let attn = self.chain
+                let attn = self
+                    .chain
                     .verify_aggregated_attestation_for_gossip(signed_aggregate)
                     .unwrap();
 
-                self.chain.apply_attestation_to_fork_choice(&attn)
-                    .unwrap();
+                self.chain.apply_attestation_to_fork_choice(&attn).unwrap();
 
-                self.chain.add_to_block_inclusion_pool(attn)
-                    .unwrap();
+                self.chain.add_to_block_inclusion_pool(attn).unwrap();
             }
         }
     }
 
-    pub fn add_block_at_slot(&self, slot: Slot, state: BeaconState<E>) -> (SignedBeaconBlockHash, BeaconState<E>) {
+    pub fn add_block_at_slot(
+        &self,
+        slot: Slot,
+        state: BeaconState<E>,
+    ) -> (SignedBeaconBlockHash, BeaconState<E>) {
         self.chain.slot_clock.set_slot(slot.into());
         let (block, new_state) = self.make_block(state, slot);
         let block_hash = self.process_block(slot, block);
         (block_hash, new_state)
     }
 
-    pub fn add_attested_block_at_slot(&self, slot: Slot, state: BeaconState<E>, validators: &[usize]) -> (SignedBeaconBlockHash, BeaconState<E>) {
+    pub fn add_attested_block_at_slot(
+        &self,
+        slot: Slot,
+        state: BeaconState<E>,
+        validators: &[usize],
+    ) -> (SignedBeaconBlockHash, BeaconState<E>) {
         let (block_hash, new_state) = self.add_block_at_slot(slot, state);
         let attestations = self.make_attestations(validators, &new_state, block_hash, slot);
         self.process_attestations(attestations);
         (block_hash, new_state)
     }
 
-    pub fn add_attested_blocks_at_slots(&self, mut state: BeaconState<E>, slots: &[Slot], validators: &[usize]) -> (
+    pub fn add_attested_blocks_at_slots(
+        &self,
+        mut state: BeaconState<E>,
+        slots: &[Slot],
+        validators: &[usize],
+    ) -> (
         HashMap<Slot, SignedBeaconBlockHash>,
         HashMap<Slot, BeaconStateHash>,
         SignedBeaconBlockHash,
@@ -1128,12 +1157,18 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
             state_hash_from_slot.insert((*slot).into(), state.tree_hash_root().into());
             latest_block_hash = Some(block_hash);
         }
-        (block_hash_from_slot, state_hash_from_slot, latest_block_hash.unwrap(), state)
+        (
+            block_hash_from_slot,
+            state_hash_from_slot,
+            latest_block_hash.unwrap(),
+            state,
+        )
     }
 
     pub fn get_finalized_checkpoints_hashes(&self) -> HashSet<SignedBeaconBlockHash> {
         let chain_dump = self.chain.chain_dump().unwrap();
-        chain_dump.iter()
+        chain_dump
+            .iter()
             .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint.root.into())
             .collect()

@@ -1030,13 +1030,23 @@ fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..slots_per_epoch).map(Slot::new).collect();
-    let (_, _, _, new_state) = yoke.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &yoke.get_honest_validators());
+    let (_, _, _, new_state) = yoke.add_attested_blocks_at_slots(
+        state,
+        &zeroth_epoch_slots,
+        &yoke.get_honest_validators(),
+    );
     state = new_state;
     let canonical_chain_slot: u64 = yoke.get_current_slot().into();
 
     // Fill up 1st epoch.  Contains a fork.
-    let first_epoch_slots: Vec<Slot> = ((slots_per_epoch)..(2*slots_per_epoch)).map(Slot::new).collect();
-    let (stray_blocks, stray_states, stray_head, _) = yoke.add_attested_blocks_at_slots(state.clone(), &first_epoch_slots, &yoke.get_adversarial_validators());
+    let first_epoch_slots: Vec<Slot> = ((slots_per_epoch)..(2 * slots_per_epoch))
+        .map(Slot::new)
+        .collect();
+    let (stray_blocks, stray_states, stray_head, _) = yoke.add_attested_blocks_at_slots(
+        state.clone(),
+        &first_epoch_slots,
+        &yoke.get_adversarial_validators(),
+    );
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
@@ -1064,8 +1074,12 @@ fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
     );
 
     // Trigger finalization
-    let slots: Vec<Slot> = ((canonical_chain_slot+1)..=(canonical_chain_slot + slots_per_epoch * 5)).map(Slot::new).collect();
-    let (canonical_chain_blocks, _, _, _) = yoke.add_attested_blocks_at_slots(state, &slots, &yoke.get_honest_validators());
+    let slots: Vec<Slot> = ((canonical_chain_slot + 1)
+        ..=(canonical_chain_slot + slots_per_epoch * 5))
+        .map(Slot::new)
+        .collect();
+    let (canonical_chain_blocks, _, _, _) =
+        yoke.add_attested_blocks_at_slots(state, &slots, &yoke.get_honest_validators());
 
     // Postconditions
     assert_eq!(
