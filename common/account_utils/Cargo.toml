@@ -10,3 +10,6 @@ edition = "2018"
 rand = "0.7.2"
 eth2_wallet = { path = "../../crypto/eth2_wallet" }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
+zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
+serde = "1.0.110"
+serde_derive = "1.0.110"

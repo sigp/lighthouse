@@ -4,11 +4,13 @@
 use eth2_keystore::Keystore;
 use eth2_wallet::Wallet;
 use rand::{distributions::Alphanumeric, Rng};
+use serde_derive::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use zeroize::Zeroize;
 
 pub use eth2_wallet::PlainText;
 
@@ -87,6 +89,26 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
     }
     bytes.truncate(bytes.len() - strip_off);
     bytes
+}
+
+/// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
+///
+/// Useful for ensuring that password memory is zeroed-out on drop.
+#[derive(Clone, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+#[serde(transparent)]
+pub struct ZeroizeString(String);
+
+impl From<String> for ZeroizeString {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl AsRef<[u8]> for ZeroizeString {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
 }
 
 #[cfg(test)]

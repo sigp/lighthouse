@@ -3,7 +3,7 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load //! into the `crate::intialized_validators::InitializedValidators` struct.
 
-use account_utils::{create_with_600_perms, default_keystore_password_path, PlainText};
+use account_utils::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
 use eth2_keystore::Keystore;
 use serde_derive::{Deserialize, Serialize};
 use serde_yaml;
@@ -15,10 +15,9 @@ use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use types::PublicKey;
 use validator_dir::VOTING_KEYSTORE_FILE;
-use zeroize::Zeroize;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
-const CONFIG_FILENAME: &str = "validator_definitions.yml";
+pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
 
 #[derive(Debug)]
 pub enum Error {
@@ -32,20 +31,6 @@ pub enum Error {
     UnableToEncodeFile(serde_yaml::Error),
     /// The config file could not be written to the filesystem.
     UnableToWriteFile(io::Error),
-}
-
-/// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
-///
-/// Useful for ensuring that password memory is zeroed-out on drop.
-#[derive(Clone, Serialize, Deserialize, Zeroize)]
-#[zeroize(drop)]
-#[serde(transparent)]
-pub struct ZeroizeString(String);
-
-impl Into<PlainText> for ZeroizeString {
-    fn into(self) -> PlainText {
-        PlainText::from(self.0.as_bytes().to_vec())
-    }
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.

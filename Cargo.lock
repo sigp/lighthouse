@@ -38,6 +38,9 @@ dependencies = [
  "eth2_keystore",
  "eth2_wallet",
  "rand 0.7.3",
+ "serde",
+ "serde_derive",
+ "zeroize",
 ]
 
 [[package]]
@@ -6033,7 +6036,6 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_dir",
- "zeroize",
 ]
 
 [[package]]
