@@ -3,8 +3,9 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load //! into the `crate::intialized_validators::InitializedValidators` struct.
 
-use account_utils::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
+use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
 use eth2_keystore::Keystore;
+use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use serde_yaml;
 use slog::{error, Logger};
@@ -234,11 +235,45 @@ pub fn recursively_find_voting_keystores<P: AsRef<Path>>(
             if dir_entry
                 .file_name()
                 .to_str()
-                .map_or(false, |filename| filename == VOTING_KEYSTORE_FILE)
+                .map_or(false, is_voting_keystore)
             {
                 matches.push(dir_entry.path())
             }
         }
         Ok(())
     })
+}
+
+/// Returns `true` if we should consider the `file_name` to represent a voting keystore.
+fn is_voting_keystore(file_name: &str) -> bool {
+    // All formats end with `.json`.
+    if !file_name.ends_with(".json") {
+        return false;
+    }
+
+    // The format used by Lighthouse.
+    if file_name == VOTING_KEYSTORE_FILE {
+        return true;
+    }
+
+    // The format exported by the `eth2.0-deposit-cli` library.
+    //
+    // Reference to function that generates keystores:
+    //
+    // https://github.com/ethereum/eth2.0-deposit-cli/blob/7cebff15eac299b3b1b090c896dd3410c8463450/eth2deposit/credentials.py#L58-L62
+    //
+    // Since we include the key derivation path of `m/12381/3600/x/0/0` this should only ever match
+    // with a voting keystore and never a withdrawal keystore.
+    //
+    // Key derivation path reference:
+    //
+    // https://eips.ethereum.org/EIPS/eip-2334
+    if Regex::new("keystore-m_12381_3600_[0-9]+_0_0-[0-9]+.json")
+        .expect("regex is valid")
+        .is_match(file_name)
+    {
+        return true;
+    }
+
+    false
 }

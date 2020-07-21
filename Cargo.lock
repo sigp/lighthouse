@@ -38,8 +38,13 @@ dependencies = [
  "eth2_keystore",
  "eth2_wallet",
  "rand 0.7.3",
+ "regex",
  "serde",
  "serde_derive",
+ "serde_yaml",
+ "slog",
+ "types",
+ "validator_dir",
  "zeroize",
 ]
 

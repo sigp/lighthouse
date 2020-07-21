@@ -6,10 +6,13 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
-use crate::validator_definitions::{
-    self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
+use account_utils::{
+    read_password,
+    validator_definitions::{
+        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
+    },
+    ZeroizeString,
 };
-use account_utils::{read_password, ZeroizeString};
 use eth2_keystore::Keystore;
 use slog::{error, info, warn, Logger};
 use std::collections::HashMap;
