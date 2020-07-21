@@ -843,8 +843,17 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
         }
     }
 
+    pub fn slots_per_epoch(&self) -> u64 {
+        E::slots_per_epoch()
+    }
+
     pub fn get_honest_validators(&self) -> Vec<usize> {
         (0..self.honest_validator_count).collect()
+    }
+
+    pub fn get_adversarial_validators(&self) -> Vec<usize> {
+        let validator_count = self.honest_validator_count + self.adversarial_validator_count;
+        (self.honest_validator_count..validator_count).collect()
     }
 
     pub fn get_current_state(&self) -> BeaconState<E> {
@@ -981,7 +990,7 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
     pub fn make_attestations(
         &self,
         attesting_validators: &[usize],
-        state: BeaconState<E>,
+        state: &BeaconState<E>,
         block_hash: SignedBeaconBlockHash,
         slot: Slot,
     ) -> Vec<(Vec<(Attestation<E>, SubnetId)>, Option<SignedAggregateAndProof<E>>)> {
@@ -1086,5 +1095,19 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
                     .unwrap();
             }
         }
+    }
+
+    pub fn add_block_at_slot(&self, slot: Slot, state: BeaconState<E>) -> (SignedBeaconBlockHash, BeaconState<E>) {
+        self.chain.slot_clock.set_slot(slot.into());
+        let (block, new_state) = self.make_block(state, slot);
+        let block_hash = self.process_block(slot, block);
+        (block_hash, new_state)
+    }
+
+    pub fn add_attested_block_at_slot(&self, slot: Slot, state: BeaconState<E>, validators: &[usize]) -> (SignedBeaconBlockHash, BeaconState<E>) {
+        let (block_hash, new_state) = self.add_block_at_slot(slot, state);
+        let attestations = self.make_attestations(validators, &new_state, block_hash, slot);
+        self.process_attestations(attestations);
+        (block_hash, new_state)
     }
 }
