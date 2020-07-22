@@ -22,7 +22,9 @@ use scrypt::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ssz::DecodeError;
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::path::Path;
 
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
@@ -248,6 +250,17 @@ impl Keystore {
     /// Instantiates `self` from a JSON `reader`.
     pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
         serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
+    }
+
+    /// Instantiates `self` by reading a JSON file at `path`.
+    pub fn from_json_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        OpenOptions::new()
+            .read(true)
+            .write(false)
+            .create(false)
+            .open(path)
+            .map_err(|e| Error::ReadError(format!("{}", e)))
+            .and_then(Self::from_json_reader)
     }
 }
 
