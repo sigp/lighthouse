@@ -714,16 +714,20 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
             }
         }
 
-        loop {
-            match self.status_peers.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    self.status_peers.insert(peer_id.clone());
-                    self.events.push(PeerManagerEvent::Status(peer_id))
+        // We don't want to update peers during syncing, since this may result in a new chain being
+        // synced which leads to inefficient re-downloads of blocks.
+        if !self.network_globals.is_syncing() {
+            loop {
+                match self.status_peers.poll_next_unpin(cx) {
+                    Poll::Ready(Some(Ok(peer_id))) => {
+                        self.status_peers.insert(peer_id.clone());
+                        self.events.push(PeerManagerEvent::Status(peer_id))
+                    }
+                    Poll::Ready(Some(Err(e))) => {
+                        error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
+                    }
+                    Poll::Ready(None) | Poll::Pending => break,
                 }
-                Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
-                }
-                Poll::Ready(None) | Poll::Pending => break,
             }
         }
 
