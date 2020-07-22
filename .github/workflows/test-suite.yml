@@ -145,8 +145,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
-    - name: Get latest version of nightly Rust
-      run: rustup update nightly
+    - name: Install a nightly compiler with rustfmt, as a kind of quality control
+      run: rustup toolchain install --component=rustfmt nightly
     - name: Install cargo-udeps
       run: cargo install cargo-udeps --locked
     - name: Run cargo udeps to identify unused crates in the dependency graph
