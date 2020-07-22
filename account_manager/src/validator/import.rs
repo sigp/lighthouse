@@ -1,4 +1,7 @@
 use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
+use account_utils::validator_definitions::{
+    recursively_find_voting_keystores, ValidatorDefinitions, CONFIG_FILENAME,
+};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use std::path::PathBuf;
@@ -20,6 +23,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("KEYSTORE_PATH")
                 .help("Path to a single keystore to be imported.")
                 .conflicts_with(DIR_FLAG)
+                .required_unless(DIR_FLAG)
                 .takes_value(true),
         )
         .arg(
@@ -33,6 +37,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     has the '.json' extension will be attempted to be imported.",
                 )
                 .conflicts_with(KEYSTORE_FLAG)
+                .required_unless(KEYSTORE_FLAG)
                 .takes_value(true),
         )
         .arg(
@@ -47,7 +52,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
+pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
     let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
     let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
@@ -58,9 +63,24 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
 
     ensure_dir_exists(&validator_dir)?;
 
+    let defs = ValidatorDefinitions::open_or_create(&validator_dir)
+        .map_err(|e| format!("Unable to open {}: {:?}", CONFIG_FILENAME, e))?;
+
     let keystores = match (keystore, keystores_dir) {
         (Some(keystore), None) => vec![keystore],
-        (None, Some(keystores_dir)) => todo!("recursive search"),
+        (None, Some(keystores_dir)) => {
+            let mut keystores = vec![];
+
+            recursively_find_voting_keystores(&keystores_dir, &mut keystores)
+                .map_err(|e| format!("Unable to search {:?}: {:?}", keystores_dir, e))?;
+
+            if keystores.is_empty() {
+                eprintln!("No keystores found in {:?}", keystores_dir);
+                return Ok(());
+            }
+
+            keystores
+        }
         _ => {
             return Err(format!(
                 "Must supply either --{} or --{}",
@@ -69,5 +89,9 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
         }
     };
 
-    todo!()
+    for keystore in keystores {
+        dbg!(keystore);
+    }
+
+    Ok(())
 }
