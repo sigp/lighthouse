@@ -227,6 +227,11 @@ impl Keystore {
         &self.json.pubkey
     }
 
+    /// Returns the pubkey for the keystore, parsed as a `PublicKey` if it parses.
+    pub fn public_key(&self) -> Option<PublicKey> {
+        serde_json::from_str(&format!("\"0x{}\"", &self.json.pubkey)).ok()
+    }
+
     /// Returns the key derivation function for the keystore.
     pub fn kdf(&self) -> &Kdf {
         &self.json.crypto.kdf.params

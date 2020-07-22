@@ -32,6 +32,10 @@ pub enum Error {
     UnableToEncodeFile(serde_yaml::Error),
     /// The config file could not be written to the filesystem.
     UnableToWriteFile(io::Error),
+    /// The public key from the keystore is invalid.
+    InvalidKeystorePubkey,
+    /// The keystore was unable to be opened.
+    UnableToOpenKeystore(eth2_keystore::Error),
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.
@@ -62,6 +66,36 @@ pub struct ValidatorDefinition {
     pub voting_public_key: PublicKey,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
+}
+
+impl ValidatorDefinition {
+    /// Create a new definition for a voting keystore at the given `voting_keystore_path` that can
+    /// be unlocked with `voting_keystore_password`.
+    ///
+    /// ## Notes
+    ///
+    /// This function does not check the password against the keystore.
+    pub fn new_keystore_with_password<P: AsRef<Path>>(
+        voting_keystore_path: P,
+        voting_keystore_password: Option<ZeroizeString>,
+    ) -> Result<Self, Error> {
+        let voting_keystore_path = voting_keystore_path.as_ref().into();
+        let keystore =
+            Keystore::from_json_file(&voting_keystore_path).map_err(Error::UnableToOpenKeystore)?;
+        let voting_public_key = keystore
+            .public_key()
+            .ok_or_else(|| Error::InvalidKeystorePubkey)?;
+
+        Ok(ValidatorDefinition {
+            enabled: true,
+            voting_public_key,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path,
+                voting_keystore_password_path: None,
+                voting_keystore_password,
+            },
+        })
+    }
 }
 
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
@@ -157,19 +191,17 @@ impl ValidatorDefinitions {
                 ))
                 .filter(|path| path.exists());
 
-                let voting_public_key =
-                    match serde_yaml::from_str(&format!("0x{}", keystore.pubkey())) {
-                        Ok(pubkey) => pubkey,
-                        Err(e) => {
-                            error!(
-                                log,
-                                "Invalid keystore public key";
-                                "error" => format!("{:?}", e),
-                                "keystore" => format!("{:?}", voting_keystore_path)
-                            );
-                            return None;
-                        }
-                    };
+                let voting_public_key = match keystore.public_key() {
+                    Some(pubkey) => pubkey,
+                    None => {
+                        error!(
+                            log,
+                            "Invalid keystore public key";
+                            "keystore" => format!("{:?}", voting_keystore_path)
+                        );
+                        return None;
+                    }
+                };
 
                 Some(ValidatorDefinition {
                     enabled: true,
@@ -203,6 +235,11 @@ impl ValidatorDefinitions {
         } else {
             create_with_600_perms(&config_path, &bytes).map_err(Error::UnableToWriteFile)
         }
+    }
+
+    /// Adds a new `ValidatorDefinition` to `self`.
+    pub fn push(&mut self, def: ValidatorDefinition) {
+        self.0.push(def)
     }
 
     /// Returns a slice of all `ValidatorDefinition` in `self`.

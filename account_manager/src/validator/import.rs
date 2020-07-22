@@ -2,17 +2,17 @@ use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
 use account_utils::{
     eth2_keystore::Keystore,
     validator_definitions::{
-        recursively_find_voting_keystores, ValidatorDefinitions, CONFIG_FILENAME,
+        recursively_find_voting_keystores, ValidatorDefinition, ValidatorDefinitions,
+        CONFIG_FILENAME,
     },
     ZeroizeString,
 };
 use clap::{App, Arg, ArgMatches};
-use environment::Environment;
-use std::io::{self, BufRead, Stdin};
+use std::fs::{self, OpenOptions};
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
-use types::EthSpec;
 
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -71,9 +71,10 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
 
     ensure_dir_exists(&validator_dir)?;
 
-    let defs = ValidatorDefinitions::open_or_create(&validator_dir)
+    let mut defs = ValidatorDefinitions::open_or_create(&validator_dir)
         .map_err(|e| format!("Unable to open {}: {:?}", CONFIG_FILENAME, e))?;
 
+    // Collect the paths for the keystores that should be imported.
     let keystore_paths = match (keystore, keystores_dir) {
         (Some(keystore), None) => vec![keystore],
         (None, Some(keystores_dir)) => {
@@ -97,7 +98,28 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         }
     };
 
+    // For each keystore:
+    //
+    // - Obtain the keystore password, if the user desires.
+    // - Move the keystore into the `validator_dir`.
+    // - Add the keystore to the validator definitions file.
+    //
+    // Exit early if any operation fails.
     for keystore_path in &keystore_paths {
+        // Fail early if we can't read and write the keystore. This will prevent some more awkward
+        // failures later on.
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(false)
+            .open(&keystore_path)
+            .map_err(|e| {
+                format!(
+                    "Unable to get read and write permissions on keystore {:?}: {}",
+                    keystore_path, e
+                )
+            })?;
+
         let keystore = Keystore::from_json_file(keystore_path)
             .map_err(|e| format!("Unable to read keystore JSON {:?}: {:?}", keystore_path, e))?;
 
@@ -149,7 +171,63 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
                 Err(e) => return Err(format!("Error whilst decrypting keypair: {:?}", e)),
             }
         };
+
+        // The keystore is placed in a directory that matches the name of the public key. This
+        // provides some loose protection against adding the same keystore twice.
+        let dest_dir = validator_dir.join(format!("0x{}", keystore.pubkey()));
+        if dest_dir.exists() {
+            return Err(format!(
+                "Refusing to re-import an existing public key: {:?}",
+                keystore_path
+            ));
+        }
+
+        fs::create_dir_all(&dest_dir)
+            .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
+
+        // Retain the keystore file name, but place it in the new directory.
+        let moved_path = keystore_path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .map(|file_name_str| dest_dir.join(file_name_str))
+            .ok_or_else(|| format!("Badly formatted file name: {:?}", keystore_path))?;
+
+        // Copy the keystore to the new location.
+        fs::copy(&keystore_path, &moved_path)
+            .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
+
+        // Attempt to make the move atomic in the case where the copy succeeds but the remove
+        // fails.
+        if let Err(e) = fs::remove_file(&keystore_path) {
+            if keystore_path.exists() {
+                // If the original keystore path still exists we can delete the copied one.
+                //
+                // It is desirable to avoid duplicate keystores since this is how slashing
+                // conditions can happen.
+                fs::remove_file(moved_path)
+                    .map_err(|e| format!("Unable to remove copied keystore: {:?}", e))?;
+                return Err(format!("Unable to delete {:?}: {:?}", keystore_path, e));
+            } else {
+                return Err(format!("An error occurred whilst moving files: {:?}", e));
+            }
+        }
+
+        eprintln!("Successfully moved {:?} to {:?}", keystore_path, moved_path);
+
+        let validator_def =
+            ValidatorDefinition::new_keystore_with_password(&moved_path, password_opt)
+                .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
+
+        defs.push(validator_def);
+
+        defs.save(&validator_dir)
+            .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
+
+        eprintln!("Successfully added {:?} to {}", moved_path, CONFIG_FILENAME);
     }
+
+    eprintln!("");
+    eprintln!("Successfully imported {} validators.", keystore_paths.len());
 
     Ok(())
 }
