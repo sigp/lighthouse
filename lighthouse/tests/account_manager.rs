@@ -2,7 +2,11 @@
 
 use account_manager::{
     upgrade_legacy_keypairs::{CMD as UPGRADE_CMD, *},
-    validator::{create::*, CMD as VALIDATOR_CMD},
+    validator::{
+        create::*,
+        import::{self, CMD as IMPORT_CMD},
+        CMD as VALIDATOR_CMD,
+    },
     wallet::{
         create::{CMD as CREATE_CMD, *},
         list::CMD as LIST_CMD,
@@ -10,10 +14,16 @@ use account_manager::{
     },
     BASE_DIR_FLAG, CMD as ACCOUNT_CMD, *,
 };
+use account_utils::{
+    eth2_keystore::KeystoreBuilder,
+    validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
+    ZeroizeString,
+};
 use std::env;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
 use types::Keypair;
@@ -193,7 +203,7 @@ fn wallet_create_and_list() {
     assert_eq!(list_wallets(wally.base_dir()).len(), 2);
 }
 
-/// Returns the `lighthouse account wallet` command.
+/// Returns the `lighthouse account validator` command.
 fn validator_cmd() -> Command {
     let mut cmd = account_cmd();
     cmd.arg(VALIDATOR_CMD);
@@ -417,4 +427,98 @@ fn upgrade_legacy_keypairs() {
             dir.withdrawal_keypair(secrets_dir.path()).unwrap().pk
         );
     }
+}
+
+/// Returns the `lighthouse account validator import` command.
+fn validator_import_cmd() -> Command {
+    let mut cmd = validator_cmd();
+    cmd.arg(IMPORT_CMD);
+    cmd
+}
+
+#[test]
+fn validator_import_launchpad() {
+    const PASSWORD: &str = "cats";
+    const KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0_0-1595406747.json";
+    const NOT_KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0-1595406747.json";
+
+    let src_dir = tempdir().unwrap();
+    let dst_dir = tempdir().unwrap();
+
+    let keypair = Keypair::random();
+    let keystore = KeystoreBuilder::new(&keypair, PASSWORD.as_bytes(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let dst_keystore_dir = dst_dir.path().join(format!("0x{}", keystore.pubkey()));
+
+    // Create a keystore in the src dir.
+    File::create(src_dir.path().join(KEYSTORE_NAME))
+        .map(|mut file| keystore.to_json_writer(&mut file).unwrap())
+        .unwrap();
+
+    // Create a not-keystore file in the src dir.
+    File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
+
+    let mut child = validator_import_cmd()
+        .arg("--no-tty") // Using tty does not work well with tests.
+        .arg(format!("--{}", import::DIR_FLAG))
+        .arg(src_dir.path().as_os_str())
+        .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        .arg(dst_dir.path().as_os_str())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stderr = child.stderr.as_mut().map(BufReader::new).unwrap().lines();
+    let stdin = child.stdin.as_mut().unwrap();
+
+    loop {
+        if stderr.next().unwrap().unwrap() == import::PASSWORD_PROMPT {
+            break;
+        }
+    }
+
+    stdin.write(format!("{}\n", PASSWORD).as_bytes()).unwrap();
+
+    child.wait().unwrap();
+
+    assert!(
+        !src_dir.path().join(KEYSTORE_NAME).exists(),
+        "keystore should be removed from src dir"
+    );
+    assert!(
+        src_dir.path().join(NOT_KEYSTORE_NAME).exists(),
+        "not-keystore should not be removed from src dir."
+    );
+
+    let voting_keystore_path = dst_keystore_dir.join(KEYSTORE_NAME);
+
+    assert!(
+        voting_keystore_path.exists(),
+        "keystore should be present in dst dir"
+    );
+    assert!(
+        !dst_dir.path().join(NOT_KEYSTORE_NAME).exists(),
+        "not-keystore should not be present in dst dir"
+    );
+
+    let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
+
+    let expected_def = ValidatorDefinition {
+        enabled: true,
+        voting_public_key: keystore.public_key().unwrap(),
+        signing_definition: SigningDefinition::LocalKeystore {
+            voting_keystore_path,
+            voting_keystore_password_path: None,
+            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+        },
+    };
+
+    assert!(
+        defs.as_slice() == &[expected_def],
+        "validator defs file should be accurate"
+    );
 }

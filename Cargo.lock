@@ -2933,6 +2933,7 @@ name = "lighthouse"
 version = "0.1.2"
 dependencies = [
  "account_manager",
+ "account_utils",
  "beacon_node",
  "boot_node",
  "clap",

@@ -97,7 +97,7 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
-#[derive(Clone, Serialize, Deserialize, Zeroize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct ZeroizeString(String);
