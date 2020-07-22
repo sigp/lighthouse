@@ -9,7 +9,6 @@ use account_utils::{
 };
 use clap::{App, Arg, ArgMatches};
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
@@ -67,7 +66,6 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         VALIDATOR_DIR_FLAG,
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
-    let stdin = io::stdin();
 
     ensure_dir_exists(&validator_dir)?;
 
