@@ -209,7 +209,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             }
         }
 
-        eprintln!("Successfully moved {:?} to {:?}", keystore_path, moved_path);
+        eprintln!("Successfully moved keystore.");
 
         let validator_def =
             ValidatorDefinition::new_keystore_with_password(&moved_path, password_opt)
@@ -220,7 +220,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         defs.save(&validator_dir)
             .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
 
-        eprintln!("Successfully added {:?} to {}", moved_path, CONFIG_FILENAME);
+        eprintln!("Successfully updated {}.", CONFIG_FILENAME);
     }
 
     eprintln!("");
