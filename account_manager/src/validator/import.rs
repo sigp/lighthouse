@@ -16,6 +16,9 @@ use std::time::Duration;
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
+pub const NO_TTY_FLAG: &str = "no-tty";
+
+pub const PASSWORD_PROMPT: &str = "Enter a password, or press enter to omit a password:";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -56,6 +59,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name(NO_TTY_FLAG)
+                .long(NO_TTY_FLAG)
+                .help("If present, read passwords from stdin instead of tty."),
+        )
 }
 
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
@@ -66,6 +74,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         VALIDATOR_DIR_FLAG,
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
+    let no_tty = matches.is_present(NO_TTY_FLAG);
 
     ensure_dir_exists(&validator_dir)?;
 
@@ -132,13 +141,12 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
              each time the validator client starts.",
             CONFIG_FILENAME
         );
-        eprintln!("");
-        eprintln!("Enter a password, or press enter to omit a password:");
 
         let password_opt = loop {
-            let password = rpassword::read_password_from_tty(None)
-                .map_err(|e| format!("Error reading from stdin: {}", e))
-                .map(ZeroizeString::from)?;
+            eprintln!("");
+            eprintln!("{}", PASSWORD_PROMPT);
+
+            let password = read_password(no_tty)?;
 
             if password.as_ref().is_empty() {
                 eprintln!("Continuing without password.");
@@ -156,7 +164,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
                     break Some(password);
                 }
                 Err(eth2_keystore::Error::InvalidPassword) => {
-                    eprintln!("Invalid password, try again (or press Ctrl+c to exit):");
+                    eprintln!("Invalid password");
                 }
                 Err(e) => return Err(format!("Error whilst decrypting keypair: {:?}", e)),
             }
@@ -220,4 +228,17 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     eprintln!("Successfully imported {} validators.", keystore_paths.len());
 
     Ok(())
+}
+
+/// Reads a password from either TTY or stdin, depeding on the `no_tty` parameter.
+fn read_password(no_tty: bool) -> Result<ZeroizeString, String> {
+    let result = if no_tty {
+        rpassword::prompt_password_stderr("")
+            .map_err(|e| format!("Error reading from stdin: {}", e))
+    } else {
+        rpassword::read_password_from_tty(None)
+            .map_err(|e| format!("Error reading from tty: {}", e))
+    };
+
+    result.map(ZeroizeString::from)
 }
