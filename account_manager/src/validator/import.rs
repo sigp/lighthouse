@@ -143,11 +143,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         eprintln!("Enter a password, or press enter to omit a password:");
 
         let password_opt = loop {
-            let password = stdin
-                .lock()
-                .lines()
-                .next()
-                .ok_or_else(|| "Failed to read from stdin".to_string())?
+            let password = rpassword::read_password_from_tty(None)
                 .map_err(|e| format!("Error reading from stdin: {}", e))
                 .map(ZeroizeString::from)?;
 
@@ -162,6 +158,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             match keystore.decrypt_keypair(password.as_ref()) {
                 Ok(_) => {
                     eprintln!("Password is correct.");
+                    eprintln!("");
                     sleep(Duration::from_secs(1)); // Provides nicer UX.
                     break Some(password);
                 }
