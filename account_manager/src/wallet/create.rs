@@ -1,7 +1,5 @@
-use crate::{
-    common::{random_password, strip_off_newlines},
-    BASE_DIR_FLAG,
-};
+use crate::BASE_DIR_FLAG;
+use account_utils::{random_password, strip_off_newlines};
 use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
