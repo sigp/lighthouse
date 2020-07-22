@@ -351,6 +351,7 @@ dependencies = [
  "parking_lot 0.11.0",
  "proto_array",
  "rand 0.7.3",
+ "rand_core 0.5.1",
  "rayon",
  "safe_arith",
  "serde",

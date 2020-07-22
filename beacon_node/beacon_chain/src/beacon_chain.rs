@@ -2134,6 +2134,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut file = std::fs::File::create(file_name).unwrap();
         self.dump_as_dot(&mut file);
     }
+
+    // Should be used in tests only
+    pub fn set_graffiti(&mut self, graffiti: Graffiti) {
+        self.graffiti = graffiti;
+    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {

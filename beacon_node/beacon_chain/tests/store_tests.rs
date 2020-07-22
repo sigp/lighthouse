@@ -1016,21 +1016,18 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
     const HONEST_VALIDATOR_COUNT: usize = 16;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
-    let yoke = BeaconChainYoke::new(
+    let mut yoke = BeaconChainYoke::new(
         MinimalEthSpec,
         HONEST_VALIDATOR_COUNT,
         ADVERSARIAL_VALIDATOR_COUNT,
     );
     let slots_per_epoch = yoke.slots_per_epoch();
 
-    let slot = yoke.get_current_slot();
-    assert_eq!(slot, 0);
-
     let mut state = yoke.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
-    let zeroth_epoch_slots: Vec<Slot> = (1..slots_per_epoch).map(Slot::new).collect();
-    let (_, _, _, new_state) = yoke.add_attested_blocks_at_slots(
+    let zeroth_epoch_slots: Vec<Slot> = (1..=slots_per_epoch).map(Slot::new).collect();
+    let (canonical_chain_blocks, _, _, new_state) = yoke.add_attested_blocks_at_slots(
         state,
         &zeroth_epoch_slots,
         &yoke.get_honest_validators(),
@@ -1075,10 +1072,10 @@ fn pruning_does_not_touch_blocks_prior_to_finalization_yoke() {
 
     // Trigger finalization
     let slots: Vec<Slot> = ((canonical_chain_slot + 1)
-        ..=(canonical_chain_slot + slots_per_epoch * 5))
+        ..=(canonical_chain_slot + slots_per_epoch * 4))
         .map(Slot::new)
         .collect();
-    let (canonical_chain_blocks, _, _, _) =
+    let (_, _, _, _) =
         yoke.add_attested_blocks_at_slots(state, &slots, &yoke.get_honest_validators());
 
     // Postconditions

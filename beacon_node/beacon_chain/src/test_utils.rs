@@ -11,6 +11,9 @@ use crate::{
     BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
 use genesis::interop_genesis_state;
+use rand::rngs::StdRng;
+use rand::Rng;
+use rand_core::SeedableRng;
 use rayon::prelude::*;
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::TestingSlotClock;
@@ -48,6 +51,12 @@ pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witn
 pub type HarnessType<E> = BaseHarnessType<NullMigrator, E, MemoryStore<E>, MemoryStore<E>>;
 pub type DiskHarnessType<E> =
     BaseHarnessType<BlockingMigrator<E, LevelDB<E>, LevelDB<E>>, E, LevelDB<E>, LevelDB<E>>;
+pub type YokeType<E> = BaseHarnessType<
+    BlockingMigrator<E, MemoryStore<E>, MemoryStore<E>>,
+    E,
+    MemoryStore<E>,
+    MemoryStore<E>,
+>;
 
 /// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
@@ -788,9 +797,11 @@ pub struct BeaconChainYoke<T: BeaconChainTypes> {
     pub chain: BeaconChain<T>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
+
+    pub rng: StdRng,
 }
 
-impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
+impl<E: EthSpec> BeaconChainYoke<YokeType<E>> {
     pub fn new(
         eth_spec_instance: E,
         honest_validator_count: usize,
@@ -814,13 +825,13 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
         let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
 
         let config = StoreConfig::default();
-        let store = HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap();
+        let store = Arc::new(HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap());
 
         let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log)
+            .logger(log.clone())
             .custom_spec(spec.clone())
-            .store(Arc::new(store))
-            .store_migrator(NullMigrator)
+            .store(store.clone())
+            .store_migrator(BlockingMigrator::new(store, log.clone()))
             .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&validators_keypairs, HARNESS_GENESIS_TIME, &spec)
@@ -835,6 +846,10 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
             .build()
             .unwrap();
 
+        // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
+        // but fixed value for reproducibility.
+        let rng = StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64);
+
         Self {
             spec: chain.spec.clone(),
             chain,
@@ -842,6 +857,7 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
             data_dir,
             honest_validator_count,
             adversarial_validator_count,
+            rng,
         }
     }
 
@@ -1113,18 +1129,24 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
     }
 
     pub fn add_block_at_slot(
-        &self,
+        &mut self,
         slot: Slot,
         state: BeaconState<E>,
     ) -> (SignedBeaconBlockHash, BeaconState<E>) {
         self.chain.slot_clock.set_slot(slot.into());
+
+        // If we produce two blocks for the same slot, they hash up to the same value and
+        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // different blocks each time.
+        self.chain.set_graffiti(self.rng.gen::<[u8; 32]>());
+
         let (block, new_state) = self.make_block(state, slot);
         let block_hash = self.process_block(slot, block);
         (block_hash, new_state)
     }
 
     pub fn add_attested_block_at_slot(
-        &self,
+        &mut self,
         slot: Slot,
         state: BeaconState<E>,
         validators: &[usize],
@@ -1136,7 +1158,7 @@ impl<E: EthSpec> BeaconChainYoke<HarnessType<E>> {
     }
 
     pub fn add_attested_blocks_at_slots(
-        &self,
+        &mut self,
         mut state: BeaconState<E>,
         slots: &[Slot],
         validators: &[usize],
