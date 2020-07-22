@@ -55,8 +55,8 @@ const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
 /// The events emitted by polling discovery.
 pub enum DiscoveryEvent {
-    /// A query has completed. The first parameter is the `min_ttl` of the peers if it is specified
-    /// and the second parameter are the discovered peers.
+    /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
+    /// of the peer if it is specified.
     QueryResult(HashMap<PeerId, Option<Instant>>),
     /// This indicates that our local UDP socketaddr has been updated and we should inform libp2p.
     SocketUpdated(SocketAddr),
