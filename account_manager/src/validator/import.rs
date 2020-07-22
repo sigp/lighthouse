@@ -154,8 +154,6 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
                 break None;
             }
 
-            eprintln!("");
-
             match keystore.decrypt_keypair(password.as_ref()) {
                 Ok(_) => {
                     eprintln!("Password is correct.");
