@@ -14,6 +14,7 @@ use zeroize::Zeroize;
 
 pub mod validator_definitions;
 
+pub use eth2_keystore;
 pub use eth2_wallet::PlainText;
 
 /// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
