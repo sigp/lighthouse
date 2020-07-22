@@ -439,49 +439,6 @@ impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
             TSlotClock,
             TEth1Backend,
             TEthSpec,
-            WebSocketSender<TEthSpec>,
-            THotStore,
-            TColdStore,
-        >,
-    >
-where
-    TStoreMigrator: Migrate<TEthSpec, THotStore, TColdStore>,
-    TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-{
-    /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
-    pub fn websocket_event_handler(mut self, config: WebSocketConfig) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
-            .service_context("ws".into());
-
-        let (sender, listening_addr): (WebSocketSender<TEthSpec>, Option<_>) = if config.enabled {
-            let (sender, listening_addr) =
-                websocket_server::start_server(context.executor, &config)?;
-            (sender, Some(listening_addr))
-        } else {
-            (WebSocketSender::dummy(), None)
-        };
-
-        self.event_handler = Some(sender);
-        self.websocket_listen_addr = listening_addr;
-
-        Ok(self)
-    }
-}
-
-impl<TStoreMigrator, TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<
-            TStoreMigrator,
-            TSlotClock,
-            TEth1Backend,
-            TEthSpec,
             TeeEventHandler<TEthSpec>,
             THotStore,
             TColdStore,
@@ -503,7 +460,7 @@ where
         let context = self
             .runtime_context
             .as_ref()
-            .ok_or_else(|| "websocket_event_handler requires a runtime_context")?
+            .ok_or_else(|| "tee_event_handler requires a runtime_context")?
             .service_context("ws".into());
 
         let log = context.log().clone();
