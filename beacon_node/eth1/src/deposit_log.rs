@@ -63,9 +63,8 @@ impl DepositLog {
                 .map_err(|e| format!("Invalid signature ssz: {:?}", e))?,
         };
 
-        let deposit_signature_message = deposit_pubkey_signature_message(&deposit_data, spec)
-            .ok_or_else(|| "Unable to prepare deposit signature verification".to_string())?;
-        let signature_is_valid = deposit_signature_set(&deposit_signature_message).is_valid();
+        let signature_is_valid = deposit_pubkey_signature_message(&deposit_data, spec)
+            .map_or(false, |msg| deposit_signature_set(&msg).is_valid());
 
         Ok(DepositLog {
             deposit_data,
