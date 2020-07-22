@@ -24,10 +24,9 @@ where
                 }
             };
 
-            let matches: Vec<SubnetId> = subnet_ids
-                .clone()
-                .into_iter()
-                .filter(|id| bitfield.get(*id.deref() as usize).unwrap_or(false))
+            let matches: Vec<&SubnetId> = subnet_ids
+                .iter()
+                .filter(|id| bitfield.get(**id.deref() as usize).unwrap_or(false))
                 .collect();
 
             if matches.is_empty() {
