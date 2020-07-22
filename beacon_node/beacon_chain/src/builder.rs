@@ -586,10 +586,7 @@ where
         let backend =
             CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
 
-        let mut eth1_chain = Eth1Chain::new(backend);
-        eth1_chain.use_dummy_backend = true;
-
-        self.eth1_chain = Some(eth1_chain);
+        self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
 
         Ok(self)
     }
