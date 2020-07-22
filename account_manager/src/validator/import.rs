@@ -124,19 +124,14 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         eprintln!("");
         eprintln!("Keystore found at {:?}:", keystore_path);
         eprintln!("");
-        eprintln!(" - Description: {}", "TODO");
         eprintln!(" - Public key: 0x{}", keystore.pubkey());
         eprintln!(" - UUID: {}", keystore.uuid());
         eprintln!("");
-        eprintln!("You may enter a password so the validator is decrypted automatically");
-        eprintln!("whenever the validator client starts. Whilst this is favourable");
-        eprintln!("for validator uptime, it means that the password to the keystore");
         eprintln!(
-            "is saved on-disk in the {} file. If you choose not to enter a password",
+            "If you enter a password it will be stored in {} so that it is not required \
+             each time the validator client starts.",
             CONFIG_FILENAME
         );
-        eprintln!("you will be prompted to enter the password each time the validator client");
-        eprintln!("starts.");
         eprintln!("");
         eprintln!("Enter a password, or press enter to omit a password:");
 
