@@ -312,7 +312,10 @@ fn invalid_signatures() {
             // Ensure the block will be rejected if imported in a chain segment.
             assert!(
                 matches!(
-                    harness.chain.process_chain_segment(blocks).into_beacon_block(),
+                    harness
+                        .chain
+                        .process_chain_segment(blocks)
+                        .into_beacon_block(),
                     Err(BlockError::InvalidSignature)
                 ),
                 "should not import chain segment with an invalid {} signature",
@@ -351,7 +354,10 @@ fn invalid_signatures() {
         // Ensure the block will be rejected if imported in a chain segment.
         assert!(
             matches!(
-                harness.chain.process_chain_segment(blocks).into_beacon_block(),
+                harness
+                    .chain
+                    .process_chain_segment(blocks)
+                    .into_beacon_block(),
                 Err(BlockError::InvalidSignature)
             ),
             "should not import chain segment with an invalid gossip signature",
@@ -489,7 +495,10 @@ fn invalid_signatures() {
             .collect();
         assert!(
             !matches!(
-                harness.chain.process_chain_segment(blocks).into_beacon_block(),
+                harness
+                    .chain
+                    .process_chain_segment(blocks)
+                    .into_beacon_block(),
                 Err(BlockError::InvalidSignature)
             ),
             "should not throw an invalid signature error for a bad deposit signature"
