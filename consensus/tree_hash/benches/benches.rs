@@ -5,7 +5,7 @@ use types::test_utils::{generate_deterministic_keypairs, TestingBeaconStateBuild
 use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec, MinimalEthSpec};
 
 lazy_static! {
-    static ref KEYPAIRS: Vec<Keypair> = { generate_deterministic_keypairs(300_000) };
+    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(300_000);
 }
 
 fn build_state<T: EthSpec>(validator_count: usize) -> BeaconState<T> {

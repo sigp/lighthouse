@@ -188,10 +188,10 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             // Identify
             (
                 EitherOutput::Second(EitherOutput::Second(protocol)),
-                EitherOutput::Second(EitherOutput::Second(info)),
+                EitherOutput::Second(EitherOutput::Second(())),
             ) => self
                 .identify_handler
-                .inject_fully_negotiated_outbound(protocol, info),
+                .inject_fully_negotiated_outbound(protocol, ()),
             // Reaching here means we got a protocol and info for different behaviours
             _ => unreachable!("output and protocol don't match"),
         }
@@ -201,7 +201,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
         match event {
             DelegateIn::Gossipsub(ev) => self.gossip_handler.inject_event(ev),
             DelegateIn::RPC(ev) => self.rpc_handler.inject_event(ev),
-            DelegateIn::Identify(ev) => self.identify_handler.inject_event(ev),
+            DelegateIn::Identify(()) => self.identify_handler.inject_event(()),
         }
     }
 
@@ -263,23 +263,23 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
                 }
             },
             // Identify
-            EitherOutput::Second(EitherOutput::Second(info)) => match error {
+            EitherOutput::Second(EitherOutput::Second(())) => match error {
                 ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Select(err)) => {
                     self.identify_handler.inject_dial_upgrade_error(
-                        info,
+                        (),
                         ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Select(err)),
                     )
                 }
                 ProtocolsHandlerUpgrErr::Timer => self
                     .identify_handler
-                    .inject_dial_upgrade_error(info, ProtocolsHandlerUpgrErr::Timer),
+                    .inject_dial_upgrade_error((), ProtocolsHandlerUpgrErr::Timer),
                 ProtocolsHandlerUpgrErr::Timeout => self
                     .identify_handler
-                    .inject_dial_upgrade_error(info, ProtocolsHandlerUpgrErr::Timeout),
+                    .inject_dial_upgrade_error((), ProtocolsHandlerUpgrErr::Timeout),
                 ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(EitherError::B(
                     EitherError::B(err),
                 ))) => self.identify_handler.inject_dial_upgrade_error(
-                    info,
+                    (),
                     ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(err)),
                 ),
                 ProtocolsHandlerUpgrErr::Upgrade(UpgradeError::Apply(_)) => {
@@ -296,6 +296,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             .max(self.identify_handler.connection_keep_alive())
     }
 
+    #[allow(clippy::type_complexity)]
     fn poll(
         &mut self,
         cx: &mut Context,
@@ -350,10 +351,10 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             Poll::Ready(ProtocolsHandlerEvent::Close(event)) => {
                 return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Identify(event)));
             }
-            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info }) => {
+            Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest { protocol, info: () }) => {
                 return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
                     protocol: protocol.map_upgrade(|u| EitherUpgrade::B(EitherUpgrade::B(u))),
-                    info: EitherOutput::Second(EitherOutput::Second(info)),
+                    info: EitherOutput::Second(EitherOutput::Second(())),
                 });
             }
             Poll::Pending => (),

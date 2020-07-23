@@ -37,7 +37,7 @@ pub struct Config {
     pub enr_tcp_port: Option<u16>,
 
     /// Target number of connected peers.
-    pub max_peers: usize,
+    pub target_peers: usize,
 
     /// Gossipsub configuration parameters.
     #[serde(skip)]
@@ -104,8 +104,8 @@ impl Default for Config {
             .enable_packet_filter()
             .session_cache_capacity(1000)
             .request_timeout(Duration::from_secs(4))
-            .request_retries(2)
-            .enr_peer_update_min(2) // prevents NAT's should be raised for mainnet
+            .request_retries(1)
+            .enr_peer_update_min(10)
             .query_parallelism(5)
             .query_timeout(Duration::from_secs(30))
             .query_peer_timeout(Duration::from_secs(2))
@@ -122,7 +122,7 @@ impl Default for Config {
             enr_address: None,
             enr_udp_port: None,
             enr_tcp_port: None,
-            max_peers: 50,
+            target_peers: 50,
             gs_config,
             discv5_config,
             boot_nodes: vec![],

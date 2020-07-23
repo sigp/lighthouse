@@ -1,11 +1,12 @@
-use crate::config::SLASHING_PROTECTION_FILENAME;
-use crate::{config::Config, fork_service::ForkService};
+use crate::{
+    config::{Config, SLASHING_PROTECTION_FILENAME},
+    fork_service::ForkService,
+    initialized_validators::InitializedValidators,
+};
 use parking_lot::RwLock;
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, warn, Logger};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tempdir::TempDir;
@@ -42,7 +43,7 @@ impl PartialEq for LocalValidator {
 
 #[derive(Clone)]
 pub struct ValidatorStore<T, E: EthSpec> {
-    validators: Arc<RwLock<HashMap<PublicKey, LocalValidator>>>,
+    validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
@@ -54,7 +55,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn new(
-        validators: Vec<(Keypair, ValidatorDir)>,
+        validators: InitializedValidators,
         config: &Config,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
@@ -70,18 +71,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 )
             })?;
 
-        let validator_key_values = validators.into_iter().map(|(kp, dir)| {
-            (
-                kp.pk.clone(),
-                LocalValidator {
-                    validator_dir: dir,
-                    voting_keypair: kp,
-                },
-            )
-        });
-
         Ok(Self {
-            validators: Arc::new(RwLock::new(HashMap::from_iter(validator_key_values))),
+            validators: Arc::new(RwLock::new(validators)),
             slashing_protection,
             genesis_validators_root,
             spec: Arc::new(spec),
@@ -98,20 +89,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// such as when relocating validator keys to a new machine.
     pub fn register_all_validators_for_slashing_protection(&self) -> Result<(), String> {
         self.slashing_protection
-            .register_validators(self.validators.read().keys())
+            .register_validators(self.validators.read().iter_voting_pubkeys())
             .map_err(|e| format!("Error while registering validators: {:?}", e))
     }
 
     pub fn voting_pubkeys(&self) -> Vec<PublicKey> {
         self.validators
             .read()
-            .iter()
-            .map(|(pubkey, _dir)| pubkey.clone())
+            .iter_voting_pubkeys()
+            .cloned()
             .collect()
     }
 
     pub fn num_voting_validators(&self) -> usize {
-        self.validators.read().len()
+        self.validators.read().num_enabled()
     }
 
     fn fork(&self) -> Option<Fork> {
@@ -128,9 +119,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // TODO: check this against the slot clock to make sure it's not an early reveal?
         self.validators
             .read()
-            .get(validator_pubkey)
-            .and_then(|local_validator| {
-                let voting_keypair = &local_validator.voting_keypair;
+            .voting_keypair(validator_pubkey)
+            .and_then(|voting_keypair| {
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
@@ -179,8 +169,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             // We can safely sign this block.
             Ok(Safe::Valid) => {
                 let validators = self.validators.read();
-                let validator = validators.get(validator_pubkey)?;
-                let voting_keypair = &validator.voting_keypair;
+                let voting_keypair = validators.voting_keypair(validator_pubkey)?;
 
                 Some(block.sign(
                     &voting_keypair.sk,
@@ -247,8 +236,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
                 let validators = self.validators.read();
-                let validator = validators.get(validator_pubkey)?;
-                let voting_keypair = &validator.voting_keypair;
+                let voting_keypair = validators.voting_keypair(validator_pubkey)?;
 
                 attestation
                     .sign(
@@ -309,7 +297,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         selection_proof: SelectionProof,
     ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
-        let voting_keypair = &validators.get(validator_pubkey)?.voting_keypair;
+        let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
 
         Some(SignedAggregateAndProof::from_aggregate(
             validator_index,
@@ -330,7 +318,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot: Slot,
     ) -> Option<SelectionProof> {
         let validators = self.validators.read();
-        let voting_keypair = &validators.get(validator_pubkey)?.voting_keypair;
+        let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
 
         Some(SelectionProof::new::<E>(
             slot,

@@ -1073,7 +1073,7 @@ impl<T: EthSpec> BeaconState<T> {
             genesis_time: self.genesis_time,
             genesis_validators_root: self.genesis_validators_root,
             slot: self.slot,
-            fork: self.fork.clone(),
+            fork: self.fork,
             latest_block_header: self.latest_block_header.clone(),
             block_roots: self.block_roots.clone(),
             state_roots: self.state_roots.clone(),
@@ -1088,9 +1088,9 @@ impl<T: EthSpec> BeaconState<T> {
             previous_epoch_attestations: self.previous_epoch_attestations.clone(),
             current_epoch_attestations: self.current_epoch_attestations.clone(),
             justification_bits: self.justification_bits.clone(),
-            previous_justified_checkpoint: self.previous_justified_checkpoint.clone(),
-            current_justified_checkpoint: self.current_justified_checkpoint.clone(),
-            finalized_checkpoint: self.finalized_checkpoint.clone(),
+            previous_justified_checkpoint: self.previous_justified_checkpoint,
+            current_justified_checkpoint: self.current_justified_checkpoint,
+            finalized_checkpoint: self.finalized_checkpoint,
             committee_caches: if config.committee_caches {
                 self.committee_caches.clone()
             } else {

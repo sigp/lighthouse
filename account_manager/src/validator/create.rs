@@ -1,7 +1,5 @@
-use crate::{
-    common::{ensure_dir_exists, random_password, strip_off_newlines},
-    SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
-};
+use crate::{common::ensure_dir_exists, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use account_utils::{random_password, strip_off_newlines};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2_wallet::PlainText;

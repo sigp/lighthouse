@@ -91,11 +91,11 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
 
-    let old_previous_justified_checkpoint = state.previous_justified_checkpoint.clone();
-    let old_current_justified_checkpoint = state.current_justified_checkpoint.clone();
+    let old_previous_justified_checkpoint = state.previous_justified_checkpoint;
+    let old_current_justified_checkpoint = state.current_justified_checkpoint;
 
     // Process justifications
-    state.previous_justified_checkpoint = state.current_justified_checkpoint.clone();
+    state.previous_justified_checkpoint = state.current_justified_checkpoint;
     state.justification_bits.shift_up(1)?;
 
     if total_balances

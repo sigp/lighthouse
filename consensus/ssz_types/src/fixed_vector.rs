@@ -261,8 +261,7 @@ where
                     }
                 })
         } else {
-            ssz::decode_list_of_variable_length_items(bytes, Some(fixed_len))
-                .and_then(|vec| Ok(vec.into()))
+            ssz::decode_list_of_variable_length_items(bytes, Some(fixed_len)).map(|vec| vec.into())
         }
     }
 }

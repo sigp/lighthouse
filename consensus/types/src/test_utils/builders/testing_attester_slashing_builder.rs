@@ -42,7 +42,7 @@ impl TestingAttesterSlashingBuilder {
             slot,
             index,
             beacon_block_root: hash_1,
-            source: checkpoint_1.clone(),
+            source: checkpoint_1,
             target: checkpoint_1,
         };
 

@@ -287,7 +287,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         if chain
             .observed_aggregators
             .observe_validator(&attestation, aggregator_index as usize)
-            .map_err(|e| BeaconChainError::from(e))?
+            .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index: aggregator_index,
@@ -370,7 +370,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .validator_has_been_observed(&attestation, validator_index as usize)
-            .map_err(|e| BeaconChainError::from(e))?
+            .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index,
@@ -390,7 +390,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .observe_validator(&attestation, validator_index as usize)
-            .map_err(|e| BeaconChainError::from(e))?
+            .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index,
@@ -504,7 +504,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
         .ok_or_else(|| BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork.clone())?;
+        .map(|head| head.beacon_state.fork)?;
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
@@ -559,7 +559,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
         .ok_or_else(|| BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork.clone())?;
+        .map(|head| head.beacon_state.fork)?;
 
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(
@@ -694,7 +694,7 @@ where
             // The state roots are not useful for the shuffling, so there's no need to
             // compute them.
             per_slot_processing(&mut state, Some(Hash256::zero()), &chain.spec)
-                .map_err(|e| BeaconChainError::from(e))?;
+                .map_err(BeaconChainError::from)?;
         }
 
         metrics::stop_timer(state_skip_timer);
@@ -706,11 +706,11 @@ where
 
         state
             .build_committee_cache(relative_epoch, &chain.spec)
-            .map_err(|e| BeaconChainError::from(e))?;
+            .map_err(BeaconChainError::from)?;
 
         let committee_cache = state
             .committee_cache(relative_epoch)
-            .map_err(|e| BeaconChainError::from(e))?;
+            .map_err(BeaconChainError::from)?;
 
         chain
             .shuffling_cache

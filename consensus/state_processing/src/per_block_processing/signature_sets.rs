@@ -303,8 +303,8 @@ pub fn deposit_pubkey_signature_message(
 
 /// Returns the signature set for some set of deposit signatures, made with
 /// `deposit_pubkey_signature_message`.
-pub fn deposit_signature_set<'a>(
-    pubkey_signature_message: &'a (PublicKey, Signature, Hash256),
+pub fn deposit_signature_set(
+    pubkey_signature_message: &(PublicKey, Signature, Hash256),
 ) -> SignatureSet {
     let (pubkey, signature, message) = pubkey_signature_message;
 

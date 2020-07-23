@@ -256,11 +256,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         error: RPCResponseErrorCode,
         reason: String,
     ) {
-        self.eth2_rpc.send_response(
-            peer_id,
-            id,
-            RPCCodedResponse::from_error_code(error, reason),
-        )
+        self.eth2_rpc
+            .send_response(peer_id, id, RPCCodedResponse::Error(error, reason.into()))
     }
 
     /* Peer management functions */
@@ -400,7 +397,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 if self.seen_gossip_messages.put(id.clone(), ()).is_none() {
                     match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
                         Err(e) => {
-                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => e)
                         }
                         Ok(msg) => {
                             // if this message isn't a duplicate, notify the network
@@ -415,7 +412,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 } else {
                     match PubsubMessage::<TSpec>::decode(&gs_msg.topics, &gs_msg.data) {
                         Err(e) => {
-                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => e)
                         }
                         Ok(msg) => {
                             debug!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));
@@ -610,7 +607,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                     PeerManagerEvent::DisconnectPeer(peer_id, reason) => {
                         debug!(self.log, "PeerManager requested to disconnect a peer";
-                            "peer_id" => peer_id.to_string());
+                            "peer_id" => peer_id.to_string(), "reason" => reason.to_string());
                         // queue for disabling
                         self.peers_to_dc.push_back(peer_id.clone());
                         // send one goodbye
@@ -731,8 +728,25 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         conn_id: &ConnectionId,
         endpoint: &ConnectedPoint,
     ) {
-        // If the peer is banned, send a goodbye and disconnect.
-        if self.peer_manager.is_banned(peer_id) {
+        let goodbye_reason: Option<GoodbyeReason> = if self.peer_manager.is_banned(peer_id) {
+            // If the peer is banned, send goodbye with reason banned.
+            Some(GoodbyeReason::Banned)
+        } else if self.peer_manager.peer_limit_reached()
+            && self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(peer_id)
+                .map_or(true, |i| !i.has_future_duty())
+        {
+            //If we are at our peer limit and we don't need the peer for a future validator
+            //duty, send goodbye with reason TooManyPeers
+            Some(GoodbyeReason::TooManyPeers)
+        } else {
+            None
+        };
+
+        if let Some(reason) = goodbye_reason {
             self.peers_to_dc.push_back(peer_id.clone());
             // send a goodbye on all possible handlers for this peer
             self.handler_events.push_back(NBAction::NotifyHandler {
@@ -740,7 +754,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                 handler: NotifyHandler::All,
                 event: BehaviourHandlerIn::Shutdown(Some((
                     RequestId::Behaviour,
-                    RPCRequest::Goodbye(GoodbyeReason::Banned),
+                    RPCRequest::Goodbye(reason),
                 ))),
             });
             return;
@@ -773,7 +787,16 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // Drop any connection from a banned peer. The goodbye and disconnects are handled in
         // `inject_connection_established()`, which gets called first.
-        if self.peer_manager.is_banned(peer_id) {
+        // The same holds if we reached the peer limit and the connected peer has no future duty.
+        if self.peer_manager.is_banned(peer_id)
+            || (self.peer_manager.peer_limit_reached()
+                && self
+                    .network_globals
+                    .peers
+                    .read()
+                    .peer_info(peer_id)
+                    .map_or(true, |i| !i.has_future_duty()))
+        {
             return;
         }
 
@@ -828,7 +851,16 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
         // All events from banned peers are rejected
-        if self.peer_manager.is_banned(&peer_id) {
+        // The same holds if we reached the peer limit and the connected peer has no future duty.
+        if self.peer_manager.is_banned(&peer_id)
+            || (self.peer_manager.peer_limit_reached()
+                && self
+                    .network_globals
+                    .peers
+                    .read()
+                    .peer_info(&peer_id)
+                    .map_or(true, |i| !i.has_future_duty()))
+        {
             return;
         }
 

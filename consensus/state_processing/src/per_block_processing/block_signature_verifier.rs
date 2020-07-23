@@ -83,7 +83,7 @@ where
     /// add signatures, and the `verify`
     pub fn new(state: &'a BeaconState<T>, get_pubkey: F, spec: &'a ChainSpec) -> Self {
         Self {
-            get_pubkey: get_pubkey,
+            get_pubkey,
             state,
             spec,
             sets: vec![],

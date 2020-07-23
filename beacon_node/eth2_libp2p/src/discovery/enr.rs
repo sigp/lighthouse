@@ -17,9 +17,9 @@ use std::str::FromStr;
 use types::{EnrForkId, EthSpec};
 
 /// The ENR field specifying the fork id.
-pub const ETH2_ENR_KEY: &'static str = "eth2";
+pub const ETH2_ENR_KEY: &str = "eth2";
 /// The ENR field specifying the subnet bitfield.
-pub const BITFIELD_ENR_KEY: &'static str = "attnets";
+pub const BITFIELD_ENR_KEY: &str = "attnets";
 
 /// Extension trait for ENR's within Eth2.
 pub trait Eth2Enr {
