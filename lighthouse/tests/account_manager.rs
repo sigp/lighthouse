@@ -462,7 +462,7 @@ fn validator_import_launchpad() {
     File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
 
     let mut child = validator_import_cmd()
-        .arg("--no-tty") // Using tty does not work well with tests.
+        .arg(format!("--{}", import::STDIN_PASSWORD_FLAG)) // Using tty does not work well with tests.
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
         .arg(format!("--{}", VALIDATOR_DIR_FLAG))

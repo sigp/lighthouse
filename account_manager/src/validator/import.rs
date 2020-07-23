@@ -16,7 +16,7 @@ use std::time::Duration;
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
-pub const NO_TTY_FLAG: &str = "no-tty";
+pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub const PASSWORD_PROMPT: &str = "Enter a password, or press enter to omit a password:";
 
@@ -60,8 +60,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(NO_TTY_FLAG)
-                .long(NO_TTY_FLAG)
+            Arg::with_name(STDIN_PASSWORD_FLAG)
+                .long(STDIN_PASSWORD_FLAG)
                 .help("If present, read passwords from stdin instead of tty."),
         )
 }
@@ -74,7 +74,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         VALIDATOR_DIR_FLAG,
         PathBuf::new().join(".lighthouse").join("validators"),
     )?;
-    let no_tty = matches.is_present(NO_TTY_FLAG);
+    let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
 
     ensure_dir_exists(&validator_dir)?;
 
@@ -146,7 +146,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             eprintln!("");
             eprintln!("{}", PASSWORD_PROMPT);
 
-            let password = read_password(no_tty)?;
+            let password = read_password(stdin_password)?;
 
             if password.as_ref().is_empty() {
                 eprintln!("Continuing without password.");
@@ -228,9 +228,9 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     Ok(())
 }
 
-/// Reads a password from either TTY or stdin, depeding on the `no_tty` parameter.
-fn read_password(no_tty: bool) -> Result<ZeroizeString, String> {
-    let result = if no_tty {
+/// Reads a password from either TTY or stdin, depeding on the `stdin_passwords` parameter.
+fn read_password(stdin_passwords: bool) -> Result<ZeroizeString, String> {
+    let result = if stdin_passwords {
         rpassword::prompt_password_stderr("")
             .map_err(|e| format!("Error reading from stdin: {}", e))
     } else {
