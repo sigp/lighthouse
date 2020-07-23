@@ -108,7 +108,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         self.db
             .get(self.read_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
-            .and_then(|val| Ok(val.is_some()))
+            .map(|val| val.is_some())
     }
 
     /// Removes `key` from `column`.
