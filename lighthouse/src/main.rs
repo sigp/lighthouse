@@ -271,5 +271,6 @@ fn run<E: EthSpec>(
     drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
+    environment.shutdown_on_idle();
     Ok(())
 }
