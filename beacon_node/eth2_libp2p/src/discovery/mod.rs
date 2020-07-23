@@ -421,10 +421,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Sanitize the queue, removing any out-dated subnet queries
         self.queued_queries.retain(|query| !query.expired());
 
+        // use this to group subnet queries together for a single discovery request
+        let mut subnet_queries: Vec<SubnetQuery> = Vec::new();
+
         // Check that we are within our query concurrency limit
         while !self.at_capacity() && !self.queued_queries.is_empty() {
-            // use this to group subnet queries together for a single discovery request
-            let mut subnet_queries: Vec<SubnetQuery> = Vec::new();
 
             // consume and process the query queue
             match self.queued_queries.pop_front() {
@@ -457,8 +458,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             && self.queued_queries.len() == 1)
                     {
                         // This query is for searching for peers of a particular subnet
-                        // this method also drains the subnet_queries vec
-                        self.start_subnet_query(subnet_queries);
+                        // Drain subnet_queries so we can re-use it as we continue to process the queue
+                        let grouped_queries : Vec<SubnetQuery> = subnet_queries.drain(..).collect();
+                        self.start_subnet_query(grouped_queries);
                     }
                 }
                 None => {} // Queue is empty
@@ -475,12 +477,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Runs a discovery request for a given group of subnets.
-    fn start_subnet_query(&mut self, mut subnet_queries: Vec<SubnetQuery>) {
+    fn start_subnet_query(&mut self, subnet_queries: Vec<SubnetQuery>) {
         let mut filtered_subnet_ids: Vec<SubnetId> = Vec::new();
 
         // find subnet queries that are still necessary
         let filtered_subnet_queries: Vec<SubnetQuery> = subnet_queries
-            .drain(..)
+            .into_iter()
             .filter_map(|subnet_query| {
                 // Determine if we have sufficient peers, which may make this discovery unnecessary.
                 let peers_on_subnet = self
@@ -594,6 +596,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
                             let mut results: HashMap<PeerId, Option<Instant>> = HashMap::new();
                             r.iter().for_each(|enr| {
+                                // cache the found ENR's
+                                self.cached_enrs.put(enr.peer_id(), enr.clone());
                                 results.insert(enr.peer_id(), None);
                             });
                             return Some(results);
