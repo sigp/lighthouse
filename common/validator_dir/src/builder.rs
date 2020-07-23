@@ -51,7 +51,7 @@ impl From<KeystoreError> for Error {
 /// A builder for creating a `ValidatorDir`.
 pub struct Builder<'a> {
     base_validators_dir: PathBuf,
-    password_dir: PathBuf,
+    password_dir: Option<PathBuf>,
     pub(crate) voting_keystore: Option<(Keystore, PlainText)>,
     pub(crate) withdrawal_keystore: Option<(Keystore, PlainText)>,
     store_withdrawal_keystore: bool,
@@ -60,15 +60,21 @@ pub struct Builder<'a> {
 
 impl<'a> Builder<'a> {
     /// Instantiate a new builder.
-    pub fn new(base_validators_dir: PathBuf, password_dir: PathBuf) -> Self {
+    pub fn new(base_validators_dir: PathBuf) -> Self {
         Self {
             base_validators_dir,
-            password_dir,
+            password_dir: None,
             voting_keystore: None,
             withdrawal_keystore: None,
             store_withdrawal_keystore: true,
             deposit_info: None,
         }
+    }
+
+    /// Store the provided passwords in `secrets_dir`.
+    pub fn secrets_dir(mut self, secrets_dir: PathBuf) -> Self {
+        self.password_dir = Some(secrets_dir);
+        self
     }
 
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
@@ -217,24 +223,26 @@ impl<'a> Builder<'a> {
 
             // Only the withdrawal keystore if explicitly required.
             if self.store_withdrawal_keystore {
-                // Write the withdrawal password to file.
-                write_password_to_file(
-                    self.password_dir
-                        .join(withdrawal_keypair.pk.as_hex_string()),
-                    withdrawal_password.as_bytes(),
-                )?;
+                if let Some(password_dir) = &self.password_dir {
+                    // Write the withdrawal password to file.
+                    write_password_to_file(
+                        password_dir.join(withdrawal_keypair.pk.as_hex_string()),
+                        withdrawal_password.as_bytes(),
+                    )?;
+                }
 
                 // Write the withdrawal keystore to file.
                 write_keystore_to_file(dir.join(WITHDRAWAL_KEYSTORE_FILE), &withdrawal_keystore)?;
             }
         }
 
-        // Write the voting password to file.
-        write_password_to_file(
-            self.password_dir
-                .join(format!("0x{}", voting_keystore.pubkey())),
-            voting_password.as_bytes(),
-        )?;
+        if let Some(password_dir) = &self.password_dir {
+            // Write the voting password to file.
+            write_password_to_file(
+                password_dir.join(format!("0x{}", voting_keystore.pubkey())),
+                voting_password.as_bytes(),
+            )?;
+        }
 
         // Write the voting keystore to file.
         write_keystore_to_file(dir.join(VOTING_KEYSTORE_FILE), &voting_keystore)?;
