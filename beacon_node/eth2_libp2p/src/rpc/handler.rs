@@ -321,16 +321,13 @@ where
         };
 
         // If the response we are sending is an error, report back for handling
-        match response {
-            RPCCodedResponse::Error(ref code, ref reason) => {
-                let err = HandlerErr::Inbound {
-                    id: inbound_id,
-                    proto: inbound_info.protocol,
-                    error: RPCError::ErrorResponse(*code, reason.to_string()),
-                };
-                self.pending_errors.push(err);
-            }
-            _ => {} // not an error, continue.
+        if let RPCCodedResponse::Error(ref code, ref reason) = response {
+            let err = HandlerErr::Inbound {
+                id: inbound_id,
+                proto: inbound_info.protocol,
+                error: RPCError::ErrorResponse(*code, reason.to_string()),
+            };
+            self.pending_errors.push(err);
         }
 
         if matches!(self.state, HandlerState::Deactivated) {
@@ -661,13 +658,13 @@ where
                         // if we can't close right now, put the substream back and try again later
                         Poll::Pending => info.state = InboundState::Idle(substream),
                         Poll::Ready(res) => {
-                            substreams_to_remove.push(id.clone());
+                            substreams_to_remove.push(*id);
                             if let Some(ref delay_key) = info.delay_key {
                                 self.inbound_substreams_delay.remove(delay_key);
                             }
                             if let Err(error) = res {
                                 self.pending_errors.push(HandlerErr::Inbound {
-                                    id: id.clone(),
+                                    id: *id,
                                     error,
                                     proto: info.protocol,
                                 });
@@ -697,7 +694,7 @@ where
                                 })
                             }
                             if remove {
-                                substreams_to_remove.push(id.clone());
+                                substreams_to_remove.push(*id);
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay.remove(delay_key);
                                 }
