@@ -90,10 +90,10 @@ pub fn get_config<E: EthSpec>(
         client_config.network.listen_address = listen_address;
     }
 
-    if let Some(max_peers_str) = cli_args.value_of("max-peers") {
-        client_config.network.max_peers = max_peers_str
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        client_config.network.target_peers = target_peers_str
             .parse::<usize>()
-            .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
     }
 
     if let Some(port_str) = cli_args.value_of("port") {

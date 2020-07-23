@@ -42,6 +42,11 @@ const PING_INTERVAL: u64 = 30;
 /// requests. This defines the interval in seconds.  
 const HEARTBEAT_INTERVAL: u64 = 30;
 
+/// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
+/// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
+/// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
+const PEER_EXCESS_FACTOR: f32 = 0.1;
+
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
     /// Storage of network globals to access the `PeerDB`.
@@ -54,6 +59,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     status_peers: HashSetDelay<PeerId>,
     /// The target number of peers we would like to connect to.
     target_peers: usize,
+    /// The maximum number of peers we allow (exceptions for subnet peers)
+    max_peers: usize,
     /// The discovery service.
     discovery: Discovery<TSpec>,
     /// The heartbeat interval to perform routine maintenance.
@@ -99,7 +106,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             events: SmallVec::new(),
             ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
-            target_peers: config.max_peers, //TODO: Add support for target peers and max peers
+            target_peers: config.target_peers,
+            max_peers: (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize,
             discovery,
             heartbeat,
             log: log.clone(),
@@ -276,6 +284,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This is used to determine if we should accept incoming connections.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
         self.network_globals.peers.read().is_banned(peer_id)
+    }
+
+    /// Reports whether the peer limit is reached in which case we stop allowing new incoming
+    /// connections.
+    pub fn peer_limit_reached(&self) -> bool {
+        self.network_globals.connected_or_dialing_peers() >= self.max_peers
     }
 
     /// Updates `PeerInfo` with `identify` information.
@@ -478,11 +492,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn peers_discovered(&mut self, peers: &[Enr], min_ttl: Option<Instant>) {
         let mut to_dial_peers = Vec::new();
 
+        let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
         for enr in peers {
             let peer_id = enr.peer_id();
 
-            // if we need more peers, attempt a connection
-            if self.network_globals.connected_or_dialing_peers() < self.target_peers
+            // we attempt a connection if this peer is a subnet peer or if the max peer count
+            // is not yet filled (including dialling peers)
+            if (min_ttl.is_some() || connected_or_dialing + to_dial_peers.len() < self.max_peers)
                 && !self
                     .network_globals
                     .peers
@@ -514,7 +530,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This is called by `connect_ingoing` and `connect_outgoing`.
     ///
     /// This informs if the peer was accepted in to the db or not.
-    // TODO: Drop peers if over max_peer limit
     fn connect_peer(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
         // TODO: remove after timed updates
         //self.update_reputations();
@@ -673,11 +688,30 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.discovery.discover_peers();
         }
 
-        // TODO: If we have too many peers, remove peers that are not required for subnet
-        // validation.
-
         // Updates peer's scores.
         self.update_peer_scores();
+
+        let connected_peer_count = self.network_globals.connected_peers();
+        if connected_peer_count > self.target_peers {
+            //remove excess peers with the worst scores, but keep subnet peers
+            for (peer_id, _) in self
+                .network_globals
+                .peers
+                .read()
+                .worst_connected_peers()
+                .iter()
+                .filter(|(_, info)| !info.has_future_duty())
+                .take(connected_peer_count - self.target_peers)
+                //we only need to disconnect peers with healthy scores, since the others got already
+                //disconnected in update_peer_scores
+                .filter(|(_, info)| info.score.state() == ScoreState::Healthy)
+            {
+                self.events.push(PeerManagerEvent::DisconnectPeer(
+                    (*peer_id).clone(),
+                    GoodbyeReason::TooManyPeers,
+                ));
+            }
+        }
     }
 }
 
