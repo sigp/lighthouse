@@ -482,7 +482,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // find subnet queries that are still necessary
         let filtered_subnet_queries: Vec<SubnetQuery> = subnet_queries
             .into_iter()
-            .filter_map(|subnet_query| {
+            .filter(|subnet_query| {
                 // Determine if we have sufficient peers, which may make this discovery unnecessary.
                 let peers_on_subnet = self
                     .network_globals
@@ -497,7 +497,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         "connected_peers_on_subnet" => peers_on_subnet,
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     );
-                    return None;
+                    return false;
                 }
 
                 let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
@@ -511,8 +511,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 );
 
                 filtered_subnet_ids.push(subnet_query.subnet_id);
-
-                Some(subnet_query)
+                true
             })
             .collect();
 
