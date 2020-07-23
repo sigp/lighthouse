@@ -93,6 +93,7 @@ where
 ///
 /// See the tests for an example of a complete working example.
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
+    #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
     canonical_head: Option<BeaconSnapshot<T::EthSpec>>,
@@ -461,13 +462,10 @@ where
             .pubkey_cache_path
             .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
 
-        let validator_pubkey_cache = self
-            .validator_pubkey_cache
-            .map(|cache| Ok(cache))
-            .unwrap_or_else(|| {
-                ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
-                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-            })?;
+        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
+            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
+                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+        })?;
 
         let persisted_fork_choice = store
             .get_item::<PersistedForkChoice>(&Hash256::from_slice(&FORK_CHOICE_DB_KEY))

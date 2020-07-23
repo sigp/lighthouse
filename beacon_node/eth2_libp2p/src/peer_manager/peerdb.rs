@@ -3,6 +3,7 @@ use super::peer_sync_status::PeerSyncStatus;
 use super::score::Score;
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
+use rand::seq::SliceRandom;
 use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -166,6 +167,20 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .iter()
             .filter(|(_, info)| info.connection_status.is_banned())
             .map(|(peer_id, _)| peer_id)
+    }
+
+    /// Returns a vector of all connected peers sorted by score beginning with the worst scores.
+    /// Ties get broken randomly.
+    pub fn worst_connected_peers(&self) -> Vec<(&PeerId, &PeerInfo<TSpec>)> {
+        let mut connected = self
+            .peers
+            .iter()
+            .filter(|(_, info)| info.connection_status.is_connected())
+            .collect::<Vec<_>>();
+
+        connected.shuffle(&mut rand::thread_rng());
+        connected.sort_by_key(|(_, info)| info.score);
+        connected
     }
 
     /// Returns a vector containing peers (their ids and info), sorted by

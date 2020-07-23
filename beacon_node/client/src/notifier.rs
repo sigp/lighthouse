@@ -7,7 +7,6 @@ use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use time;
 use tokio::time::delay_for;
 use types::{EthSpec, Slot};
 
@@ -64,7 +63,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         }
 
         // Perform post-genesis logging.
-        while let Some(_) = interval.next().await {
+        while interval.next().await.is_some() {
             let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
 
@@ -131,34 +130,32 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "speed" => sync_speed_pretty(speedo.slots_per_second()),
                     "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                 );
-            } else {
-                if sync_state.is_synced() {
-                    let block_info = if current_slot > head_slot {
-                        format!("   …  empty")
-                    } else {
-                        format!("{}", head_root)
-                    };
-                    info!(
-                        log,
-                        "Synced";
-                        "peers" => peer_count_pretty(connected_peer_count),
-                        "finalized_root" => format!("{}", finalized_root),
-                        "finalized_epoch" => finalized_epoch,
-                        "epoch" => current_epoch,
-                        "block" => block_info,
-                        "slot" => current_slot,
-                    );
+            } else if sync_state.is_synced() {
+                let block_info = if current_slot > head_slot {
+                    "   …  empty".to_string()
                 } else {
-                    info!(
-                        log,
-                        "Searching for peers";
-                        "peers" => peer_count_pretty(connected_peer_count),
-                        "finalized_root" => format!("{}", finalized_root),
-                        "finalized_epoch" => finalized_epoch,
-                        "head_slot" => head_slot,
-                        "current_slot" => current_slot,
-                    );
-                }
+                    head_root.to_string()
+                };
+                info!(
+                    log,
+                    "Synced";
+                    "peers" => peer_count_pretty(connected_peer_count),
+                    "finalized_root" => format!("{}", finalized_root),
+                    "finalized_epoch" => finalized_epoch,
+                    "epoch" => current_epoch,
+                    "block" => block_info,
+                    "slot" => current_slot,
+                );
+            } else {
+                info!(
+                    log,
+                    "Searching for peers";
+                    "peers" => peer_count_pretty(connected_peer_count),
+                    "finalized_root" => format!("{}", finalized_root),
+                    "finalized_epoch" => finalized_epoch,
+                    "head_slot" => head_slot,
+                    "current_slot" => current_slot,
+                );
             }
         }
         Ok::<(), ()>(())

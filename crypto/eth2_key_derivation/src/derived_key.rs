@@ -81,7 +81,7 @@ fn derive_child_sk(parent_sk: &[u8], index: u32) -> SecretHash {
 ///
 /// Equivalent to `HKDF_mod_r` in EIP-2333.
 fn hkdf_mod_r(ikm: &[u8]) -> SecretHash {
-    let prk = hkdf_extract("BLS-SIG-KEYGEN-SALT-".as_bytes(), ikm);
+    let prk = hkdf_extract(b"BLS-SIG-KEYGEN-SALT-", ikm);
     let okm = &hkdf_expand(prk, MOD_R_L);
     mod_r(okm.as_bytes())
 }

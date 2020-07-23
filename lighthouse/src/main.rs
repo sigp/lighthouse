@@ -3,7 +3,6 @@ extern crate clap;
 
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
-use clap_utils;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::HARDCODED_TESTNET;
@@ -272,5 +271,6 @@ fn run<E: EthSpec>(
     drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
-    Ok(environment.shutdown_on_idle())
+    environment.shutdown_on_idle();
+    Ok(())
 }

@@ -79,7 +79,7 @@ impl TaskExecutor {
     /// This function generates prometheus metrics on number of tasks and task duration.
     pub fn spawn_blocking<F>(&self, task: F, name: &'static str)
     where
-        F: FnOnce() -> () + Send + 'static,
+        F: FnOnce() + Send + 'static,
     {
         let exit = self.exit.clone();
         let log = self.log.clone();

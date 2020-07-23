@@ -199,6 +199,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub genesis_block_root: Hash256,
     /// The root of the list of genesis validators, used during syncing.
     pub genesis_validators_root: Hash256,
+
+    #[allow(clippy::type_complexity)]
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
     pub fork_choice: RwLock<
@@ -493,9 +495,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot: head.beacon_block.slot(),
             block_root: head.beacon_block_root,
             state_root: head.beacon_state_root,
-            current_justified_checkpoint: head.beacon_state.current_justified_checkpoint.clone(),
-            finalized_checkpoint: head.beacon_state.finalized_checkpoint.clone(),
-            fork: head.beacon_state.fork.clone(),
+            current_justified_checkpoint: head.beacon_state.current_justified_checkpoint,
+            finalized_checkpoint: head.beacon_state.finalized_checkpoint,
+            fork: head.beacon_state.fork,
             genesis_time: head.beacon_state.genesis_time,
             genesis_validators_root: head.beacon_state.genesis_validators_root,
         })
@@ -853,8 +855,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             data: AttestationData {
                 slot,
                 index,
-                beacon_block_root: beacon_block_root,
-                source: state.current_justified_checkpoint.clone(),
+                beacon_block_root,
+                source: state.current_justified_checkpoint,
                 target: Checkpoint {
                     epoch,
                     root: target_root,
@@ -986,8 +988,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .try_read_for(HEAD_LOCK_TIMEOUT)
                 .ok_or_else(|| Error::CanonicalHeadLockTimeout)?
                 .beacon_state
-                .fork
-                .clone();
+                .fork;
 
             self.op_pool
                 .insert_attestation(
@@ -1348,7 +1349,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Verify and import the block.
-        let result = match import_block(unverified_block) {
+        match import_block(unverified_block) {
             // The block was successfully verified and imported. Yay.
             Ok(block_root) => {
                 trace!(
@@ -1362,7 +1363,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
 
                 let _ = self.event_handler.register(EventKind::BeaconBlockImported {
-                    block_root: block_root,
+                    block_root,
                     block: Box::new(block),
                 });
 
@@ -1399,9 +1400,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 Err(other)
             }
-        };
-
-        result
+        }
     }
 
     /// Accepts a fully-verified block and imports it into the chain without performing any
@@ -1642,7 +1641,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 body: BeaconBlockBody {
                     randao_reveal,
                     eth1_data,
-                    graffiti: self.graffiti.clone(),
+                    graffiti: self.graffiti,
                     proposer_slashings: proposer_slashings.into(),
                     attester_slashings: attester_slashings.into(),
                     attestations: self
@@ -1718,7 +1717,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .snapshot_cache
             .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .and_then(|snapshot_cache| snapshot_cache.get_cloned(beacon_block_root))
-            .map::<Result<_, Error>, _>(|snapshot| Ok(snapshot))
+            .map::<Result<_, Error>, _>(Ok)
             .unwrap_or_else(|| {
                 let beacon_block = self
                     .get_block(&beacon_block_root)?
@@ -2010,8 +2009,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
 
         let genesis_block_hash = Hash256::zero();
-        write!(output, "digraph beacon {{\n").unwrap();
-        write!(output, "\t_{:?}[label=\"genesis\"];\n", genesis_block_hash).unwrap();
+        writeln!(output, "digraph beacon {{").unwrap();
+        writeln!(output, "\t_{:?}[label=\"genesis\"];", genesis_block_hash).unwrap();
 
         // Canonical head needs to be processed first as otherwise finalized blocks aren't detected
         // properly.
@@ -2045,36 +2044,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
 
                 if block_hash == canonical_head_hash {
-                    write!(
+                    writeln!(
                         output,
-                        "\t_{:?}[label=\"{} ({})\" shape=box3d];\n",
+                        "\t_{:?}[label=\"{} ({})\" shape=box3d];",
                         block_hash,
                         block_hash,
                         signed_beacon_block.slot()
                     )
                     .unwrap();
                 } else if finalized_blocks.contains(&block_hash) {
-                    write!(
+                    writeln!(
                         output,
-                        "\t_{:?}[label=\"{} ({})\" shape=Msquare];\n",
+                        "\t_{:?}[label=\"{} ({})\" shape=Msquare];",
                         block_hash,
                         block_hash,
                         signed_beacon_block.slot()
                     )
                     .unwrap();
                 } else {
-                    write!(
+                    writeln!(
                         output,
-                        "\t_{:?}[label=\"{} ({})\" shape=box];\n",
+                        "\t_{:?}[label=\"{} ({})\" shape=box];",
                         block_hash,
                         block_hash,
                         signed_beacon_block.slot()
                     )
                     .unwrap();
                 }
-                write!(
+                writeln!(
                     output,
-                    "\t_{:?} -> _{:?};\n",
+                    "\t_{:?} -> _{:?};",
                     block_hash,
                     signed_beacon_block.parent_root()
                 )
@@ -2082,7 +2081,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        write!(output, "}}\n").unwrap();
+        writeln!(output, "}}").unwrap();
     }
 
     // Used for debugging
@@ -2135,7 +2134,7 @@ impl From<BeaconStateError> for Error {
 }
 
 impl ChainSegmentResult {
-    pub fn to_block_error(self) -> Result<(), BlockError> {
+    pub fn into_block_error(self) -> Result<(), BlockError> {
         match self {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),

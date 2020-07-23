@@ -138,8 +138,8 @@ struct ValidatorPubkeyCacheFile(File);
 
 #[derive(Debug)]
 enum Error {
-    IoError(io::Error),
-    SszError(DecodeError),
+    Io(io::Error),
+    Ssz(DecodeError),
     /// The file read from disk does not have a contiguous list of validator public keys. The file
     /// has become corrupted.
     InconsistentIndex {
@@ -162,7 +162,7 @@ impl ValidatorPubkeyCacheFile {
             .write(true)
             .open(path)
             .map(Self)
-            .map_err(Error::IoError)
+            .map_err(Error::Io)
     }
 
     /// Opens an existing file for reading and writing.
@@ -174,7 +174,7 @@ impl ValidatorPubkeyCacheFile {
             .append(true)
             .open(path)
             .map(Self)
-            .map_err(Error::IoError)
+            .map_err(Error::Io)
     }
 
     /// Append a public key to file.
@@ -188,10 +188,9 @@ impl ValidatorPubkeyCacheFile {
     /// Creates a `ValidatorPubkeyCache` by reading and parsing the underlying file.
     pub fn into_cache(mut self) -> Result<ValidatorPubkeyCache, Error> {
         let mut bytes = vec![];
-        self.0.read_to_end(&mut bytes).map_err(Error::IoError)?;
+        self.0.read_to_end(&mut bytes).map_err(Error::Io)?;
 
-        let list: Vec<(usize, PublicKeyBytes)> =
-            Vec::from_ssz_bytes(&bytes).map_err(Error::SszError)?;
+        let list: Vec<(usize, PublicKeyBytes)> = Vec::from_ssz_bytes(&bytes).map_err(Error::Ssz)?;
 
         let mut last = None;
         let mut pubkeys = Vec::with_capacity(list.len());
@@ -201,7 +200,7 @@ impl ValidatorPubkeyCacheFile {
             let expected = last.map(|n| n + 1);
             if expected.map_or(true, |expected| index == expected) {
                 last = Some(index);
-                pubkeys.push((&pubkey).try_into().map_err(Error::SszError)?);
+                pubkeys.push((&pubkey).try_into().map_err(Error::Ssz)?);
                 indices.insert(pubkey, index);
             } else {
                 return Err(Error::InconsistentIndex {
@@ -225,7 +224,7 @@ fn append_to_file(file: &mut File, index: usize, pubkey: &PublicKeyBytes) -> Res
     index.ssz_append(&mut line);
     pubkey.ssz_append(&mut line);
 
-    file.write_all(&mut line).map_err(Error::IoError)
+    file.write_all(&line).map_err(Error::Io)
 }
 
 #[cfg(test)]

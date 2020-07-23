@@ -2,7 +2,6 @@
 
 use clap::ArgMatches;
 use eth2_testnet_config::Eth2TestnetConfig;
-use hex;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;

@@ -301,7 +301,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
     // We have to verify in series because an invalid block may contain multiple slashings
     // for the same validator, and we need to correctly detect and reject that.
     proposer_slashings
-        .into_iter()
+        .iter()
         .enumerate()
         .try_for_each(|(i, proposer_slashing)| {
             verify_proposer_slashing(proposer_slashing, &state, verify_signatures, spec)
@@ -508,7 +508,7 @@ pub fn process_exits<T: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     // Verify and apply each exit in series. We iterate in series because higher-index exits may
     // become invalid due to the application of lower-index ones.
-    for (i, exit) in voluntary_exits.into_iter().enumerate() {
+    for (i, exit) in voluntary_exits.iter().enumerate() {
         verify_exit(&state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;

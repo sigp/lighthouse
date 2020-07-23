@@ -88,9 +88,9 @@ impl Item for EpochBitfield {
             .unwrap_or_else(|| {
                 self.bitfield
                     .resize(validator_index.saturating_add(1), false);
-                self.bitfield
-                    .get_mut(validator_index)
-                    .map(|mut bit| *bit = true);
+                if let Some(mut bit) = self.bitfield.get_mut(validator_index) {
+                    *bit = true;
+                }
                 false
             })
     }

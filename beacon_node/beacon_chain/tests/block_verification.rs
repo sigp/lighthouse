@@ -126,13 +126,13 @@ fn chain_segment_full_segment() {
     harness
         .chain
         .process_chain_segment(vec![])
-        .to_block_error()
+        .into_block_error()
         .expect("should import empty chain segment");
 
     harness
         .chain
         .process_chain_segment(blocks.clone())
-        .to_block_error()
+        .into_block_error()
         .expect("should import chain segment");
 
     harness.chain.fork_choice().expect("should run fork choice");
@@ -163,7 +163,7 @@ fn chain_segment_varying_chunk_size() {
             harness
                 .chain
                 .process_chain_segment(chunk.to_vec())
-                .to_block_error()
+                .into_block_error()
                 .expect(&format!(
                     "should import chain segment of len {}",
                     chunk_size
@@ -203,7 +203,7 @@ fn chain_segment_non_linear_parent_roots() {
             harness
                 .chain
                 .process_chain_segment(blocks.clone())
-                .to_block_error(),
+                .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
         "should not import chain with missing parent"
@@ -220,7 +220,7 @@ fn chain_segment_non_linear_parent_roots() {
             harness
                 .chain
                 .process_chain_segment(blocks.clone())
-                .to_block_error(),
+                .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
         "should not import chain with a broken parent root link"
@@ -247,7 +247,7 @@ fn chain_segment_non_linear_slots() {
             harness
                 .chain
                 .process_chain_segment(blocks.clone())
-                .to_block_error(),
+                .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
         "should not import chain with a parent that has a lower slot than its child"
@@ -265,7 +265,7 @@ fn chain_segment_non_linear_slots() {
             harness
                 .chain
                 .process_chain_segment(blocks.clone())
-                .to_block_error(),
+                .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
         "should not import chain with a parent that has an equal slot to its child"
@@ -292,7 +292,7 @@ fn invalid_signatures() {
         harness
             .chain
             .process_chain_segment(ancestor_blocks)
-            .to_block_error()
+            .into_block_error()
             .expect("should import all blocks prior to the one being tested");
 
         // For the given snapshots, test the following:
@@ -312,7 +312,10 @@ fn invalid_signatures() {
             // Ensure the block will be rejected if imported in a chain segment.
             assert!(
                 matches!(
-                    harness.chain.process_chain_segment(blocks).to_block_error(),
+                    harness
+                        .chain
+                        .process_chain_segment(blocks)
+                        .into_block_error(),
                     Err(BlockError::InvalidSignature)
                 ),
                 "should not import chain segment with an invalid {} signature",
@@ -351,7 +354,10 @@ fn invalid_signatures() {
         // Ensure the block will be rejected if imported in a chain segment.
         assert!(
             matches!(
-                harness.chain.process_chain_segment(blocks).to_block_error(),
+                harness
+                    .chain
+                    .process_chain_segment(blocks)
+                    .into_block_error(),
                 Err(BlockError::InvalidSignature)
             ),
             "should not import chain segment with an invalid gossip signature",
@@ -489,7 +495,10 @@ fn invalid_signatures() {
             .collect();
         assert!(
             !matches!(
-                harness.chain.process_chain_segment(blocks).to_block_error(),
+                harness
+                    .chain
+                    .process_chain_segment(blocks)
+                    .into_block_error(),
                 Err(BlockError::InvalidSignature)
             ),
             "should not throw an invalid signature error for a bad deposit signature"

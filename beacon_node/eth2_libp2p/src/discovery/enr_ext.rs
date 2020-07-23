@@ -197,7 +197,7 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
             let mut hasher = Keccak::v256();
             hasher.update(&uncompressed_key_bytes);
             hasher.finalize(&mut output);
-            return Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"));
+            Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
         }
         PublicKey::Ed25519(pk) => {
             let uncompressed_key_bytes = pk.encode();
@@ -205,9 +205,9 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
             let mut hasher = Keccak::v256();
             hasher.update(&uncompressed_key_bytes);
             hasher.finalize(&mut output);
-            return Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"));
+            Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
         }
-        _ => return Err("Unsupported public key".into()),
+        _ => Err("Unsupported public key".into()),
     }
 }
 

@@ -1,6 +1,5 @@
 use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
-use clap_utils;
 use deposit_contract::DEPOSIT_GAS;
 use environment::Environment;
 use futures::compat::Future01CompatExt;

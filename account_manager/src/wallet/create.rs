@@ -117,24 +117,24 @@ pub fn cli_run(matches: &ArgMatches, base_dir: PathBuf) -> Result<(), String> {
     }
 
     println!("Your wallet's 12-word BIP-39 mnemonic is:");
-    println!("");
+    println!();
     println!("\t{}", mnemonic.phrase());
-    println!("");
+    println!();
     println!("This mnemonic can be used to fully restore your wallet, should ");
     println!("you lose the JSON file or your password. ");
-    println!("");
+    println!();
     println!("It is very important that you DO NOT SHARE this mnemonic as it will ");
     println!("reveal the private keys of all validators and keys generated with  ");
     println!("this wallet. That would be catastrophic.");
-    println!("");
+    println!();
     println!("It is also important to store a backup of this mnemonic so you can ");
     println!("recover your private keys in the case of data loss. Writing it on ");
     println!("a piece of paper and storing it in a safe place would be prudent.");
-    println!("");
+    println!();
     println!("Your wallet's UUID is:");
-    println!("");
+    println!();
     println!("\t{}", wallet.wallet().uuid());
-    println!("");
+    println!();
     println!("You do not need to backup your UUID or keep it secret.");
 
     Ok(())

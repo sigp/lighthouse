@@ -153,7 +153,7 @@ async fn error_for_status(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
     if status.is_success() {
-        return Ok(response);
+        Ok(response)
     } else {
         let text_result = response.text().await;
         match text_result {
