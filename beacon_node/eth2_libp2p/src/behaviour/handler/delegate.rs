@@ -296,7 +296,6 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             .max(self.identify_handler.connection_keep_alive())
     }
 
-    //TODO remove allow and fix warnings
     #[allow(clippy::type_complexity)]
     fn poll(
         &mut self,

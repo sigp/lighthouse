@@ -50,7 +50,6 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 /// `self.memory_store(..)` has been called.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
-    //TODO remove allow and fix warnings
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
@@ -454,7 +453,6 @@ where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
-    //TODO remove allow and fix warnings
     #[allow(clippy::type_complexity)]
     /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
     pub fn tee_event_handler(

@@ -381,7 +381,6 @@ pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
     Ok(())
 }
 
-//TODO remove allow and fix warnings
 #[allow(clippy::too_many_arguments)]
 fn store_range<F, E, S, I>(
     _: F,

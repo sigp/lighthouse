@@ -597,7 +597,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     // These functions are called in the main poll function to transition the state of the sync
     // manager
 
-    //TODO remove allow and fix warnings
     #[allow(clippy::needless_return)]
     /// A new block has been received for a parent lookup query, process it.
     fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {

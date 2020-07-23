@@ -104,7 +104,6 @@ pub enum ChainSyncingState {
 }
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
-    //TODO remove allow and fix warnings
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: u64,
