@@ -115,9 +115,21 @@ pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String>
 #[serde(transparent)]
 pub struct ZeroizeString(String);
 
+impl ZeroizeString {
+    pub fn as_str(&self) -> &str {
+        self.as_ref()
+    }
+}
+
 impl From<String> for ZeroizeString {
     fn from(s: String) -> Self {
         Self(s)
+    }
+}
+
+impl AsRef<str> for ZeroizeString {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 

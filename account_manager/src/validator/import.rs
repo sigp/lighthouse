@@ -150,7 +150,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
 
             let password = read_password_from_user(stdin_password)?;
 
-            if password.as_ref().is_empty() {
+            if password.as_str().is_empty() {
                 eprintln!("Continuing without password.");
                 sleep(Duration::from_secs(1)); // Provides nicer UX.
                 break None;
