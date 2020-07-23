@@ -112,26 +112,26 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     // - Add the keystore to the validator definitions file.
     //
     // Exit early if any operation fails.
-    for keystore_path in &keystore_paths {
+    for src_keystore in &keystore_paths {
         // Fail early if we can't read and write the keystore. This will prevent some more awkward
         // failures later on.
         OpenOptions::new()
             .read(true)
             .write(true)
             .create(false)
-            .open(&keystore_path)
+            .open(&src_keystore)
             .map_err(|e| {
                 format!(
                     "Unable to get read and write permissions on keystore {:?}: {}",
-                    keystore_path, e
+                    src_keystore, e
                 )
             })?;
 
-        let keystore = Keystore::from_json_file(keystore_path)
-            .map_err(|e| format!("Unable to read keystore JSON {:?}: {:?}", keystore_path, e))?;
+        let keystore = Keystore::from_json_file(src_keystore)
+            .map_err(|e| format!("Unable to read keystore JSON {:?}: {:?}", src_keystore, e))?;
 
         eprintln!("");
-        eprintln!("Keystore found at {:?}:", keystore_path);
+        eprintln!("Keystore found at {:?}:", src_keystore);
         eprintln!("");
         eprintln!(" - Public key: 0x{}", keystore.pubkey());
         eprintln!(" - UUID: {}", keystore.uuid());
@@ -174,7 +174,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         if dest_dir.exists() {
             return Err(format!(
                 "Refusing to re-import an existing public key: {:?}",
-                keystore_path
+                src_keystore
             ));
         }
 
@@ -182,27 +182,27 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
 
         // Retain the keystore file name, but place it in the new directory.
-        let moved_path = keystore_path
+        let dest_keystore = src_keystore
             .file_name()
             .and_then(|file_name| file_name.to_str())
             .map(|file_name_str| dest_dir.join(file_name_str))
-            .ok_or_else(|| format!("Badly formatted file name: {:?}", keystore_path))?;
+            .ok_or_else(|| format!("Badly formatted file name: {:?}", src_keystore))?;
 
         // Copy the keystore to the new location.
-        fs::copy(&keystore_path, &moved_path)
+        fs::copy(&src_keystore, &dest_keystore)
             .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
 
         // Attempt to make the move atomic in the case where the copy succeeds but the remove
         // fails.
-        if let Err(e) = fs::remove_file(&keystore_path) {
-            if keystore_path.exists() {
+        if let Err(e) = fs::remove_file(&src_keystore) {
+            if src_keystore.exists() {
                 // If the original keystore path still exists we can delete the copied one.
                 //
                 // It is desirable to avoid duplicate keystores since this is how slashing
                 // conditions can happen.
-                fs::remove_file(moved_path)
+                fs::remove_file(dest_keystore)
                     .map_err(|e| format!("Unable to remove copied keystore: {:?}", e))?;
-                return Err(format!("Unable to delete {:?}: {:?}", keystore_path, e));
+                return Err(format!("Unable to delete {:?}: {:?}", src_keystore, e));
             } else {
                 return Err(format!("An error occurred whilst moving files: {:?}", e));
             }
@@ -211,7 +211,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         eprintln!("Successfully moved keystore.");
 
         let validator_def =
-            ValidatorDefinition::new_keystore_with_password(&moved_path, password_opt)
+            ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt)
                 .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         defs.push(validator_def);
