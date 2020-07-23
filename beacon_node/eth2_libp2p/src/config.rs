@@ -37,7 +37,7 @@ pub struct Config {
     pub enr_tcp_port: Option<u16>,
 
     /// Target number of connected peers.
-    pub max_peers: usize,
+    pub target_peers: usize,
 
     /// Gossipsub configuration parameters.
     #[serde(skip)]
@@ -122,7 +122,7 @@ impl Default for Config {
             enr_address: None,
             enr_udp_port: None,
             enr_tcp_port: None,
-            max_peers: 50,
+            target_peers: 50,
             gs_config,
             discv5_config,
             boot_nodes: vec![],
