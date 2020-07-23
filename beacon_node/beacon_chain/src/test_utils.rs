@@ -393,6 +393,8 @@ where
         (block_root.into(), new_state)
     }
 
+    //TODO remove allow and fix warnings
+    #[allow(clippy::type_complexity)]
     /// `add_block()` repeated `num_blocks` times.
     pub fn add_blocks(
         &self,
@@ -422,6 +424,8 @@ where
         (blocks, states, slot, head_hash, state)
     }
 
+    //TODO remove allow and fix warnings
+    #[allow(clippy::type_complexity)]
     /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
     pub fn add_canonical_chain_blocks(
         &self,
@@ -446,6 +450,8 @@ where
         )
     }
 
+    //TODO remove allow and fix warnings
+    #[allow(clippy::type_complexity)]
     /// A wrapper on `add_blocks()` to avoid passing enums explicitly.
     pub fn add_stray_blocks(
         &self,

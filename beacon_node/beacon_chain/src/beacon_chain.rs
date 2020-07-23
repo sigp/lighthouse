@@ -199,6 +199,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub genesis_block_root: Hash256,
     /// The root of the list of genesis validators, used during syncing.
     pub genesis_validators_root: Hash256,
+
+    //TODO remove allow and fix warnings
+    #[allow(clippy::type_complexity)]
     /// A state-machine that is updated with information from the network and chooses a canonical
     /// head block.
     pub fork_choice: RwLock<
@@ -2132,7 +2135,7 @@ impl From<BeaconStateError> for Error {
 }
 
 impl ChainSegmentResult {
-    pub fn to_block_error(self) -> Result<(), BlockError> {
+    pub fn into_beacon_block(self) -> Result<(), BlockError> {
         match self {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),

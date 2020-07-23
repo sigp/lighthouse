@@ -296,6 +296,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         finality_distance > max_finality_distance
     }
 
+    //TODO remove allow and fix warnings
+    #[allow(clippy::type_complexity)]
     /// Spawn a new child thread to run the migration process.
     ///
     /// Return a channel handle for sending new finalized states to the thread.

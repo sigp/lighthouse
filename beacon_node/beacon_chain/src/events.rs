@@ -78,6 +78,8 @@ pub struct TeeEventHandler<E: EthSpec> {
 }
 
 impl<E: EthSpec> TeeEventHandler<E> {
+    //TODO remove allow and fix warnings
+    #[allow(clippy::type_complexity)]
     pub fn new(
         log: Logger,
         websockets_handler: WebSocketSender<E>,

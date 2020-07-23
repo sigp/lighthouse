@@ -100,6 +100,8 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
         KeepAlive::Yes
     }
 
+    //TODO remove allow and fix warnings
+    #[allow(clippy::type_complexity)]
     fn poll(
         &mut self,
         cx: &mut Context,
