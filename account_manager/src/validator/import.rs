@@ -1,11 +1,11 @@
 use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
 use account_utils::{
     eth2_keystore::Keystore,
+    read_password_from_user,
     validator_definitions::{
         recursively_find_voting_keystores, ValidatorDefinition, ValidatorDefinitions,
         CONFIG_FILENAME,
     },
-    ZeroizeString,
 };
 use clap::{App, Arg, ArgMatches};
 use std::fs::{self, OpenOptions};
@@ -146,7 +146,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             eprintln!("");
             eprintln!("{}", PASSWORD_PROMPT);
 
-            let password = read_password(stdin_password)?;
+            let password = read_password_from_user(stdin_password)?;
 
             if password.as_ref().is_empty() {
                 eprintln!("Continuing without password.");
@@ -226,17 +226,4 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     eprintln!("Successfully imported {} validators.", keystore_paths.len());
 
     Ok(())
-}
-
-/// Reads a password from either TTY or stdin, depeding on the `stdin_passwords` parameter.
-fn read_password(stdin_passwords: bool) -> Result<ZeroizeString, String> {
-    let result = if stdin_passwords {
-        rpassword::prompt_password_stderr("")
-            .map_err(|e| format!("Error reading from stdin: {}", e))
-    } else {
-        rpassword::read_password_from_tty(None)
-            .map_err(|e| format!("Error reading from tty: {}", e))
-    };
-
-    result.map(ZeroizeString::from)
 }
