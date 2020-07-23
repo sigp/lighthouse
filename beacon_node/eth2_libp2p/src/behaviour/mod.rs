@@ -256,11 +256,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         error: RPCResponseErrorCode,
         reason: String,
     ) {
-        self.eth2_rpc.send_response(
-            peer_id,
-            id,
-            RPCCodedResponse::from_error_code(error, reason),
-        )
+        self.eth2_rpc
+            .send_response(peer_id, id, RPCCodedResponse::Error(error, reason.into()))
     }
 
     /* Peer management functions */
