@@ -94,6 +94,11 @@ where
         self.entries.len()
     }
 
+    /// Checks if the mapping is empty.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Updates the timeout for a given key. Returns true if the key existed, false otherwise.
     ///
     /// Panics if the duration is too far in the future.

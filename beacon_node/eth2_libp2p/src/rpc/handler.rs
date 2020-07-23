@@ -1078,7 +1078,7 @@ where
                         //trace!(self.log, "RPC Response - stream closed by remote");
                         // drop the stream
                         let delay_key = &entry.get().delay_key;
-                        let request_id = *&entry.get().req_id;
+                        let request_id = entry.get().req_id;
                         self.outbound_substreams_delay.remove(delay_key);
                         entry.remove_entry();
                         self.update_keep_alive();

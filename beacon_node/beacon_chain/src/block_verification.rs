@@ -584,8 +584,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 state_root
             };
 
-            per_slot_processing(&mut state, Some(state_root), &chain.spec)?
-                .map(|summary| summaries.push(summary));
+            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), &chain.spec)? {
+                summaries.push(summary)
+            }
         }
 
         expose_participation_metrics(&summaries);

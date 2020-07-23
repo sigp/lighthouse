@@ -154,7 +154,7 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
 
         let batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
-            .map(|block_hash| StoreOp::DeleteBlock(block_hash))
+            .map(StoreOp::DeleteBlock)
             .chain(
                 abandoned_states
                     .into_iter()

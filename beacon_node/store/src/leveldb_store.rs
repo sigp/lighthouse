@@ -77,7 +77,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     }
 
     fn sync(&self) -> Result<(), Error> {
-        self.put_bytes_sync("sync", "sync".as_bytes(), "sync".as_bytes())
+        self.put_bytes_sync("sync", b"sync", b"sync")
     }
 
     /// Retrieve some bytes in `column` with `key`.

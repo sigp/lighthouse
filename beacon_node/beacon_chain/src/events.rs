@@ -37,7 +37,7 @@ impl<T: EthSpec> ServerSentEvents<T> {
         let arc = Arc::new(mutex);
         let this = Self {
             head_changed_queue: arc.clone(),
-            log: log,
+            log,
             _phantom: PhantomData,
         };
         (this, arc)
@@ -52,7 +52,10 @@ impl<T: EthSpec> EventHandler<T> for ServerSentEvents<T> {
                 ..
             } => {
                 let mut guard = self.head_changed_queue.lock();
-                if let Err(_) = guard.try_broadcast(current_head_beacon_block_root.into()) {
+                if guard
+                    .try_broadcast(current_head_beacon_block_root.into())
+                    .is_err()
+                {
                     error!(
                         self.log,
                         "Head change streaming queue full";
@@ -81,8 +84,8 @@ impl<E: EthSpec> TeeEventHandler<E> {
     ) -> Result<(Self, Arc<Mutex<Bus<SignedBeaconBlockHash>>>), String> {
         let (sse_handler, bus) = ServerSentEvents::new(log);
         let result = Self {
-            websockets_handler: websockets_handler,
-            sse_handler: sse_handler,
+            websockets_handler,
+            sse_handler,
         };
         Ok((result, bus))
     }

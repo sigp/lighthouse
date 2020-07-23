@@ -315,7 +315,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if let Some(block_request) = self.single_block_lookups.get_mut(&request_id) {
                     // update the state of the lookup indicating a block was received from the peer
                     block_request.block_returned = true;
-                    single_block_hash = Some(block_request.hash.clone());
+                    single_block_hash = Some(block_request.hash);
                 }
                 if let Some(block_hash) = single_block_hash {
                     self.single_block_lookup_response(peer_id, block, block_hash);
@@ -498,8 +498,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if self
             .single_block_lookups
             .values()
-            .find(|single_block_request| single_block_request.hash == block_hash)
-            .is_some()
+            .any(|single_block_request| single_block_request.hash == block_hash)
         {
             return;
         }

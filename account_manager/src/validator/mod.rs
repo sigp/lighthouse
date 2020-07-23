@@ -28,11 +28,9 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, base_wallet_dir),
         (deposit::CMD, Some(matches)) => deposit::cli_run::<T>(matches, env),
-        (unknown, _) => {
-            return Err(format!(
-                "{} does not have a {} command. See --help",
-                CMD, unknown
-            ));
-        }
+        (unknown, _) => Err(format!(
+            "{} does not have a {} command. See --help",
+            CMD, unknown
+        )),
     }
 }

@@ -95,7 +95,7 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
-            proto_array: proto_array,
+            proto_array,
             votes: ElasticList::default(),
             balances: vec![],
         })
@@ -169,6 +169,10 @@ impl ProtoArrayForkChoice {
 
     pub fn len(&self) -> usize {
         self.proto_array.nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.proto_array.nodes.is_empty()
     }
 
     pub fn contains_block(&self, block_root: &Hash256) -> bool {

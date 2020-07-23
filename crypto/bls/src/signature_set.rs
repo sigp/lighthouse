@@ -60,7 +60,7 @@ type VerifySet<'a> = (
 );
 
 #[cfg(not(feature = "fake_crypto"))]
-pub fn verify_signature_sets<'a>(sets: Vec<SignatureSet>) -> bool {
+pub fn verify_signature_sets(sets: Vec<SignatureSet>) -> bool {
     let rng = &mut rand::thread_rng();
     let verify_set: Vec<VerifySet> = sets
         .iter()

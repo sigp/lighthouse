@@ -6,7 +6,6 @@
 use account_utils::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
 use eth2_keystore::Keystore;
 use serde_derive::{Deserialize, Serialize};
-use serde_yaml;
 use slog::{error, Logger};
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
@@ -230,14 +229,13 @@ pub fn recursively_find_voting_keystores<P: AsRef<Path>>(
         let file_type = dir_entry.file_type()?;
         if file_type.is_dir() {
             recursively_find_voting_keystores(dir_entry.path(), matches)?
-        } else if file_type.is_file() {
-            if dir_entry
+        } else if file_type.is_file()
+            && dir_entry
                 .file_name()
                 .to_str()
                 .map_or(false, |filename| filename == VOTING_KEYSTORE_FILE)
-            {
-                matches.push(dir_entry.path())
-            }
+        {
+            matches.push(dir_entry.path())
         }
         Ok(())
     })
