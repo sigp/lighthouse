@@ -50,6 +50,7 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 /// `self.memory_store(..)` has been called.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
+    #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     store_migrator: Option<T::StoreMigrator>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
@@ -134,7 +135,7 @@ where
         let eth_spec_instance = self.eth_spec_instance.clone();
         let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
-        let graffiti = config.graffiti.clone();
+        let graffiti = config.graffiti;
 
         let store =
             store.ok_or_else(|| "beacon_chain_start_method requires a store".to_string())?;
@@ -452,6 +453,7 @@ where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
 {
+    #[allow(clippy::type_complexity)]
     /// Specifies that the `BeaconChain` should publish events using the WebSocket server.
     pub fn tee_event_handler(
         mut self,

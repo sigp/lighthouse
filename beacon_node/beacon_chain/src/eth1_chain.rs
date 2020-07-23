@@ -331,7 +331,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
             //
             // Here we choose the eth1_data corresponding to the latest block in our voting window.
             // If no votes exist, choose `state.eth1_data` as default vote.
-            let default_vote = votes_to_consider
+            votes_to_consider
                 .iter()
                 .max_by(|(_, x), (_, y)| x.cmp(y))
                 .map(|vote| {
@@ -355,8 +355,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
                     );
                     metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
                     vote
-                });
-            default_vote
+                })
         };
 
         debug!(

@@ -345,11 +345,14 @@ impl InitializedValidators {
         voting_public_key: &PublicKey,
         enabled: bool,
     ) -> Result<(), Error> {
-        self.definitions
+        if let Some(def) = self
+            .definitions
             .as_mut_slice()
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
-            .map(|def| def.enabled = enabled);
+        {
+            def.enabled = enabled;
+        }
 
         self.update_validators()?;
 

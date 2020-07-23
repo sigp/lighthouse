@@ -397,7 +397,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 if self.seen_gossip_messages.put(id.clone(), ()).is_none() {
                     match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
                         Err(e) => {
-                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => e)
                         }
                         Ok(msg) => {
                             // if this message isn't a duplicate, notify the network
@@ -412,7 +412,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 } else {
                     match PubsubMessage::<TSpec>::decode(&gs_msg.topics, &gs_msg.data) {
                         Err(e) => {
-                            debug!(self.log, "Could not decode gossipsub message"; "error" => format!("{}", e))
+                            debug!(self.log, "Could not decode gossipsub message"; "error" => e)
                         }
                         Ok(msg) => {
                             debug!(self.log, "A duplicate gossipsub message was received"; "message_source" => format!("{}", gs_msg.source), "propagated_peer" => format!("{}",propagation_source), "message" => format!("{}", msg));

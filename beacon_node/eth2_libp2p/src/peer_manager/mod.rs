@@ -194,10 +194,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Update the PeerDB state.
         if let Some(peer_id) = ban_peer.take() {
             self.network_globals.peers.write().ban(&peer_id);
-        } else {
-            if let Some(peer_id) = unban_peer.take() {
-                self.network_globals.peers.write().unban(&peer_id);
-            }
+        } else if let Some(peer_id) = unban_peer.take() {
+            self.network_globals.peers.write().unban(&peer_id);
         }
     }
 

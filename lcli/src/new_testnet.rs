@@ -17,13 +17,11 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
 
     let overwrite_files = matches.is_present("force");
 
-    if testnet_dir_path.exists() {
-        if !overwrite_files {
-            return Err(format!(
-                "{:?} already exists, will not overwrite. Use --force to overwrite",
-                testnet_dir_path
-            ));
-        }
+    if testnet_dir_path.exists() && !overwrite_files {
+        return Err(format!(
+            "{:?} already exists, will not overwrite. Use --force to overwrite",
+            testnet_dir_path
+        ));
     }
 
     let mut spec = T::default_spec();

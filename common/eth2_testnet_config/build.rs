@@ -1,6 +1,5 @@
 //! Downloads a testnet configuration from Github.
 
-use reqwest;
 use std::env;
 use std::fs::File;
 use std::io::Write;

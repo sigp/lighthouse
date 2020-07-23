@@ -5,6 +5,7 @@ use crate::{BeaconState, EthSpec, Hash256, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
 use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 
 /// The number of fields on a beacon state.
@@ -270,8 +271,8 @@ impl ParallelValidatorTreeHash {
     /// This function makes assumptions that the `validators` list will only change in accordance
     /// with valid per-block/per-slot state transitions.
     fn leaves(&mut self, validators: &[Validator]) -> Result<Vec<Vec<Hash256>>, Error> {
-        if self.len() < validators.len() {
-            validators.iter().skip(self.len()).for_each(|v| {
+        match self.len().cmp(&validators.len()) {
+            Ordering::Less => validators.iter().skip(self.len()).for_each(|v| {
                 if self
                     .arenas
                     .last()
@@ -287,9 +288,11 @@ impl ParallelValidatorTreeHash {
                         .expect("Cannot reach this block if arenas is empty.");
                     caches.push(v.new_tree_hash_cache(arena))
                 }
-            })
-        } else if validators.len() < self.len() {
-            return Err(Error::ValidatorRegistryShrunk);
+            }),
+            Ordering::Greater => {
+                return Err(Error::ValidatorRegistryShrunk);
+            }
+            Ordering::Equal => (),
         }
 
         self.arenas

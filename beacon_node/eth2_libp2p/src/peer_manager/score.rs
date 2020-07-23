@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 lazy_static! {
-    static ref HALFLIFE_DECAY: f64 = -2.0f64.ln() / SCORE_HALFLIFE;
+    static ref HALFLIFE_DECAY: f64 = -(2.0f64.ln()) / SCORE_HALFLIFE;
 }
 
 /// The default score for new peers.

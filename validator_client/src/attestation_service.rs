@@ -190,7 +190,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .fold(HashMap::new(), |mut map, duty_and_proof| {
                 if let Some(committee_index) = duty_and_proof.duty.attestation_committee_index {
-                    let validator_duties = map.entry(committee_index).or_insert_with(|| vec![]);
+                    let validator_duties = map.entry(committee_index).or_insert_with(Vec::new);
 
                     validator_duties.push(duty_and_proof);
                 }

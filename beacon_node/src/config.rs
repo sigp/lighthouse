@@ -4,7 +4,6 @@ use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
-use hyper;
 use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::fs;
@@ -68,7 +67,7 @@ pub fn get_config<E: EthSpec>(
     let mut log_dir = client_config.data_dir.clone();
     // remove /beacon from the end
     log_dir.pop();
-    info!(log, "Data directory initialised"; "datadir" => format!("{}",log_dir.into_os_string().into_string().expect("Datadir should be a valid os string")));
+    info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
 
     client_config.spec_constants = spec_constants.into();
     client_config.testnet_dir = get_testnet_dir(cli_args);
@@ -181,7 +180,7 @@ pub fn get_config<E: EthSpec>(
                     resolved_addrs
                         .next()
                         .map(|a| a.ip())
-                        .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
+                        .ok_or_else(|| "Resolved dns addr contains no entries".to_string())?
                 } else {
                     return Err(format!("Failed to parse enr-address: {}", enr_address));
                 };
@@ -406,7 +405,7 @@ pub fn get_eth2_testnet_config<E: EthSpec>(
     } else {
         Eth2TestnetConfig::hard_coded()
             .map_err(|e| format!("Error parsing hardcoded testnet: {}", e))?
-            .ok_or_else(|| format!("{}", BAD_TESTNET_DIR_MESSAGE))
+            .ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
     }
 }
 

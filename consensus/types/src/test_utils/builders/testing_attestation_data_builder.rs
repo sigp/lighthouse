@@ -24,9 +24,9 @@ impl TestingAttestationDataBuilder {
         let is_previous_epoch = slot.epoch(T::slots_per_epoch()) != current_epoch;
 
         let mut source = if is_previous_epoch {
-            state.previous_justified_checkpoint.clone()
+            state.previous_justified_checkpoint
         } else {
-            state.current_justified_checkpoint.clone()
+            state.current_justified_checkpoint
         };
 
         let mut target = if is_previous_epoch {

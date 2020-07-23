@@ -17,10 +17,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing validators_per_node default");
     let speed_up_factor =
         value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
-    let mut end_after_checks = true;
-    if matches.is_present("end_after_checks") {
-        end_after_checks = false;
-    }
+    let end_after_checks = !matches.is_present("end_after_checks");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}", node_count);
@@ -83,7 +80,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         // Start a timer that produces eth1 blocks on an interval.
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(eth1_block_time);
-            while let Some(_) = interval.next().await {
+            while interval.next().await.is_some() {
                 let _ = ganache.evm_mine().await;
             }
         });
@@ -198,5 +195,6 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    Ok(env.runtime().block_on(main_future).unwrap())
+    env.runtime().block_on(main_future).unwrap();
+    Ok(())
 }
