@@ -4,7 +4,7 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, SecretHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
+    Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
 };
 /// Provides the externally-facing, core BLS types.
 pub mod types {
@@ -201,7 +201,7 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
         Signature::infinity()
     }
 
-    fn serialize(&self) -> SecretHash {
+    fn serialize(&self) -> ZeroizeHash {
         let mut bytes = [0; SECRET_KEY_BYTES_LEN];
         bytes[..].copy_from_slice(&self.0[..]);
         bytes.into()

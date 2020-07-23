@@ -1,7 +1,7 @@
 use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey},
     generic_signature::{GenericSignature, TSignature},
-    Error, Hash256, SecretHash,
+    Error, Hash256, ZeroizeHash,
 };
 use std::marker::PhantomData;
 
@@ -21,7 +21,7 @@ pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
     fn public_key(&self) -> PublicKeyPoint;
 
     /// Serialize `self` as compressed bytes.
-    fn serialize(&self) -> SecretHash;
+    fn serialize(&self) -> ZeroizeHash;
 
     /// Deserialize `self` from compressed bytes.
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
@@ -68,7 +68,7 @@ where
     ///
     /// The bytes that are returned are the unencrypted secret key. This is sensitive cryptographic
     /// material.
-    pub fn serialize(&self) -> SecretHash {
+    pub fn serialize(&self) -> ZeroizeHash {
         self.point.serialize()
     }
 

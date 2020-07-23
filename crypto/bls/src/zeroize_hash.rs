@@ -4,9 +4,9 @@ use zeroize::Zeroize;
 /// Provides a wrapper around a `[u8; SECRET_KEY_BYTES_LEN]` that implements `Zeroize` on `Drop`.
 #[derive(Zeroize)]
 #[zeroize(drop)]
-pub struct SecretHash([u8; SECRET_KEY_BYTES_LEN]);
+pub struct ZeroizeHash([u8; SECRET_KEY_BYTES_LEN]);
 
-impl SecretHash {
+impl ZeroizeHash {
     /// Instantiates `Self` with all zeros.
     pub fn zero() -> Self {
         Self([0; SECRET_KEY_BYTES_LEN])
@@ -23,13 +23,13 @@ impl SecretHash {
     }
 }
 
-impl From<[u8; SECRET_KEY_BYTES_LEN]> for SecretHash {
+impl From<[u8; SECRET_KEY_BYTES_LEN]> for ZeroizeHash {
     fn from(array: [u8; SECRET_KEY_BYTES_LEN]) -> Self {
         Self(array)
     }
 }
 
-impl AsRef<[u8]> for SecretHash {
+impl AsRef<[u8]> for ZeroizeHash {
     fn as_ref(&self) -> &[u8] {
         &self.0
     }

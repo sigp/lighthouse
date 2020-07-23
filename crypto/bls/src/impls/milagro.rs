@@ -4,7 +4,7 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, SecretHash, INFINITY_PUBLIC_KEY,
+    Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY,
 };
 pub use milagro_bls as milagro;
 use rand::thread_rng;
@@ -182,7 +182,7 @@ impl TSecretKey<milagro::Signature, milagro::PublicKey> for milagro::SecretKey {
         milagro::Signature { point }
     }
 
-    fn serialize(&self) -> SecretHash {
+    fn serialize(&self) -> ZeroizeHash {
         let mut bytes = [0; SECRET_KEY_BYTES_LEN];
 
         // Takes the right-hand 32 bytes from the secret key.

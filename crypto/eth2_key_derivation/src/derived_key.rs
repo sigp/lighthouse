@@ -1,4 +1,4 @@
-use crate::{lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, SecretHash};
+use crate::{lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, ZeroizeHash};
 use num_bigint_dig::BigUint;
 use ring::hkdf::{KeyType, Prk, Salt, HKDF_SHA256};
 use sha2::{Digest, Sha256};
@@ -32,7 +32,7 @@ pub const MOD_R_L: usize = 48;
 // little over-cautious here; we don't require high-speed key generation at this stage.
 #[derive(Zeroize)]
 #[zeroize(drop)]
-pub struct DerivedKey(SecretHash);
+pub struct DerivedKey(ZeroizeHash);
 
 impl DerivedKey {
     /// Instantiates `Self` from some secret seed bytes.
@@ -64,14 +64,14 @@ impl DerivedKey {
 /// Derives the "master" BLS secret key from some `seed` bytes.
 ///
 /// Equivalent to `derive_master_SK` in EIP-2333.
-fn derive_master_sk(seed: &[u8]) -> SecretHash {
+fn derive_master_sk(seed: &[u8]) -> ZeroizeHash {
     hkdf_mod_r(seed)
 }
 
 /// From the given `parent_sk`, derives a child key at index`.
 ///
 /// Equivalent to `derive_child_SK` in EIP-2333.
-fn derive_child_sk(parent_sk: &[u8], index: u32) -> SecretHash {
+fn derive_child_sk(parent_sk: &[u8], index: u32) -> ZeroizeHash {
     let compressed_lamport_pk = parent_sk_to_lamport_pk(parent_sk, index);
     hkdf_mod_r(compressed_lamport_pk.as_bytes())
 }
@@ -80,7 +80,7 @@ fn derive_child_sk(parent_sk: &[u8], index: u32) -> SecretHash {
 /// BLS private key within the order of the BLS-381 curve.
 ///
 /// Equivalent to `HKDF_mod_r` in EIP-2333.
-fn hkdf_mod_r(ikm: &[u8]) -> SecretHash {
+fn hkdf_mod_r(ikm: &[u8]) -> ZeroizeHash {
     let prk = hkdf_extract(b"BLS-SIG-KEYGEN-SALT-", ikm);
     let okm = &hkdf_expand(prk, MOD_R_L);
     mod_r(okm.as_bytes())
@@ -90,7 +90,7 @@ fn hkdf_mod_r(ikm: &[u8]) -> SecretHash {
 /// BLS-381 curve.
 ///
 /// This function is a part of the `HKDF_mod_r` function in EIP-2333.
-fn mod_r(bytes: &[u8]) -> SecretHash {
+fn mod_r(bytes: &[u8]) -> ZeroizeHash {
     let n = BigUint::from_bytes_be(bytes);
     let r = BigUint::parse_bytes(R.as_bytes(), 10).expect("must be able to parse R");
     let x = SecretBytes::from((n % r).to_bytes_be());
@@ -99,7 +99,7 @@ fn mod_r(bytes: &[u8]) -> SecretHash {
 
     debug_assert!(x_slice.len() <= HASH_SIZE);
 
-    let mut output = SecretHash::zero();
+    let mut output = ZeroizeHash::zero();
     output.as_mut_bytes()[HASH_SIZE - x_slice.len()..].copy_from_slice(&x_slice);
     output
 }
@@ -107,7 +107,7 @@ fn mod_r(bytes: &[u8]) -> SecretHash {
 /// Generates a Lamport public key from the given `ikm` (which is assumed to be a BLS secret key).
 ///
 /// Equivalent to `parent_SK_to_lamport_PK` in EIP-2333.
-fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> SecretHash {
+fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> ZeroizeHash {
     let salt = index.to_be_bytes();
     let not_ikm = flip_bits(ikm);
 
@@ -130,7 +130,7 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> SecretHash {
             pk_bytes[i * HASH_SIZE..(i + 1) * HASH_SIZE].copy_from_slice(&hasher.finalize());
         });
 
-    let mut compressed_lamport_pk = SecretHash::zero();
+    let mut compressed_lamport_pk = ZeroizeHash::zero();
     let mut hasher = Sha256::new();
     hasher.update(lamport_pk.as_bytes());
     compressed_lamport_pk
@@ -183,10 +183,10 @@ fn hkdf_expand(prk: Prk, l: usize) -> SecretBytes {
 /// ## Panics
 ///
 /// If `input` is not 32-bytes.
-fn flip_bits(input: &[u8]) -> SecretHash {
+fn flip_bits(input: &[u8]) -> ZeroizeHash {
     assert_eq!(input.len(), HASH_SIZE);
 
-    let mut output = SecretHash::zero();
+    let mut output = ZeroizeHash::zero();
     let output_bytes = output.as_mut_bytes();
 
     for (i, byte) in input.iter().enumerate() {

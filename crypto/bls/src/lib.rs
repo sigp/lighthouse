@@ -31,7 +31,7 @@ mod generic_signature;
 mod generic_signature_bytes;
 mod generic_signature_set;
 mod get_withdrawal_credentials;
-mod secret_hash;
+mod zeroize_hash;
 
 pub mod impls;
 
@@ -39,7 +39,7 @@ pub use generic_public_key::{INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN};
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
 pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
-pub use secret_hash::SecretHash;
+pub use zeroize_hash::ZeroizeHash;
 
 use blst::BLST_ERROR as BlstError;
 use milagro_bls::AmclError;

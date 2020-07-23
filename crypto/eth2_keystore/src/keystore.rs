@@ -10,7 +10,7 @@ use crate::Uuid;
 use aes_ctr::stream_cipher::generic_array::GenericArray;
 use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher};
 use aes_ctr::Aes128Ctr as AesCtr;
-use bls::{Keypair, SecretHash, SecretKey};
+use bls::{Keypair, SecretKey, ZeroizeHash};
 use eth2_key_derivation::PlainText;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
@@ -146,7 +146,7 @@ impl Keystore {
         uuid: Uuid,
         path: String,
     ) -> Result<Self, Error> {
-        let secret: SecretHash = keypair.sk.serialize();
+        let secret: ZeroizeHash = keypair.sk.serialize();
 
         let (cipher_text, checksum) = encrypt(secret.as_bytes(), password, &kdf, &cipher)?;
 

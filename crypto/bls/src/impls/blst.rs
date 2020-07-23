@@ -4,7 +4,7 @@ use crate::{
     generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
     generic_secret_key::TSecretKey,
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, SecretHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
+    Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
 };
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
@@ -263,7 +263,7 @@ impl TSecretKey<blst_core::Signature, blst_core::PublicKey> for blst_core::Secre
         self.sign(msg.as_bytes(), DST, &[])
     }
 
-    fn serialize(&self) -> SecretHash {
+    fn serialize(&self) -> ZeroizeHash {
         self.to_bytes().into()
     }
 
