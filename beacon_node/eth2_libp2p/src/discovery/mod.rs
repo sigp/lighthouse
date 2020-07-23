@@ -426,7 +426,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Check that we are within our query concurrency limit
         while !self.at_capacity() && !self.queued_queries.is_empty() {
-
             // consume and process the query queue
             match self.queued_queries.pop_front() {
                 Some(QueryType::FindPeers) => {
@@ -459,7 +458,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     {
                         // This query is for searching for peers of a particular subnet
                         // Drain subnet_queries so we can re-use it as we continue to process the queue
-                        let grouped_queries : Vec<SubnetQuery> = subnet_queries.drain(..).collect();
+                        let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
                         self.start_subnet_query(grouped_queries);
                     }
                 }
