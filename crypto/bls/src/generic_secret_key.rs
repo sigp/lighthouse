@@ -11,7 +11,7 @@ pub const SECRET_KEY_BYTES_LEN: usize = 32;
 /// Implemented on some struct from a BLS library so it may be used as the `point` in a
 /// `GenericSecretKey`.
 pub trait TSecretKey<SignaturePoint, PublicKeyPoint>: Sized {
-    /// Instantiate `Self` from some source of entropy.
+    /// Instantiate `Self` from some secure source of entropy.
     fn random() -> Self;
 
     /// Signs `msg`.
@@ -41,7 +41,7 @@ where
     Pub: TPublicKey,
     Sec: TSecretKey<Sig, Pub>,
 {
-    /// Instantiate `Self` from some source of entropy.
+    /// Instantiate `Self` from some secure source of entropy.
     pub fn random() -> Self {
         Self {
             point: Sec::random(),
