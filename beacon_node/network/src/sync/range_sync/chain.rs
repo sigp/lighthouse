@@ -104,6 +104,7 @@ pub enum ChainSyncingState {
 }
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: u64,
         start_epoch: Epoch,
@@ -257,7 +258,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Sends a batch to the batch processor.
     fn process_batch(&mut self, mut batch: Batch<T::EthSpec>) {
         let downloaded_blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
-        let process_id = ProcessId::RangeBatchId(self.id.clone(), batch.id.clone());
+        let process_id = ProcessId::RangeBatchId(self.id, batch.id);
         self.current_processing_batch = Some(batch);
         spawn_block_processor(
             Arc::downgrade(&self.chain.clone()),

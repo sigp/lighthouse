@@ -2,7 +2,6 @@ use crate::{ApiError, ApiResult, NetworkChannel};
 use beacon_chain::{BeaconChain, BeaconChainTypes, StateSkipConfig};
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
-use hex;
 use http::header;
 use hyper::{Body, Request};
 use itertools::process_results;

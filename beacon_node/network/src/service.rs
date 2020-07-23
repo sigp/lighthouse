@@ -92,6 +92,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
+    #[allow(clippy::type_complexity)]
     pub fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,

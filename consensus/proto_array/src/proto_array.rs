@@ -358,14 +358,12 @@ impl ProtoArray {
                         }
                     }
                 }
+            } else if child_leads_to_viable_head {
+                // There is no current best-child and the child is viable.
+                change_to_child
             } else {
-                if child_leads_to_viable_head {
-                    // There is no current best-child and the child is viable.
-                    change_to_child
-                } else {
-                    // There is no current best-child but the child is not viable.
-                    no_change
-                }
+                // There is no current best-child but the child is not viable.
+                no_change
             };
 
         let parent = self

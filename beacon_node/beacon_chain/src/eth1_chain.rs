@@ -82,7 +82,7 @@ where
     backend: T,
     /// When `true`, the backend will be ignored and dummy data from the 2019 Canada interop method
     /// will be used instead.
-    pub use_dummy_backend: bool,
+    use_dummy_backend: bool,
     _phantom: PhantomData<E>,
 }
 
@@ -96,6 +96,13 @@ where
             backend,
             use_dummy_backend: false,
             _phantom: PhantomData,
+        }
+    }
+
+    pub fn new_dummy(backend: T) -> Self {
+        Self {
+            use_dummy_backend: true,
+            ..Self::new(backend)
         }
     }
 
@@ -324,7 +331,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
             //
             // Here we choose the eth1_data corresponding to the latest block in our voting window.
             // If no votes exist, choose `state.eth1_data` as default vote.
-            let default_vote = votes_to_consider
+            votes_to_consider
                 .iter()
                 .max_by(|(_, x), (_, y)| x.cmp(y))
                 .map(|vote| {
@@ -348,8 +355,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
                     );
                     metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
                     vote
-                });
-            default_vote
+                })
         };
 
         debug!(

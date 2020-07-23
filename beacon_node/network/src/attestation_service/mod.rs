@@ -2,21 +2,24 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
-use crate::metrics;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{types::GossipKind, NetworkGlobals};
-use futures::prelude::*;
-use hashset_delay::HashSetDelay;
-use rand::seq::SliceRandom;
-use rest_types::ValidatorSubscription;
-use slog::{crit, debug, error, o, trace, warn};
-use slot_clock::SlotClock;
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+
+use futures::prelude::*;
+use rand::seq::SliceRandom;
+use slog::{crit, debug, error, o, trace, warn};
+
+use beacon_chain::{BeaconChain, BeaconChainTypes};
+use eth2_libp2p::{types::GossipKind, NetworkGlobals};
+use hashset_delay::HashSetDelay;
+use rest_types::ValidatorSubscription;
+use slot_clock::SlotClock;
 use types::{Attestation, EthSpec, Slot, SubnetId};
+
+use crate::metrics;
 
 mod tests;
 
@@ -276,7 +279,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
         let exact_subnet = ExactSubnet {
-            subnet_id: subnet.clone(),
+            subnet_id: subnet,
             slot: attestation.data.slot,
         };
         self.aggregate_validators_on_subnet.contains(&exact_subnet)
@@ -360,35 +363,33 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let mut is_duplicate = false;
 
         self.events.iter_mut().for_each(|event| {
-            match event {
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: other_subnet_id,
-                    min_ttl: other_min_ttl,
-                } => {
-                    if subnet_id == *other_subnet_id {
-                        let other_min_ttl_clone = other_min_ttl.clone();
-                        match (min_ttl, other_min_ttl_clone) {
-                            (Some(min_ttl_instant), Some(other_min_ttl_instant)) =>
-                            // only update the min_ttl if it is greater than the existing min_ttl and a DURATION_DIFFERENCE padding
+            if let AttServiceMessage::DiscoverPeers {
+                subnet_id: other_subnet_id,
+                min_ttl: other_min_ttl,
+            } = event
+            {
+                if subnet_id == *other_subnet_id {
+                    let other_min_ttl_clone = *other_min_ttl;
+                    match (min_ttl, other_min_ttl_clone) {
+                        (Some(min_ttl_instant), Some(other_min_ttl_instant)) =>
+                        // only update the min_ttl if it is greater than the existing min_ttl and a DURATION_DIFFERENCE padding
+                        {
+                            if min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
+                                > DURATION_DIFFERENCE
                             {
-                                if min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
-                                    > DURATION_DIFFERENCE
-                                {
-                                    *other_min_ttl = min_ttl;
-                                }
+                                *other_min_ttl = min_ttl;
                             }
-                            (None, Some(_)) => {} // Keep the current one as it has an actual min_ttl
-                            (Some(min_ttl), None) => {
-                                // Update the request to include a min_ttl.
-                                *other_min_ttl = Some(min_ttl);
-                            }
-                            (None, None) => {} // Duplicate message, do nothing.
                         }
-                        is_duplicate = true;
-                        return;
+                        (None, Some(_)) => {} // Keep the current one as it has an actual min_ttl
+                        (Some(min_ttl), None) => {
+                            // Update the request to include a min_ttl.
+                            *other_min_ttl = Some(min_ttl);
+                        }
+                        (None, None) => {} // Duplicate message, do nothing.
                     }
+                    is_duplicate = true;
+                    return;
                 }
-                _ => {}
             };
         });
         if !is_duplicate {
@@ -542,8 +543,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .gossipsub_subscriptions
                 .read()
                 .iter()
-                .find(|topic| topic.kind() == topic_kind)
-                .is_some();
+                .any(|topic| topic.kind() == topic_kind);
 
             if !already_subscribed {
                 // send a discovery request and a subscription
@@ -735,7 +735,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         match self.discover_peers.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_discover_peers(exact_subnet),
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for peer discovery requests"; "error"=> format ! ("{}", e));
+                error!(self.log, "Failed to check for peer discovery requests"; "error"=> e);
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -744,7 +744,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         match self.subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_subscriptions(exact_subnet),
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for subnet subscription times"; "error"=> format!("{}", e));
+                error!(self.log, "Failed to check for subnet subscription times"; "error"=> e);
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -753,7 +753,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         match self.unsubscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_unsubscriptions(exact_subnet),
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> format!("{}", e));
+                error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> e);
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -762,7 +762,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         match self.random_subnets.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(subnet))) => self.handle_random_subnet_expiry(subnet),
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{}", e));
+                error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -773,13 +773,13 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
                 let _ = self.handle_known_validator_expiry();
             }
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for random subnet cycles"; "error"=> format!("{}", e));
+                error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
         // poll to remove entries on expiration, no need to act on expiration events
         if let Poll::Ready(Some(Err(e))) = self.aggregate_validators_on_subnet.poll_next_unpin(cx) {
-            error!(self.log, "Failed to check for aggregate validator on subnet expirations"; "error"=> format!("{}", e));
+            error!(self.log, "Failed to check for aggregate validator on subnet expirations"; "error"=> e);
         }
 
         // process any generated events

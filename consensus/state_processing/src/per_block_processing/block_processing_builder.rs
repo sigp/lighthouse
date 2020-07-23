@@ -129,7 +129,7 @@ impl<'a, T: EthSpec> BlockProcessingBuilder<'a, T> {
             signature: AggregateSignature::new(),
         };
 
-        for (i, &validator_index) in committee.committee.into_iter().enumerate() {
+        for (i, &validator_index) in committee.committee.iter().enumerate() {
             if should_sign(i, validator_index) {
                 attestation
                     .sign(

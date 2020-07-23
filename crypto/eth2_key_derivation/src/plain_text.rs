@@ -16,6 +16,11 @@ impl PlainText {
         self.0.len()
     }
 
+    /// Checks whether `self` is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Returns a reference to the underlying bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0

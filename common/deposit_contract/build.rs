@@ -3,7 +3,6 @@
 //!
 //! These files are required for some `include_bytes` calls used in this crate.
 
-use hex;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::env;
@@ -87,7 +86,7 @@ pub fn download_deposit_contract(
 
                 let abi = contract
                     .get("abi")
-                    .ok_or(format!("Response does not contain key: abi"))?
+                    .ok_or_else(|| "Response does not contain key: abi".to_string())?
                     .to_string();
 
                 verify_checksum(abi.as_bytes(), abi_checksum);
@@ -98,7 +97,7 @@ pub fn download_deposit_contract(
 
                 let bytecode = contract
                     .get("bytecode")
-                    .ok_or(format!("Response does not contain key: bytecode"))?
+                    .ok_or_else(|| "Response does not contain key: bytecode".to_string())?
                     .to_string();
 
                 verify_checksum(bytecode.as_bytes(), bytecode_checksum);

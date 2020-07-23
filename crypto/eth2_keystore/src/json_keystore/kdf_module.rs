@@ -66,7 +66,7 @@ pub enum Prf {
 impl Prf {
     pub fn mac(&self, password: &[u8]) -> impl Mac {
         match &self {
-            _hmac_sha256 => {
+            Prf::HmacSha256 => {
                 Hmac::<Sha256>::new_varkey(password).expect("Could not derive HMAC using SHA256.")
             }
         }

@@ -10,6 +10,7 @@
 * [Key Management](./key-managment.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
+* [Validator Management](./validator-management.md)
 * [Local Testnets](./local-testnets.md)
 * [API](./api.md)
 	* [HTTP (RESTful JSON)](./http.md)

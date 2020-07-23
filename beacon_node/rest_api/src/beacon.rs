@@ -557,9 +557,7 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
                                     format!("Error while importing attester slashing: {:?}", e)
                                 })
                         } else {
-                            Err(format!(
-                                "Attester slashing only covers already slashed indices"
-                            ))
+                            Err("Attester slashing only covers already slashed indices".to_string())
                         }
                     })
                     .map_err(ApiError::BadRequest)

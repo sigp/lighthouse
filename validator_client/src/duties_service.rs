@@ -151,9 +151,9 @@ enum InsertOutcome {
 
 impl InsertOutcome {
     /// Returns `true` if the outcome indicates that the validator _might_ require a subscription.
-    pub fn is_subscription_candidate(self) -> bool {
+    pub fn is_subscription_candidate(&self) -> bool {
         match self {
-            InsertOutcome::Replaced { should_resubscribe } => should_resubscribe,
+            InsertOutcome::Replaced { should_resubscribe } => *should_resubscribe,
             InsertOutcome::NewValidator | InsertOutcome::NewEpoch => true,
             InsertOutcome::Identical | InsertOutcome::Invalid | InsertOutcome::NewProposalSlots => {
                 false

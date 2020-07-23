@@ -434,7 +434,7 @@ impl Service {
         for (block_range, log_chunk) in logs.iter() {
             let mut cache = self.deposits().write();
             log_chunk
-                .into_iter()
+                .iter()
                 .map(|raw_log| {
                     DepositLog::from_log(&raw_log, self.inner.spec()).map_err(|error| {
                         Error::FailedToParseDepositLog {
