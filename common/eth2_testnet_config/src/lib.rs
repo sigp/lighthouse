@@ -229,6 +229,7 @@ mod tests {
             Eth2TestnetConfig::<E>::hard_coded().expect("should decode hard_coded params")
         {
             assert!(dir.boot_enr.is_some());
+            #[cfg(feature = "genesis_state")]
             assert!(dir.genesis_state.is_some());
             assert!(dir.yaml_config.is_some());
         }
