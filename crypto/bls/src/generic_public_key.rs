@@ -74,7 +74,7 @@ impl<Pub: TPublicKey> Eq for GenericPublicKey<Pub> {}
 
 impl<Pub: TPublicKey> PartialEq for GenericPublicKey<Pub> {
     fn eq(&self, other: &Self) -> bool {
-        &self.serialize()[..] == &other.serialize()[..]
+        self.serialize()[..] == other.serialize()[..]
     }
 }
 

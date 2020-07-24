@@ -108,7 +108,7 @@ where
 
     /// Returns `true` if `self.signature` is a signature across `self.message` by
     /// `self.signing_keys`.
-    pub fn is_valid(self) -> bool {
+    pub fn verify(self) -> bool {
         let pubkeys = self
             .signing_keys
             .iter()

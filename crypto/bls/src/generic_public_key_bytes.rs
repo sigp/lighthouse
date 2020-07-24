@@ -32,7 +32,7 @@ where
     ///
     /// May fail if the bytes are invalid.
     pub fn decompress(&self) -> Result<GenericPublicKey<Pub>, Error> {
-        let is_infinity = &self.bytes[..] == &INFINITY_PUBLIC_KEY[..];
+        let is_infinity = self.bytes[..] == INFINITY_PUBLIC_KEY[..];
         Pub::deserialize(&self.bytes).map(|point| GenericPublicKey::from_point(point, is_infinity))
     }
 }
@@ -57,7 +57,7 @@ impl<Pub> GenericPublicKeyBytes<Pub> {
     ///
     /// The bytes are not verified (i.e., they may not represent a valid BLS point).
     pub fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
-        self.bytes.clone()
+        self.bytes
     }
 
     /// Instantiates `Self` from bytes.
@@ -85,7 +85,7 @@ impl<Pub> Eq for GenericPublicKeyBytes<Pub> {}
 
 impl<Pub> PartialEq for GenericPublicKeyBytes<Pub> {
     fn eq(&self, other: &Self) -> bool {
-        &self.bytes[..] == &other.bytes[..]
+        self.bytes[..] == other.bytes[..]
     }
 }
 

@@ -112,7 +112,7 @@ impl TSignature<milagro::PublicKey> for milagro::Signature {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        milagro::Signature::from_bytes(&bytes).map_err(|e| Error::MilagroError(e))
+        milagro::Signature::from_bytes(&bytes).map_err(Error::MilagroError)
     }
 
     fn verify(&self, pubkey: &milagro::PublicKey, msg: Hash256) -> bool {
@@ -144,7 +144,7 @@ impl TAggregateSignature<milagro::PublicKey, milagro::AggregatePublicKey, milagr
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        milagro::AggregateSignature::from_bytes(&bytes).map_err(|e| Error::MilagroError(e))
+        milagro::AggregateSignature::from_bytes(&bytes).map_err(Error::MilagroError)
     }
 
     fn fast_aggregate_verify(

@@ -42,7 +42,7 @@ impl PublicKey {
 
 impl TPublicKey for PublicKey {
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
-        self.0.clone()
+        self.0
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
@@ -56,7 +56,7 @@ impl Eq for PublicKey {}
 
 impl PartialEq for PublicKey {
     fn eq(&self, other: &Self) -> bool {
-        &self.0[..] == &other.0[..]
+        self.0[..] == other.0[..]
     }
 }
 
@@ -87,7 +87,7 @@ impl Eq for AggregatePublicKey {}
 
 impl PartialEq for AggregatePublicKey {
     fn eq(&self, other: &Self) -> bool {
-        &self.0[..] == &other.0[..]
+        self.0[..] == other.0[..]
     }
 }
 
@@ -102,7 +102,7 @@ impl Signature {
 
 impl TSignature<PublicKey> for Signature {
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
-        self.0.clone()
+        self.0
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
@@ -118,7 +118,7 @@ impl TSignature<PublicKey> for Signature {
 
 impl PartialEq for Signature {
     fn eq(&self, other: &Self) -> bool {
-        &self.0[..] == &other.0[..]
+        self.0[..] == other.0[..]
     }
 }
 
@@ -181,7 +181,7 @@ impl Eq for AggregateSignature {}
 
 impl PartialEq for AggregateSignature {
     fn eq(&self, other: &Self) -> bool {
-        &self.0[..] == &other.0[..]
+        self.0[..] == other.0[..]
     }
 }
 

@@ -34,7 +34,7 @@ where
     ///
     /// May fail if the bytes are invalid.
     pub fn decompress(&self) -> Result<GenericSignature<Pub, Sig>, Error> {
-        let is_infinity = &self.bytes[..] == &INFINITY_SIGNATURE[..];
+        let is_infinity = self.bytes[..] == INFINITY_SIGNATURE[..];
         Sig::deserialize(&self.bytes).map(|point| GenericSignature::from_point(point, is_infinity))
     }
 }
@@ -53,7 +53,7 @@ impl<Pub, Sig> GenericSignatureBytes<Pub, Sig> {
     ///
     /// The bytes are not verified (i.e., they may not represent a valid BLS point).
     pub fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
-        self.bytes.clone()
+        self.bytes
     }
 
     /// Instantiates `Self` from bytes.
@@ -80,7 +80,7 @@ impl<Pub, Sig> GenericSignatureBytes<Pub, Sig> {
 
 impl<Pub, Sig> PartialEq for GenericSignatureBytes<Pub, Sig> {
     fn eq(&self, other: &Self) -> bool {
-        &self.bytes[..] == &other.bytes[..]
+        self.bytes[..] == other.bytes[..]
     }
 }
 

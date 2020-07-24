@@ -214,7 +214,7 @@ pub fn verify_block_signature<T: EthSpec>(
             block_root,
             spec
         )?
-        .is_valid(),
+        .verify(),
         HeaderInvalid::ProposalSignatureInvalid
     );
 
@@ -234,8 +234,7 @@ pub fn process_randao<T: EthSpec>(
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?
-                .is_valid(),
+            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }

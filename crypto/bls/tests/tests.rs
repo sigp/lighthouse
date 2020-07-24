@@ -142,7 +142,7 @@ macro_rules! test_suite {
                 // Check a single-signature signature set.
                 assert_eq!(
                     SignatureSet::single_pubkey(&self.sig, Cow::Borrowed(&self.pubkey), self.msg,)
-                        .is_valid(),
+                        .verify(),
                     is_valid
                 )
             }
@@ -408,7 +408,7 @@ macro_rules! test_suite {
 
             pub fn run_checks(&self) {
                 assert_eq!(
-                    self.multiple_pubkeys().is_valid(),
+                    self.multiple_pubkeys().verify(),
                     self.should_be_valid,
                     "multiple pubkey expected {} but got {}",
                     self.should_be_valid,

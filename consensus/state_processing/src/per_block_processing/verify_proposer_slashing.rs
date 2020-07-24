@@ -57,8 +57,8 @@ pub fn verify_proposer_slashing<T: EthSpec>(
             proposer_slashing,
             spec,
         )?;
-        verify!(signature_set_1.is_valid(), Invalid::BadProposal1Signature);
-        verify!(signature_set_2.is_valid(), Invalid::BadProposal2Signature);
+        verify!(signature_set_1.verify(), Invalid::BadProposal1Signature);
+        verify!(signature_set_2.verify(), Invalid::BadProposal2Signature);
     }
 
     Ok(())
