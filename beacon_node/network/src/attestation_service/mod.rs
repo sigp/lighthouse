@@ -198,6 +198,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
+        // TODO(pawan): maybe this should be a set (Multiple validators might be attesting on same subnet)
+        let mut subnets_to_discover = Vec::new();
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
@@ -231,10 +233,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 subnet_id,
                 slot: subscription.slot,
             };
-            // determine if we should run a discovery lookup request and request it if required
-            if let Err(e) = self.discover_peers_request(exact_subnet.clone()) {
-                warn!(self.log, "Discovery lookup request error"; "error" => e);
-            }
+            subnets_to_discover.push(exact_subnet.clone());
 
             // determine if the validator is an aggregator. If so, we subscribe to the subnet and
             // if successful add the validator to a mapping of known aggregators for that exact
@@ -264,6 +263,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             }
         }
 
+        self.discover_peers_request(subnets_to_discover);
+
         // pre-emptively wake the thread to check for new events
         if let Some(waker) = &self.waker {
             waker.wake_by_ref();
@@ -292,110 +293,48 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// If there is sufficient time and no other request exists, queues a peer discovery request
     /// for the required subnet.
-    fn discover_peers_request(&mut self, exact_subnet: ExactSubnet) -> Result<(), &'static str> {
+    fn discover_peers_request(
+        &mut self,
+        exact_subnets: Vec<ExactSubnet>,
+    ) -> Result<(), &'static str> {
         let current_slot = self
             .beacon_chain
             .slot_clock
             .now()
             .ok_or_else(|| "Could not get the current slot")?;
-        let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
-        // if there is enough time to perform a discovery lookup
-        if exact_subnet.slot >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD) {
-            // check if a discovery request already exists
-            if self.discover_peers.get(&exact_subnet).is_some() {
-                // already a request queued, end
-                return Ok(());
-            }
-
-            // if the slot is more than epoch away, add an event to start looking for peers
-            if exact_subnet.slot
-                < current_slot.saturating_add(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD)
-            {
-                // add one slot to ensure we keep the peer for the subscription slot
-                let min_ttl = self
-                    .beacon_chain
-                    .slot_clock
-                    .duration_to_slot(exact_subnet.slot + 1)
-                    .map(|duration| std::time::Instant::now() + duration);
-
-                self.send_or_update_discovery_event(exact_subnet.subnet_id, min_ttl);
-            } else {
-                // Queue the discovery event to be executed for
-                // TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD
-
-                let duration_to_discover = {
-                    let duration_to_next_slot = self
+        let discovery_subnets: Vec<(SubnetId, Option<Instant>)> = exact_subnets
+            .into_iter()
+            .filter_map(|exact_subnet| {
+                // if there is enough time to perform a discovery lookup
+                // TODO(pawan): should probs increase MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD
+                if exact_subnet.slot
+                    >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD)
+                {
+                    // if the slot is more than epoch away, add an event to start looking for peers
+                    // add one slot to ensure we keep the peer for the subscription slot
+                    let min_ttl = self
                         .beacon_chain
                         .slot_clock
-                        .duration_to_next_slot()
-                        .ok_or_else(|| "Unable to determine duration to next slot")?;
-                    // The -1 is done here to exclude the current slot duration, as we will use
-                    // `duration_to_next_slot`.
-                    let slots_until_discover = exact_subnet
-                        .slot
-                        .saturating_sub(current_slot)
-                        .saturating_sub(1u64)
-                        .saturating_sub(TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD);
-
-                    duration_to_next_slot + slot_duration * (slots_until_discover.as_u64() as u32)
-                };
-
-                self.discover_peers
-                    .insert_at(exact_subnet, duration_to_discover);
-            }
-        } else {
-            // TODO: Send the time frame needed to have a peer connected, so that we can
-            // maintain peers for a least this duration.
-            // We may want to check the global PeerInfo to see estimated timeouts for each
-            // peer before they can be removed.
-            return Err("Not enough time for a discovery search");
-        }
-        Ok(())
-    }
-
-    /// Checks if we have a discover peers event already and sends a new event if necessary
-    ///
-    /// If a message exists for the same subnet, compare the `min_ttl` of the current and
-    /// existing messages and extend the existing message as necessary.
-    fn send_or_update_discovery_event(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
-        // track whether this message already exists in the event queue
-        let mut is_duplicate = false;
-
-        self.events.iter_mut().for_each(|event| {
-            if let AttServiceMessage::DiscoverPeers {
-                subnet_id: other_subnet_id,
-                min_ttl: other_min_ttl,
-            } = event
-            {
-                if subnet_id == *other_subnet_id {
-                    let other_min_ttl_clone = *other_min_ttl;
-                    match (min_ttl, other_min_ttl_clone) {
-                        (Some(min_ttl_instant), Some(other_min_ttl_instant)) =>
-                        // only update the min_ttl if it is greater than the existing min_ttl and a DURATION_DIFFERENCE padding
-                        {
-                            if min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
-                                > DURATION_DIFFERENCE
-                            {
-                                *other_min_ttl = min_ttl;
-                            }
-                        }
-                        (None, Some(_)) => {} // Keep the current one as it has an actual min_ttl
-                        (Some(min_ttl), None) => {
-                            // Update the request to include a min_ttl.
-                            *other_min_ttl = Some(min_ttl);
-                        }
-                        (None, None) => {} // Duplicate message, do nothing.
-                    }
-                    is_duplicate = true;
-                    return;
+                        .duration_to_slot(exact_subnet.slot + 1)
+                        .map(|duration| std::time::Instant::now() + duration);
+                    Some((exact_subnet.subnet_id, min_ttl))
+                } else {
+                    // TODO: Send the time frame needed to have a peer connected, so that we can
+                    // maintain peers for a least this duration.
+                    // We may want to check the global PeerInfo to see estimated timeouts for each
+                    // peer before they can be removed.
+                    warn!(self.log,
+                        "Not enough time for a discovery search";
+                        "subnet_id" => format!("{:?}", exact_subnet)
+                    );
+                    None
                 }
-            };
-        });
-        if !is_duplicate {
-            self.events
-                .push_back(AttServiceMessage::DiscoverPeers { subnet_id, min_ttl });
-        }
+            })
+            .collect();
+        self.events
+            .push_back(AttServiceMessage::DiscoverPeers { discovery_subnets });
+        Ok(())
     }
 
     /// Checks the current random subnets and subscriptions to determine if a new subscription for this
