@@ -46,6 +46,32 @@ const HEARTBEAT_INTERVAL: u64 = 30;
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
 const PEER_EXCESS_FACTOR: f32 = 0.1;
+const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
+
+/// A subnet to discover peers on along with the instant after which it's no longer useful.
+// TODO(pawan): rename to something better
+#[derive(Debug, Clone)]
+pub struct SubnetDiscovery {
+    pub subnet_id: SubnetId,
+    pub min_ttl: Option<Instant>,
+}
+
+impl PartialEq for SubnetDiscovery {
+    fn eq(&self, other: &SubnetDiscovery) -> bool {
+        self.subnet_id == other.subnet_id
+            && match (self.min_ttl, other.min_ttl) {
+                (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
+                    min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
+                        < DURATION_DIFFERENCE
+                        && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
+                            < DURATION_DIFFERENCE
+                }
+                (None, None) => true,
+                (None, Some(_)) => true,
+                (Some(_), None) => true,
+            }
+    }
+}
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -212,17 +238,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// A request to find peers on a given subnet.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
         // Extend the time to maintain peers if required.
-        if let Some(min_ttl) = min_ttl {
-            self.network_globals
-                .peers
-                .write()
-                .extend_peers_on_subnet(subnet_id, min_ttl);
+        for s in subnets_to_discover.iter() {
+            if let Some(min_ttl) = s.min_ttl {
+                self.network_globals
+                    .peers
+                    .write()
+                    .extend_peers_on_subnet(s.subnet_id, min_ttl);
+            }
         }
 
         // request the subnet query from discovery
-        self.discovery.discover_subnet_peers(subnet_id, min_ttl);
+        self.discovery.discover_subnet_peers(subnets_to_discover);
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.

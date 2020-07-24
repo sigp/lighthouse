@@ -3,6 +3,7 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
+use crate::peer_manager::SubnetDiscovery;
 pub use enr::{build_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::Keypair;
@@ -250,12 +251,19 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Processes a request to search for more peers on a subnet.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
         // If the discv5 service isn't running, ignore queries
         if !self.started {
             return;
         }
-        self.add_subnet_query(subnet_id, min_ttl, 0);
+        for s in subnets_to_discover {
+            debug!(
+                self.log,
+                "Making discovery query for subnet";
+                "subnet_id" => format!("{:?}", s)
+            );
+            self.add_subnet_query(s.subnet_id, s.min_ttl, 0);
+        }
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.
