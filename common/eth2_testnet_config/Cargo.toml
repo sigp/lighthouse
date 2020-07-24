@@ -6,6 +6,12 @@ edition = "2018"
 
 build = "build.rs"
 
+[features]
+# Generally present when genesis has already occurred, not present when we are
+# still waiting for genesis on a testnet.
+default = []
+genesis_state = []
+
 [build-dependencies]
 reqwest = { version = "0.10.4", features = ["blocking"] }
 

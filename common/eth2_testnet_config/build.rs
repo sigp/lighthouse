@@ -5,7 +5,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-const TESTNET_ID: &str = "altona-v3";
+const TESTNET_ID: &str = "medalla.beta.0";
+const GIT_COMMIT: &str = "3b9f8ee83d03f3f03d492e1d7b76e910f6b44b82";
 
 fn main() {
     if !base_dir().exists() {
@@ -31,15 +32,18 @@ pub fn get_all_files() -> Result<(), String> {
     get_file("config.yaml")?;
     get_file("deploy_block.txt")?;
     get_file("deposit_contract.txt")?;
-    get_file("genesis.ssz")?;
+
+    if cfg!(genesis_state) {
+        get_file("genesis.ssz")?;
+    }
 
     Ok(())
 }
 
 pub fn get_file(filename: &str) -> Result<(), String> {
     let url = format!(
-        "https://raw.githubusercontent.com/sigp/witti/a94e00c1a03df851f960fcf44a79f2a6b1d29af1/altona/lighthouse/{}",
-        filename
+        "https://raw.githubusercontent.com/sigp/witti/{}/medalla/{}",
+        GIT_COMMIT, filename
     );
 
     let path = base_dir().join(filename);

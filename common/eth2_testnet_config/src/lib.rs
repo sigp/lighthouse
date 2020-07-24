@@ -23,13 +23,16 @@ pub const YAML_CONFIG_FILE: &str = "config.yaml";
 /// The name of the testnet to hardcode.
 ///
 /// Should be set to `None` when no existing testnet is compatible with the codebase.
-pub const HARDCODED_TESTNET: Option<&str> = Some("altona-v3");
+pub const HARDCODED_TESTNET: Option<&str> = Some("medalla.beta.0");
 
-pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../altona-v3/config.yaml");
-pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../altona-v3/deploy_block.txt");
-pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../altona-v3/deposit_contract.txt");
-pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../altona-v3/genesis.ssz");
-pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../altona-v3/boot_enr.yaml");
+pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../medalla.beta.0/config.yaml");
+pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../medalla.beta.0/deploy_block.txt");
+pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] =
+    include_bytes!("../medalla.beta.0/deposit_contract.txt");
+pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../medalla.beta.0/boot_enr.yaml");
+
+#[cfg(feature = "genesis_state")]
+pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../medalla.beta.0/genesis.ssz");
 
 /// Specifies an Eth2 testnet.
 ///
@@ -51,6 +54,15 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
     /// Returns `None` if the hardcoded testnet is disabled.
     pub fn hard_coded() -> Result<Option<Self>, String> {
         if HARDCODED_TESTNET.is_some() {
+            #[cfg(feature = "genesis_state")]
+            let genesis_state = Some(
+                BeaconState::from_ssz_bytes(HARDCODED_GENESIS_STATE)
+                    .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
+            );
+
+            #[cfg(not(feature = "genesis_state"))]
+            let genesis_state = None;
+
             Ok(Some(Self {
                 deposit_contract_address: serde_yaml::from_reader(HARDCODED_DEPOSIT_CONTRACT)
                     .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
@@ -60,10 +72,7 @@ impl<E: EthSpec> Eth2TestnetConfig<E> {
                     serde_yaml::from_reader(HARDCODED_BOOT_ENR)
                         .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
                 ),
-                genesis_state: Some(
-                    BeaconState::from_ssz_bytes(HARDCODED_GENESIS_STATE)
-                        .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
-                ),
+                genesis_state,
                 yaml_config: Some(
                     serde_yaml::from_reader(HARDCODED_YAML_CONFIG)
                         .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
