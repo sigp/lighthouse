@@ -34,8 +34,8 @@ pub struct Eth1DataVotesTreeHashCache<T: EthSpec> {
 impl<T: EthSpec> Eth1DataVotesTreeHashCache<T> {
     /// Instantiates a new cache.
     ///
-    /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
-    /// hashing.
+    /// Allocates the necessary memory to store all of the cached Merkle trees. Only the leaves are
+    /// hashed, leaving the internal nodes as all-zeros.
     pub fn new(state: &BeaconState<T>) -> Self {
         let mut arena = CacheArena::default();
         let roots: VariableList<_, _> = state
@@ -62,7 +62,7 @@ impl<T: EthSpec> Eth1DataVotesTreeHashCache<T> {
         if state.eth1_data_votes.len() < self.roots.len()
             || Self::voting_period(state.slot) != self.voting_period
         {
-            std::mem::replace(self, Self::new(state));
+            *self = Self::new(state);
         }
 
         state
@@ -102,8 +102,8 @@ pub struct BeaconTreeHashCache<T: EthSpec> {
 impl<T: EthSpec> BeaconTreeHashCache<T> {
     /// Instantiates a new cache.
     ///
-    /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
-    /// hashing.
+    /// Allocates the necessary memory to store all of the cached Merkle trees. Only the leaves are
+    /// hashed, leaving the internal nodes as all-zeros.
     pub fn new(state: &BeaconState<T>) -> Self {
         let mut fixed_arena = CacheArena::default();
         let block_roots = state.block_roots.new_tree_hash_cache(&mut fixed_arena);
@@ -147,7 +147,7 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
         // allows us to make assumptions about how the state changes over times and produce a more
         // efficient algorithm.
         if let Some((previous_root, previous_slot)) = self.previous_state {
-            // The given state must be older than the given state.
+            // The previously-hashed state must not be newer than `state`.
             if previous_slot > state.slot {
                 return Err(Error::TreeHashCacheSkippedSlot {
                     cache: previous_slot,
