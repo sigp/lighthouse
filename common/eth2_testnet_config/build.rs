@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 const TESTNET_ID: &str = "medalla.beta.0";
-const GIT_COMMIT: &str = "3b9f8ee83d03f3f03d492e1d7b76e910f6b44b82";
+const GIT_COMMIT: &str = "111b090aab8a185540b15853629cd1aa576ca966";
 
 fn main() {
     if !base_dir().exists() {
