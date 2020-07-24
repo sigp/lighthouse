@@ -63,6 +63,11 @@ impl<T: EthSpec> PeerInfo<T> {
         }
         false
     }
+
+    /// Reports if this peer has some future validator duty in which case it is valuable to keep it.
+    pub fn has_future_duty(&self) -> bool {
+        self.min_ttl.map_or(false, |i| i >= Instant::now())
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]

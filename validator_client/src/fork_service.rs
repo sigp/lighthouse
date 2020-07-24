@@ -95,7 +95,7 @@ impl<T, E: EthSpec> Deref for ForkService<T, E> {
 impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
     /// Returns the last fork downloaded from the beacon node, if any.
     pub fn fork(&self) -> Option<Fork> {
-        self.fork.read().clone()
+        *self.fork.read()
     }
 
     /// Starts the service that periodically polls for the `Fork`.

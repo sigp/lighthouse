@@ -1,5 +1,4 @@
 use clap::ArgMatches;
-use clap_utils;
 use deposit_contract::{
     testnet::{ABI, BYTECODE},
     CONTRACT_DEPLOY_GAS,

@@ -16,6 +16,7 @@ members = [
 
 	"boot_node",
 
+    "common/account_utils",
     "common/clap_utils",
     "common/compare_fields",
     "common/compare_fields_derive",

@@ -30,11 +30,9 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run(matches, base_dir),
         (list::CMD, Some(_)) => list::cli_run(base_dir),
-        (unknown, _) => {
-            return Err(format!(
-                "{} does not have a {} command. See --help",
-                CMD, unknown
-            ));
-        }
+        (unknown, _) => Err(format!(
+            "{} does not have a {} command. See --help",
+            CMD, unknown
+        )),
     }
 }

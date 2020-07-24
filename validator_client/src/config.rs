@@ -23,10 +23,10 @@ pub struct Config {
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
-    /// If true, we will be strict about concurrency and validator registration.
-    pub strict: bool,
-    /// If true, register new validator keys with the slashing protection database.
-    pub auto_register: bool,
+    /// If true, refuse to unlock a keypair that is guarded by a lockfile.
+    pub strict_lockfiles: bool,
+    /// If true, don't scan the validators dir for new keystores.
+    pub disable_auto_discover: bool,
 }
 
 impl Default for Config {
@@ -43,8 +43,8 @@ impl Default for Config {
             secrets_dir,
             http_server: DEFAULT_HTTP_SERVER.to_string(),
             allow_unsynced_beacon_node: false,
-            auto_register: false,
-            strict: false,
+            strict_lockfiles: false,
+            disable_auto_discover: false,
         }
     }
 }
@@ -73,13 +73,8 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
-        config.auto_register = cli_args.is_present("auto-register");
-        config.strict = cli_args.is_present("strict");
-
-        if !config.strict {
-            // Do not require an explicit `--auto-register` if `--strict` is disabled.
-            config.auto_register = true
-        }
+        config.strict_lockfiles = cli_args.is_present("strict-lockfiles");
+        config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
 
         if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
             config.secrets_dir = secrets_dir;

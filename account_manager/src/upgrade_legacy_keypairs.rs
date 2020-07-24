@@ -112,7 +112,7 @@ fn upgrade_keypair<P: AsRef<Path>>(
     let validator_dir = validator_dir.as_ref();
     let secrets_dir = secrets_dir.as_ref();
 
-    let keypair: Keypair = load_unencrypted_keypair(validator_dir.join(input_filename))?.into();
+    let keypair: Keypair = load_unencrypted_keypair(validator_dir.join(input_filename))?;
 
     let password = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -136,7 +136,7 @@ fn upgrade_keypair<P: AsRef<Path>>(
         .to_json_writer(&mut file)
         .map_err(|e| format!("Cannot write keystore to {:?}: {:?}", keystore_path, e))?;
 
-    let password_path = secrets_dir.join(format!("{}", keypair.pk.as_hex_string()));
+    let password_path = secrets_dir.join(keypair.pk.as_hex_string());
 
     if password_path.exists() {
         return Err(format!("{:?} already exists", password_path));

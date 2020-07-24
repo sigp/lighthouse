@@ -93,8 +93,8 @@ fn verify_casper_ffg_vote<T: EthSpec>(
         verify!(
             data.source == state.current_justified_checkpoint,
             Invalid::WrongJustifiedCheckpoint {
-                state: state.current_justified_checkpoint.clone(),
-                attestation: data.source.clone(),
+                state: state.current_justified_checkpoint,
+                attestation: data.source,
                 is_current: true,
             }
         );
@@ -103,8 +103,8 @@ fn verify_casper_ffg_vote<T: EthSpec>(
         verify!(
             data.source == state.previous_justified_checkpoint,
             Invalid::WrongJustifiedCheckpoint {
-                state: state.previous_justified_checkpoint.clone(),
-                attestation: data.source.clone(),
+                state: state.previous_justified_checkpoint,
+                attestation: data.source,
                 is_current: false,
             }
         );

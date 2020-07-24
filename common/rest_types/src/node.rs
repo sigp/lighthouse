@@ -86,18 +86,18 @@ impl Health {
             psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
         Ok(Self {
-            pid: process.pid().into(),
+            pid: process.pid(),
             pid_num_threads: stat.num_threads,
-            pid_mem_resident_set_size: process_mem.rss().into(),
-            pid_mem_virtual_memory_size: process_mem.vms().into(),
-            sys_virt_mem_total: vm.total().into(),
-            sys_virt_mem_available: vm.available().into(),
-            sys_virt_mem_used: vm.used().into(),
-            sys_virt_mem_free: vm.free().into(),
-            sys_virt_mem_percent: vm.percent().into(),
-            sys_loadavg_1: loadavg.one.into(),
-            sys_loadavg_5: loadavg.five.into(),
-            sys_loadavg_15: loadavg.fifteen.into(),
+            pid_mem_resident_set_size: process_mem.rss(),
+            pid_mem_virtual_memory_size: process_mem.vms(),
+            sys_virt_mem_total: vm.total(),
+            sys_virt_mem_available: vm.available(),
+            sys_virt_mem_used: vm.used(),
+            sys_virt_mem_free: vm.free(),
+            sys_virt_mem_percent: vm.percent(),
+            sys_loadavg_1: loadavg.one,
+            sys_loadavg_5: loadavg.five,
+            sys_loadavg_15: loadavg.fifteen,
         })
     }
 }
