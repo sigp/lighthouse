@@ -7,6 +7,7 @@
 * [Installation](./installation.md)
     * [Docker](./docker.md)
     * [Raspberry Pi 4](./pi.md)
+    * [Deposit to Medalla](./deposit-medalla.md)
 * [Key Management](./key-managment.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
