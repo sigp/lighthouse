@@ -13,6 +13,8 @@ pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
 pub const PASSWORD_PROMPT: &str = "Enter a password, or press enter to omit a password:";
 
+pub const DOMAIN: &str = "http://localhost:4242";
+
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about("Easily create validators sharing a common mnemonic and passphrase.")
@@ -99,14 +101,14 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
                 \n\
                 Storing your seed phrase *only on paper* and in multiple, secure locations \
                 is recommended.\
-                \n",
+                \n\n\n",
         )
         .map_err(|e| e.to_string())?;
 
         term.write_line(mnemonic.phrase())
             .map_err(|e| e.to_string())?;
 
-        term.write_line("\nPress any key when you have recorded your seed phrase.")
+        term.write_line("\n\n\nPress any key when you have recorded your seed phrase.")
             .map_err(|e| e.to_string())?;
 
         term.read_line().map_err(|e| e.to_string())?;
@@ -116,7 +118,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
             .map_err(|e| e.to_string())?;
 
         let confirmation = term
-            .read_secure_line()
+            .read_line()
             .map(ZeroizeString::from)
             .map_err(|e| e.to_string())?;
 
@@ -179,8 +181,84 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, mut env: Environment<T>) -> Res
 
     term.clear_screen().map_err(|e| e.to_string())?;
 
-    term.write_line(&format!("Created {} validators.", count))
+    term.write_line(&format!("Created {} validators!\n", count))
         .map_err(|e| e.to_string())?;
+
+    term.write_line(
+        "If you would like to use Metamask in your web browser to submit \
+        deposits enter 'y' now, this is the simplest option.\
+        \n\n\
+        Otherwise, enter 'n' \
+        to submit deposits via `lighthouse account validator deposit` or some \
+        other method.\
+        \n\n\
+        Enter 'y' or 'n':",
+    )
+    .map_err(|e| e.to_string())?;
+
+    let display_urls = read_until_ok(&term, |val| match val.as_ref() {
+        "y" | "Y" => Ok(true),
+        "n" | "N" => Ok(false),
+        _ => Err("Must provide nothing or 'done'.".to_string()),
+    })?;
+
+    term.clear_screen().map_err(|e| e.to_string())?;
+
+    if count > 1 {
+        term.write_line(&format!(
+            "You will be displayed {} links, click each one and submit a \
+            Metamask transaction. \
+            \n\n\
+            Only submit deposits to the sigmaprime.io domain, look for the \
+            HTTPS icon in your browser!\
+            \n\n\
+            Press enter to continue.\
+            \n",
+            count
+        ))
+        .map_err(|e| e.to_string())?;
+        term.read_line().map_err(|e| e.to_string())?;
+    }
+
+    if display_urls {
+        for (i, validator_dir) in validator_dirs.iter().enumerate() {
+            term.clear_screen().map_err(|e| e.to_string())?;
+
+            let eth1_deposit_data = validator_dir
+                .eth1_deposit_data()
+                .map_err(|e| format!("Failed to read deposit data for new validator: {:?}", e))?
+                .ok_or_else(|| "No deposit data for new validator".to_string())?;
+
+            term.write_line(&format!(
+                "Validator Deposit Link {} of {} \
+                \n\n\
+                {}/deposit-medalla.html?txData=0x{}\
+                \n\n\
+                Press enter when you have clicked the link and submitted \
+                a deposit of Goerli ETH via Metamask.",
+                i + 1,
+                count,
+                DOMAIN,
+                hex::encode(eth1_deposit_data.rlp),
+            ))
+            .map_err(|e| e.to_string())?;
+
+            term.read_line().map_err(|e| e.to_string())?;
+        }
+    }
+
+    term.clear_screen().map_err(|e| e.to_string())?;
+
+    term.write_line(
+        "The process is complete!.\
+        \n\n\
+        Use a Lighthouse validator client to start staking with these validators.\
+        \n\n\
+        Press any key to exit.",
+    )
+    .map_err(|e| e.to_string())?;
+
+    term.read_line().map_err(|e| e.to_string())?;
 
     Ok(())
 }
