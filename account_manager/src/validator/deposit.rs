@@ -118,6 +118,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn send_deposit_transactions<T1, T2: 'static>(
     mut env: Environment<T1>,
     log: Logger,
