@@ -88,8 +88,7 @@ pub enum Error {
     ///
     /// ## Peer scoring
     ///
-    /// A gossiped aggregate attestation must have *at least one* participant in the aggregate
-    /// signature. The peer has sent an invalid message.
+    /// The peer has sent an invalid message.
     EmptyAggregationBitfield,
     /// The `selection_proof` on the aggregate attestation does not elect it as an aggregator.
     ///
@@ -147,10 +146,11 @@ pub enum Error {
     BadTargetEpoch,
     /// The target root of the attestation points to a block that we have not verified.
     ///
+    /// This is invalid behaviour whilst we first check for `UnknownHeadBlock`.
+    ///
     /// ## Peer scoring
     ///
-    /// The attestation points to a block we have not yet imported. It's unclear if the attestation
-    /// is valid or not.
+    /// The peer has sent an invalid message.
     UnknownTargetRoot(Hash256),
     /// A signature on the attestation is invalid.
     ///

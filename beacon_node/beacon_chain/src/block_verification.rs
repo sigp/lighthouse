@@ -137,6 +137,8 @@ pub enum BlockError {
     ///
     /// We set a very, very high maximum slot number and this block exceeds it. There's no good
     /// reason to be sending these blocks, they're from future slots.
+    ///
+    /// The block is invalid and the peer is faulty.
     BlockSlotLimitReached,
     /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
     ///
