@@ -40,10 +40,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             have been created and exist on the file-system. The process will exit immediately \
             with an error if any error occurs. After each deposit is submitted to the Eth1 \
             node, a file will be saved in the validator directory with the transaction hash. \
-            The application does not wait for confirmations so there is not guarantee that \
-            the transaction is included in the Eth1 chain; use a block explorer and the \
-            transaction hash to check for confirmations. The deposit contract address will \
-            be determined by the --testnet-dir flag on the primary Lighthouse binary.",
+            If confirmations are set to non-zero then the application will wait for confirmations \
+            before saving the transaction hash and moving onto the next batch of deposits. \
+            The deposit contract address will be determined by the --testnet-dir flag on the \
+            primary Lighthouse binary.",
         )
         .arg(
             Arg::with_name(VALIDATOR_DIR_FLAG)
