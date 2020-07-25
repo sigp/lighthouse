@@ -126,10 +126,10 @@ impl<'a, T: EthSpec> BlockProcessingBuilder<'a, T> {
         let mut attestation = Attestation {
             aggregation_bits: BitList::with_capacity(committee.committee.len()).unwrap(),
             data,
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty(),
         };
 
-        for (i, &validator_index) in committee.committee.into_iter().enumerate() {
+        for (i, &validator_index) in committee.committee.iter().enumerate() {
             if should_sign(i, validator_index) {
                 attestation
                     .sign(

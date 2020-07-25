@@ -53,6 +53,6 @@ fn reference_public_keys() {
             "Reference should be 48 bytes (public key size)"
         );
 
-        assert_eq!(pair.pk.as_bytes().to_vec(), reference);
+        assert_eq!(pair.pk.serialize().to_vec(), reference);
     });
 }

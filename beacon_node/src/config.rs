@@ -10,7 +10,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
 
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
@@ -67,7 +67,7 @@ pub fn get_config<E: EthSpec>(
     let mut log_dir = client_config.data_dir.clone();
     // remove /beacon from the end
     log_dir.pop();
-    info!(log, "Data directory initialised"; "datadir" => format!("{}",log_dir.into_os_string().into_string().expect("Datadir should be a valid os string")));
+    info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
 
     client_config.spec_constants = spec_constants.into();
     client_config.testnet_dir = get_testnet_dir(cli_args);
@@ -89,10 +89,10 @@ pub fn get_config<E: EthSpec>(
         client_config.network.listen_address = listen_address;
     }
 
-    if let Some(max_peers_str) = cli_args.value_of("max-peers") {
-        client_config.network.max_peers = max_peers_str
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        client_config.network.target_peers = target_peers_str
             .parse::<usize>()
-            .map_err(|_| format!("Invalid number of max peers: {}", max_peers_str))?;
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
     }
 
     if let Some(port_str) = cli_args.value_of("port") {
@@ -180,7 +180,7 @@ pub fn get_config<E: EthSpec>(
                     resolved_addrs
                         .next()
                         .map(|a| a.ip())
-                        .ok_or_else(|| format!("Resolved dns addr contains no entries"))?
+                        .ok_or_else(|| "Resolved dns addr contains no entries".to_string())?
                 } else {
                     return Err(format!("Failed to parse enr-address: {}", enr_address));
                 };
@@ -218,6 +218,15 @@ pub fn get_config<E: EthSpec>(
         client_config.rest_api.port = port
             .parse::<u16>()
             .map_err(|_| "http-port is not a valid u16.")?;
+    }
+
+    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
+        hyper::header::HeaderValue::from_str(allow_origin)
+            .map_err(|_| "Invalid allow-origin value")?;
+
+        client_config.rest_api.allow_origin = allow_origin.to_string();
     }
 
     /*
@@ -343,6 +352,22 @@ pub fn get_config<E: EthSpec>(
         client_config.genesis = ClientGenesis::DepositContract;
     }
 
+    if let Some(graffiti) = cli_args.value_of("graffiti") {
+        let graffiti_bytes = graffiti.as_bytes();
+        if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
+            return Err(format!(
+                "Your graffiti is too long! {} bytes maximum!",
+                GRAFFITI_BYTES_LEN
+            ));
+        } else {
+            // `client_config.graffiti` is initialized by default to be all 0.
+            // We simply copy the bytes from `graffiti_bytes` in there.
+            //
+            // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
+            client_config.graffiti[..graffiti_bytes.len()].copy_from_slice(graffiti_bytes);
+        }
+    }
+
     Ok(client_config)
 }
 
@@ -380,7 +405,7 @@ pub fn get_eth2_testnet_config<E: EthSpec>(
     } else {
         Eth2TestnetConfig::hard_coded()
             .map_err(|e| format!("Error parsing hardcoded testnet: {}", e))?
-            .ok_or_else(|| format!("{}", BAD_TESTNET_DIR_MESSAGE))
+            .ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
     }
 }
 

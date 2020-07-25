@@ -21,11 +21,12 @@ pub fn per_slot_processing<T: EthSpec>(
 ) -> Result<Option<EpochProcessingSummary>, Error> {
     cache_state(state, state_root)?;
 
-    let mut summary = None;
-
-    if state.slot > spec.genesis_slot && (state.slot + 1) % T::slots_per_epoch() == 0 {
-        summary = Some(per_epoch_processing(state, spec)?);
-    }
+    let summary = if state.slot > spec.genesis_slot && (state.slot + 1) % T::slots_per_epoch() == 0
+    {
+        Some(per_epoch_processing(state, spec)?)
+    } else {
+        None
+    };
 
     state.slot += 1;
 

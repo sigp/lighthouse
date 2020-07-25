@@ -1,6 +1,5 @@
 //! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
 use clap::ArgMatches;
-use slog;
 use slog::{o, Drain, Level, Logger};
 
 use std::convert::TryFrom;

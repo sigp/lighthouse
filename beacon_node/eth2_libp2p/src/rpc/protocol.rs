@@ -33,13 +33,13 @@ lazy_static! {
     // same across different `EthSpec` implementations.
     pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec> {
         message: BeaconBlock::empty(&MainnetEthSpec::default_spec()),
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     }
     .as_ssz_bytes()
     .len();
     pub static ref SIGNED_BEACON_BLOCK_MAX: usize = SignedBeaconBlock::<MainnetEthSpec> {
         message: BeaconBlock::full(&MainnetEthSpec::default_spec()),
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     }
     .as_ssz_bytes()
     .len();
@@ -323,12 +323,12 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> usize {
+    pub fn expected_responses(&self) -> u64 {
         match self {
             RPCRequest::Status(_) => 1,
             RPCRequest::Goodbye(_) => 0,
-            RPCRequest::BlocksByRange(req) => req.count as usize,
-            RPCRequest::BlocksByRoot(req) => req.block_roots.len(),
+            RPCRequest::BlocksByRange(req) => req.count,
+            RPCRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             RPCRequest::Ping(_) => 1,
             RPCRequest::MetaData(_) => 1,
         }
@@ -395,7 +395,11 @@ where
 
         let mut socket = Framed::new(socket, codec);
 
-        let future = async { socket.send(self).await.map(|_| socket) };
+        let future = async {
+            socket.send(self).await?;
+            socket.close().await?;
+            Ok(socket)
+        };
         Box::pin(future)
     }
 }

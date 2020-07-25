@@ -10,7 +10,7 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
-use ssz::ssz_encode;
+use ssz::{ssz_encode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
@@ -70,6 +70,11 @@ pub enum Error {
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
+    NonLinearTreeHashCacheHistory,
+    TreeHashCacheSkippedSlot {
+        cache: Slot,
+        state: Slot,
+    },
     TreeHashError(tree_hash::Error),
     CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
@@ -217,7 +222,7 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub tree_hash_cache: Option<BeaconTreeHashCache>,
+    pub tree_hash_cache: Option<BeaconTreeHashCache<T>>,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -496,7 +501,7 @@ impl<T: EthSpec> BeaconState<T> {
             1,
             (committee.committee.len() as u64).safe_div(spec.target_aggregators_per_committee)?,
         );
-        let signature_hash = hash(&slot_signature.as_bytes());
+        let signature_hash = hash(&slot_signature.as_ssz_bytes());
         let signature_hash_int = u64::from_le_bytes(
             signature_hash[0..8]
                 .try_into()
@@ -510,7 +515,13 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.12.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
+        // Proposer indices are only known for the current epoch, due to the dependence on the
+        // effective balances of validators, which change at every epoch transition.
         let epoch = slot.epoch(T::slots_per_epoch());
+        if epoch != self.current_epoch() {
+            return Err(Error::SlotOutOfBounds);
+        }
+
         let seed = self.get_beacon_proposer_seed(slot, spec)?;
         let indices = self.get_active_validator_indices(epoch, spec)?;
 
@@ -873,7 +884,6 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
-        self.build_tree_hash_cache()?;
         self.exit_cache.build(&self.validators, spec)?;
 
         Ok(())
@@ -1007,17 +1017,6 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
-    /// Build and update the tree hash cache if it isn't already initialized.
-    pub fn build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.update_tree_hash_cache().map(|_| ())
-    }
-
-    /// Build the tree hash cache, with blatant disregard for any existing cache.
-    pub fn force_build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.tree_hash_cache = None;
-        self.build_tree_hash_cache()
-    }
-
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
@@ -1067,7 +1066,7 @@ impl<T: EthSpec> BeaconState<T> {
             genesis_time: self.genesis_time,
             genesis_validators_root: self.genesis_validators_root,
             slot: self.slot,
-            fork: self.fork.clone(),
+            fork: self.fork,
             latest_block_header: self.latest_block_header.clone(),
             block_roots: self.block_roots.clone(),
             state_roots: self.state_roots.clone(),
@@ -1082,9 +1081,9 @@ impl<T: EthSpec> BeaconState<T> {
             previous_epoch_attestations: self.previous_epoch_attestations.clone(),
             current_epoch_attestations: self.current_epoch_attestations.clone(),
             justification_bits: self.justification_bits.clone(),
-            previous_justified_checkpoint: self.previous_justified_checkpoint.clone(),
-            current_justified_checkpoint: self.current_justified_checkpoint.clone(),
-            finalized_checkpoint: self.finalized_checkpoint.clone(),
+            previous_justified_checkpoint: self.previous_justified_checkpoint,
+            current_justified_checkpoint: self.current_justified_checkpoint,
+            finalized_checkpoint: self.finalized_checkpoint,
             committee_caches: if config.committee_caches {
                 self.committee_caches.clone()
             } else {
@@ -1119,15 +1118,15 @@ impl<T: EthSpec> BeaconState<T> {
 
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
 /// recommended to use the methods directly on the beacon state instead.
-impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache> for BeaconState<T> {
-    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache {
+impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconState<T> {
+    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache<T> {
         BeaconTreeHashCache::new(self)
     }
 
     fn recalculate_tree_hash_root(
         &self,
         _arena: &mut CacheArena,
-        cache: &mut BeaconTreeHashCache,
+        cache: &mut BeaconTreeHashCache<T>,
     ) -> Result<Hash256, cached_tree_hash::Error> {
         cache
             .recalculate_tree_hash_root(self)

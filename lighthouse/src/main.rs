@@ -3,24 +3,28 @@ extern crate clap;
 
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
-use clap_utils;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::HARDCODED_TESTNET;
+use git_version::git_version;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
+pub const VERSION: &str = git_version!(
+    args = ["--always", "--dirty=(modified)"],
+    prefix = concat!(crate_version!(), "-"),
+    fallback = crate_version!()
+);
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
-pub const CLIENT_CONFIG_FILENAME: &str = "beacon-node.toml";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn main() {
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
-        .version(crate_version!())
+        .version(VERSION)
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
         .about(
@@ -150,6 +154,13 @@ fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
 ) -> Result<(), String> {
+    if std::mem::size_of::<usize>() != 8 {
+        return Err(format!(
+            "{}bit architecture is not supported (64bit only).",
+            std::mem::size_of::<usize>() * 8
+        ));
+    }
+
     let debug_level = matches
         .value_of("debug-level")
         .ok_or_else(|| "Expected --debug-level flag".to_string())?;
@@ -172,15 +183,6 @@ fn run<E: EthSpec>(
             .parse::<PathBuf>()
             .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
         environment.log_to_json_file(path, debug_level, log_format)?;
-    }
-
-    if std::mem::size_of::<usize>() != 8 {
-        crit!(
-            log,
-            "Lighthouse only supports 64bit CPUs";
-            "detected" => format!("{}bit", std::mem::size_of::<usize>() * 8)
-        );
-        return Err("Invalid CPU architecture".into());
     }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator
@@ -269,5 +271,6 @@ fn run<E: EthSpec>(
     drop(validator_client);
 
     // Shutdown the environment once all tasks have completed.
-    Ok(environment.shutdown_on_idle())
+    environment.shutdown_on_idle();
+    Ok(())
 }

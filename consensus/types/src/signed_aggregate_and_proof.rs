@@ -57,7 +57,7 @@ impl<T: EthSpec> SignedAggregateAndProof<T> {
 
         SignedAggregateAndProof {
             message,
-            signature: Signature::new(signing_message.as_bytes(), &secret_key),
+            signature: secret_key.sign(signing_message),
         }
     }
 
@@ -77,7 +77,7 @@ impl<T: EthSpec> SignedAggregateAndProof<T> {
             genesis_validators_root,
         );
         let message = self.message.signing_root(domain);
-        self.signature.verify(message.as_bytes(), validator_pubkey)
+        self.signature.verify(validator_pubkey, message)
     }
 
     /// Verifies the signature of the `AggregateAndProof` as well the underlying selection_proof in

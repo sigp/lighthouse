@@ -1,20 +1,16 @@
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
+use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
+use futures::channel::mpsc::Receiver;
 use futures::{StreamExt, TryFutureExt};
 use remote_beacon_node::{PublishStatus, RemoteBeaconNode};
-use slog::{crit, error, info, trace};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::time::{interval_at, Duration, Instant};
-use types::{ChainSpec, EthSpec, PublicKey, Slot};
-
-/// Delay this period of time after the slot starts. This allows the node to process the new slot.
-const TIME_DELAY_FROM_SLOT: Duration = Duration::from_millis(100);
+use types::{EthSpec, PublicKey, Slot};
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
-    duties_service: Option<DutiesService<T, E>>,
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<Arc<T>>,
     beacon_node: Option<RemoteBeaconNode<E>>,
@@ -24,17 +20,11 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     pub fn new() -> Self {
         Self {
-            duties_service: None,
             validator_store: None,
             slot_clock: None,
             beacon_node: None,
             context: None,
         }
-    }
-
-    pub fn duties_service(mut self, service: DutiesService<T, E>) -> Self {
-        self.duties_service = Some(service);
-        self
     }
 
     pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
@@ -60,9 +50,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
-                duties_service: self
-                    .duties_service
-                    .ok_or_else(|| "Cannot build BlockService without duties_service")?,
                 validator_store: self
                     .validator_store
                     .ok_or_else(|| "Cannot build BlockService without validator_store")?,
@@ -82,7 +69,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    duties_service: DutiesService<T, E>,
     validator_store: ValidatorStore<T, E>,
     slot_clock: Arc<T>,
     beacon_node: RemoteBeaconNode<E>,
@@ -110,51 +96,62 @@ impl<T, E: EthSpec> Deref for BlockService<T, E> {
     }
 }
 
+/// Notification from the duties service that we should try to produce a block.
+pub struct BlockServiceNotification {
+    pub slot: Slot,
+    pub block_proposers: Vec<PublicKey>,
+}
+
 impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
-    /// Starts the service that periodically attempts to produce blocks.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(
+        self,
+        notification_rx: Receiver<BlockServiceNotification>,
+    ) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        let duration_to_next_slot = self
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else(|| "Unable to determine duration to next slot".to_string())?;
-
-        info!(
-            log,
-            "Block production service started";
-            "next_update_millis" => duration_to_next_slot.as_millis()
-        );
-
-        let mut interval = {
-            let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-            // Note: interval_at panics if slot_duration = 0
-            interval_at(
-                Instant::now() + duration_to_next_slot + TIME_DELAY_FROM_SLOT,
-                slot_duration,
-            )
-        };
+        info!(log, "Block production service started");
 
         let executor = self.inner.context.executor.clone();
 
-        let interval_fut = async move {
-            while interval.next().await.is_some() {
-                self.do_update().await.ok();
+        let block_service_fut = notification_rx.for_each(move |notif| {
+            let service = self.clone();
+            async move {
+                service.do_update(notif).await.ok();
             }
-        };
+        });
 
-        executor.spawn(interval_fut, "block_service");
+        executor.spawn(block_service_fut, "block_service");
 
         Ok(())
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    async fn do_update(&self) -> Result<(), ()> {
+    async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
         let log = self.context.log();
 
         let slot = self.slot_clock.now().ok_or_else(move || {
             crit!(log, "Duties manager failed to read slot clock");
         })?;
+
+        if notification.slot != slot {
+            warn!(
+                log,
+                "Skipping block production for expired slot";
+                "current_slot" => slot.as_u64(),
+                "notification_slot" => notification.slot.as_u64(),
+                "info" => "Your machine could be overloaded"
+            );
+            return Ok(());
+        }
+
+        if slot == self.context.eth2_config.spec.genesis_slot {
+            debug!(
+                log,
+                "Not producing block at genesis slot";
+                "proposers" => format!("{:?}", notification.block_proposers),
+            );
+            return Ok(());
+        }
 
         trace!(
             log,
@@ -162,25 +159,25 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "slot" => slot.as_u64()
         );
 
-        let iter = self.duties_service.block_producers(slot).into_iter();
+        let proposers = notification.block_proposers;
 
-        if iter.len() == 0 {
+        if proposers.is_empty() {
             trace!(
                 log,
                 "No local block proposers for this slot";
                 "slot" => slot.as_u64()
             )
-        } else if iter.len() > 1 {
+        } else if proposers.len() > 1 {
             error!(
                 log,
                 "Multiple block proposers for this slot";
                 "action" => "producing blocks for all proposers",
-                "num_proposers" => iter.len(),
+                "num_proposers" => proposers.len(),
                 "slot" => slot.as_u64(),
             )
         }
 
-        iter.for_each(|validator_pubkey| {
+        proposers.into_iter().for_each(|validator_pubkey| {
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.runtime_handle().spawn(

@@ -7,6 +7,6 @@ impl TestRandom for Signature {
         let mut message = vec![0; 32];
         rng.fill_bytes(&mut message);
 
-        Signature::new(&message, &secret_key)
+        secret_key.sign(Hash256::from_slice(&message))
     }
 }

@@ -35,6 +35,7 @@ check-benches:
 run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
+	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -53,7 +54,7 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --all -- -A clippy::all --D clippy::perf --D clippy::correctness
+	cargo clippy --all -- -D warnings
 
 # Runs the makefile in the `ef_tests` repo.
 #

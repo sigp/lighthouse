@@ -1,8 +1,9 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::BlsCase;
-use bls::{SecretKey, Signature};
+use bls::SecretKey;
 use serde_derive::Deserialize;
+use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsSignInput {
@@ -23,16 +24,19 @@ impl Case for BlsSign {
         // Convert private_key and message to required types
         let sk = hex::decode(&self.input.privkey[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-        let sk = SecretKey::from_bytes(&sk).unwrap();
+
+        assert_eq!(sk.len(), 32);
+
+        let sk = SecretKey::deserialize(&sk).unwrap();
         let msg = hex::decode(&self.input.message[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-        let signature = Signature::new(&msg, &sk);
+        let signature = sk.sign(Hash256::from_slice(&msg));
 
         // Convert the output to one set of bytes
         let decoded = hex::decode(&self.output[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
 
-        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.as_bytes().to_vec()), &Some(decoded))
+        compare_result::<Vec<u8>, Vec<u8>>(&Ok(signature.serialize().to_vec()), &Some(decoded))
     }
 }

@@ -9,6 +9,7 @@ use node_test_rig::{
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
+use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -16,10 +17,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing validators_per_node default");
     let speed_up_factor =
         value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
-    let mut end_after_checks = true;
-    if matches.is_present("end_after_checks") {
-        end_after_checks = false;
-    }
+    let end_after_checks = !matches.is_present("end_after_checks");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}", node_count);
@@ -82,7 +80,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         // Start a timer that produces eth1 blocks on an interval.
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(eth1_block_time);
-            while let Some(_) = interval.next().await {
+            while interval.next().await.is_some() {
                 let _ = ganache.evm_mine().await;
             }
         });
@@ -129,7 +127,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             network
                 .add_validator_client(
                     ValidatorConfig {
-                        auto_register: true,
+                        disable_auto_discover: false,
                         ..ValidatorConfig::default()
                     },
                     i,
@@ -146,9 +144,15 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * tests start at the right time. Whilst this is works well for now, it's subject to
          * breakage by changes to the VC.
          */
-        let (finalization, validator_count, onboarding) = futures::join!(
+        let (finalization, block_prod, validator_count, onboarding) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
+            // Check that a block is produced at every slot.
+            checks::verify_full_block_production_up_to(
+                network.clone(),
+                Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
+                slot_duration,
+            ),
             // Check that the chain starts with the expected validator count.
             checks::verify_initial_validator_count(
                 network.clone(),
@@ -164,6 +168,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             )
         );
 
+        block_prod?;
         finalization?;
         validator_count?;
         onboarding?;
@@ -190,5 +195,6 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         Ok::<(), String>(())
     };
 
-    Ok(env.runtime().block_on(main_future).unwrap())
+    env.runtime().block_on(main_future).unwrap();
+    Ok(())
 }

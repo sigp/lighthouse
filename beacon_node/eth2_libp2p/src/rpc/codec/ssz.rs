@@ -56,9 +56,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZInboundCodec<TSpec>
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) => res.as_ssz_bytes(),
             },
-            RPCCodedResponse::InvalidRequest(err) => err.as_ssz_bytes(),
-            RPCCodedResponse::ServerError(err) => err.as_ssz_bytes(),
-            RPCCodedResponse::Unknown(err) => err.as_ssz_bytes(),
+            RPCCodedResponse::Error(_, err) => err.as_ssz_bytes(),
             RPCCodedResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
@@ -145,7 +143,7 @@ impl<TSpec: EthSpec> Decoder for SSZInboundCodec<TSpec> {
                 },
                 Protocol::MetaData => match self.protocol.version {
                     Version::V1 => {
-                        if packet.len() > 0 {
+                        if !packet.is_empty() {
                             Err(RPCError::InvalidData)
                         } else {
                             Ok(Some(RPCRequest::MetaData(PhantomData)))

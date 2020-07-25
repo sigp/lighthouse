@@ -68,7 +68,7 @@ where
             // update the timeout
             self.update_timeout(&key, entry_duration);
         } else {
-            let delay_key = self.expirations.insert(key.clone(), entry_duration.clone());
+            let delay_key = self.expirations.insert(key.clone(), entry_duration);
             let entry = MapEntry {
                 key: delay_key,
                 value: Instant::now() + entry_duration,
@@ -94,6 +94,11 @@ where
         self.entries.len()
     }
 
+    /// Checks if the mapping is empty.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Updates the timeout for a given key. Returns true if the key existed, false otherwise.
     ///
     /// Panics if the duration is too far in the future.
@@ -114,7 +119,7 @@ where
             self.expirations.remove(&entry.key);
             return true;
         }
-        return false;
+        false
     }
 
     /// Retains only the elements specified by the predicate.

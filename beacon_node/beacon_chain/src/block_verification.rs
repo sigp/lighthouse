@@ -69,10 +69,6 @@ use types::{
     PublicKey, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
-mod block_processing_outcome;
-
-pub use block_processing_outcome::BlockProcessingOutcome;
-
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 
@@ -588,8 +584,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 state_root
             };
 
-            per_slot_processing(&mut state, Some(state_root), &chain.spec)?
-                .map(|summary| summaries.push(summary));
+            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), &chain.spec)? {
+                summaries.push(summary)
+            }
         }
 
         expose_participation_metrics(&summaries);

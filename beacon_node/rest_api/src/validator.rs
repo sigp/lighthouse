@@ -16,7 +16,7 @@ use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{
     Attestation, AttestationData, BeaconState, Epoch, RelativeEpoch, SelectionProof,
-    SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
+    SignedAggregateAndProof, SignedBeaconBlock, SubnetId,
 };
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -137,21 +137,22 @@ pub fn get_state_for_epoch<T: BeaconChainTypes>(
     config: StateSkipConfig,
 ) -> Result<BeaconState<T::EthSpec>, ApiError> {
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
-    let head_epoch = beacon_chain.head()?.beacon_state.current_epoch();
+    let head = beacon_chain.head()?;
+    let current_epoch = beacon_chain.epoch()?;
+    let head_epoch = head.beacon_state.current_epoch();
 
-    if RelativeEpoch::from_epoch(head_epoch, epoch).is_ok() {
-        Ok(beacon_chain.head()?.beacon_state)
+    if head_epoch == current_epoch && RelativeEpoch::from_epoch(current_epoch, epoch).is_ok() {
+        Ok(head.beacon_state)
     } else {
-        let slot = if epoch > head_epoch {
-            // Move to the first slot of the epoch prior to the request.
-            //
-            // Taking advantage of saturating epoch subtraction.
+        // If epoch is ahead of current epoch, then it should be a "next epoch" request for
+        // attestation duties. So, go to the start slot of the epoch prior to that,
+        // which should be just the next wall-clock epoch.
+        let slot = if epoch > current_epoch {
             (epoch - 1).start_slot(slots_per_epoch)
-        } else {
-            // Move to the end of the epoch following the target.
-            //
-            // Taking advantage of saturating epoch subtraction.
-            (epoch + 2).start_slot(slots_per_epoch) - 1
+        }
+        // Otherwise, go to the start of the request epoch.
+        else {
+            epoch.start_slot(slots_per_epoch)
         };
 
         beacon_chain.state_at_slot(slot, config).map_err(|e| {
@@ -171,7 +172,6 @@ fn return_validator_duties<T: BeaconChainTypes>(
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
         .map_err(|_| ApiError::ServerError(String::from("Loaded state is in the wrong epoch")))?;
 
-    state.update_pubkey_cache()?;
     state
         .build_committee_cache(relative_epoch, &beacon_chain.spec)
         .map_err(|e| ApiError::ServerError(format!("Unable to build committee cache: {:?}", e)))?;
@@ -182,20 +182,26 @@ fn return_validator_duties<T: BeaconChainTypes>(
     // Get a list of all validators for this epoch.
     //
     // Used for quickly determining the slot for a proposer.
-    let validator_proposers: Vec<(usize, Slot)> = epoch
-        .slot_iter(T::EthSpec::slots_per_epoch())
-        .map(|slot| {
-            state
-                .get_beacon_proposer_index(slot, &beacon_chain.spec)
-                .map(|i| (i, slot))
-                .map_err(|e| {
-                    ApiError::ServerError(format!(
-                        "Unable to get proposer index for validator: {:?}",
-                        e
-                    ))
+    let validator_proposers = if epoch == state.current_epoch() {
+        Some(
+            epoch
+                .slot_iter(T::EthSpec::slots_per_epoch())
+                .map(|slot| {
+                    state
+                        .get_beacon_proposer_index(slot, &beacon_chain.spec)
+                        .map(|i| (i, slot))
+                        .map_err(|e| {
+                            ApiError::ServerError(format!(
+                                "Unable to get proposer index for validator: {:?}",
+                                e
+                            ))
+                        })
                 })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+    } else {
+        None
+    };
 
     validator_pubkeys
         .into_iter()
@@ -237,11 +243,13 @@ fn return_validator_duties<T: BeaconChainTypes>(
                         ApiError::ServerError(format!("Unable to find modulo: {:?}", e))
                     })?;
 
-                let block_proposal_slots = validator_proposers
-                    .iter()
-                    .filter(|(i, _slot)| validator_index == *i)
-                    .map(|(_i, slot)| *slot)
-                    .collect();
+                let block_proposal_slots = validator_proposers.as_ref().map(|proposers| {
+                    proposers
+                        .iter()
+                        .filter(|(i, _slot)| validator_index == *i)
+                        .map(|(_i, slot)| *slot)
+                        .collect()
+                });
 
                 Ok(ValidatorDutyBytes {
                     validator_pubkey,
@@ -260,8 +268,8 @@ fn return_validator_duties<T: BeaconChainTypes>(
                     attestation_slot: None,
                     attestation_committee_index: None,
                     attestation_committee_position: None,
+                    block_proposal_slots: None,
                     committee_count_at_slot: None,
-                    block_proposal_slots: vec![],
                     aggregator_modulo: None,
                 })
             }

@@ -18,10 +18,10 @@ pub struct ManualSlotClock {
 impl Clone for ManualSlotClock {
     fn clone(&self) -> Self {
         ManualSlotClock {
-            genesis_slot: self.genesis_slot.clone(),
-            genesis_duration: self.genesis_duration.clone(),
-            current_time: RwLock::new(self.current_time.read().clone()),
-            slot_duration: self.slot_duration.clone(),
+            genesis_slot: self.genesis_slot,
+            genesis_duration: self.genesis_duration,
+            current_time: RwLock::new(*self.current_time.read()),
+            slot_duration: self.slot_duration,
         }
     }
 }
@@ -98,7 +98,7 @@ impl SlotClock for ManualSlotClock {
 
         Self {
             genesis_slot,
-            current_time: RwLock::new(genesis_duration.clone()),
+            current_time: RwLock::new(genesis_duration),
             genesis_duration,
             slot_duration,
         }

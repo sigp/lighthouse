@@ -68,7 +68,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                     continue;
                 }
                 Ok(gossip_topic) => {
-                    let ref decompressed_data = match gossip_topic.encoding() {
+                    let decompressed_data = &(match gossip_topic.encoding() {
                         GossipEncoding::SSZSnappy => {
                             // Exit early if uncompressed data is > GOSSIP_MAX_SIZE
                             match decompress_len(data) {
@@ -86,7 +86,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 Err(e) => return Err(format!("{}", e)),
                             }
                         }
-                    };
+                    });
                     // the ssz decoders
                     match gossip_topic.kind() {
                         GossipKind::BeaconAggregateAndProof => {
