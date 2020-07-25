@@ -21,13 +21,13 @@ impl TryFrom<&ArgMatches<'_>> for BootNodeConfig {
             .value_of("listen-address")
             .expect("required parameter")
             .parse::<IpAddr>()
-            .map_err(|_| format!("Invalid listening address"))?;
+            .map_err(|_| "Invalid listening address".to_string())?;
 
         let listen_port = matches
             .value_of("port")
             .expect("required parameter")
             .parse::<u16>()
-            .map_err(|_| format!("Invalid listening port"))?;
+            .map_err(|_| "Invalid listening port".to_string())?;
 
         let boot_nodes = {
             if let Some(boot_nodes) = matches.value_of("boot-nodes") {
@@ -43,7 +43,7 @@ impl TryFrom<&ArgMatches<'_>> for BootNodeConfig {
         let enr_port = {
             if let Some(port) = matches.value_of("boot-node-enr-port") {
                 port.parse::<u16>()
-                    .map_err(|_| format!("Invalid ENR port"))?
+                    .map_err(|_| "Invalid ENR port".to_string())?
             } else {
                 listen_port
             }
@@ -59,7 +59,7 @@ impl TryFrom<&ArgMatches<'_>> for BootNodeConfig {
         let auto_update = matches.is_present("enable-enr_auto_update");
 
         // the address to listen on
-        let listen_socket = SocketAddr::new(listen_address.into(), enr_port);
+        let listen_socket = SocketAddr::new(listen_address, enr_port);
 
         // Generate a new key and build a new ENR
         let local_key = CombinedKey::generate_secp256k1();
@@ -95,7 +95,7 @@ fn resolve_address(address_string: String, port: u16) -> Result<IpAddr, String> 
                     resolved_addrs
                         .next()
                         .map(|a| a.ip())
-                        .ok_or_else(|| format!("Resolved dns addr contains no entries")))
+                        .ok_or_else(|| "Resolved dns addr contains no entries".to_string()))
                 .map_err(|_| format!("Failed to parse enr-address: {}", address_string))?
         }
     }

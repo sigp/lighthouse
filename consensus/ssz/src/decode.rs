@@ -1,5 +1,6 @@
 use super::*;
 use smallvec::{smallvec, SmallVec};
+use std::cmp::Ordering;
 
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
@@ -182,10 +183,12 @@ impl<'a> SszDecoderBuilder<'a> {
         if let Some(first_offset) = self.offsets.first().map(|o| o.offset) {
             // Check to ensure the first offset points to the byte immediately following the
             // fixed-length bytes.
-            if first_offset < self.items_index {
-                return Err(DecodeError::OffsetIntoFixedPortion(first_offset));
-            } else if first_offset > self.items_index {
-                return Err(DecodeError::OffsetSkipsVariableBytes(first_offset));
+            match first_offset.cmp(&self.items_index) {
+                Ordering::Less => return Err(DecodeError::OffsetIntoFixedPortion(first_offset)),
+                Ordering::Greater => {
+                    return Err(DecodeError::OffsetSkipsVariableBytes(first_offset))
+                }
+                Ordering::Equal => (),
             }
 
             // Iterate through each pair of offsets, grabbing the slice between each of the offsets.

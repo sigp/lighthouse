@@ -1,5 +1,4 @@
 use proto_array::fork_choice_test_definition::*;
-use serde_yaml;
 use std::fs::File;
 
 fn main() {

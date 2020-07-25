@@ -154,7 +154,7 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
 
         let batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
-            .map(|block_hash| StoreOp::DeleteBlock(block_hash))
+            .map(StoreOp::DeleteBlock)
             .chain(
                 abandoned_states
                     .into_iter()
@@ -296,6 +296,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         finality_distance > max_finality_distance
     }
 
+    #[allow(clippy::type_complexity)]
     /// Spawn a new child thread to run the migration process.
     ///
     /// Return a channel handle for sending new finalized states to the thread.

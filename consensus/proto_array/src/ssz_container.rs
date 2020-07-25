@@ -45,7 +45,7 @@ impl From<SszContainer> for ProtoArrayForkChoice {
         };
 
         Self {
-            proto_array: proto_array,
+            proto_array,
             votes: ElasticList(from.votes),
             balances: from.balances,
         }

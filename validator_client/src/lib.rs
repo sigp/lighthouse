@@ -4,8 +4,10 @@ mod cli;
 mod config;
 mod duties_service;
 mod fork_service;
+mod initialized_validators;
 mod is_synced;
 mod notifier;
+mod validator_definitions;
 mod validator_store;
 
 pub use cli::cli_app;
@@ -14,20 +16,20 @@ pub use config::Config;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use config::SLASHING_PROTECTION_FILENAME;
 use duties_service::{DutiesService, DutiesServiceBuilder};
 use environment::RuntimeContext;
 use fork_service::{ForkService, ForkServiceBuilder};
 use futures::channel::mpsc;
+use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
 use remote_beacon_node::RemoteBeaconNode;
-use slog::{error, info, warn, Logger};
+use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{delay_for, Duration};
 use types::EthSpec;
-use validator_dir::Manager as ValidatorManager;
+use validator_definitions::ValidatorDefinitions;
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -69,30 +71,36 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "datadir" => format!("{:?}", config.data_dir),
         );
 
-        if !config.data_dir.join(SLASHING_PROTECTION_FILENAME).exists() && !config.auto_register {
-            warn!(
+        let mut validator_defs = ValidatorDefinitions::open_or_create(&config.data_dir)
+            .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
+
+        if !config.disable_auto_discover {
+            let new_validators = validator_defs
+                .discover_local_keystores(&config.data_dir, &config.secrets_dir, &log)
+                .map_err(|e| format!("Unable to discover local validator keystores: {:?}", e))?;
+            validator_defs
+                .save(&config.data_dir)
+                .map_err(|e| format!("Unable to update validator definitions: {:?}", e))?;
+            info!(
                 log,
-                "Will not register any validators";
-                "msg" => "strongly consider using --auto-register on the first use",
+                "Completed validator discovery";
+                "new_validators" => new_validators,
             );
         }
 
-        let validator_manager = ValidatorManager::open(&config.data_dir)
-            .map_err(|e| format!("unable to read data_dir: {:?}", e))?;
-
-        let validators_result = if config.strict {
-            validator_manager.decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
-        } else {
-            validator_manager.force_decrypt_all_validators(config.secrets_dir.clone(), Some(&log))
-        };
-
-        let validators = validators_result
-            .map_err(|e| format!("unable to decrypt all validator directories: {:?}", e))?;
+        let validators = InitializedValidators::from_definitions(
+            validator_defs,
+            config.data_dir.clone(),
+            config.strict_lockfiles,
+            log.clone(),
+        )
+        .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
         info!(
             log,
-            "Decrypted validator keystores";
-            "count" => validators.len(),
+            "Initialized validators";
+            "disabled" => validators.num_total().saturating_sub(validators.num_enabled()),
+            "enabled" => validators.num_enabled(),
         );
 
         let beacon_node =
@@ -194,11 +202,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
-        if config.auto_register {
-            info!(log, "Registering all validators for slashing protection");
-            validator_store.register_all_validators_for_slashing_protection()?;
-            info!(log, "Validator auto-registration complete");
-        }
+        validator_store.register_all_validators_for_slashing_protection()?;
 
         let duties_service = DutiesServiceBuilder::new()
             .slot_clock(slot_clock.clone())

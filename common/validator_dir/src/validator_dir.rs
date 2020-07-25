@@ -264,7 +264,7 @@ fn unlock_keypair<P: AsRef<Path>>(
         .as_ref()
         .join(format!("0x{}", keystore.pubkey()));
     let password: PlainText = read(&password_path)
-        .map_err(|_| Error::UnableToReadPassword(password_path.into()))?
+        .map_err(|_| Error::UnableToReadPassword(password_path))?
         .into();
 
     keystore

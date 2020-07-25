@@ -29,3 +29,4 @@ rand = "0.7.2"
 validator_dir = { path = "../common/validator_dir", features = ["unencrypted_keys"] }
 tokio = { version = "0.2.21", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
+account_utils = { path = "../common/account_utils" }

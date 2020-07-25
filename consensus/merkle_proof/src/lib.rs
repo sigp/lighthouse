@@ -81,7 +81,6 @@ impl MerkleTree {
     /// Push an element in the MerkleTree.
     /// MerkleTree and depth must be correct, as the algorithm expects valid data.
     pub fn push_leaf(&mut self, elem: H256, depth: usize) -> Result<(), MerkleTreeError> {
-        use std::mem;
         use MerkleTree::*;
 
         if depth == 0 {
@@ -91,7 +90,7 @@ impl MerkleTree {
         match self {
             Leaf(_) => return Err(MerkleTreeError::LeafReached),
             Zero(_) => {
-                mem::replace(self, MerkleTree::create(&[elem], depth));
+                *self = MerkleTree::create(&[elem], depth);
             }
             Node(ref mut hash, ref mut left, ref mut right) => {
                 let left: &mut MerkleTree = &mut *left;
@@ -107,11 +106,11 @@ impl MerkleTree {
                     }
                     // Both branches are zero, insert in left one
                     (Zero(_), Zero(_)) => {
-                        mem::replace(left, MerkleTree::create(&[elem], depth - 1));
+                        *left = MerkleTree::create(&[elem], depth - 1);
                     }
                     // Leaf on left branch and zero on right branch, insert on right side
                     (Leaf(_), Zero(_)) => {
-                        mem::replace(right, MerkleTree::create(&[elem], depth - 1));
+                        *right = MerkleTree::create(&[elem], depth - 1);
                     }
                     // Try inserting on the left node -> if it fails because it is full, insert in right side.
                     (Node(_, _, _), Zero(_)) => {
@@ -119,7 +118,7 @@ impl MerkleTree {
                             Ok(_) => (),
                             // Left node is full, insert in right node
                             Err(MerkleTreeError::MerkleTreeFull) => {
-                                mem::replace(right, MerkleTree::create(&[elem], depth - 1));
+                                *right = MerkleTree::create(&[elem], depth - 1);
                             }
                             Err(e) => return Err(e),
                         };

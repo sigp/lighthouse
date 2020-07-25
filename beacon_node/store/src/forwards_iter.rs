@@ -78,7 +78,7 @@ impl SimpleForwardsBlockRootsIterator {
                     .collect::<Vec<_>>()
             },
         )?;
-        Ok(Self { values: values })
+        Ok(Self { values })
     }
 }
 
