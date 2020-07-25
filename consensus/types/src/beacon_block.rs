@@ -35,7 +35,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
             body: BeaconBlockBody {
-                randao_reveal: Signature::empty_signature(),
+                randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
@@ -63,7 +63,7 @@ impl<T: EthSpec> BeaconBlock<T> {
 
         let signed_header = SignedBeaconBlockHeader {
             message: header,
-            signature: Signature::empty_signature(),
+            signature: Signature::empty(),
         };
         let indexed_attestation: IndexedAttestation<T> = IndexedAttestation {
             attesting_indices: VariableList::new(vec![
@@ -72,7 +72,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             ])
             .unwrap(),
             data: AttestationData::default(),
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty(),
         };
 
         let deposit_data = DepositData {
@@ -95,7 +95,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
             data: AttestationData::default(),
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty(),
         };
 
         let deposit = Deposit {
@@ -110,7 +110,7 @@ impl<T: EthSpec> BeaconBlock<T> {
 
         let signed_voluntary_exit = SignedVoluntaryExit {
             message: voluntary_exit,
-            signature: Signature::empty_signature(),
+            signature: Signature::empty(),
         };
 
         let mut block: BeaconBlock<T> = BeaconBlock::empty(spec);
@@ -200,7 +200,7 @@ impl<T: EthSpec> BeaconBlock<T> {
             genesis_validators_root,
         );
         let message = self.signing_root(domain);
-        let signature = Signature::new(message.as_bytes(), secret_key);
+        let signature = secret_key.sign(message);
         SignedBeaconBlock {
             message: self,
             signature,

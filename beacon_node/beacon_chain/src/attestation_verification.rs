@@ -521,7 +521,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     let _signature_verification_timer =
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
 
-    if signature_set.is_valid() {
+    if signature_set.verify() {
         Ok(())
     } else {
         Err(Error::InvalidSignature)
@@ -589,7 +589,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
     ];
 
-    Ok(verify_signature_sets(signature_sets))
+    Ok(verify_signature_sets(signature_sets.iter()))
 }
 
 /// Assists in readability.

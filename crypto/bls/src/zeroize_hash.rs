@@ -1,15 +1,15 @@
-use super::BLS_SECRET_KEY_BYTE_SIZE;
+use super::SECRET_KEY_BYTES_LEN;
 use zeroize::Zeroize;
 
-/// Provides a wrapper around a `[u8; HASH_SIZE]` that implements `Zeroize` on `Drop`.
+/// Provides a wrapper around a `[u8; SECRET_KEY_BYTES_LEN]` that implements `Zeroize` on `Drop`.
 #[derive(Zeroize)]
 #[zeroize(drop)]
-pub struct SecretHash([u8; BLS_SECRET_KEY_BYTE_SIZE]);
+pub struct ZeroizeHash([u8; SECRET_KEY_BYTES_LEN]);
 
-impl SecretHash {
+impl ZeroizeHash {
     /// Instantiates `Self` with all zeros.
     pub fn zero() -> Self {
-        Self([0; BLS_SECRET_KEY_BYTE_SIZE])
+        Self([0; SECRET_KEY_BYTES_LEN])
     }
 
     /// Returns a reference to the underlying bytes.
@@ -23,13 +23,13 @@ impl SecretHash {
     }
 }
 
-impl From<[u8; BLS_SECRET_KEY_BYTE_SIZE]> for SecretHash {
-    fn from(array: [u8; BLS_SECRET_KEY_BYTE_SIZE]) -> Self {
+impl From<[u8; SECRET_KEY_BYTES_LEN]> for ZeroizeHash {
+    fn from(array: [u8; SECRET_KEY_BYTES_LEN]) -> Self {
         Self(array)
     }
 }
 
-impl AsRef<[u8]> for SecretHash {
+impl AsRef<[u8]> for ZeroizeHash {
     fn as_ref(&self) -> &[u8] {
         &self.0
     }

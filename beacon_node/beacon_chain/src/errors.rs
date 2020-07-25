@@ -6,7 +6,6 @@ use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
-use ssz::DecodeError;
 use ssz_types::Error as SszTypesError;
 use state_processing::{
     block_signature_verifier::Error as BlockSignatureVerifierError,
@@ -69,7 +68,7 @@ pub enum BeaconChainError {
     AttestationCacheLockTimeout,
     ValidatorPubkeyCacheLockTimeout,
     IncorrectStateForAttestation(RelativeEpochError),
-    InvalidValidatorPubkeyBytes(DecodeError),
+    InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(SignatureSetError),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),

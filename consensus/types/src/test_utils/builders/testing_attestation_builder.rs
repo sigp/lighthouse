@@ -36,7 +36,7 @@ impl<T: EthSpec> TestingAttestationBuilder<T> {
         let attestation = Attestation {
             aggregation_bits,
             data: data_builder.build(),
-            signature: AggregateSignature::new(),
+            signature: AggregateSignature::empty(),
         };
 
         Self {

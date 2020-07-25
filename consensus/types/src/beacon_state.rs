@@ -10,7 +10,7 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
-use ssz::ssz_encode;
+use ssz::{ssz_encode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
@@ -501,7 +501,7 @@ impl<T: EthSpec> BeaconState<T> {
             1,
             (committee.committee.len() as u64).safe_div(spec.target_aggregators_per_committee)?,
         );
-        let signature_hash = hash(&slot_signature.as_bytes());
+        let signature_hash = hash(&slot_signature.as_ssz_bytes());
         let signature_hash_int = u64::from_le_bytes(
             signature_hash[0..8]
                 .try_into()

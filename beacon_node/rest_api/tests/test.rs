@@ -62,7 +62,7 @@ fn get_randao_reveal<T: BeaconChainTypes>(
     let epoch = slot.epoch(E::slots_per_epoch());
     let domain = spec.get_domain(epoch, Domain::Randao, &fork, genesis_validators_root);
     let message = epoch.signing_root(domain);
-    Signature::new(message.as_bytes(), &keypair.sk)
+    keypair.sk.sign(message)
 }
 
 /// Signs the given block (assuming the given `beacon_chain` uses deterministic keypairs).
@@ -468,7 +468,7 @@ fn validator_block_post() {
     // Try publishing the block without a signature, ensure it is flagged as invalid.
     let empty_sig_block = SignedBeaconBlock {
         message: block.clone(),
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     let publish_status = env
         .runtime()

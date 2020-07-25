@@ -64,7 +64,7 @@ impl DepositLog {
         };
 
         let signature_is_valid = deposit_pubkey_signature_message(&deposit_data, spec)
-            .map_or(false, |msg| deposit_signature_set(&msg).is_valid());
+            .map_or(false, |msg| deposit_signature_set(&msg).verify());
 
         Ok(DepositLog {
             deposit_data,

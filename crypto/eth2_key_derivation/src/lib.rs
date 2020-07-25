@@ -6,6 +6,6 @@ mod lamport_secret_key;
 mod plain_text;
 mod secret_bytes;
 
-pub use bls::SecretHash;
+pub use bls::ZeroizeHash;
 pub use derived_key::DerivedKey;
 pub use plain_text::PlainText;

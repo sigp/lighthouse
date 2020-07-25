@@ -186,7 +186,7 @@ dependencies = [
 [[package]]
 name = "amcl"
 version = "0.2.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.1.0#32c9f9382fc73f8976a00aca9773e6a322bb2c9e"
+source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
 dependencies = [
  "hex 0.3.2",
  "lazy_static",
@@ -360,6 +360,7 @@ dependencies = [
  "fork_choice",
  "futures 0.3.5",
  "genesis",
+ "int_to_bytes",
  "integer-sqrt",
  "itertools 0.9.0",
  "lazy_static",
@@ -533,9 +534,11 @@ name = "bls"
 version = "0.2.0"
 dependencies = [
  "arbitrary",
+ "blst",
  "eth2_hashing",
  "eth2_ssz",
- "hex 0.4.2",
+ "ethereum-types",
+ "hex 0.3.2",
  "milagro_bls",
  "rand 0.7.3",
  "serde",
@@ -543,6 +546,16 @@ dependencies = [
  "serde_hex",
  "tree_hash",
  "zeroize",
+]
+
+[[package]]
+name = "blst"
+version = "0.1.1"
+source = "git+https://github.com/sigp/blst.git?rev=968c846a2dc46e836e407bbdbac1a38a597ebc46#968c846a2dc46e836e407bbdbac1a38a597ebc46"
+dependencies = [
+ "cc",
+ "glob",
+ "threadpool",
 ]
 
 [[package]]
@@ -1456,10 +1469,10 @@ name = "eth2_interop_keypairs"
 version = "0.2.0"
 dependencies = [
  "base64 0.12.3",
+ "bls",
  "eth2_hashing",
  "hex 0.4.2",
  "lazy_static",
- "milagro_bls",
  "num-bigint",
  "serde",
  "serde_derive",
@@ -3093,7 +3106,7 @@ dependencies = [
 [[package]]
 name = "milagro_bls"
 version = "1.1.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.1.0#32c9f9382fc73f8976a00aca9773e6a322bb2c9e"
+source = "git+https://github.com/sigp/milagro_bls?branch=paulh#7662690845f3f2594e46cfe71b6b0bb91d5e1f82"
 dependencies = [
  "amcl",
  "hex 0.4.2",
@@ -5254,6 +5267,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d40c6d1b69745a6ec6fb1ca717914848da4b44ae29d9b3080cbee91d72a69b14"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "threadpool"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
+dependencies = [
+ "num_cpus",
 ]
 
 [[package]]

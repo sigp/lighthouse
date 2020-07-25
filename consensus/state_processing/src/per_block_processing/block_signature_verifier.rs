@@ -71,7 +71,7 @@ where
     get_pubkey: F,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
-    sets: Vec<SignatureSet>,
+    sets: Vec<SignatureSet<'a>>,
 }
 
 impl<'a, T, F> BlockSignatureVerifier<'a, T, F>
@@ -129,7 +129,7 @@ where
             .sets
             .into_par_iter()
             .chunks(num_chunks)
-            .map(verify_signature_sets)
+            .map(|chunk| verify_signature_sets(chunk.iter()))
             .reduce(|| true, |current, this| current && this);
 
         if result {
