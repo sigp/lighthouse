@@ -6,6 +6,8 @@
 //! others. We are unable to conform to the repo until we have the following PR merged:
 //!
 //! https://github.com/sigp/lighthouse/pull/605
+//!
+use eth2_config::{include_altona_file, include_medalla_file, unique_id};
 
 use enr::{CombinedKey, Enr};
 use ssz::{Decode, Encode};
@@ -31,6 +33,38 @@ pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../altona-v3/depos
 pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../altona-v3/genesis.ssz");
 pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../altona-v3/boot_enr.yaml");
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct HardcodedNet {
+    pub unique_id: &'static str,
+    pub name: &'static str,
+    pub yaml_config: &'static [u8],
+    pub deploy_block: &'static [u8],
+    pub boot_enr: &'static [u8],
+    pub deposit_contract_address: &'static [u8],
+    pub genesis_state: &'static [u8],
+}
+
+macro_rules! define_net {
+    ($mod: ident, $include_file: tt) => {{
+        use eth2_config::$mod::ETH2_NET_DIR;
+
+        HardcodedNet {
+            unique_id: ETH2_NET_DIR.unique_id,
+            name: ETH2_NET_DIR.name,
+            yaml_config: $include_file!("../", "config.yaml"),
+            deploy_block: $include_file!("../", "deploy_block.txt"),
+            boot_enr: $include_file!("../", "boot_enr.yaml"),
+            deposit_contract_address: $include_file!("../", "deposit_contract.txt"),
+            genesis_state: $include_file!("../", "genesis.ssz"),
+        }
+    }};
+}
+
+const ALTONA: HardcodedNet = define_net!(altona, include_altona_file);
+const MEDALLA: HardcodedNet = define_net!(medalla, include_medalla_file);
+
+const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA];
+
 /// Specifies an Eth2 testnet.
 ///
 /// See the crate-level documentation for more details.
@@ -44,6 +78,43 @@ pub struct Eth2TestnetConfig<E: EthSpec> {
 }
 
 impl<E: EthSpec> Eth2TestnetConfig<E> {
+    /// Creates the `Eth2TestnetConfig` that was included in the binary at compile time. This can be
+    /// considered the default Lighthouse testnet.
+    ///
+    /// Returns an error if those included bytes are invalid (this is unlikely).
+    /// Returns `None` if the hardcoded testnet is disabled.
+    pub fn constant(name: &str) -> Result<Option<Self>, String> {
+        let testnet = match HARDCODED_NETS.iter().find(|net| net.name == name) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let genesis_state = if testnet.genesis_state.is_empty() {
+            None
+        } else {
+            Some(
+                BeaconState::from_ssz_bytes(testnet.genesis_state)
+                    .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
+            )
+        };
+
+        Ok(Some(Self {
+            deposit_contract_address: serde_yaml::from_reader(testnet.deposit_contract_address)
+                .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
+            deposit_contract_deploy_block: serde_yaml::from_reader(testnet.deploy_block)
+                .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
+            boot_enr: Some(
+                serde_yaml::from_reader(testnet.boot_enr)
+                    .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
+            ),
+            genesis_state,
+            yaml_config: Some(
+                serde_yaml::from_reader(testnet.yaml_config)
+                    .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
+            ),
+        }))
+    }
+
     /// Creates the `Eth2TestnetConfig` that was included in the binary at compile time. This can be
     /// considered the default Lighthouse testnet.
     ///

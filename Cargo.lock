@@ -1592,6 +1592,7 @@ name = "eth2_testnet_config"
 version = "0.2.0"
 dependencies = [
  "enr",
+ "eth2_config",
  "eth2_ssz",
  "reqwest",
  "serde",
