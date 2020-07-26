@@ -37,6 +37,7 @@ pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../altona-v3/boot_enr.yaml
 pub struct HardcodedNet {
     pub unique_id: &'static str,
     pub name: &'static str,
+    pub genesis_is_known: bool,
     pub yaml_config: &'static [u8],
     pub deploy_block: &'static [u8],
     pub boot_enr: &'static [u8],
@@ -51,6 +52,7 @@ macro_rules! define_net {
         HardcodedNet {
             unique_id: ETH2_NET_DIR.unique_id,
             name: ETH2_NET_DIR.name,
+            genesis_is_known: ETH2_NET_DIR.genesis_is_known,
             yaml_config: $include_file!("../", "config.yaml"),
             deploy_block: $include_file!("../", "deploy_block.txt"),
             boot_enr: $include_file!("../", "boot_enr.yaml"),
@@ -78,71 +80,42 @@ pub struct Eth2TestnetConfig<E: EthSpec> {
 }
 
 impl<E: EthSpec> Eth2TestnetConfig<E> {
-    /// Creates the `Eth2TestnetConfig` that was included in the binary at compile time. This can be
-    /// considered the default Lighthouse testnet.
-    ///
-    /// Returns an error if those included bytes are invalid (this is unlikely).
-    /// Returns `None` if the hardcoded testnet is disabled.
+    /// When Lighthouse is built it includes zero or more "hardcoded" network specifications. This
+    /// function allows for instantiating one of these nets by name.
     pub fn constant(name: &str) -> Result<Option<Self>, String> {
-        let testnet = match HARDCODED_NETS.iter().find(|net| net.name == name) {
-            Some(t) => t,
-            None => return Ok(None),
-        };
+        HARDCODED_NETS
+            .iter()
+            .find(|net| net.name == name)
+            .map(Self::from_hardcoded_net)
+            .transpose()
+    }
 
-        let genesis_state = if testnet.genesis_state.is_empty() {
+    /// Instantiates `Self` from a `HardcodedNet`.
+    fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
+        let genesis_state = if net.genesis_state.is_empty() {
             None
         } else {
             Some(
-                BeaconState::from_ssz_bytes(testnet.genesis_state)
+                BeaconState::from_ssz_bytes(net.genesis_state)
                     .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
             )
         };
 
-        Ok(Some(Self {
-            deposit_contract_address: serde_yaml::from_reader(testnet.deposit_contract_address)
+        Ok(Self {
+            deposit_contract_address: serde_yaml::from_reader(net.deposit_contract_address)
                 .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
-            deposit_contract_deploy_block: serde_yaml::from_reader(testnet.deploy_block)
+            deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
             boot_enr: Some(
-                serde_yaml::from_reader(testnet.boot_enr)
+                serde_yaml::from_reader(net.boot_enr)
                     .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
             ),
             genesis_state,
             yaml_config: Some(
-                serde_yaml::from_reader(testnet.yaml_config)
+                serde_yaml::from_reader(net.yaml_config)
                     .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
             ),
-        }))
-    }
-
-    /// Creates the `Eth2TestnetConfig` that was included in the binary at compile time. This can be
-    /// considered the default Lighthouse testnet.
-    ///
-    /// Returns an error if those included bytes are invalid (this is unlikely).
-    /// Returns `None` if the hardcoded testnet is disabled.
-    pub fn hard_coded() -> Result<Option<Self>, String> {
-        if HARDCODED_TESTNET.is_some() {
-            Ok(Some(Self {
-                deposit_contract_address: serde_yaml::from_reader(HARDCODED_DEPOSIT_CONTRACT)
-                    .map_err(|e| format!("Unable to parse contract address: {:?}", e))?,
-                deposit_contract_deploy_block: serde_yaml::from_reader(HARDCODED_DEPLOY_BLOCK)
-                    .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
-                boot_enr: Some(
-                    serde_yaml::from_reader(HARDCODED_BOOT_ENR)
-                        .map_err(|e| format!("Unable to parse boot enr: {:?}", e))?,
-                ),
-                genesis_state: Some(
-                    BeaconState::from_ssz_bytes(HARDCODED_GENESIS_STATE)
-                        .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
-                ),
-                yaml_config: Some(
-                    serde_yaml::from_reader(HARDCODED_YAML_CONFIG)
-                        .map_err(|e| format!("Unable to parse genesis state: {:?}", e))?,
-                ),
-            }))
-        } else {
-            Ok(None)
-        }
+        })
     }
 
     // Write the files to the directory.
@@ -286,13 +259,10 @@ mod tests {
     type E = MainnetEthSpec;
 
     #[test]
-    fn hard_coded_works() {
-        if let Some(dir) =
-            Eth2TestnetConfig::<E>::hard_coded().expect("should decode hard_coded params")
-        {
-            assert!(dir.boot_enr.is_some());
-            assert!(dir.genesis_state.is_some());
-            assert!(dir.yaml_config.is_some());
+    fn hard_coded_nets_work() {
+        for net in HARDCODED_NETS {
+            let config = Eth2TestnetConfig::<E>::from_hardcoded_net(net).unwrap();
+            assert_eq!(config.genesis_state.is_some(), net.genesis_is_known);
         }
     }
 

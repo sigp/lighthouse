@@ -1,6 +1,8 @@
 //! Downloads a testnet configuration from Github.
 
 use eth2_config::{altona, medalla, Eth2NetDirectory};
+use handlebars::Handlebars;
+use serde_json::json;
 use std::fs::File;
 use std::io::Write;
 
@@ -47,12 +49,15 @@ fn get_all_files() -> Result<(), String> {
 }
 
 fn get_file(testnet: &Eth2NetDirectory, filename: &str) -> Result<(), String> {
-    let url = format!(
-        "https://raw.githubusercontent.com/sigp/witti/{}/altona/lighthouse/{}",
-        testnet.commit, filename
-    );
+    let url = Handlebars::new()
+        .render_template(
+            testnet.url_template,
+            &json!({"commit": testnet.commit, "file": filename}),
+        )
+        .unwrap();
 
     let path = testnet.dir().join(filename);
+
     let mut file =
         File::create(path).map_err(|e| format!("Failed to create {}: {:?}", filename, e))?;
 

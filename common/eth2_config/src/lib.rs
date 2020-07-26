@@ -52,7 +52,7 @@ pub struct Eth2NetDirectory<'a> {
     pub name: &'a str,
     pub unique_id: &'a str,
     pub commit: &'a str,
-    pub format_str: &'a str,
+    pub url_template: &'a str,
     pub genesis_is_known: bool,
 }
 
@@ -78,7 +78,7 @@ macro_rules! unique_id {
 }
 
 macro_rules! define_net {
-    ($title: ident, $macro_title: tt, $name: tt, $commit: tt, $format_str: tt, $genesis_is_known: tt) => {
+    ($title: ident, $macro_title: tt, $name: tt, $commit: tt, $url_template: tt, $genesis_is_known: tt) => {
         #[macro_use]
         pub mod $title {
             use super::*;
@@ -87,10 +87,12 @@ macro_rules! define_net {
                 name: $name,
                 unique_id: unique_id!($name, $commit, $genesis_is_known),
                 commit: $commit,
-                format_str: $format_str,
+                url_template: $url_template,
                 genesis_is_known: $genesis_is_known,
             };
 
+            // A wrapper around `std::include_bytes` which includes a file from a specific testnet
+            // directory. Used by upstream crates to import files at compile time.
             #[macro_export]
             macro_rules! $macro_title {
                 ($base_dir: tt, $filename: tt) => {
@@ -111,7 +113,7 @@ define_net!(
     include_altona_file,
     "altona",
     "a94e00c1a03df851f960fcf44a79f2a6b1d29af1",
-    "https://raw.githubusercontent.com/sigp/witti/{}/altona/lighthouse/{}",
+    "https://raw.githubusercontent.com/sigp/witti/{{ commit }}/altona/lighthouse/{{ file }}",
     true
 );
 
@@ -119,9 +121,9 @@ define_net!(
     medalla,
     include_medalla_file,
     "medalla",
-    "a94e00c1a03df851f960fcf44a79f2a6b1d29af1",
-    "https://raw.githubusercontent.com/sigp/witti/{}/altona/lighthouse/{}",
-    true
+    "b21fef76ddf472c6cea62d5c98b678033a9b195a",
+    "https://raw.githubusercontent.com/sigp/witti/{{ commit }}/medalla/{{ file }}",
+    false
 );
 
 #[cfg(test)]
