@@ -68,13 +68,13 @@ fn chain_segment_blocks() -> Vec<SignedBeaconBlock<E>> {
 
 fn junk_signature() -> Signature {
     let kp = generate_deterministic_keypair(VALIDATOR_COUNT);
-    let message = &[42, 42];
-    Signature::new(message, &kp.sk)
+    let message = Hash256::from_slice(&[42; 32]);
+    kp.sk.sign(message)
 }
 
 fn junk_aggregate_signature() -> AggregateSignature {
-    let mut agg_sig = AggregateSignature::new();
-    agg_sig.add(&junk_signature());
+    let mut agg_sig = AggregateSignature::empty();
+    agg_sig.add_assign(&junk_signature());
     agg_sig
 }
 

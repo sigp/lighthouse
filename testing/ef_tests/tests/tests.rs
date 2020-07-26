@@ -180,8 +180,8 @@ mod ssz_static {
     ssz_static_test!(
         beacon_state,
         SszStaticTHCHandler, {
-            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache, MinimalEthSpec),
-            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache, MainnetEthSpec)
+            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
+            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
         }
     );
     ssz_static_test!(checkpoint, Checkpoint);

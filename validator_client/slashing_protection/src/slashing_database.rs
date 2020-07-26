@@ -148,7 +148,7 @@ impl SlashingDatabase {
             let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
 
             for pubkey in public_keys {
-                stmt.execute(&[pubkey.as_hex_string()])?;
+                stmt.execute(&[pubkey.to_hex_string()])?;
             }
         }
         txn.commit()?;
@@ -163,7 +163,7 @@ impl SlashingDatabase {
     fn get_validator_id(txn: &Transaction, public_key: &PublicKey) -> Result<i64, NotSafe> {
         txn.query_row(
             "SELECT id FROM validators WHERE public_key = ?1",
-            params![&public_key.as_hex_string()],
+            params![&public_key.to_hex_string()],
             |row| row.get(0),
         )
         .optional()?

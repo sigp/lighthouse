@@ -170,7 +170,7 @@ impl<'a> Builder<'a> {
                     pubkey: voting_keypair.pk.clone().into(),
                     withdrawal_credentials,
                     amount,
-                    signature: Signature::empty_signature().into(),
+                    signature: Signature::empty().into(),
                 };
 
                 deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
@@ -220,7 +220,7 @@ impl<'a> Builder<'a> {
                 // Write the withdrawal password to file.
                 write_password_to_file(
                     self.password_dir
-                        .join(withdrawal_keypair.pk.as_hex_string()),
+                        .join(withdrawal_keypair.pk.to_hex_string()),
                     withdrawal_password.as_bytes(),
                 )?;
 

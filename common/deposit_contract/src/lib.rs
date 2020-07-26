@@ -98,7 +98,7 @@ mod tests {
             pubkey: keypair.pk.into(),
             withdrawal_credentials: Hash256::from_slice(&[42; 32]),
             amount: u64::max_value(),
-            signature: Signature::empty_signature().into(),
+            signature: Signature::empty().into(),
         };
         deposit_data.signature = deposit_data.create_signature(&keypair.sk, spec);
         deposit_data

@@ -666,7 +666,7 @@ fn genesis_block<T: EthSpec>(
         message: BeaconBlock::empty(&spec),
         // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
         // block consistent with every other block.
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     };
     genesis_block.message.state_root = genesis_state
         .update_tree_hash_cache()

@@ -99,7 +99,7 @@ pub fn parse_pubkey_bytes(string: &str) -> Result<PublicKeyBytes, ApiError> {
     if string.starts_with(PREFIX) {
         let pubkey_bytes = hex::decode(string.trim_start_matches(PREFIX))
             .map_err(|e| ApiError::BadRequest(format!("Invalid hex string: {:?}", e)))?;
-        let pubkey = PublicKeyBytes::from_bytes(pubkey_bytes.as_slice()).map_err(|e| {
+        let pubkey = PublicKeyBytes::deserialize(pubkey_bytes.as_slice()).map_err(|e| {
             ApiError::BadRequest(format!("Unable to deserialize public key: {:?}.", e))
         })?;
         Ok(pubkey)

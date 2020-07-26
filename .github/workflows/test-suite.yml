@@ -77,7 +77,7 @@ jobs:
     - uses: actions/checkout@v1
     - name: Get latest version of stable Rust
       run: rustup update stable
-    - name: Run eth2.0-spec-tests with and without fake_crypto
+    - name: Run eth2.0-spec-tests with blst, milagro and fake_crypto
       run: make test-ef
   dockerfile-ubuntu:
     name: dockerfile-ubuntu

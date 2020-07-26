@@ -1,8 +1,6 @@
-use bls::{PublicKey, PublicKeyBytes, Signature};
-use eth2_hashing::hash;
+use bls::{PublicKey, PublicKeyBytes};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use std::convert::TryInto;
 use types::{CommitteeIndex, Epoch, Slot};
 
 /// A Validator duty with the validator public key represented a `PublicKeyBytes`.
@@ -36,23 +34,6 @@ pub struct ValidatorDutyBase<T> {
 }
 
 impl<T> ValidatorDutyBase<T> {
-    /// Given a `slot_signature` determines if the validator of this duty is an aggregator.
-    // Note that we assume the signature is for the associated pubkey to avoid the signature
-    // verification
-    pub fn is_aggregator(&self, slot_signature: &Signature) -> bool {
-        if let Some(modulo) = self.aggregator_modulo {
-            let signature_hash = hash(&slot_signature.as_bytes());
-            let signature_hash_int = u64::from_le_bytes(
-                signature_hash[0..8]
-                    .try_into()
-                    .expect("first 8 bytes of signature should always convert to fixed array"),
-            );
-            signature_hash_int % modulo == 0
-        } else {
-            false
-        }
-    }
-
     /// Return `true` if these validator duties are equal, ignoring their `block_proposal_slots`.
     pub fn eq_ignoring_proposal_slots(&self, other: &Self) -> bool
     where
@@ -95,11 +76,14 @@ pub struct ValidatorSubscription {
 #[cfg(test)]
 mod test {
     use super::*;
+    use bls::SecretKey;
 
     #[test]
     fn eq_ignoring_proposal_slots() {
+        let validator_pubkey = SecretKey::deserialize(&[1; 32]).unwrap().public_key();
+
         let duty1 = ValidatorDuty {
-            validator_pubkey: PublicKey::default(),
+            validator_pubkey,
             validator_index: Some(10),
             attestation_slot: Some(Slot::new(50)),
             attestation_committee_index: Some(2),

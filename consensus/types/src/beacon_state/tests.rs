@@ -180,6 +180,9 @@ fn clone_config() {
     let (mut state, _keypairs) = builder.build();
 
     state.build_all_caches(&spec).unwrap();
+    state
+        .update_tree_hash_cache()
+        .expect("should update tree hash cache");
 
     let num_caches = 4;
     let all_configs = (0..2u8.pow(num_caches)).map(|i| CloneConfig {
@@ -207,7 +210,46 @@ fn tree_hash_cache() {
 
     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
 
+    /*
+     * A cache should hash twice without updating the slot.
+     */
+
+    assert_eq!(
+        state.update_tree_hash_cache().unwrap(),
+        root,
+        "tree hash result should be identical on the same slot"
+    );
+
+    /*
+     * A cache should not hash after updating the slot but not updating the state roots.
+     */
+
+    // The tree hash cache needs to be rebuilt since it was dropped when it failed.
+    state
+        .update_tree_hash_cache()
+        .expect("should rebuild cache");
+
     state.slot += 1;
+
+    assert_eq!(
+        state.update_tree_hash_cache(),
+        Err(BeaconStateError::NonLinearTreeHashCacheHistory),
+        "should not build hash without updating the state root"
+    );
+
+    /*
+     * The cache should update if the slot and state root are updated.
+     */
+
+    // The tree hash cache needs to be rebuilt since it was dropped when it failed.
+    let root = state
+        .update_tree_hash_cache()
+        .expect("should rebuild cache");
+
+    state.slot += 1;
+    state
+        .set_state_root(state.slot - 1, root)
+        .expect("should set state root");
 
     let root = state.update_tree_hash_cache().unwrap();
     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);

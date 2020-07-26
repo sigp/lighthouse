@@ -10,7 +10,7 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
-use ssz::ssz_encode;
+use ssz::{ssz_encode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
@@ -70,6 +70,11 @@ pub enum Error {
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
+    NonLinearTreeHashCacheHistory,
+    TreeHashCacheSkippedSlot {
+        cache: Slot,
+        state: Slot,
+    },
     TreeHashError(tree_hash::Error),
     CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
@@ -217,7 +222,7 @@ where
     #[ssz(skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    pub tree_hash_cache: Option<BeaconTreeHashCache>,
+    pub tree_hash_cache: Option<BeaconTreeHashCache<T>>,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -496,7 +501,7 @@ impl<T: EthSpec> BeaconState<T> {
             1,
             (committee.committee.len() as u64).safe_div(spec.target_aggregators_per_committee)?,
         );
-        let signature_hash = hash(&slot_signature.as_bytes());
+        let signature_hash = hash(&slot_signature.as_ssz_bytes());
         let signature_hash_int = u64::from_le_bytes(
             signature_hash[0..8]
                 .try_into()
@@ -879,7 +884,6 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
-        self.build_tree_hash_cache()?;
         self.exit_cache.build(&self.validators, spec)?;
 
         Ok(())
@@ -1013,17 +1017,6 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
-    /// Build and update the tree hash cache if it isn't already initialized.
-    pub fn build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.update_tree_hash_cache().map(|_| ())
-    }
-
-    /// Build the tree hash cache, with blatant disregard for any existing cache.
-    pub fn force_build_tree_hash_cache(&mut self) -> Result<(), Error> {
-        self.tree_hash_cache = None;
-        self.build_tree_hash_cache()
-    }
-
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
@@ -1125,15 +1118,15 @@ impl<T: EthSpec> BeaconState<T> {
 
 /// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
 /// recommended to use the methods directly on the beacon state instead.
-impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache> for BeaconState<T> {
-    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache {
+impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconState<T> {
+    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache<T> {
         BeaconTreeHashCache::new(self)
     }
 
     fn recalculate_tree_hash_root(
         &self,
         _arena: &mut CacheArena,
-        cache: &mut BeaconTreeHashCache,
+        cache: &mut BeaconTreeHashCache<T>,
     ) -> Result<Hash256, cached_tree_hash::Error> {
         cache
             .recalculate_tree_hash_root(self)

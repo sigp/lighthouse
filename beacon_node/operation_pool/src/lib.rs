@@ -901,8 +901,11 @@ mod release_tests {
         }
 
         fn attester_slashing(&self, slashed_indices: &[u64]) -> AttesterSlashing<MainnetEthSpec> {
-            let signer =
-                |idx: u64, message: &[u8]| Signature::new(message, &self.keypairs[idx as usize].sk);
+            let signer = |idx: u64, message: &[u8]| {
+                self.keypairs[idx as usize]
+                    .sk
+                    .sign(Hash256::from_slice(&message))
+            };
             TestingAttesterSlashingBuilder::double_vote(
                 AttesterSlashingTestTask::Valid,
                 slashed_indices,

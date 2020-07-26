@@ -45,7 +45,7 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
                 &indexed_attestation,
                 spec
             )?
-            .is_valid(),
+            .verify(),
             Invalid::BadSignature
         );
     }

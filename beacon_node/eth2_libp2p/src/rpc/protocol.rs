@@ -33,13 +33,13 @@ lazy_static! {
     // same across different `EthSpec` implementations.
     pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec> {
         message: BeaconBlock::empty(&MainnetEthSpec::default_spec()),
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     }
     .as_ssz_bytes()
     .len();
     pub static ref SIGNED_BEACON_BLOCK_MAX: usize = SignedBeaconBlock::<MainnetEthSpec> {
         message: BeaconBlock::full(&MainnetEthSpec::default_spec()),
-        signature: Signature::empty_signature(),
+        signature: Signature::empty(),
     }
     .as_ssz_bytes()
     .len();

@@ -23,8 +23,8 @@ use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot, SubnetId,
+    Hash256, Keypair, SecretKey, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockHash, SignedRoot, Slot, SubnetId,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -515,7 +515,7 @@ where
                 self.spec
                     .get_domain(epoch, Domain::Randao, fork, state.genesis_validators_root);
             let message = epoch.signing_root(domain);
-            Signature::new(message.as_bytes(), sk)
+            sk.sign(message)
         };
 
         let (block, state) = self
@@ -586,12 +586,9 @@ where
 
                             let message = attestation.data.signing_root(domain);
 
-                            let mut agg_sig = AggregateSignature::new();
+                            let mut agg_sig = AggregateSignature::infinity();
 
-                            agg_sig.add(&Signature::new(
-                                message.as_bytes(),
-                                self.get_sk(*validator_index),
-                            ));
+                            agg_sig.add_assign(&self.get_sk(*validator_index).sign(message));
 
                             agg_sig
                         };

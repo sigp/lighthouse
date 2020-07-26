@@ -10,7 +10,6 @@
 mod builder;
 pub mod insecure_keys;
 mod manager;
-pub mod unencrypted_keys;
 mod validator_dir;
 
 pub use crate::validator_dir::{Error, Eth1DepositData, ValidatorDir, ETH1_DEPOSIT_TX_HASH_FILE};

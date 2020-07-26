@@ -1,6 +1,6 @@
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature, SignedRoot,
+    SignedRoot,
 };
 use crate::{test_utils::TestRandom, Hash256};
 use safe_arith::ArithError;
@@ -44,7 +44,7 @@ impl<T: EthSpec> Attestation<T> {
         debug_assert!(self.signers_disjoint_from(other));
 
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
-        self.signature.add_aggregate(&other.signature);
+        self.signature.add_assign_aggregate(&other.signature);
     }
 
     /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.
@@ -77,8 +77,7 @@ impl<T: EthSpec> Attestation<T> {
             );
             let message = self.data.signing_root(domain);
 
-            self.signature
-                .add(&Signature::new(message.as_bytes(), secret_key));
+            self.signature.add_assign(&secret_key.sign(message));
 
             Ok(())
         }

@@ -78,7 +78,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
             self.message.signing_root(domain)
         };
 
-        self.signature.verify(message.as_bytes(), pubkey)
+        self.signature.verify(pubkey, message)
     }
 
     /// Convenience accessor for the block's slot.

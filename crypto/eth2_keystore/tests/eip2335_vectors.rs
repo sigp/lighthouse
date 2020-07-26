@@ -18,7 +18,7 @@ pub fn decode_and_check_sk(json: &str) -> Keystore {
         format!("0x{}", keystore.pubkey()),
         format!("{:?}", keystore.public_key().unwrap())
     );
-    assert_eq!(keypair.sk.as_bytes().as_ref(), &expected_sk[..]);
+    assert_eq!(keypair.sk.serialize().as_ref(), &expected_sk[..]);
     keystore
 }
 

@@ -227,6 +227,15 @@ impl Service {
             .get_valid_signature_count(self.highest_safe_block()?)
     }
 
+    /// Returns the number of deposits with valid signatures that have been observed, without
+    /// respecting the `highest_safe_block`.
+    pub fn get_raw_valid_signature_count(&self) -> Option<usize> {
+        let deposits = self.deposits().read();
+        deposits
+            .cache
+            .get_valid_signature_count(deposits.cache.latest_block_number()?)
+    }
+
     /// Returns the number of deposits with valid signatures that have been observed up to and
     /// including the block at `block_number`.
     ///

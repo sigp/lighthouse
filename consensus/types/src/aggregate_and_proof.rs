@@ -73,8 +73,7 @@ impl<T: EthSpec> AggregateAndProof<T> {
             genesis_validators_root,
         );
         let message = self.aggregate.data.slot.signing_root(domain);
-        self.selection_proof
-            .verify(message.as_bytes(), validator_pubkey)
+        self.selection_proof.verify(validator_pubkey, message)
     }
 }
 

@@ -14,8 +14,8 @@ fn load_from_yaml() {
 
     keypairs.into_iter().enumerate().for_each(|(i, keypair)| {
         assert_eq!(
-            keypair,
-            reference_keypair(i),
+            keypair.pk,
+            reference_keypair(i).pk,
             "Decoded key {} does not match generated key",
             i
         )

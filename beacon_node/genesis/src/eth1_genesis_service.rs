@@ -146,6 +146,7 @@ impl Eth1GenesisService {
                         "Waiting for more deposits";
                         "min_genesis_active_validators" => spec.min_genesis_active_validator_count,
                         "total_deposits" => eth1_service.deposit_cache_len(),
+                        "valid_deposits" => eth1_service.get_raw_valid_signature_count(),
                     );
 
                     delay_for(update_interval).await;

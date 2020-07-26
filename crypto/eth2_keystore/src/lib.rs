@@ -6,7 +6,7 @@ mod keystore;
 
 pub mod json_keystore;
 
-pub use bls::SecretHash;
+pub use bls::ZeroizeHash;
 pub use eth2_key_derivation::PlainText;
 pub use keystore::{
     decrypt, default_kdf, encrypt, keypair_from_secret, Error, Keystore, KeystoreBuilder, DKLEN,
