@@ -1,6 +1,6 @@
-# Become an Ethereum 2.0 Testnet Validator on Altona
+# Become an Ethereum 2.0 Testnet Validator on Medalla
 
-Running a Lighthouse validator on the [Altona](https://github.com/goerli/altona)
+Running a Lighthouse validator on the [Medalla](https://github.com/goerli/medalla/tree/master/medalla)
 multi-client testnet is easy if you're familiar with the terminal.
 
 Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make
