@@ -207,6 +207,25 @@ impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHa
     }
 }
 
+pub struct FinalityHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
+    // Reuse the blocks case runner.
+    type Case = cases::SanityBlocks<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "finality"
+    }
+
+    fn handler_name() -> String {
+        "finality".into()
+    }
+}
+
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
