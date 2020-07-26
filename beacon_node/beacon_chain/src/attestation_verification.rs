@@ -66,71 +66,166 @@ use types::{
 pub enum Error {
     /// The attestation is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     FutureSlot {
         attestation_slot: Slot,
         latest_permissible_slot: Slot,
     },
     /// The attestation is from a slot that is prior to the earliest permissible slot (with
     /// respect to the gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     PastSlot {
         attestation_slot: Slot,
         earliest_permissible_slot: Slot,
     },
     /// The attestations aggregation bits were empty when they shouldn't be.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     EmptyAggregationBitfield,
     /// The `selection_proof` on the aggregate attestation does not elect it as an aggregator.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     InvalidSelectionProof { aggregator_index: u64 },
     /// The `selection_proof` on the aggregate attestation selects it as a validator, however the
     /// aggregator index is not in the committee for that attestation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     AggregatorNotInCommittee { aggregator_index: u64 },
     /// The aggregator index refers to a validator index that we have not seen.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
     /// The attestation has been seen before; either in a block, on the gossip network or from a
     /// local validator.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this attestation is valid, however we have already observed it and do not
+    /// need to observe it again.
     AttestationAlreadyKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this attestation is valid, however we have already observed an aggregate
+    /// attestation from this validator for this epoch and should not observe another.
     AggregatorAlreadyKnown(u64),
     /// The aggregator index is higher than the maximum possible validator count.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     ValidatorIndexTooHigh(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation points to a block we have not yet imported. It's unclear if the attestation
+    /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
-    /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch` and therefore
-    /// the attestation is invalid.
+    /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     BadTargetEpoch,
     /// The target root of the attestation points to a block that we have not verified.
+    ///
+    /// This is invalid behaviour whilst we first check for `UnknownHeadBlock`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     UnknownTargetRoot(Hash256),
     /// A signature on the attestation is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     InvalidSignature,
     /// There is no committee for the slot and committee index of this attestation and the
     /// attestation should not have been produced.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
     /// The unaggregated attestation doesn't have only one aggregation bit set.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     NotExactlyOneAggregationBitSet(usize),
     /// We have already observed an attestation for the `validator_index` and refuse to process
     /// another.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this attestation is valid, however we have already observed a
+    /// single-participant attestation from this validator for this epoch and should not observe
+    /// another.
     PriorAttestationKnown { validator_index: u64, epoch: Epoch },
     /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     FutureEpoch {
         attestation_epoch: Epoch,
         current_epoch: Epoch,
     },
     /// The attestation is for an epoch in the past (with respect to the gossip clock disparity).
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     PastEpoch {
         attestation_epoch: Epoch,
         current_epoch: Epoch,
     },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     AttestsToFutureBlock { block: Slot, attestation: Slot },
     /// The attestation was received on an invalid attestation subnet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     InvalidSubnetId {
         received: SubnetId,
         expected: SubnetId,
     },
     /// The attestation failed the `state_processing` verification stage.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
     Invalid(AttestationValidationError),
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this attestation due to an internal error. It's unclear if the
+    /// attestation is valid.
     BeaconChainError(BeaconChainError),
 }
 
