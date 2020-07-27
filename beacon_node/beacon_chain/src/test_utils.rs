@@ -1193,6 +1193,7 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
             .iter()
             .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint.root.into())
+            .filter(|block_hash| *block_hash != Hash256::zero().into())
             .collect()
     }
 }

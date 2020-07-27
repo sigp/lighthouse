@@ -977,7 +977,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
     assert_eq!(
         rig.get_finalized_checkpoints_hashes(),
-        [Hash256::zero().into()].iter().cloned().collect(),
+        [].iter().cloned().collect(),
     );
 
     // Trigger finalization
@@ -991,13 +991,10 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     // Postconditions
     assert_eq!(
         rig.get_finalized_checkpoints_hashes(),
-        [
-            Hash256::zero().into(),
-            canonical_chain_blocks[&Slot::new(slots_per_epoch)],
-        ]
-        .iter()
-        .cloned()
-        .collect(),
+        [canonical_chain_blocks[&Slot::new(slots_per_epoch)],]
+            .iter()
+            .cloned()
+            .collect(),
     );
 
     for &block_hash in stray_blocks.values() {
