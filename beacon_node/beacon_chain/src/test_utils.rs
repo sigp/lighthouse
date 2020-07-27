@@ -51,7 +51,7 @@ pub type BaseHarnessType<TStoreMigrator, TEthSpec, THotStore, TColdStore> = Witn
 pub type HarnessType<E> = BaseHarnessType<NullMigrator, E, MemoryStore<E>, MemoryStore<E>>;
 pub type DiskHarnessType<E> =
     BaseHarnessType<BlockingMigrator<E, LevelDB<E>, LevelDB<E>>, E, LevelDB<E>, LevelDB<E>>;
-pub type YokeType<E> = BaseHarnessType<
+pub type TestingRigType<E> = BaseHarnessType<
     BlockingMigrator<E, MemoryStore<E>, MemoryStore<E>>,
     E,
     MemoryStore<E>,
@@ -789,7 +789,7 @@ where
     }
 }
 
-pub struct BeaconChainYoke<T: BeaconChainTypes> {
+pub struct BeaconChainTestingRig<T: BeaconChainTypes> {
     pub honest_validator_count: usize,
     pub adversarial_validator_count: usize,
     pub validators_keypairs: Vec<Keypair>,
@@ -801,7 +801,7 @@ pub struct BeaconChainYoke<T: BeaconChainTypes> {
     pub rng: StdRng,
 }
 
-impl<E: EthSpec> BeaconChainYoke<YokeType<E>> {
+impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
     pub fn new(
         eth_spec_instance: E,
         honest_validator_count: usize,
