@@ -30,10 +30,10 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// be reported negatively.
 const INVALID_BATCH_LOOKUP_ATTEMPTS: u8 = 3;
 
-#[derive(PartialEq)]
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is
 /// required.
+#[derive(PartialEq)]
 pub enum ProcessingResult {
     KeepChain,
     RemoveChain,
@@ -737,6 +737,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Returns the next required batch from the chain if it exists. If there are no more batches
     /// required, `None` is returned.
+    ///
+    /// Batches are downloaded excluding the first block of the epoch assuming it has already been
+    /// downloaded.
+    ///
+    /// For example:
+    ///
+    /// ```
+    /// Epoch boundary |                                   |
+    /// | 30 | 31 | 32 | 33 | 34 | ... | 61 | 62 | 63 | 64 | 65 |
+    ///  Batch 1       |           Batch 2                 |  Batch 3
+    ///  ```
     fn get_next_batch(&mut self, peer_id: PeerId) -> Option<Batch<T::EthSpec>> {
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let blocks_per_batch = slots_per_epoch * EPOCHS_PER_BATCH;
@@ -751,7 +762,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
-        let batch_start_slot = self.start_epoch.start_slot(slots_per_epoch)
+        // One is added to the start slot to begin one slot after the epoch boundary
+        let batch_start_slot = self
+            .start_epoch
+            .start_slot(slots_per_epoch)
+            .saturating_add(1u64)
             + self.to_be_downloaded_id.saturating_sub(1) * blocks_per_batch;
 
         // don't request batches beyond the target head slot

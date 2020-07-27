@@ -39,7 +39,7 @@ pub struct Batch<T: EthSpec> {
     pub id: BatchId,
     /// The requested start slot of the batch, inclusive.
     pub start_slot: Slot,
-    /// The requested end slot of batch, exclusive.
+    /// The requested end slot of batch, inclusive.
     pub end_slot: Slot,
     /// The peer that was originally assigned to the batch.
     pub original_peer: PeerId,
