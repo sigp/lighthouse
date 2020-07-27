@@ -593,11 +593,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             info!(self.log, "Sync state updated"; "old_state" => format!("{}", old_state), "new_state" => format!("{}",new_state));
         }
     }
+
     /* Processing State Functions */
     // These functions are called in the main poll function to transition the state of the sync
     // manager
 
-    #[allow(clippy::needless_return)]
     /// A new block has been received for a parent lookup query, process it.
     fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
         // verify the last added block is the parent of the last requested block
@@ -658,7 +658,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // add the block back to the queue and continue the search
                     parent_request.downloaded_blocks.push(newest_block);
                     self.request_parent(parent_request);
-                    return;
                 }
                 Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                     spawn_block_processor(
@@ -685,7 +684,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         parent_request.last_submitted_peer,
                         PeerAction::MidToleranceError,
                     );
-                    return;
                 }
             }
         }
