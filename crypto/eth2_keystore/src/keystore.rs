@@ -175,6 +175,7 @@ impl Keystore {
                 path,
                 pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
+                description: None,
             },
         })
     }
