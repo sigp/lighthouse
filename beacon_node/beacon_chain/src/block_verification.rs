@@ -85,48 +85,117 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 #[derive(Debug)]
 pub enum BlockError {
     /// The parent block was unknown.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but it cannot be processed without already knowing
+    /// its parent.
     ParentUnknown(Hash256),
     /// The block slot is greater than the present slot.
+    ///
+    /// ## Peer scoring
+    ///
+    /// Assuming the local clock is correct, the peer has sent an invalid message.
     FutureSlot {
         present_slot: Slot,
         block_slot: Slot,
     },
     /// The block state_root does not match the generated state.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has incompatible state transition logic and is faulty.
     StateRootMismatch { block: Hash256, local: Hash256 },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but this block is for a finalized slot and is
+    /// therefore useless to us.
     WouldRevertFinalizedSlot {
         block_slot: Slot,
         finalized_slot: Slot,
     },
     /// Block is already known, no need to re-import.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is valid and we have already imported a block with this hash.
     BlockIsAlreadyKnown,
     /// A block for this proposer and slot has already been observed.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The `proposer` has already proposed a block at this slot. The existing block may or may not
+    /// be equal to the given block.
     RepeatProposal { proposer: u64, slot: Slot },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We set a very, very high maximum slot number and this block exceeds it. There's no good
+    /// reason to be sending these blocks, they're from future slots.
+    ///
+    /// The block is invalid and the peer is faulty.
     BlockSlotLimitReached,
     /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
     ///
-    /// The block is invalid.
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
     IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The proposal signature in invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
     ProposalSignatureInvalid,
     /// The `block.proposal_index` is not known.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
     UnknownValidator(u64),
     /// A signature in the block is invalid (exactly which is unknown).
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
     InvalidSignature,
-    /// The provided block is from an earlier slot than its parent.
+    /// The provided block is from an later slot than its parent.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
     BlockIsNotLaterThanParent { block_slot: Slot, state_slot: Slot },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The chain of blocks is invalid and the peer is faulty.
     NonLinearParentRoots,
     /// The slots of the blocks in the chain segment were not strictly increasing. I.e., a child
     /// had lower slot than a parent.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The chain of blocks is invalid and the peer is faulty.
     NonLinearSlots,
     /// The block failed the specification's `per_block_processing` function, it is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
     PerBlockProcessingError(BlockProcessingError),
     /// There was an error whilst processing the block. It is not necessarily invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this block due to an internal error. It's unclear if the block is
+    /// valid.
     BeaconChainError(BeaconChainError),
 }
 

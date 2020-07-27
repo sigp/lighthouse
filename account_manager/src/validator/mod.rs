@@ -1,6 +1,7 @@
 pub mod create;
 pub mod deposit;
 pub mod import;
+pub mod list;
 
 use crate::common::base_wallet_dir;
 use clap::{App, Arg, ArgMatches};
@@ -22,6 +23,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(create::cli_app())
         .subcommand(deposit::cli_app())
         .subcommand(import::cli_app())
+        .subcommand(list::cli_app())
 }
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
@@ -31,6 +33,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
         (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, base_wallet_dir),
         (deposit::CMD, Some(matches)) => deposit::cli_run::<T>(matches, env),
         (import::CMD, Some(matches)) => import::cli_run(matches),
+        (list::CMD, Some(matches)) => list::cli_run(matches),
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown
