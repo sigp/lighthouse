@@ -39,7 +39,7 @@ const STATUS_INTERVAL: u64 = 300;
 const PING_INTERVAL: u64 = 30;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
-/// requests. This defines the interval in seconds.  
+/// requests. This defines the interval in seconds.
 const HEARTBEAT_INTERVAL: u64 = 30;
 
 /// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
@@ -330,6 +330,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
+                RPCResponseErrorCode::RateLimited => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -358,6 +359,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 Protocol::Status => return,
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
+            RPCError::RateLimited => match protocol {
+                Protocol::Ping => PeerAction::MidToleranceError,
+                Protocol::BlocksByRange => PeerAction::HighToleranceError,
+                Protocol::BlocksByRoot => PeerAction::HighToleranceError,
+                Protocol::Goodbye => PeerAction::LowToleranceError,
+                Protocol::MetaData => PeerAction::LowToleranceError,
+                Protocol::Status => PeerAction::LowToleranceError,
+            },
         };
 
         self.report_peer(peer_id, peer_action);
