@@ -11,7 +11,7 @@ pub const CMD: &str = "wallet";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about("TODO")
+        .about("Manage wallets, from which validator keys can be derived.")
         .arg(
             Arg::with_name(BASE_DIR_FLAG)
                 .long(BASE_DIR_FLAG)

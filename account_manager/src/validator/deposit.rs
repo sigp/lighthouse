@@ -50,7 +50,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(VALIDATOR_DIR_FLAG)
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
-                    "The path the validator client data directory. \
+                    "The path to the validator client data directory. \
                     Defaults to ~/.lighthouse/validators",
                 )
                 .takes_value(true),
