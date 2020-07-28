@@ -8,7 +8,7 @@ use account_utils::{
     },
 };
 use clap::{App, Arg, ArgMatches};
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
@@ -18,7 +18,9 @@ pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
 pub const STDIN_PASSWORD_FLAG: &str = "stdin-passwords";
 
-pub const PASSWORD_PROMPT: &str = "Enter a password, or press enter to omit a password:";
+pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter to omit it:";
+pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
+                                          ANOTHER CLIENT, OR YOU WILL GET SLASHED.";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -107,28 +109,17 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         }
     };
 
+    eprintln!("WARNING: {}", KEYSTORE_REUSE_WARNING);
+
     // For each keystore:
     //
     // - Obtain the keystore password, if the user desires.
-    // - Move the keystore into the `validator_dir`.
+    // - Copy the keystore into the `validator_dir`.
     // - Add the keystore to the validator definitions file.
     //
-    // Exit early if any operation fails.
+    // Skip keystores that already exist, but exit early if any operation fails.
+    let mut num_imported_keystores = 0;
     for src_keystore in &keystore_paths {
-        // Fail early if we can't read and write the keystore. This will prevent some more awkward
-        // failures later on.
-        OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(false)
-            .open(&src_keystore)
-            .map_err(|e| {
-                format!(
-                    "Unable to get read and write permissions on keystore {:?}: {}",
-                    src_keystore, e
-                )
-            })?;
-
         let keystore = Keystore::from_json_file(src_keystore)
             .map_err(|e| format!("Unable to read keystore JSON {:?}: {:?}", src_keystore, e))?;
 
@@ -139,7 +130,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         eprintln!(" - UUID: {}", keystore.uuid());
         eprintln!("");
         eprintln!(
-            "If you enter a password it will be stored in {} so that it is not required \
+            "If you enter the password it will be stored in {} so that it is not required \
              each time the validator client starts.",
             CONFIG_FILENAME
         );
@@ -174,10 +165,11 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         // provides some loose protection against adding the same keystore twice.
         let dest_dir = validator_dir.join(format!("0x{}", keystore.pubkey()));
         if dest_dir.exists() {
-            return Err(format!(
-                "Refusing to re-import an existing public key: {:?}",
+            eprintln!(
+                "Skipping import of keystore for existing public key: {:?}",
                 src_keystore
-            ));
+            );
+            continue;
         }
 
         fs::create_dir_all(&dest_dir)
@@ -194,23 +186,8 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         fs::copy(&src_keystore, &dest_keystore)
             .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
 
-        // Attempt to make the move atomic in the case where the copy succeeds but the remove
-        // fails.
-        if let Err(e) = fs::remove_file(&src_keystore) {
-            if src_keystore.exists() {
-                // If the original keystore path still exists we can delete the copied one.
-                //
-                // It is desirable to avoid duplicate keystores since this is how slashing
-                // conditions can happen.
-                fs::remove_file(dest_keystore)
-                    .map_err(|e| format!("Unable to remove copied keystore: {:?}", e))?;
-                return Err(format!("Unable to delete {:?}: {:?}", src_keystore, e));
-            } else {
-                return Err(format!("An error occurred whilst moving files: {:?}", e));
-            }
-        }
-
-        eprintln!("Successfully moved keystore.");
+        eprintln!("Successfully imported keystore.");
+        num_imported_keystores += 1;
 
         let validator_def =
             ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt)
@@ -225,7 +202,13 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     }
 
     eprintln!("");
-    eprintln!("Successfully imported {} validators.", keystore_paths.len());
+    eprintln!(
+        "Successfully imported {} validators ({} skipped).",
+        num_imported_keystores,
+        keystore_paths.len() - num_imported_keystores
+    );
+    eprintln!("");
+    eprintln!("WARNING: {}", KEYSTORE_REUSE_WARNING);
 
     Ok(())
 }
