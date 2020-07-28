@@ -5,7 +5,7 @@ use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::HARDCODED_TESTNET;
+use eth2_testnet_config::DEFAULT_HARDCODED_TESTNET;
 use git_version::git_version;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -179,18 +179,20 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    let optional_testnet_config = if matches.is_present("network") {
-        clap_utils::parse_hardcoded_network(matches, network_name)?
-    } else if matches.is_present("testnet-dir") {
-        clap_utils::parse_testnet_dir(matches, "testnet-dir")?
-    } else {
-        Eth2TestnetConfig::
+    // Parse testnet config from the `network` and `testnet-dir` flag in that order
+    // else, use the default
+    let mut optional_testnet_config = None;
+    if let Some(network_name) = matches.value_of("network") {
+        optional_testnet_config = clap_utils::parse_hardcoded_network(matches, network_name)?;
+    };
+    if let Some(_) = matches.value_of("testnet-dir") {
+        optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
     };
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_testnet_config(optional_testnet_config)?
+        .optional_eth2_testnet_config(optional_testnet_config.clone())?
         .build()?;
 
     let log = environment.core_context().log().clone();
@@ -227,7 +229,7 @@ fn run<E: EthSpec>(
         info!(
             log,
             "Using default testnet";
-            "default" => HARDCODED_TESTNET
+            "default" => DEFAULT_HARDCODED_TESTNET
         )
     }
 

@@ -28,7 +28,7 @@ pub fn parse_testnet_dir<E: EthSpec>(
 /// the name is not a valid network name.
 pub fn parse_hardcoded_network<E: EthSpec>(
     matches: &ArgMatches,
-    name: &'static str,
+    name: &str,
 ) -> Result<Option<Eth2TestnetConfig<E>>, String> {
     let network_name = parse_required::<String>(matches, name)?;
     Eth2TestnetConfig::constant(network_name.as_str())
@@ -56,7 +56,7 @@ pub fn parse_path_with_default_in_home_dir(
 
 /// Returns the value of `name` or an error if it is not in `matches` or does not parse
 /// successfully using `std::string::FromStr`.
-pub fn parse_required<T>(matches: &ArgMatches, name: &'static str) -> Result<T, String>
+pub fn parse_required<T>(matches: &ArgMatches, name: &str) -> Result<T, String>
 where
     T: FromStr,
     <T as FromStr>::Err: std::fmt::Display,
@@ -66,7 +66,7 @@ where
 
 /// Returns the value of `name` (if present) or an error if it does not parse successfully using
 /// `std::string::FromStr`.
-pub fn parse_optional<T>(matches: &ArgMatches, name: &'static str) -> Result<Option<T>, String>
+pub fn parse_optional<T>(matches: &ArgMatches, name: &str) -> Result<Option<T>, String>
 where
     T: FromStr,
     <T as FromStr>::Err: std::fmt::Display,

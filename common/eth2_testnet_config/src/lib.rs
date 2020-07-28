@@ -55,6 +55,7 @@ const ALTONA: HardcodedNet = define_net!(altona, include_altona_file);
 const MEDALLA: HardcodedNet = define_net!(medalla, include_medalla_file);
 
 const HARDCODED_NETS: &[HardcodedNet] = &[ALTONA, MEDALLA];
+pub const DEFAULT_HARDCODED_TESTNET: &str = "medalla";
 
 /// Specifies an Eth2 testnet.
 ///
