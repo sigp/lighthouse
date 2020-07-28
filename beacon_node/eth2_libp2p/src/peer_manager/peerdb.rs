@@ -1,6 +1,6 @@
 use super::peer_info::{PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
-use super::score::Score;
+use super::score::{Score, ScoreState};
 use crate::rpc::methods::MetaData;
 use crate::PeerId;
 use rand::seq::SliceRandom;
@@ -99,9 +99,17 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Returns true if the Peer is banned.
     pub fn is_banned(&self, peer_id: &PeerId) -> bool {
-        match self.peers.get(peer_id).map(|info| &info.connection_status) {
-            Some(status) => status.is_banned(),
-            None => false,
+        match self.peers.get(peer_id).map(|info| info.score.state()) {
+            Some(ScoreState::Banned) => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true if the Peer is either banned or in the disconnected state.
+    pub fn is_banned_or_disconnected(&self, peer_id: &PeerId) -> bool {
+        match self.peers.get(peer_id).map(|info| info.score.state()) {
+            Some(ScoreState::Banned) | Some(ScoreState::Disconnected) => true,
+            _ => false,
         }
     }
 
