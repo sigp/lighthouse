@@ -99,10 +99,9 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("network")
-                .short("n")
-                .long("network")
-                .value_name("NETWORK")
+            Arg::with_name("testnet")
+                .long("testnet")
+                .value_name("testnet")
                 .help("Name of network lighthouse will connect to")
                 .possible_values(&["medalla", "altona"])
                 .conflicts_with("testnet-dir")
@@ -179,10 +178,10 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    // Parse testnet config from the `network` and `testnet-dir` flag in that order
+    // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
     // else, use the default
     let mut optional_testnet_config = None;
-    if let Some(network_name) = matches.value_of("network") {
+    if let Some(network_name) = matches.value_of("testnet") {
         optional_testnet_config = clap_utils::parse_hardcoded_network(matches, network_name)?;
     };
     if let Some(_) = matches.value_of("testnet-dir") {

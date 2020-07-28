@@ -382,12 +382,12 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.
+/// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
 /// Returns the default testnet if neither flags are set.
 pub fn get_eth2_testnet_config<E: EthSpec>(
     cli_args: &ArgMatches,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    let optional_testnet_config = if let Some(network_name) = cli_args.value_of("network") {
+    let optional_testnet_config = if let Some(network_name) = cli_args.value_of("testnet") {
         clap_utils::parse_hardcoded_network(cli_args, network_name)?
     } else if let Some(_) = cli_args.value_of("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
