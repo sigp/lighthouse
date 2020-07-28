@@ -432,8 +432,8 @@ fn validator_import_launchpad() {
     child.wait().unwrap();
 
     assert!(
-        !src_dir.path().join(KEYSTORE_NAME).exists(),
-        "keystore should be removed from src dir"
+        src_dir.path().join(KEYSTORE_NAME).exists(),
+        "keystore should not be removed from src dir"
     );
     assert!(
         src_dir.path().join(NOT_KEYSTORE_NAME).exists(),
