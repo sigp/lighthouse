@@ -34,7 +34,7 @@ If you're using a Mac, follow the instructions [listed here](https://github.com/
 Once you have geth installed, use this command to start your Eth1 node:
 
 ```bash
- geth --goerli --rpc
+ geth --goerli --http
 ```
 
 ## 3. Start your beacon node
