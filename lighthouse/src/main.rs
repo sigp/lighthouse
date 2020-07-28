@@ -5,7 +5,7 @@ use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::DEFAULT_HARDCODED_TESTNET;
+use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
 use git_version::git_version;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -180,7 +180,7 @@ fn run<E: EthSpec>(
 
     // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
     // else, use the default
-    let mut optional_testnet_config = None;
+    let mut optional_testnet_config = Eth2TestnetConfig::constant(DEFAULT_HARDCODED_TESTNET)?;
     if let Some(network_name) = matches.value_of("testnet") {
         optional_testnet_config = clap_utils::parse_hardcoded_network(matches, network_name)?;
     };
@@ -224,7 +224,7 @@ fn run<E: EthSpec>(
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
 
-    if !matches.is_present("testnet-dir") {
+    if !matches.is_present("testnet-dir") && !matches.is_present("testnet") {
         info!(
             log,
             "Using default testnet";
