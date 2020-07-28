@@ -80,13 +80,6 @@ impl Config {
             config.secrets_dir = secrets_dir;
         }
 
-        if !config.secrets_dir.exists() {
-            return Err(format!(
-                "The directory for validator passwords (--secrets-dir) does not exist: {:?}",
-                config.secrets_dir
-            ));
-        }
-
         Ok(config)
     }
 }
