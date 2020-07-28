@@ -70,7 +70,6 @@ pub fn get_config<E: EthSpec>(
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
 
     client_config.spec_constants = spec_constants.into();
-    client_config.testnet_dir = get_testnet_dir(cli_args);
 
     /*
      * Networking
@@ -381,16 +380,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
         .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Gets the testnet dir which should be used.
-pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
-    // Read the `--testnet-dir` flag.
-    if let Some(val) = cli_args.value_of("testnet-dir") {
-        Some(PathBuf::from(val))
-    } else {
-        None
-    }
 }
 
 /// Try to parse the eth2 testnet config from the `network`, `testnet-dir` flags in that order.

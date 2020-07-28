@@ -46,7 +46,6 @@ pub struct Config {
     pub db_name: String,
     /// Path where the freezer database will be located.
     pub freezer_db_path: Option<PathBuf>,
-    pub testnet_dir: Option<PathBuf>,
     pub log_file: PathBuf,
     pub spec_constants: String,
     /// If true, the node will use co-ordinated junk for eth1 values.
@@ -75,7 +74,6 @@ impl Default for Config {
             data_dir: PathBuf::from(DEFAULT_DATADIR),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
-            testnet_dir: None,
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
             store: <_>::default(),
