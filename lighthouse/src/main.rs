@@ -98,6 +98,18 @@ fn main() {
                 .takes_value(true)
                 .global(true),
         )
+        .arg(
+            Arg::with_name("network")
+                .short("n")
+                .long("network")
+                .value_name("NETWORK")
+                .help("Name of network lighthouse will connect to")
+                .possible_values(&["medalla", "altona"])
+                .conflicts_with("testnet-dir")
+                .takes_value(true)
+                .global(true)
+
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
@@ -167,8 +179,13 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    let optional_testnet_config =
-        clap_utils::parse_testnet_dir_with_hardcoded_default(matches, "testnet-dir")?;
+    let optional_testnet_config = if matches.is_present("network") {
+        clap_utils::parse_hardcoded_network(matches, network_name)?
+    } else if matches.is_present("testnet-dir") {
+        clap_utils::parse_testnet_dir(matches, "testnet-dir")?
+    } else {
+        Eth2TestnetConfig::
+    };
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?

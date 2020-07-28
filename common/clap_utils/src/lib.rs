@@ -14,20 +14,24 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 
 /// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
 /// the path cannot be found or the testnet dir is invalid.
-///
-/// If `name` is not in `matches`, attempts to return the "hard coded" testnet dir.
-pub fn parse_testnet_dir_with_hardcoded_default<E: EthSpec>(
+pub fn parse_testnet_dir<E: EthSpec>(
     matches: &ArgMatches,
     name: &'static str,
 ) -> Result<Option<Eth2TestnetConfig<E>>, String> {
-    if let Some(path) = parse_optional::<PathBuf>(matches, name)? {
-        Eth2TestnetConfig::load(path.clone())
-            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
-            .map(Some)
-    } else {
-        Eth2TestnetConfig::hard_coded()
-            .map_err(|e| format!("{} Error : {}", BAD_TESTNET_DIR_MESSAGE, e))
-    }
+    let path = parse_required::<PathBuf>(matches, name)?;
+    Eth2TestnetConfig::load(path.clone())
+        .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
+        .map(Some)
+}
+
+/// Attempts to load a hardcoded network config if `name` is in `matches`, returning an error if
+/// the name is not a valid network name.
+pub fn parse_hardcoded_network<E: EthSpec>(
+    matches: &ArgMatches,
+    name: &'static str,
+) -> Result<Option<Eth2TestnetConfig<E>>, String> {
+    let network_name = parse_required::<String>(matches, name)?;
+    Eth2TestnetConfig::constant(network_name.as_str())
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's

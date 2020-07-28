@@ -22,17 +22,6 @@ pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const YAML_CONFIG_FILE: &str = "config.yaml";
 
-/// The name of the testnet to hardcode.
-///
-/// Should be set to `None` when no existing testnet is compatible with the codebase.
-pub const HARDCODED_TESTNET: Option<&str> = Some("altona-v3");
-
-pub const HARDCODED_YAML_CONFIG: &[u8] = include_bytes!("../altona-v3/config.yaml");
-pub const HARDCODED_DEPLOY_BLOCK: &[u8] = include_bytes!("../altona-v3/deploy_block.txt");
-pub const HARDCODED_DEPOSIT_CONTRACT: &[u8] = include_bytes!("../altona-v3/deposit_contract.txt");
-pub const HARDCODED_GENESIS_STATE: &[u8] = include_bytes!("../altona-v3/genesis.ssz");
-pub const HARDCODED_BOOT_ENR: &[u8] = include_bytes!("../altona-v3/boot_enr.yaml");
-
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
     pub unique_id: &'static str,
