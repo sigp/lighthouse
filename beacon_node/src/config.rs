@@ -383,7 +383,7 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 }
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
-/// Returns the default testnet if neither flags are set.
+/// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_testnet_config<E: EthSpec>(
     cli_args: &ArgMatches,
 ) -> Result<Eth2TestnetConfig<E>, String> {
@@ -392,7 +392,7 @@ pub fn get_eth2_testnet_config<E: EthSpec>(
     } else if let Some(_) = cli_args.value_of("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        Eth2TestnetConfig::constant(eth2_testnet_config::DEFAULT_HARDCODED_TESTNET)?
+        Eth2TestnetConfig::hard_coded_default()?
     };
     optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }

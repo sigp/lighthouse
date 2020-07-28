@@ -180,18 +180,18 @@ fn run<E: EthSpec>(
 
     // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
     // else, use the default
-    let mut optional_testnet_config = Eth2TestnetConfig::constant(DEFAULT_HARDCODED_TESTNET)?;
+    let mut optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
     if let Some(network_name) = matches.value_of("testnet") {
         optional_testnet_config = clap_utils::parse_hardcoded_network(matches, network_name)?;
     };
-    if let Some(_) = matches.value_of("testnet-dir") {
+    if matches.value_of("testnet-dir").is_some() {
         optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
     };
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_testnet_config(optional_testnet_config.clone())?
+        .optional_eth2_testnet_config(optional_testnet_config)?
         .build()?;
 
     let log = environment.core_context().log().clone();

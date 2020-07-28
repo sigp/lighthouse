@@ -70,6 +70,10 @@ pub struct Eth2TestnetConfig<E: EthSpec> {
 }
 
 impl<E: EthSpec> Eth2TestnetConfig<E> {
+    /// Returns the default hard coded testnet.
+    pub fn hard_coded_default() -> Result<Option<Self>, String> {
+        Self::constant(DEFAULT_HARDCODED_TESTNET)
+    }
     /// When Lighthouse is built it includes zero or more "hardcoded" network specifications. This
     /// function allows for instantiating one of these nets by name.
     pub fn constant(name: &str) -> Result<Option<Self>, String> {
