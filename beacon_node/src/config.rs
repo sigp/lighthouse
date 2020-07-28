@@ -387,9 +387,9 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 pub fn get_eth2_testnet_config<E: EthSpec>(
     cli_args: &ArgMatches,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    let optional_testnet_config = if let Some(network_name) = cli_args.value_of("testnet") {
-        clap_utils::parse_hardcoded_network(cli_args, network_name)?
-    } else if let Some(_) = cli_args.value_of("testnet-dir") {
+    let optional_testnet_config = if cli_args.is_present("testnet") {
+        clap_utils::parse_hardcoded_network(cli_args, "testnet")?
+    } else if cli_args.is_present("testnet-dir") {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
         Eth2TestnetConfig::hard_coded_default()?
