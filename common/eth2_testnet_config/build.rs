@@ -33,7 +33,7 @@ pub fn get_all_files() -> Result<(), String> {
     get_file("deploy_block.txt")?;
     get_file("deposit_contract.txt")?;
 
-    if cfg!(genesis_state) {
+    if cfg!(feature = "genesis_state") {
         get_file("genesis.ssz")?;
     }
 
