@@ -63,10 +63,7 @@ impl<'a> Eth2NetDirectory<'a> {
             .expect("should know manifest dir")
             .parse::<PathBuf>()
             .expect("should parse manifest dir as path")
-            .join(format!(
-                "testnet_{}_{}_{}",
-                self.name, self.commit, self.genesis_is_known
-            ))
+            .join(self.unique_id)
     }
 }
 
