@@ -14,6 +14,10 @@ pub fn decode_and_check_sk(json: &str) -> Keystore {
     let keystore = Keystore::from_json_str(json).expect("should decode keystore json");
     let expected_sk = hex::decode(EXPECTED_SECRET).unwrap();
     let keypair = keystore.decrypt_keypair(PASSWORD.as_bytes()).unwrap();
+    assert_eq!(
+        format!("0x{}", keystore.pubkey()),
+        format!("{:?}", keystore.public_key().unwrap())
+    );
     assert_eq!(keypair.sk.serialize().as_ref(), &expected_sk[..]);
     keystore
 }

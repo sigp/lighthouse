@@ -11,6 +11,7 @@
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
 * [Validator Management](./validator-management.md)
+	* [Importing from the Eth2 Launchpad](./validator-import-launchpad.md)
 * [Local Testnets](./local-testnets.md)
 * [API](./api.md)
 	* [HTTP (RESTful JSON)](./http.md)

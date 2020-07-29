@@ -10,7 +10,7 @@ use crate::Uuid;
 use aes_ctr::stream_cipher::generic_array::GenericArray;
 use aes_ctr::stream_cipher::{NewStreamCipher, SyncStreamCipher};
 use aes_ctr::Aes128Ctr as AesCtr;
-use bls::{Keypair, SecretKey, ZeroizeHash};
+use bls::{Keypair, PublicKey, SecretKey, ZeroizeHash};
 use eth2_key_derivation::PlainText;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
@@ -21,7 +21,9 @@ use scrypt::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::path::Path;
 
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
@@ -173,6 +175,7 @@ impl Keystore {
                 path,
                 pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
+                description: None,
             },
         })
     }
@@ -224,6 +227,11 @@ impl Keystore {
         &self.json.pubkey
     }
 
+    /// Returns the pubkey for the keystore, parsed as a `PublicKey` if it parses.
+    pub fn public_key(&self) -> Option<PublicKey> {
+        serde_json::from_str(&format!("\"0x{}\"", &self.json.pubkey)).ok()
+    }
+
     /// Returns the key derivation function for the keystore.
     pub fn kdf(&self) -> &Kdf {
         &self.json.crypto.kdf.params
@@ -247,6 +255,17 @@ impl Keystore {
     /// Instantiates `self` from a JSON `reader`.
     pub fn from_json_reader<R: Read>(reader: R) -> Result<Self, Error> {
         serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
+    }
+
+    /// Instantiates `self` by reading a JSON file at `path`.
+    pub fn from_json_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        OpenOptions::new()
+            .read(true)
+            .write(false)
+            .create(false)
+            .open(path)
+            .map_err(|e| Error::ReadError(format!("{}", e)))
+            .and_then(Self::from_json_reader)
     }
 }
 

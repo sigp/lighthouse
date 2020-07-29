@@ -27,6 +27,7 @@ pub struct JsonKeystore {
     pub path: String,
     pub pubkey: String,
     pub version: Version,
+    pub description: Option<String>,
 }
 
 /// Version for `JsonKeystore`.
