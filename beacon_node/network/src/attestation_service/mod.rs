@@ -448,6 +448,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
             if !already_subscribed {
                 // send a discovery request and a subscription
+                // TODO(pawan): group these queries in a single request.
+                // might be too hard on discovery?
                 self.events
                     .push_back(AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
                         subnet_id,

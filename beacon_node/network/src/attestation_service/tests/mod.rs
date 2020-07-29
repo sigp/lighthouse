@@ -122,23 +122,21 @@ mod tests {
         }
     }
 
-    fn _get_subscriptions(
+    fn get_subscriptions(
         validator_count: u64,
         slot: Slot,
         committee_count_at_slot: u64,
     ) -> Vec<ValidatorSubscription> {
-        let mut subscriptions: Vec<ValidatorSubscription> = Vec::new();
-        for validator_index in 0..validator_count {
-            let is_aggregator = true;
-            subscriptions.push(ValidatorSubscription {
-                validator_index,
-                attestation_committee_index: validator_index,
-                slot,
-                committee_count_at_slot,
-                is_aggregator,
-            });
-        }
-        subscriptions
+        (0..validator_count)
+            .map(|validator_index| {
+                get_subscription(
+                    validator_index,
+                    validator_index,
+                    slot,
+                    committee_count_at_slot,
+                )
+            })
+            .collect()
     }
 
     // gets a number of events from the subscription service, or returns none if it times out after a number
@@ -519,7 +517,7 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions = _get_subscriptions(
+        let subscriptions = get_subscriptions(
             subscription_count,
             current_slot + subscription_slot,
             committee_count,
@@ -570,7 +568,7 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions = _get_subscriptions(
+        let subscriptions = get_subscriptions(
             subscription_count,
             current_slot + subscription_slot,
             committee_count,
@@ -602,5 +600,41 @@ mod tests {
         assert_eq!(subscribe_count, 64);
         assert_eq!(enr_add_count, 64);
         assert_eq!(unexpected_msg_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_discovery_peers_count() {
+        let subscription_slot = 10;
+        let validator_count = 32;
+        let committee_count = 1;
+        let expected_events = 97;
+
+        // create the attestation service and subscriptions
+        let mut attestation_service = get_attestation_service();
+        let current_slot = attestation_service
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Could not get current slot");
+
+        let subscriptions = get_subscriptions(
+            validator_count,
+            current_slot + subscription_slot,
+            committee_count,
+        );
+
+        // submit sthe subscriptions
+        attestation_service
+            .validator_subscriptions(subscriptions)
+            .unwrap();
+
+        let events = get_events(attestation_service, expected_events, 3).await;
+
+        let event = events.get(96);
+        if let Some(AttServiceMessage::DiscoverPeers(d)) = event {
+            assert_eq!(d.len(), validator_count as usize);
+        } else {
+            panic!("Unexpected event {:?}", event);
+        }
     }
 }
