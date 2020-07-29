@@ -1,7 +1,9 @@
 use crate::types::GossipKind;
 use crate::Enr;
 use discv5::{Discv5Config, Discv5ConfigBuilder};
-use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId};
+use libp2p::gossipsub::{
+    GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId, ValidationMode,
+};
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -82,7 +84,7 @@ impl Default for Config {
         // The function used to generate a gossipsub message id
         // We use base64(SHA256(data)) for content addressing
         let gossip_message_id = |message: &GossipsubMessage| {
-            MessageId(base64::encode_config(
+            MessageId::from(base64::encode_config(
                 &Sha256::digest(&message.data),
                 base64::URL_SAFE_NO_PAD,
             ))
@@ -94,8 +96,10 @@ impl Default for Config {
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_secs(1))
-            .manual_propagation() // require validation before propagation
-            .no_source_id()
+            .validate_messages() // require validation before propagation
+            .validation_mode(ValidationMode::Permissive)
+            // Prevent duplicates by caching messages from an epoch + 1 slot amount of time (33*12)
+            .duplicate_cache_time(Duration::from_secs(396))
             .message_id_fn(gossip_message_id)
             .build();
 

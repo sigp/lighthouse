@@ -297,10 +297,10 @@ impl<T: BeaconChainTypes> Router<T> {
         }
     }
 
-    /// Informs the network service that the message should be forwarded to other peers.
+    /// Informs the network service that the message should be forwarded to other peers (is valid).
     fn propagate_message(&mut self, message_id: MessageId, propagation_source: PeerId) {
         self.network_send
-            .send(NetworkMessage::Propagate {
+            .send(NetworkMessage::Validate {
                 propagation_source,
                 message_id,
             })
