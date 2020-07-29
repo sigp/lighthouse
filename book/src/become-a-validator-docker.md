@@ -47,6 +47,8 @@ VALIDATOR_COUNT=1
 VOTING_ETH1_NODE=http://geth:8545
 ```
 
+> To specify a non-default testnet add `TESTNET=<testnet>` to the above file. <testnet> can be `altona` or `medalla`.
+
 _This `.env` file should live in the `lighthouse-docker` directory alongside the
 `docker-compose.yml` file_.
 
@@ -68,7 +70,7 @@ validator_client_1  | Jun 01 00:29:24.418 INFO Decrypted validator keystore     
 ```
 This is one of the earlier logs outputted, so you may have to scroll up or perform a search in your terminal to find it.
 
-> Note: `docker-compose up` generates  a new  sub-directory -- to store your validator's deposit data, along with its voting and withdrawal keys -- in the `.lighthouse/validators` directory. This sub-directory is identified by your validator's `voting_pubkey` (the same `voting_pubkey` you see in the logs). So this is another way you can find it.
+> Note: `docker-compose up` generates  a new  sub-directory -- to store your validator's deposit data, along with its voting and withdrawal keys -- in the `lighthouse-data/validators` directory. This sub-directory is identified by your validator's `voting_pubkey` (the same `voting_pubkey` you see in the logs). So this is another way you can find it.
 
 > Note: the docker-compose setup includes a fast-synced geth node. So you can
 > expect the `beacon_node` to log some eth1-related errors whilst the geth node
@@ -96,7 +98,7 @@ However, since it generally takes somewhere between [4 and 8 hours](./faq.md) af
 
 ## Installation complete!
 
-In the [next step](become-a-validator.html#2-submit-your-deposit-to-goerli) you'll need to upload your validator's deposit data. This data is stored in a file called `eth1_deposit_data.rlp`. 
+In the [next step](become-a-validator.html#2-submit-your-deposit-to-goerli) you'll need to upload your validator's deposit data. This data is stored in a file called `eth1_deposit_data.rlp`.
 
 You'll find it in `lighthouse-docker/.lighthouse/validators/` -- in the sub-directory that corresponds to your validator's public key (`voting_pubkey`).
 
