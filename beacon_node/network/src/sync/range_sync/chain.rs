@@ -549,7 +549,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         debug!(self.log, "Re-requesting batch";
             "chain_id" => self.id,
             "start_slot" => batch.start_slot,
-            "end_slot" => batch.end_slot - 1, // The -1 shows invlusive
+            "end_slot" => batch.end_slot -1, // The -1 shows inclusive blocks
             "id" => *batch.id,
             "peer" => format!("{}", batch.current_peer),
             "retries" => batch.retries,
@@ -685,7 +685,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             debug!(self.log, "Re-Requesting batch";
                 "chain_id" => self.id,
                 "start_slot" => batch.start_slot,
-                "end_slot" => batch.end_slot -1,
+                "end_slot" => batch.end_slot -1, // The -1 shows inclusive blocks
+
                 "id" => *batch.id,
                 "peer" => format!("{:?}", batch.current_peer));
             self.send_batch(network, batch);
@@ -710,7 +711,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 debug!(self.log, "Requesting batch";
                     "chain_id" => self.id,
                     "start_slot" => batch.start_slot,
-                    "end_slot" => batch.end_slot - 1,
+                    "end_slot" => batch.end_slot -1, // The -1 shows inclusive blocks 
                     "id" => *batch.id,
                     "peer" => format!("{}", batch.current_peer));
                 // send the batch
@@ -748,8 +749,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ///
     ///
     /// Epoch boundary |                                   |
-    /// | 30 | 31 | 32 | 33 | 34 | ... | 61 | 62 | 63 | 64 | 65 |
-    ///  Batch 1       |           Batch 2                 |  Batch 3
+    ///  ... | 30 | 31 | 32 | 33 | 34 | ... | 61 | 62 | 63 | 64 | 65 |
+    ///       Batch 1       |              Batch 2              |  Batch 3
     fn get_next_batch(&mut self, peer_id: PeerId) -> Option<Batch<T::EthSpec>> {
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let blocks_per_batch = slots_per_epoch * EPOCHS_PER_BATCH;
