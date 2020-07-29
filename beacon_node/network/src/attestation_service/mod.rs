@@ -291,8 +291,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 }
             })
             .collect();
-        self.events
-            .push_back(AttServiceMessage::DiscoverPeers(discovery_subnets));
+
+        if !discovery_subnets.is_empty() {
+            self.events
+                .push_back(AttServiceMessage::DiscoverPeers(discovery_subnets));
+        }
         Ok(())
     }
 
