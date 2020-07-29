@@ -211,7 +211,19 @@ fn run<E: EthSpec>(
     //
     // Creating a command which can run both might be useful future works.
 
+    // Print an indication of which network is currently in use.
+    let optional_testnet = clap_utils::parse_optional::<String>(matches, "testnet")?;
+    let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
+
+    let testnet_name = match (optional_testnet, optional_testnet_dir) {
+        (Some(testnet), None) => testnet,
+        (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
+        (None, None) => DEFAULT_HARDCODED_TESTNET.to_string(),
+        (Some(_), Some(_)) => panic!("CLI prevents both --testnet and --testnet-dir"),
+    };
+
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
+        eprintln!("Running account manager for {} testnet", testnet_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 
@@ -223,14 +235,11 @@ fn run<E: EthSpec>(
         log,
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
-
-    if !matches.is_present("testnet-dir") && !matches.is_present("testnet") {
-        info!(
-            log,
-            "Using default testnet";
-            "default" => DEFAULT_HARDCODED_TESTNET
-        )
-    }
+    info!(
+        log,
+        "Configured for testnet";
+        "name" => testnet_name
+    );
 
     let beacon_node = if let Some(sub_matches) = matches.subcommand_matches("beacon_node") {
         let runtime_context = environment.core_context();
