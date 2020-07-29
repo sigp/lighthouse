@@ -1,9 +1,10 @@
 use crate::{common::ensure_dir_exists, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
-use account_utils::{random_password, strip_off_newlines};
+use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2_wallet::PlainText;
 use eth2_wallet_manager::WalletManager;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use types::EthSpec;
@@ -192,10 +193,14 @@ pub fn cli_run<T: EthSpec>(
 
 /// Returns the number of validators that exist in the given `validator_dir`.
 ///
-/// This function just assumes any file is a validator directory, making it likely to return a
-/// higher number than accurate but never a lower one.
+/// This function just assumes any file but the validator definitions YAML is a validator directory,
+/// making it likely to return a higher number than accurate but never a lower one.
 fn existing_validator_count<P: AsRef<Path>>(validator_dir: P) -> Result<usize, String> {
     fs::read_dir(validator_dir.as_ref())
-        .map(|iter| iter.count())
+        .map(|iter| {
+            iter.filter_map(|e| e.ok())
+                .filter(|e| e.file_name() != OsStr::new(validator_definitions::CONFIG_FILENAME))
+                .count()
+        })
         .map_err(|e| format!("Unable to read {:?}: {}", validator_dir.as_ref(), e))
 }

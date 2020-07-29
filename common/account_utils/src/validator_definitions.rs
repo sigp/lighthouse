@@ -1,7 +1,7 @@
 //! Provides a file format for defining validators that should be initialized by this validator.
 //!
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
-//! attempt) to load //! into the `crate::intialized_validators::InitializedValidators` struct.
+//! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
 use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
 use eth2_keystore::Keystore;
