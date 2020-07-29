@@ -60,12 +60,12 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                         BatchProcessResult::Success
                     }
                     (imported_blocks, Err(e)) if imported_blocks > 0 => {
-                        warn!(log, "Batch processing failed but imported some blocks";
+                        debug!(log, "Batch processing failed but imported some blocks";
                             "id" => *batch_id, "error" => e, "imported_blocks"=> imported_blocks);
                         BatchProcessResult::Partial
                     }
                     (_, Err(e)) => {
-                        warn!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
+                        debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
                         BatchProcessResult::Failed
                     }
                 };
@@ -237,7 +237,7 @@ fn handle_failed_chain_segment(error: BlockError, log: &slog::Logger) -> Result<
             Err(format!("Internal error whilst processing block: {:?}", e))
         }
         other => {
-            warn!(
+            debug!(
                 log, "Invalid block received";
                 "msg" => "peer sent invalid block",
                 "outcome" => format!("{:?}", other),
