@@ -1,10 +1,11 @@
 //! Provides a file format for defining validators that should be initialized by this validator.
 //!
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
-//! attempt) to load //! into the `crate::intialized_validators::InitializedValidators` struct.
+//! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
-use account_utils::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
+use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
 use eth2_keystore::Keystore;
+use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
@@ -30,13 +31,17 @@ pub enum Error {
     UnableToEncodeFile(serde_yaml::Error),
     /// The config file could not be written to the filesystem.
     UnableToWriteFile(io::Error),
+    /// The public key from the keystore is invalid.
+    InvalidKeystorePubkey,
+    /// The keystore was unable to be opened.
+    UnableToOpenKeystore(eth2_keystore::Error),
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
 /// remote signing).
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SigningDefinition {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
@@ -54,12 +59,42 @@ pub enum SigningDefinition {
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
 /// remote signing).
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
+}
+
+impl ValidatorDefinition {
+    /// Create a new definition for a voting keystore at the given `voting_keystore_path` that can
+    /// be unlocked with `voting_keystore_password`.
+    ///
+    /// ## Notes
+    ///
+    /// This function does not check the password against the keystore.
+    pub fn new_keystore_with_password<P: AsRef<Path>>(
+        voting_keystore_path: P,
+        voting_keystore_password: Option<ZeroizeString>,
+    ) -> Result<Self, Error> {
+        let voting_keystore_path = voting_keystore_path.as_ref().into();
+        let keystore =
+            Keystore::from_json_file(&voting_keystore_path).map_err(Error::UnableToOpenKeystore)?;
+        let voting_public_key = keystore
+            .public_key()
+            .ok_or_else(|| Error::InvalidKeystorePubkey)?;
+
+        Ok(ValidatorDefinition {
+            enabled: true,
+            voting_public_key,
+            signing_definition: SigningDefinition::LocalKeystore {
+                voting_keystore_path,
+                voting_keystore_password_path: None,
+                voting_keystore_password,
+            },
+        })
+    }
 }
 
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
@@ -155,19 +190,17 @@ impl ValidatorDefinitions {
                 ))
                 .filter(|path| path.exists());
 
-                let voting_public_key =
-                    match serde_yaml::from_str(&format!("0x{}", keystore.pubkey())) {
-                        Ok(pubkey) => pubkey,
-                        Err(e) => {
-                            error!(
-                                log,
-                                "Invalid keystore public key";
-                                "error" => format!("{:?}", e),
-                                "keystore" => format!("{:?}", voting_keystore_path)
-                            );
-                            return None;
-                        }
-                    };
+                let voting_public_key = match keystore.public_key() {
+                    Some(pubkey) => pubkey,
+                    None => {
+                        error!(
+                            log,
+                            "Invalid keystore public key";
+                            "keystore" => format!("{:?}", voting_keystore_path)
+                        );
+                        return None;
+                    }
+                };
 
                 Some(ValidatorDefinition {
                     enabled: true,
@@ -203,6 +236,11 @@ impl ValidatorDefinitions {
         }
     }
 
+    /// Adds a new `ValidatorDefinition` to `self`.
+    pub fn push(&mut self, def: ValidatorDefinition) {
+        self.0.push(def)
+    }
+
     /// Returns a slice of all `ValidatorDefinition` in `self`.
     pub fn as_slice(&self) -> &[ValidatorDefinition] {
         self.0.as_slice()
@@ -233,10 +271,70 @@ pub fn recursively_find_voting_keystores<P: AsRef<Path>>(
             && dir_entry
                 .file_name()
                 .to_str()
-                .map_or(false, |filename| filename == VOTING_KEYSTORE_FILE)
+                .map_or(false, is_voting_keystore)
         {
             matches.push(dir_entry.path())
         }
         Ok(())
     })
+}
+
+/// Returns `true` if we should consider the `file_name` to represent a voting keystore.
+fn is_voting_keystore(file_name: &str) -> bool {
+    // All formats end with `.json`.
+    if !file_name.ends_with(".json") {
+        return false;
+    }
+
+    // The format used by Lighthouse.
+    if file_name == VOTING_KEYSTORE_FILE {
+        return true;
+    }
+
+    // The format exported by the `eth2.0-deposit-cli` library.
+    //
+    // Reference to function that generates keystores:
+    //
+    // https://github.com/ethereum/eth2.0-deposit-cli/blob/7cebff15eac299b3b1b090c896dd3410c8463450/eth2deposit/credentials.py#L58-L62
+    //
+    // Since we include the key derivation path of `m/12381/3600/x/0/0` this should only ever match
+    // with a voting keystore and never a withdrawal keystore.
+    //
+    // Key derivation path reference:
+    //
+    // https://eips.ethereum.org/EIPS/eip-2334
+    if Regex::new("keystore-m_12381_3600_[0-9]+_0_0-[0-9]+.json")
+        .expect("regex is valid")
+        .is_match(file_name)
+    {
+        return true;
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn voting_keystore_filename() {
+        assert!(is_voting_keystore(VOTING_KEYSTORE_FILE));
+        assert!(!is_voting_keystore("cats"));
+        assert!(!is_voting_keystore(&format!("a{}", VOTING_KEYSTORE_FILE)));
+        assert!(!is_voting_keystore(&format!("{}b", VOTING_KEYSTORE_FILE)));
+        assert!(is_voting_keystore(
+            "keystore-m_12381_3600_0_0_0-1593476250.json"
+        ));
+        assert!(is_voting_keystore(
+            "keystore-m_12381_3600_1_0_0-1593476250.json"
+        ));
+        assert!(is_voting_keystore("keystore-m_12381_3600_1_0_0-1593.json"));
+        assert!(!is_voting_keystore(
+            "keystore-m_12381_3600_0_0-1593476250.json"
+        ));
+        assert!(!is_voting_keystore(
+            "keystore-m_12381_3600_1_0-1593476250.json"
+        ));
+    }
 }

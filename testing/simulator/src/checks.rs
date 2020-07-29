@@ -136,11 +136,16 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     slot_delay(slot, slot_duration).await;
     let beacon_nodes = network.beacon_nodes.read();
     let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
-    let chain_dump = beacon_chain.chain_dump().unwrap();
-    if chain_dump.len() != slot.as_usize() + 1 {
+    let num_blocks = beacon_chain
+        .chain_dump()
+        .unwrap()
+        .iter()
+        .take_while(|s| s.beacon_block.slot() <= slot)
+        .count();
+    if num_blocks != slot.as_usize() + 1 {
         return Err(format!(
             "There wasn't a block produced at every slot, got: {}, expected: {}",
-            chain_dump.len(),
+            num_blocks,
             slot.as_usize() + 1
         ));
     }

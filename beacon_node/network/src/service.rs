@@ -54,9 +54,11 @@ pub enum NetworkMessage<T: EthSpec> {
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },
-    /// Propagate a received gossipsub message.
-    Propagate {
+    /// Validates a received gossipsub message. This will propagate the message on the network.
+    Validate {
+        /// The peer that sent us the message. We don't send back to this peer.
         propagation_source: PeerId,
+        /// The id of the message we are validating and propagating.
         message_id: MessageId,
     },
     /// Reports a peer to the peer manager for performing an action.
@@ -213,7 +215,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         NetworkMessage::SendError{ peer_id, error, id, reason } => {
                             service.libp2p.respond_with_error(peer_id, id, error, reason);
                         }
-                        NetworkMessage::Propagate {
+                        NetworkMessage::Validate {
                             propagation_source,
                             message_id,
                         } => {
@@ -224,7 +226,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 service
                                     .libp2p
                                     .swarm
-                                    .propagate_message(&propagation_source, message_id);
+                                    .validate_message(&propagation_source, message_id);
                         }
                         NetworkMessage::Publish { messages } => {
                                 let mut topic_kinds = Vec::new();

@@ -201,7 +201,11 @@ fn attester_slashing() {
     // Last half of the validators
     let second_half = (VALIDATOR_COUNT as u64 / 2..VALIDATOR_COUNT as u64).collect::<Vec<_>>();
 
-    let signer = |idx: u64, message: &[u8]| Signature::new(message, &KEYPAIRS[idx as usize].sk);
+    let signer = |idx: u64, message: &[u8]| {
+        KEYPAIRS[idx as usize]
+            .sk
+            .sign(Hash256::from_slice(&message))
+    };
 
     let make_slashing = |validators| {
         TestingAttesterSlashingBuilder::double_vote::<_, E>(

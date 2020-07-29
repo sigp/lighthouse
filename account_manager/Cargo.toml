@@ -26,7 +26,7 @@ clap_utils = { path = "../common/clap_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.2"
-validator_dir = { path = "../common/validator_dir", features = ["unencrypted_keys"] }
+validator_dir = { path = "../common/validator_dir" }
 tokio = { version = "0.2.21", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }

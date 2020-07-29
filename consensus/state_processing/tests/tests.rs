@@ -1,11 +1,11 @@
-#![cfg(not(feature = "fake_crypto"))]
+// #![cfg(not(feature = "fake_crypto"))]
 
 use state_processing::{
     per_block_processing, test_utils::BlockBuilder, BlockProcessingError, BlockSignatureStrategy,
 };
 use types::{
-    AggregateSignature, BeaconState, ChainSpec, EthSpec, Keypair, MinimalEthSpec, Signature,
-    SignedBeaconBlock, Slot,
+    AggregateSignature, BeaconState, ChainSpec, EthSpec, Hash256, Keypair, MinimalEthSpec,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 const VALIDATOR_COUNT: usize = 64;
@@ -92,15 +92,15 @@ where
 
 // TODO: use lazy static
 fn agg_sig() -> AggregateSignature {
-    let mut agg_sig = AggregateSignature::new();
-    agg_sig.add(&sig());
+    let mut agg_sig = AggregateSignature::infinity();
+    agg_sig.add_assign(&sig());
     agg_sig
 }
 
 // TODO: use lazy static
 fn sig() -> Signature {
     let keypair = Keypair::random();
-    Signature::new(&[42, 42], &keypair.sk)
+    keypair.sk.sign(Hash256::from_low_u64_be(42))
 }
 
 type TestEthSpec = MinimalEthSpec;

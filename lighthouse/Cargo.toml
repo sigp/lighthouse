@@ -30,3 +30,4 @@ git-version = "0.3.4"
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
+account_utils = { path = "../common/account_utils" }

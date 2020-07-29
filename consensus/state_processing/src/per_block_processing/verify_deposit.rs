@@ -21,7 +21,7 @@ pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) ->
         .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
 
     verify!(
-        deposit_signature_set(&deposit_signature_message).is_valid(),
+        deposit_signature_set(&deposit_signature_message).verify(),
         DepositInvalid::BadSignature
     );
 

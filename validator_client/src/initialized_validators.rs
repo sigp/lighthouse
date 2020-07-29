@@ -6,17 +6,22 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
-use crate::validator_definitions::{
-    self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
+use account_utils::{
+    read_password, read_password_from_user,
+    validator_definitions::{
+        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
+    },
 };
-use account_utils::{read_password, ZeroizeString};
 use eth2_keystore::Keystore;
 use slog::{error, info, warn, Logger};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, Stdin};
+use std::io;
 use std::path::PathBuf;
 use types::{Keypair, PublicKey};
+
+// Use TTY instead of stdin to capture passwords from users.
+const USE_STDIN: bool = false;
 
 #[derive(Debug)]
 pub enum Error {
@@ -47,10 +52,8 @@ pub enum Error {
     UnableToInitializeDisabledValidator,
     /// It is not legal to try and initialize a disabled validator definition.
     PasswordUnknown(PathBuf),
-    /// There was no line when reading from stdin.
-    NoStdinLine,
     /// There was an error reading from stdin.
-    UnableToReadFromStdin(io::Error),
+    UnableToReadPasswordFromUser(String),
 }
 
 /// A method used by a validator to sign messages.
@@ -84,7 +87,6 @@ impl InitializedValidator {
     pub fn from_definition(
         def: ValidatorDefinition,
         strict_lockfiles: bool,
-        stdin: Option<&Stdin>,
         log: &Logger,
     ) -> Result<Self, Error> {
         if !def.enabled {
@@ -121,15 +123,7 @@ impl InitializedValidator {
                     }
                     // If there is no password available, maybe prompt for a password.
                     (None, None) => {
-                        if let Some(stdin) = stdin {
-                            unlock_keystore_via_stdin_password(
-                                stdin,
-                                &voting_keystore,
-                                &voting_keystore_path,
-                            )?
-                        } else {
-                            return Err(Error::PasswordUnknown(voting_keystore_path));
-                        }
+                        unlock_keystore_via_stdin_password(&voting_keystore, &voting_keystore_path)?
                     }
                 };
 
@@ -228,7 +222,6 @@ impl Drop for InitializedValidator {
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
 fn unlock_keystore_via_stdin_password(
-    stdin: &Stdin,
     keystore: &Keystore,
     keystore_path: &PathBuf,
 ) -> Result<Keypair, Error> {
@@ -251,13 +244,8 @@ fn unlock_keystore_via_stdin_password(
     eprintln!("Enter password (or press Ctrl+c to exit):");
 
     loop {
-        let password = stdin
-            .lock()
-            .lines()
-            .next()
-            .ok_or_else(|| Error::NoStdinLine)?
-            .map_err(Error::UnableToReadFromStdin)
-            .map(ZeroizeString::from)?;
+        let password =
+            read_password_from_user(USE_STDIN).map_err(Error::UnableToReadPasswordFromUser)?;
 
         eprintln!("");
 
@@ -375,8 +363,6 @@ impl InitializedValidators {
     /// I.e., if there are two different definitions with the same public key then the second will
     /// be ignored.
     fn update_validators(&mut self) -> Result<(), Error> {
-        let stdin = io::stdin();
-
         for def in self.definitions.as_slice() {
             if def.enabled {
                 match &def.signing_definition {
@@ -388,7 +374,6 @@ impl InitializedValidators {
                         match InitializedValidator::from_definition(
                             def.clone(),
                             self.strict_lockfiles,
-                            Some(&stdin),
                             &self.log,
                         ) {
                             Ok(init) => {

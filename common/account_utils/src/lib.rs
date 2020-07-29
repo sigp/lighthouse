@@ -12,6 +12,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroize;
 
+pub mod validator_definitions;
+
+pub use eth2_keystore;
 pub use eth2_wallet::PlainText;
 
 /// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
@@ -91,10 +94,23 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
     bytes
 }
 
+/// Reads a password from TTY or stdin if `use_stdin == true`.
+pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String> {
+    let result = if use_stdin {
+        rpassword::prompt_password_stderr("")
+            .map_err(|e| format!("Error reading from stdin: {}", e))
+    } else {
+        rpassword::read_password_from_tty(None)
+            .map_err(|e| format!("Error reading from tty: {}", e))
+    };
+
+    result.map(ZeroizeString::from)
+}
+
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
-#[derive(Clone, Serialize, Deserialize, Zeroize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct ZeroizeString(String);

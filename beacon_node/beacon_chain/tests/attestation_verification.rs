@@ -8,13 +8,14 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, HarnessType},
     BeaconChain, BeaconChainTypes,
 };
+use int_to_bytes::int_to_bytes32;
 use state_processing::per_slot_processing;
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, EthSpec, Hash256,
-    Keypair, MainnetEthSpec, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SubnetId, Unsigned,
+    Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -311,7 +312,7 @@ fn aggregated_gossip_verification() {
             let aggregation_bits = &mut a.message.aggregate.aggregation_bits;
             aggregation_bits.difference_inplace(&aggregation_bits.clone());
             assert!(aggregation_bits.is_zero());
-            a.message.aggregate.signature = AggregateSignature::new();
+            a.message.aggregate.signature = AggregateSignature::infinity();
             a
         },
         AttnError::EmptyAggregationBitfield
@@ -330,7 +331,7 @@ fn aggregated_gossip_verification() {
         {
             let mut a = valid_aggregate.clone();
 
-            a.signature = Signature::new(&[42, 42], &validator_sk);
+            a.signature = validator_sk.sign(Hash256::from_low_u64_be(42));
 
             a
         },
@@ -370,7 +371,9 @@ fn aggregated_gossip_verification() {
             let mut i: u64 = 0;
             a.message.selection_proof = loop {
                 i += 1;
-                let proof: SelectionProof = Signature::new(&i.to_le_bytes(), &validator_sk).into();
+                let proof: SelectionProof = validator_sk
+                    .sign(Hash256::from_slice(&int_to_bytes32(i)))
+                    .into();
                 if proof
                     .is_aggregator(committee_len, &harness.chain.spec)
                     .unwrap()
@@ -397,8 +400,8 @@ fn aggregated_gossip_verification() {
         {
             let mut a = valid_aggregate.clone();
 
-            let mut agg_sig = AggregateSignature::new();
-            agg_sig.add(&Signature::new(&[42, 42], &aggregator_sk));
+            let mut agg_sig = AggregateSignature::infinity();
+            agg_sig.add_assign(&aggregator_sk.sign(Hash256::from_low_u64_be(42)));
             a.message.aggregate.signature = agg_sig;
 
             a
@@ -727,8 +730,8 @@ fn unaggregated_gossip_verification() {
         {
             let mut a = valid_attestation.clone();
 
-            let mut agg_sig = AggregateSignature::new();
-            agg_sig.add(&Signature::new(&[42, 42], &validator_sk));
+            let mut agg_sig = AggregateSignature::infinity();
+            agg_sig.add_assign(&validator_sk.sign(Hash256::from_low_u64_be(42)));
             a.signature = agg_sig;
 
             a
@@ -737,13 +740,10 @@ fn unaggregated_gossip_verification() {
         AttnError::InvalidSignature
     );
 
-    assert!(
-        harness
-            .chain
-            .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
-            .is_ok(),
-        "valid attestation should be verified"
-    );
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), subnet_id)
+        .expect("valid attestation should be verified");
 
     /*
      * The following test ensures that:

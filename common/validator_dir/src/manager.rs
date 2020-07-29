@@ -2,7 +2,7 @@ use crate::{Error as ValidatorDirError, ValidatorDir};
 use bls::Keypair;
 use rayon::prelude::*;
 use slog::{info, warn, Logger};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs::read_dir;
 use std::io;
 use std::iter::FromIterator;
@@ -107,14 +107,14 @@ impl Manager {
                             info!(
                                 log,
                                 "Decrypted validator keystore";
-                                "voting_pubkey" => kp.pk.as_hex_string()
+                                "voting_pubkey" => kp.pk.to_hex_string()
                             );
                             if lockfile_existed {
                                 warn!(
                                     log,
                                     "Lockfile already existed";
                                     "msg" => "ensure no other validator client is running on this host",
-                                    "voting_pubkey" => kp.pk.as_hex_string()
+                                    "voting_pubkey" => kp.pk.to_hex_string()
                                 );
                             }
                         }
@@ -147,7 +147,7 @@ impl Manager {
                             info!(
                                 log,
                                 "Decrypted validator keystore";
-                                "voting_pubkey" => kp.pk.as_hex_string()
+                                "voting_pubkey" => kp.pk.to_hex_string()
                             )
                         }
                         (kp, v)
@@ -163,11 +163,13 @@ impl Manager {
     /// ## Errors
     ///
     /// Returns an error if a directory is unable to be read.
-    pub fn directory_names(&self) -> Result<HashMap<String, PathBuf>, Error> {
-        Ok(HashMap::from_iter(
-            self.iter_dir()?
-                .into_iter()
-                .map(|path| (format!("{:?}", path), path)),
+    pub fn directory_names(&self) -> Result<BTreeMap<String, PathBuf>, Error> {
+        Ok(BTreeMap::from_iter(
+            self.iter_dir()?.into_iter().filter_map(|path| {
+                path.file_name()
+                    .and_then(|os_string| os_string.to_str().map(|s| s.to_string()))
+                    .map(|filename| (filename, path))
+            }),
         ))
     }
 }

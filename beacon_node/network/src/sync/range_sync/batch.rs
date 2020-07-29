@@ -39,21 +39,31 @@ pub struct Batch<T: EthSpec> {
     pub id: BatchId,
     /// The requested start slot of the batch, inclusive.
     pub start_slot: Slot,
-    /// The requested end slot of batch, exclusive.
+    /// The requested end slot of batch, exlcusive.
     pub end_slot: Slot,
-    /// The peer that was originally assigned to the batch.
-    pub original_peer: PeerId,
+    /// The `Attempts` that have been made to send us this batch.
+    pub attempts: Vec<Attempt>,
     /// The peer that is currently assigned to the batch.
     pub current_peer: PeerId,
     /// The number of retries this batch has undergone due to a failed request.
+    /// This occurs when peers do not respond or we get an RPC error.
     pub retries: u8,
     /// The number of times this batch has attempted to be re-downloaded and re-processed. This
     /// occurs when a batch has been received but cannot be processed.
     pub reprocess_retries: u8,
-    /// Marks the batch as undergoing a re-process, with a hash of the original blocks it received.
-    pub original_hash: Option<u64>,
     /// The blocks that have been downloaded.
     pub downloaded_blocks: Vec<SignedBeaconBlock<T>>,
+}
+
+/// Represents a peer's attempt and providing the result for this batch.
+///
+/// Invalid attempts will downscore a peer.
+#[derive(PartialEq, Debug)]
+pub struct Attempt {
+    /// The peer that made the attempt.
+    pub peer_id: PeerId,
+    /// The hash of the blocks of the attempt.
+    pub hash: u64,
 }
 
 impl<T: EthSpec> Eq for Batch<T> {}
@@ -64,11 +74,10 @@ impl<T: EthSpec> Batch<T> {
             id,
             start_slot,
             end_slot,
-            original_peer: peer_id.clone(),
+            attempts: Vec::new(),
             current_peer: peer_id,
             retries: 0,
             reprocess_retries: 0,
-            original_hash: None,
             downloaded_blocks: Vec::new(),
         }
     }

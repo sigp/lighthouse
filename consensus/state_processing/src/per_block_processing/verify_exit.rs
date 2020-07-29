@@ -93,7 +93,7 @@ fn verify_exit_parametric<T: EthSpec>(
                 signed_exit,
                 spec
             )?
-            .is_valid(),
+            .verify(),
             ExitInvalid::BadSignature
         );
     }

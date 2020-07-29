@@ -1,5 +1,4 @@
 mod common;
-pub mod upgrade_legacy_keypairs;
 pub mod validator;
 pub mod wallet;
 
@@ -19,7 +18,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .about("Utilities for generating and managing Ethereum 2.0 accounts.")
         .subcommand(wallet::cli_app())
         .subcommand(validator::cli_app())
-        .subcommand(upgrade_legacy_keypairs::cli_app())
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
@@ -27,7 +25,6 @@ pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, env: Environment<T>) -> Result<
     match matches.subcommand() {
         (wallet::CMD, Some(matches)) => wallet::cli_run(matches)?,
         (validator::CMD, Some(matches)) => validator::cli_run(matches, env)?,
-        (upgrade_legacy_keypairs::CMD, Some(matches)) => upgrade_legacy_keypairs::cli_run(matches)?,
         (unknown, _) => {
             return Err(format!(
                 "{} is not a valid {} command. See --help.",

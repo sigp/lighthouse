@@ -1,6 +1,6 @@
 use std::convert::From;
 
-use bls::{PublicKeyBytes, BLS_PUBLIC_KEY_BYTE_SIZE};
+use bls::{PublicKeyBytes, PUBLIC_KEY_BYTES_LEN};
 
 use super::*;
 
@@ -12,7 +12,7 @@ impl TestRandom for PublicKeyBytes {
             PublicKeyBytes::from(PublicKey::random_for_test(rng))
         } else {
             //invalid signature, just random bytes
-            PublicKeyBytes::from_bytes(&<[u8; BLS_PUBLIC_KEY_BYTE_SIZE]>::random_for_test(rng))
+            PublicKeyBytes::deserialize(&<[u8; PUBLIC_KEY_BYTES_LEN]>::random_for_test(rng))
                 .unwrap()
         }
     }

@@ -60,10 +60,10 @@ pub(crate) enum ScoreState {
     /// We are content with the peers performance. We permit connections and messages.
     Healthy,
     /// The peer should be disconnected. We allow re-connections if the peer is persistent.
-    Disconnect,
+    Disconnected,
     /// The peer is banned. We disallow new connections until it's score has decayed into a
     /// tolerable threshold.
-    Ban,
+    Banned,
 }
 
 /// A peer's score (perceived potential usefulness).
@@ -138,8 +138,8 @@ impl std::fmt::Display for ScoreState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ScoreState::Healthy => write!(f, "Healthy"),
-            ScoreState::Ban => write!(f, "Ban"),
-            ScoreState::Disconnect => write!(f, "Disconnect"),
+            ScoreState::Banned => write!(f, "Banned"),
+            ScoreState::Disconnected => write!(f, "Disconnected"),
         }
     }
 }
@@ -164,8 +164,8 @@ impl Score {
     /// Returns the expected state of the peer given it's score.
     pub(crate) fn state(&self) -> ScoreState {
         match self.score {
-            x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Ban,
-            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnect,
+            x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Banned,
+            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnected,
             _ => ScoreState::Healthy,
         }
     }
