@@ -1,18 +1,18 @@
-# Become an Ethereum 2.0 Testnet Validator on Altona
+# Become an Ethereum 2.0 Testnet Validator on Medalla
 
-Running a Lighthouse validator on the [Altona](https://github.com/goerli/altona)
+Running a Lighthouse validator on the [Medalla](https://github.com/goerli/medalla/tree/master/medalla)
 multi-client testnet is easy if you're familiar with the terminal.
 
 Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make
 things as simple as possible.
 
 ## 0. Acquire Goerli ETH
-Before you install Lighthouse, you'll need [Metamask](https://metamask.io/) and 3.2 gETH
+Before you install Lighthouse, you'll need [Metamask](https://metamask.io/) and 32 gETH
 (Goerli ETH). We recommend the [mudit.blog
 faucet](https://faucet.goerli.mudit.blog/) for those familiar with Goerli, or
 [goerli.net](https://goerli.net/) for an overview of the testnet.
 
-> If this is your first time using Metamask and/or interacting with an ethereum test network, we recommend going through the beginning of [this guide](https://hack.aragon.org/docs/guides-use-metamask) first (up to the *Signing your first transaction with MetaMask* section).
+> If this is your first time using Metamask and/or interacting with an Ethereum test network, we recommend going through the beginning of [this guide](https://hack.aragon.org/docs/guides-use-metamask) first (up to the *Signing your first transaction with MetaMask* section).
 
 ## 1. Install and start Lighthouse
 
@@ -29,7 +29,7 @@ Once you've completed **either one** of these steps, you can move onto the next 
 
 <div class="form-signin" id="uploadDiv">
 	<p>Upload the <code>eth1_deposit_data.rlp</code> file from your validator
-	directory (created in the previous step) to submit your 3.2 Goerli-ETH
+	directory (created in the previous step) to submit your 32 Goerli-ETH
 	deposit using Metamask.</p>
 	<p>Note that the method you used in step 1 will determine where this file is
 	located.</p>
