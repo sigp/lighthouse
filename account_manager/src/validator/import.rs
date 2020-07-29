@@ -130,8 +130,8 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
         eprintln!(" - UUID: {}", keystore.uuid());
         eprintln!("");
         eprintln!(
-            "If you enter the password it will be stored in {} so that it is not required \
-             each time the validator client starts.",
+            "If you enter the password it will be stored as plain-text in {} so that it is not \
+             required each time the validator client starts.",
             CONFIG_FILENAME
         );
 

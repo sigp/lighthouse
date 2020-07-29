@@ -193,8 +193,9 @@ pub fn cli_run<T: EthSpec>(
 
 /// Returns the number of validators that exist in the given `validator_dir`.
 ///
-/// This function just assumes any file but the validator definitions YAML is a validator directory,
-/// making it likely to return a higher number than accurate but never a lower one.
+/// This function just assumes all files and directories, excluding the validator definitions YAML,
+/// are validator directories, making it likely to return a higher number than accurate
+/// but never a lower one.
 fn existing_validator_count<P: AsRef<Path>>(validator_dir: P) -> Result<usize, String> {
     fs::read_dir(validator_dir.as_ref())
         .map(|iter| {
