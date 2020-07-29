@@ -41,7 +41,7 @@ const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 /// The default number of slots before items in hash delay sets used by this class should expire.
 const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3;
 // 36s at 12s slot time
-/// The default number of slots before items in hash delay sets used by this class should expire.
+/// The duration difference between two instance for them to be considered equal.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
 #[derive(Debug, Eq, Clone)]

@@ -4,7 +4,7 @@ pub use self::peerdb::*;
 use crate::discovery::{Discovery, DiscoveryEvent};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
-use crate::{Enr, EnrExt, NetworkConfig, NetworkGlobals, PeerId};
+use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
@@ -32,6 +32,7 @@ pub(crate) mod score;
 pub use peer_info::{PeerConnectionStatus::*, PeerInfo};
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ScoreState};
+use std::collections::HashMap;
 /// The time in seconds between re-status's peers.
 const STATUS_INTERVAL: u64 = 300;
 /// The time in seconds between PING events. We do not send a ping if the other peer as PING'd us within
@@ -39,7 +40,7 @@ const STATUS_INTERVAL: u64 = 300;
 const PING_INTERVAL: u64 = 30;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
-/// requests. This defines the interval in seconds.  
+/// requests. This defines the interval in seconds.
 const HEARTBEAT_INTERVAL: u64 = 30;
 
 /// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
@@ -487,13 +488,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// with a new `PeerId` which involves a discovery routing table lookup. We could dial the
     /// multiaddr here, however this could relate to duplicate PeerId's etc. If the lookup
     /// proves resource constraining, we should switch to multiaddr dialling here.
-    fn peers_discovered(&mut self, peers: &[Enr], min_ttl: Option<Instant>) {
+    fn peers_discovered(&mut self, results: HashMap<PeerId, Option<Instant>>) {
         let mut to_dial_peers = Vec::new();
 
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
-        for enr in peers {
-            let peer_id = enr.peer_id();
-
+        for (peer_id, min_ttl) in results {
             // we attempt a connection if this peer is a subnet peer or if the max peer count
             // is not yet filled (including dialling peers)
             if (min_ttl.is_some() || connected_or_dialing + to_dial_peers.len() < self.max_peers)
@@ -726,9 +725,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         while let Poll::Ready(event) = self.discovery.poll(cx) {
             match event {
                 DiscoveryEvent::SocketUpdated(socket_addr) => self.socket_updated(socket_addr),
-                DiscoveryEvent::QueryResult(min_ttl, peers) => {
-                    self.peers_discovered(&peers, min_ttl)
-                }
+                DiscoveryEvent::QueryResult(results) => self.peers_discovered(results),
             }
         }
 
