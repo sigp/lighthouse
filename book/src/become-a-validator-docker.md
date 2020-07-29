@@ -77,6 +77,12 @@ This is one of the earlier logs outputted, so you may have to scroll up or perfo
 > boots and becomes synced. This will only happen on the first start of the
 > compose environment or if geth loses sync.
 
+> Note: If you are participating in the genesis of a network (the network has
+> not launched yet) you will notice errors in the validator client. This is
+> because the beacon node not expose its HTTP API until
+> the genesis of the network is known (approx 2 days before the network
+> launches).
+
 To find an estimate for how long your beacon node will take to finish syncing, look for logs that look like this:
 
 ```bash
