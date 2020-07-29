@@ -103,6 +103,9 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
             }
             SwarmBuilder::new(transport, behaviour, local_peer_id.clone())
+                .notify_handler_buffer_size(std::num::NonZeroUsize::new(32).expect("Not zero"))
+                .connection_event_buffer_size(64)
+                .incoming_connection_limit(10)
                 .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
                 .executor(Box::new(Executor(executor)))
                 .build()
