@@ -746,11 +746,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ///
     /// For example:
     ///
-    /// ```
+    ///
     /// Epoch boundary |                                   |
     /// | 30 | 31 | 32 | 33 | 34 | ... | 61 | 62 | 63 | 64 | 65 |
     ///  Batch 1       |           Batch 2                 |  Batch 3
-    ///  ```
     fn get_next_batch(&mut self, peer_id: PeerId) -> Option<Batch<T::EthSpec>> {
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let blocks_per_batch = slots_per_epoch * EPOCHS_PER_BATCH;
