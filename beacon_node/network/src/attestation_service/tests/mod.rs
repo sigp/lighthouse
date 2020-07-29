@@ -8,7 +8,9 @@ mod tests {
         migrate::NullMigrator,
     };
     use eth2_libp2p::discovery::{build_enr, Keypair};
-    use eth2_libp2p::{discovery::CombinedKey, CombinedKeyExt, NetworkConfig, NetworkGlobals};
+    use eth2_libp2p::{
+        discovery::CombinedKey, CombinedKeyExt, NetworkConfig, NetworkGlobals, SubnetDiscovery,
+    };
     use futures::Stream;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use lazy_static::lazy_static;
@@ -210,14 +212,7 @@ mod tests {
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any1),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -270,14 +265,7 @@ mod tests {
         let events = get_events(attestation_service, no_events_expected, 2).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any1),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -330,19 +318,15 @@ mod tests {
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
-        let expected = vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
+        let expected = vec![AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+            subnet_id,
+            min_ttl,
+        }])];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -396,21 +380,14 @@ mod tests {
         )
         .unwrap();
         let expected = vec![
-            AttServiceMessage::DiscoverPeers { subnet_id, min_ttl },
+            AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery { subnet_id, min_ttl }]),
             AttServiceMessage::Subscribe(subnet_id),
         ];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -454,14 +431,7 @@ mod tests {
 
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -517,20 +487,16 @@ mod tests {
 
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
         let expected: Vec<AttServiceMessage> =
-            vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
+            vec![AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                subnet_id,
+                min_ttl,
+            }])];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
 
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -572,10 +538,9 @@ mod tests {
 
         for event in events {
             match event {
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant,
-                } => discover_peer_count = discover_peer_count + 1,
+                AttServiceMessage::DiscoverPeers(_) => {
+                    discover_peer_count = discover_peer_count + 1
+                }
                 AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,
@@ -624,10 +589,9 @@ mod tests {
 
         for event in events {
             match event {
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant,
-                } => discover_peer_count = discover_peer_count + 1,
+                AttServiceMessage::DiscoverPeers(_) => {
+                    discover_peer_count = discover_peer_count + 1
+                }
                 AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,
