@@ -32,14 +32,14 @@ using the standard `validators` directory (specify a different one using
 
 
 ```bash
-lighthouse account validator import --directory eth2.0-deposit-cli/validator_keys
+lighthouse account validator import --directory validator_keys
 ```
 
 
 After which they will be prompted for a password for each keystore discovered:
 
 ```
-Keystore found at "eth2.0-deposit-cli/validator_keys/keystore-m_12381_3600_0_0_0-1595406747.json":
+Keystore found at "validator_keys/keystore-m_12381_3600_0_0_0-1595406747.json":
 
  - Public key: 0xa5e8702533f6d66422e042a0bf3471ab9b302ce115633fa6fdc5643f804b6b4f1c33baf95f125ec21969a3b1e0dd9e56
  - UUID: 8ea4cf99-8719-43c5-9eda-e97b8a4e074f
@@ -62,10 +62,12 @@ validator rewards, we recommend entering a password at this point.
 Once the process is done the user will see:
 
 ```
-Successfully moved keystore.
+Successfully imported keystore.
 Successfully updated validator_definitions.yml.
 
-Successfully imported 1 validators.
+Successfully imported 1 validators (0 skipped).
+
+WARNING: DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH ANOTHER CLIENT, OR YOU WILL GET SLASHED..
 ```
 
 The import process is complete!
