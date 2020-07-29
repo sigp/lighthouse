@@ -70,7 +70,6 @@ pub fn get_config<E: EthSpec>(
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
 
     client_config.spec_constants = spec_constants.into();
-    client_config.testnet_dir = get_testnet_dir(cli_args);
 
     /*
      * Networking
@@ -326,8 +325,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 testnet dir to obtain some additional config values.
      */
-    let eth2_testnet_config: Eth2TestnetConfig<E> =
-        get_eth2_testnet_config(&client_config.testnet_dir)?;
+    let eth2_testnet_config: Eth2TestnetConfig<E> = get_eth2_testnet_config(&cli_args)?;
 
     client_config.eth1.deposit_contract_address =
         format!("{:?}", eth2_testnet_config.deposit_contract_address()?);
@@ -384,29 +382,19 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Gets the testnet dir which should be used.
-pub fn get_testnet_dir(cli_args: &ArgMatches) -> Option<PathBuf> {
-    // Read the `--testnet-dir` flag.
-    if let Some(val) = cli_args.value_of("testnet-dir") {
-        Some(PathBuf::from(val))
-    } else {
-        None
-    }
-}
-
-/// If `testnet_dir` is `Some`, returns the `Eth2TestnetConfig` at that path or returns an error.
-/// If it is `None`, returns the "hard coded" config.
+/// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
+/// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_testnet_config<E: EthSpec>(
-    testnet_dir: &Option<PathBuf>,
+    cli_args: &ArgMatches,
 ) -> Result<Eth2TestnetConfig<E>, String> {
-    if let Some(testnet_dir) = testnet_dir {
-        Eth2TestnetConfig::load(testnet_dir.clone())
-            .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))
+    let optional_testnet_config = if cli_args.is_present("testnet") {
+        clap_utils::parse_hardcoded_network(cli_args, "testnet")?
+    } else if cli_args.is_present("testnet-dir") {
+        clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
-        Eth2TestnetConfig::hard_coded()
-            .map_err(|e| format!("Error parsing hardcoded testnet: {}", e))?
-            .ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
-    }
+        Eth2TestnetConfig::hard_coded_default()?
+    };
+    optional_testnet_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }
 
 /// A bit of hack to find an unused port.

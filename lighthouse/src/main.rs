@@ -5,7 +5,7 @@ use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
-use eth2_testnet_config::HARDCODED_TESTNET;
+use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
 use git_version::git_version;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
@@ -98,6 +98,17 @@ fn main() {
                 .takes_value(true)
                 .global(true),
         )
+        .arg(
+            Arg::with_name("testnet")
+                .long("testnet")
+                .value_name("testnet")
+                .help("Name of network lighthouse will connect to")
+                .possible_values(&["medalla", "altona"])
+                .conflicts_with("testnet-dir")
+                .takes_value(true)
+                .global(true)
+
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
@@ -167,8 +178,15 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    let optional_testnet_config =
-        clap_utils::parse_testnet_dir_with_hardcoded_default(matches, "testnet-dir")?;
+    // Parse testnet config from the `testnet` and `testnet-dir` flag in that order
+    // else, use the default
+    let mut optional_testnet_config = Eth2TestnetConfig::hard_coded_default()?;
+    if matches.is_present("testnet") {
+        optional_testnet_config = clap_utils::parse_hardcoded_network(matches, "testnet")?;
+    };
+    if matches.is_present("testnet-dir") {
+        optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
+    };
 
     let mut environment = environment_builder
         .async_logger(debug_level, log_format)?
@@ -206,11 +224,11 @@ fn run<E: EthSpec>(
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
 
-    if !matches.is_present("testnet-dir") {
+    if !matches.is_present("testnet-dir") && !matches.is_present("testnet") {
         info!(
             log,
             "Using default testnet";
-            "default" => HARDCODED_TESTNET
+            "default" => DEFAULT_HARDCODED_TESTNET
         )
     }
 

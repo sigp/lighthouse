@@ -16,7 +16,7 @@ fn main() {
             std::fs::create_dir_all(&testnet_dir)
                 .unwrap_or_else(|_| panic!("Unable to create {:?}", testnet_dir));
 
-            match get_all_files() {
+            match get_all_files(testnet) {
                 Ok(()) => (),
                 Err(e) => {
                     std::fs::remove_dir_all(&testnet_dir).unwrap_or_else(|_| panic!(
@@ -31,18 +31,16 @@ fn main() {
     }
 }
 
-fn get_all_files() -> Result<(), String> {
-    for testnet in ETH2_NET_DIRS {
-        get_file(testnet, "boot_enr.yaml")?;
-        get_file(testnet, "config.yaml")?;
-        get_file(testnet, "deploy_block.txt")?;
-        get_file(testnet, "deposit_contract.txt")?;
+fn get_all_files(testnet: &Eth2NetDirectory<'static>) -> Result<(), String> {
+    get_file(testnet, "boot_enr.yaml")?;
+    get_file(testnet, "config.yaml")?;
+    get_file(testnet, "deploy_block.txt")?;
+    get_file(testnet, "deposit_contract.txt")?;
 
-        if testnet.genesis_is_known {
-            get_file(testnet, "genesis.ssz")?;
-        } else {
-            File::create(testnet.dir().join("genesis.ssz")).unwrap();
-        }
+    if testnet.genesis_is_known {
+        get_file(testnet, "genesis.ssz")?;
+    } else {
+        File::create(testnet.dir().join("genesis.ssz")).unwrap();
     }
 
     Ok(())
