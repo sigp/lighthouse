@@ -801,6 +801,11 @@ pub struct BeaconChainTestingRig<T: BeaconChainTypes> {
     pub rng: StdRng,
 }
 
+type TestRigAttestations<E> = Vec<(
+    Vec<(Attestation<E>, SubnetId)>,
+    Option<SignedAggregateAndProof<E>>,
+)>;
+
 impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
     pub fn new(
         eth_spec_instance: E,
@@ -1027,10 +1032,7 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         state: &BeaconState<E>,
         block_hash: SignedBeaconBlockHash,
         slot: Slot,
-    ) -> Vec<(
-        Vec<(Attestation<E>, SubnetId)>,
-        Option<SignedAggregateAndProof<E>>,
-    )> {
+    ) -> TestRigAttestations<E> {
         let unaggregated_attestations =
             self.make_unaggregated_attestations(&attesting_validators, &state, block_hash, slot);
 
@@ -1038,7 +1040,7 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
             .iter()
             .map(|committee_attestations| {
                 // If there are any attestations in this committee, create an aggregate.
-                let signed_aggregate = if let Some((attestation, _)) = committee_attestations.first() {
+                if let Some((attestation, _)) = committee_attestations.first() {
                     let bc = state.get_beacon_committee(attestation.data.slot, attestation.data.index)
                         .unwrap();
 
@@ -1092,9 +1094,7 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
                 }
                 else {
                     None
-                };
-
-                signed_aggregate
+                }
             }).collect();
 
         unaggregated_attestations
@@ -1110,13 +1110,7 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         block_hash
     }
 
-    pub fn process_attestations(
-        &self,
-        attestations: Vec<(
-            Vec<(Attestation<E>, SubnetId)>,
-            Option<SignedAggregateAndProof<E>>,
-        )>,
-    ) {
+    pub fn process_attestations(&self, attestations: TestRigAttestations<E>) {
         for (unaggregated_attestations, maybe_signed_aggregate) in attestations.into_iter() {
             for (attestation, subnet_id) in unaggregated_attestations {
                 self.chain
@@ -1179,15 +1173,15 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         SignedBeaconBlockHash,
         BeaconState<E>,
     ) {
-        assert!(slots.len() > 0);
+        assert!(!slots.is_empty());
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         let mut latest_block_hash: Option<SignedBeaconBlockHash> = None;
         for slot in slots {
             let (block_hash, new_state) = self.add_attested_block_at_slot(*slot, state, validators);
             state = new_state;
-            block_hash_from_slot.insert((*slot).into(), block_hash);
-            state_hash_from_slot.insert((*slot).into(), state.tree_hash_root().into());
+            block_hash_from_slot.insert(*slot, block_hash);
+            state_hash_from_slot.insert(*slot, state.tree_hash_root().into());
             latest_block_hash = Some(block_hash);
         }
         (

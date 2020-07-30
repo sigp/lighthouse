@@ -2109,9 +2109,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                     .unwrap();
                 } else if justified_blocks.contains(&block_hash) {
-                    write!(
+                    writeln!(
                         output,
-                        "\t_{:?}[label=\"{} ({})\" shape=cds];\n",
+                        "\t_{:?}[label=\"{} ({})\" shape=cds];",
                         block_hash,
                         block_hash,
                         signed_beacon_block.slot()
