@@ -121,7 +121,6 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
                                 potentially_abandoned_blocks.clear();
                                 potentially_abandoned_head.take();
                             }
-
                             break;
                         }
                         // Block root is finalized, but we're at a skip slot: delete the state only.

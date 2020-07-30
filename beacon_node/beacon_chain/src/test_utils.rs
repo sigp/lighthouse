@@ -26,9 +26,9 @@ use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, EthSpec,
-    Hash256, Keypair, SecretKey, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockHash, SignedRoot, Slot, SubnetId,
+    AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, Epoch,
+    EthSpec, Hash256, Keypair, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot, SubnetId,
 };
 
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -822,7 +822,8 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
 
         let decorator = slog_term::PlainDecorator::new(slog_term::TestStdoutWriter);
         let drain = slog_term::FullFormat::new(decorator).build();
-        let log = slog::Logger::root(std::sync::Mutex::new(drain).fuse(), o!());
+        let debug_level = slog::LevelFilter::new(drain, slog::Level::Debug);
+        let log = slog::Logger::root(std::sync::Mutex::new(debug_level).fuse(), o!());
 
         let config = StoreConfig::default();
         let store = Arc::new(HotColdDB::open_ephemeral(config, spec.clone(), log.clone()).unwrap());
@@ -865,6 +866,11 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         E::slots_per_epoch()
     }
 
+    pub fn checkpoint_of_epoch(&self, epoch: u64) -> u64 {
+        let epoch = Epoch::new(epoch);
+        epoch.start_slot(E::slots_per_epoch()).into()
+    }
+
     pub fn get_honest_validators(&self) -> Vec<usize> {
         (0..self.honest_validator_count).collect()
     }
@@ -886,8 +892,16 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         self.chain.get_block(&block_hash.into()).unwrap()
     }
 
+    pub fn block_exists(&self, block_hash: SignedBeaconBlockHash) -> bool {
+        self.get_block(block_hash).is_some()
+    }
+
     pub fn get_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain.get_state(&state_hash.into(), None).unwrap()
+    }
+
+    pub fn state_exists(&self, state_hash: BeaconStateHash) -> bool {
+        self.get_state(state_hash).is_some()
     }
 
     pub fn make_block(
@@ -1187,7 +1201,7 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         )
     }
 
-    pub fn get_finalized_checkpoints_hashes(&self) -> HashSet<SignedBeaconBlockHash> {
+    pub fn get_finalized_checkpoints(&self) -> HashSet<SignedBeaconBlockHash> {
         let chain_dump = self.chain.chain_dump().unwrap();
         chain_dump
             .iter()

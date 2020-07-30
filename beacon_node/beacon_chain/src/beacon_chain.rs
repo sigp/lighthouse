@@ -2051,6 +2051,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_block_root;
         let mut visited: HashSet<Hash256> = HashSet::new();
         let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
+        let mut justified_blocks: HashSet<Hash256> = HashSet::new();
 
         let genesis_block_hash = Hash256::zero();
         writeln!(output, "digraph beacon {{").unwrap();
@@ -2085,6 +2086,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .unwrap()
                         .unwrap();
                     finalized_blocks.insert(state.finalized_checkpoint.root);
+                    justified_blocks.insert(state.current_justified_checkpoint.root);
+                    justified_blocks.insert(state.previous_justified_checkpoint.root);
                 }
 
                 if block_hash == canonical_head_hash {
@@ -2100,6 +2103,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     writeln!(
                         output,
                         "\t_{:?}[label=\"{} ({})\" shape=Msquare];",
+                        block_hash,
+                        block_hash,
+                        signed_beacon_block.slot()
+                    )
+                    .unwrap();
+                } else if justified_blocks.contains(&block_hash) {
+                    write!(
+                        output,
+                        "\t_{:?}[label=\"{} ({})\" shape=cds];\n",
                         block_hash,
                         block_hash,
                         signed_beacon_block.slot()

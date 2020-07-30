@@ -346,6 +346,7 @@ dependencies = [
  "lighthouse_metrics",
  "log 0.4.11",
  "lru",
+ "maplit",
  "merkle_proof",
  "operation_pool",
  "parking_lot 0.11.0",
