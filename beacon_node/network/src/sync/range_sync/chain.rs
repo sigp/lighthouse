@@ -644,7 +644,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         request_id: RequestId,
     ) -> Option<ProcessingResult> {
         if let Some(batch) = self.pending_batches.remove(request_id) {
-            warn!(self.log, "Batch failed. RPC Error";
+            debug!(self.log, "Batch failed. RPC Error";
                 "chain_id" => self.id,
                 "id" => *batch.id,
                 "retries" => batch.retries,
