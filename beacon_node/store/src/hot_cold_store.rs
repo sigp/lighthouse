@@ -208,6 +208,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a state from the store.
+    ///
+    /// If `slot` is provided then it will be used as a hint as to which database should
+    /// be checked. Importantly, if the slot hint is provided and indicates a slot that lies
+    /// in the freezer database, then only the freezer database will be accessed and `Ok(None)`
+    /// will be returned if the provided `state_root` doesn't match the state root of the
+    /// frozen state at `slot`. Consequently, if a state from a non-canonical chain is desired, it's
+    /// best to set `slot` to `None`, or call `load_hot_state` directly.
     pub fn get_state(
         &self,
         state_root: &Hash256,
@@ -217,7 +224,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if let Some(slot) = slot {
             if slot < self.get_split_slot() {
-                self.load_cold_state_by_slot(slot).map(Some)
+                // Although we could avoid a DB lookup by shooting straight for the
+                // frozen state using `load_cold_state_by_slot`, that would be incorrect
+                // in the case where the caller provides a `state_root` that's off the canonical
+                // chain. This way we avoid returning a state that doesn't match `state_root`.
+                self.load_cold_state(state_root)
             } else {
                 self.load_hot_state(state_root)
             }
