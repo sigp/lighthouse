@@ -27,7 +27,7 @@ use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, BeaconState, BeaconStateHash, ChainSpec, Domain, Epoch,
-    EthSpec, Hash256, Keypair, SecretKey, SelectionProof, Signature, SignedAggregateAndProof,
+    EthSpec, Hash256, Keypair, SecretKey, SelectionProof, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, Slot, SubnetId,
 };
 
@@ -931,10 +931,8 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
                 state.genesis_validators_root,
             );
             let message = epoch.signing_root(domain);
-            Signature::new(
-                message.as_bytes(),
-                &self.validators_keypairs[proposer_index].sk,
-            )
+            let sk = &self.validators_keypairs[proposer_index].sk;
+            sk.sign(message)
         };
 
         let (block, state) = self
@@ -1000,12 +998,11 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
 
                             let message = attestation.data.signing_root(domain);
 
-                            let mut agg_sig = AggregateSignature::new();
+                            let mut agg_sig = AggregateSignature::infinity();
 
-                            agg_sig.add(&Signature::new(
-                                message.as_bytes(),
-                                &self.validators_keypairs[*validator_index].sk,
-                            ));
+                            agg_sig.add_assign(
+                                &self.validators_keypairs[*validator_index].sk.sign(message),
+                            );
 
                             agg_sig
                         };
