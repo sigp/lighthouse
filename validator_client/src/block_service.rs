@@ -219,18 +219,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
             .ok_or_else(|| "Unable to produce randao reveal".to_string())?;
 
-        let mut block = self
+        let block = self
             .beacon_node
             .http
             .validator()
             .produce_block(slot, randao_reveal, self.graffiti)
             .await
             .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?;
-
-        // If graffiti has been set in the validator client, overwrite any graffiti sent from the beacon node.
-        if let Some(graffiti) = self.graffiti {
-            block.body.graffiti = graffiti;
-        }
 
         let signed_block = self
             .validator_store
