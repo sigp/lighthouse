@@ -21,6 +21,16 @@ pub const VERSION: &str = git_version!(
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
+fn bls_library_name() -> &'static str {
+    if cfg!(feature = "portable") {
+        "blst-portable"
+    } else if cfg!(feature = "milagro") {
+        "milagro"
+    } else {
+        "blst"
+    }
+}
+
 fn main() {
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
@@ -30,6 +40,13 @@ fn main() {
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
+        )
+        .long_version(
+            format!(
+                "{}\n\
+                 BLS Library: {}",
+                 VERSION, bls_library_name()
+            ).as_str()
         )
         .arg(
             Arg::with_name("spec")
