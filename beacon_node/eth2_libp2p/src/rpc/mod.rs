@@ -104,7 +104,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
     pub fn new(log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
-            .one_every(Protocol::MetaData, Duration::from_secs(5))
+            .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
             .one_every(Protocol::Ping, Duration::from_secs(5))
             .n_every(Protocol::Status, 3, Duration::from_secs(15))
             .one_every(Protocol::Goodbye, Duration::from_secs(10))
