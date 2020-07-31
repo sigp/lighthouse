@@ -563,7 +563,6 @@ dependencies = [
 [[package]]
 name = "blst"
 version = "0.1.1"
-source = "git+https://github.com/sigp/blst.git?rev=968c846a2dc46e836e407bbdbac1a38a597ebc46#968c846a2dc46e836e407bbdbac1a38a597ebc46"
 dependencies = [
  "cc",
  "glob",
@@ -2577,6 +2576,7 @@ checksum = "b294d6fa9ee409a054354afc4352b0b9ef7ca222c69b8812cbea9e7d2bf3783f"
 name = "lcli"
 version = "0.2.0"
 dependencies = [
+ "bls",
  "clap",
  "clap_utils",
  "deposit_contract",
@@ -2980,6 +2980,7 @@ dependencies = [
  "account_manager",
  "account_utils",
  "beacon_node",
+ "bls",
  "boot_node",
  "clap",
  "clap_utils",

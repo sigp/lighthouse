@@ -29,6 +29,10 @@ $ docker run sigp/lighthouse lighthouse --help
 > Note: when you're running the Docker Hub image you're relying upon a
 > pre-built binary instead of building from source.
 
+> Note: due to the Docker Hub image being compiled to work on arbitrary machines, it isn't as highly
+> optimized as an image built from source. We're working to improve this, but for now if you want
+> the absolute best performance, please build the image yourself.
+
 ### Building the Docker Image
 
 To build the image from source, navigate to
