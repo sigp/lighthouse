@@ -950,25 +950,23 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
-        let block = rig.get_block(block_hash);
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = rig.get_state(state_hash);
         assert!(
-            state.is_some(),
+            rig.state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
 
     // Trigger finalization
     let slots: Vec<Slot> = ((canonical_chain_slot + 1)
@@ -985,18 +983,16 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     );
 
     for &block_hash in stray_blocks.values() {
-        let block = rig.get_block(block_hash);
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = rig.get_state(state_hash);
         assert!(
-            state.is_some(),
+            rig.state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
