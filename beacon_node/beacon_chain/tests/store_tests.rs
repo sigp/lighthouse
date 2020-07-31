@@ -815,54 +815,67 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
 #[test]
 fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
-    const VALIDATOR_COUNT: usize = 24;
-    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
-    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
-    let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
-    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let all_validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
-    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    let mut rig = BeaconChainTestingRig::new(
+        MinimalEthSpec,
+        HONEST_VALIDATOR_COUNT,
+        ADVERSARIAL_VALIDATOR_COUNT,
+    );
+    let slots_per_epoch = rig.slots_per_epoch();
+    let state = rig.get_current_state();
 
     // Fill up 0th epoch
-    let slot = harness.get_chain_slot();
-    let state = harness.get_head_state();
-    let (canonical_blocks_zeroth_epoch, _, slot, _, state) =
-        harness.add_canonical_chain_blocks(state, slot, slots_per_epoch, &honest_validators);
+    let canonical_chain_slots_zeroth_epoch: Vec<Slot> =
+        (1..rig.checkpoint_of_epoch(1)).map(Slot::new).collect();
+    let (_, _, _, state) = rig.add_attested_blocks_at_slots(
+        state,
+        &canonical_chain_slots_zeroth_epoch,
+        &rig.get_honest_validators(),
+    );
 
     // Fill up 1st epoch
-    let (_, _, canonical_slot, shared_head, canonical_state) =
-        harness.add_canonical_chain_blocks(state, slot, 1, &all_validators);
-    let (stray_blocks, stray_states, _, stray_head, _) = harness.add_stray_blocks(
-        canonical_state.clone(),
-        canonical_slot,
-        1,
-        &faulty_validators,
+    let canonical_chain_slots_first_epoch: Vec<Slot> = (rig.checkpoint_of_epoch(1)
+        ..=rig.checkpoint_of_epoch(1) + 1)
+        .map(Slot::new)
+        .collect();
+    let (canonical_chain_blocks_first_epoch, _, shared_head, state) = rig
+        .add_attested_blocks_at_slots(
+            state.clone(),
+            &canonical_chain_slots_first_epoch,
+            &rig.get_honest_validators(),
+        );
+    let canonical_chain_slot: u64 = rig.get_current_slot().into();
+
+    let stray_chain_slots_first_epoch: Vec<Slot> = (rig.checkpoint_of_epoch(1) + 2
+        ..=rig.checkpoint_of_epoch(1) + 2)
+        .map(Slot::new)
+        .collect();
+    let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
+        state.clone(),
+        &stray_chain_slots_first_epoch,
+        &rig.get_adversarial_validators(),
     );
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_some(),
+            rig.state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    let chain_dump = harness.chain.chain_dump().unwrap();
+    let chain_dump = rig.chain.chain_dump().unwrap();
     assert_eq!(
         get_finalized_epoch_boundary_blocks(&chain_dump),
         vec![Hash256::zero().into()].into_iter().collect(),
@@ -871,50 +884,41 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 
     // Trigger finalization
-    let (canonical_blocks, _, _, _, _) = harness.add_canonical_chain_blocks(
-        canonical_state,
-        canonical_slot,
-        slots_per_epoch * 5,
-        &honest_validators,
-    );
+    let finalization_slots: Vec<Slot> = ((canonical_chain_slot + 1)
+        ..=(canonical_chain_slot + slots_per_epoch * 5))
+        .map(Slot::new)
+        .collect();
+    let (canonical_chain_blocks, _, _, _) =
+        rig.add_attested_blocks_at_slots(state, &finalization_slots, &rig.get_honest_validators());
 
     // Postconditions
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
     assert_eq!(
-        finalized_blocks,
-        vec![
-            Hash256::zero().into(),
-            canonical_blocks_zeroth_epoch[&Slot::new(slots_per_epoch as u64)],
-            canonical_blocks[&Slot::new((slots_per_epoch * 2) as u64)],
-        ]
-        .into_iter()
-        .collect()
+        rig.get_finalized_checkpoints(),
+        hashset! {
+            canonical_chain_blocks_first_epoch[&rig.checkpoint_of_epoch(1).into()],
+            canonical_chain_blocks[&rig.checkpoint_of_epoch(2).into()],
+        },
     );
 
     for &block_hash in stray_blocks.values() {
         assert!(
-            harness
-                .chain
-                .get_block(&block_hash.into())
-                .unwrap()
-                .is_none(),
+            !rig.block_exists(block_hash),
             "stray block {} should have been pruned",
             block_hash,
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_none(),
-            "stray state {} at slot {} should have been deleted",
+            !rig.state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
         );
     }
 
-    assert!(!harness.chain.knows_head(&stray_head));
+    assert!(!rig.chain.knows_head(&stray_head));
+    let chain_dump = rig.chain.chain_dump().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 }
 
