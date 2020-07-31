@@ -7,7 +7,7 @@ use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use types::{EthSpec, Graffiti, PublicKey, Slot};
+use types::{EthSpec, PublicKey, Slot};
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
@@ -15,7 +15,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     slot_clock: Option<Arc<T>>,
     beacon_node: Option<RemoteBeaconNode<E>>,
     context: Option<RuntimeContext<E>>,
-    graffiti: Option<Graffiti>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -25,7 +24,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             slot_clock: None,
             beacon_node: None,
             context: None,
-            graffiti: None,
         }
     }
 
@@ -49,11 +47,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn graffiti(mut self, graffiti: Option<Graffiti>) -> Self {
-        self.graffiti = graffiti;
-        self
-    }
-
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -69,7 +62,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or_else(|| "Cannot build BlockService without runtime_context")?,
-                graffiti: self.graffiti,
             }),
         })
     }
@@ -81,7 +73,6 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: Arc<T>,
     beacon_node: RemoteBeaconNode<E>,
     context: RuntimeContext<E>,
-    graffiti: Option<Graffiti>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -223,7 +214,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .beacon_node
             .http
             .validator()
-            .produce_block(slot, randao_reveal, self.graffiti)
+            .produce_block(slot, randao_reveal)
             .await
             .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?;
 

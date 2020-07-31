@@ -11,8 +11,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconBlock, BeaconState, CommitteeIndex,
-    Epoch, EthSpec, Fork, Graffiti, Hash256, ProposerSlashing, PublicKey, PublicKeyBytes,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
+    Epoch, EthSpec, Fork, Hash256, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
 };
 use url::Url;
 
@@ -313,21 +313,18 @@ impl<E: EthSpec> Validator<E> {
         &self,
         slot: Slot,
         randao_reveal: Signature,
-        graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlock<E>, Error> {
         let client = self.0.clone();
         let url = self.url("block")?;
-
-        let mut query_pairs = vec![
-            ("slot".into(), format!("{}", slot.as_u64())),
-            ("randao_reveal".into(), as_ssz_hex_string(&randao_reveal)),
-        ];
-
-        if let Some(graffiti_bytes) = graffiti {
-            query_pairs.push(("graffiti".into(), as_ssz_hex_string(&graffiti_bytes)));
-        }
-
-        client.json_get::<BeaconBlock<E>>(url, query_pairs).await
+        client
+            .json_get::<BeaconBlock<E>>(
+                url,
+                vec![
+                    ("slot".into(), format!("{}", slot.as_u64())),
+                    ("randao_reveal".into(), as_ssz_hex_string(&randao_reveal)),
+                ],
+            )
+            .await
     }
 
     /// Subscribes a list of validators to particular slots for attestation production/publication.

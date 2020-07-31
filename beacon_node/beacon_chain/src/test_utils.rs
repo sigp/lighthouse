@@ -520,7 +520,7 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, slot, randao_reveal, None)
+            .produce_block_on_state(state, slot, randao_reveal)
             .expect("should produce block");
 
         let signed_block = block.sign(sk, &state.fork, state.genesis_validators_root, &self.spec);
