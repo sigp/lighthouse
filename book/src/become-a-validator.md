@@ -1,7 +1,6 @@
-# Become an Ethereum 2.0 Testnet Validator on Medalla
+# Become an Ethereum 2.0 Validator
 
-Running a Lighthouse validator on the [Medalla](https://github.com/goerli/medalla/tree/master/medalla)
-multi-client testnet is easy if you're familiar with the terminal.
+There are two public testnets currently available. [Medalla](https://github.com/goerli/medalla/tree/master/medalla) and [Altona](https://github.com/goerli/medalla/tree/master/altona). Lighthouse supports both out of the box and joining these multi-client testnets is easy if you're familiar with the terminal.
 
 Lighthouse runs on Linux, MacOS and Windows and has a Docker work-flow to make
 things as simple as possible.
@@ -24,6 +23,9 @@ There are two, different ways to install and start a Lighthouse validator:
    gives a more hands-on experience.
 
 Once you've completed **either one** of these steps, you can move onto the next step.
+
+> Take note when running Lighthouse. Use the --testnet parameter to specify the testnet you whish to participate in. Medalla is currently the default, so make sure to use --testnet altona to join the Altona testnet.
+
 
 ## 2. Submit your deposit to Goerli
 
