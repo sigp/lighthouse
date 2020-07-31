@@ -1174,6 +1174,10 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         BeaconState<E>,
     ) {
         assert!(!slots.is_empty());
+        assert!(
+            slots.windows(2).all(|w| w[0] <= w[1]),
+            "Slots have to be sorted"
+        ); // slice.is_sorted() isn't stabilized at the moment of writing this
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         let mut latest_block_hash: Option<SignedBeaconBlockHash> = None;
