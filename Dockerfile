@@ -1,8 +1,6 @@
 FROM rust:1.44.1 AS builder
 RUN apt-get update && apt-get install -y cmake
 COPY . lighthouse
-# TODO: enable PORTABLE in DockerHub environment instead
-ENV PORTABLE true
 RUN cd lighthouse && make
 RUN cd lighthouse && make install-lcli
 
