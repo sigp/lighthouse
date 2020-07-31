@@ -4,6 +4,7 @@
 //! direct peer-to-peer communication primarily for sending/receiving chain information for
 //! syncing.
 
+use futures::future::FutureExt;
 use handler::RPCHandler;
 use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
@@ -11,9 +12,11 @@ use libp2p::swarm::{
     PollParameters, SubstreamProtocol,
 };
 use libp2p::{Multiaddr, PeerId};
-use slog::{debug, o};
+use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
+use slog::{crit, debug, o, warn};
 use std::marker::PhantomData;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use types::EthSpec;
 
 pub(crate) use handler::HandlerErr;
@@ -31,6 +34,7 @@ pub(crate) mod codec;
 mod handler;
 pub mod methods;
 mod protocol;
+mod rate_limiter;
 
 /// RPC events sent from Lighthouse.
 #[derive(Debug, Clone)]
@@ -88,6 +92,8 @@ pub struct RPCMessage<TSpec: EthSpec> {
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<TSpec: EthSpec> {
+    /// Rate limiter
+    limiter: RateLimiter,
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCSend<TSpec>, RPCMessage<TSpec>>>,
     /// Slog logger for RPC behaviour.
@@ -97,7 +103,25 @@ pub struct RPC<TSpec: EthSpec> {
 impl<TSpec: EthSpec> RPC<TSpec> {
     pub fn new(log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
+        let limiter = RPCRateLimiterBuilder::new()
+            .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
+            .one_every(Protocol::Ping, Duration::from_secs(5))
+            .n_every(Protocol::Status, 3, Duration::from_secs(15))
+            .one_every(Protocol::Goodbye, Duration::from_secs(10))
+            .n_every(
+                Protocol::BlocksByRange,
+                methods::MAX_REQUEST_BLOCKS,
+                Duration::from_secs(10),
+            )
+            .n_every(
+                Protocol::BlocksByRoot,
+                methods::MAX_REQUEST_BLOCKS,
+                Duration::from_secs(10),
+            )
+            .build()
+            .unwrap();
         RPC {
+            limiter,
             events: Vec::new(),
             log,
         }
@@ -193,18 +217,51 @@ where
         conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // send the event to the user
-        self.events
-            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
-                peer_id,
-                conn_id,
-                event,
-            }));
+        if let Ok(RPCReceived::Request(ref id, ref req)) = event {
+            // check if the request is conformant to the quota
+            match self.limiter.allows(&peer_id, req) {
+                Ok(()) => {
+                    // send the event to the user
+                    self.events
+                        .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                            peer_id,
+                            conn_id,
+                            event,
+                        }))
+                }
+                Err(RateLimitedErr::TooLarge) => {
+                    // we set the batch sizes, so this is a coding/config err
+                    crit!(self.log, "Batch too large to ever be processed";
+                        "protocol" => format!("{}", req.protocol()));
+                }
+                Err(RateLimitedErr::TooSoon(wait_time)) => {
+                    warn!(self.log, "Request exceeds the rate limit";
+                        "request" => req.to_string(), "peer_id" => peer_id.to_string(), "wait_time_ms" => wait_time.as_millis());
+                    // send an error code to the peer.
+                    // the handler upon receiving the error code will send it back to the behaviour
+                    self.send_response(
+                        peer_id,
+                        (conn_id, *id),
+                        RPCCodedResponse::Error(
+                            RPCResponseErrorCode::RateLimited,
+                            format!("Rate limited: wait {:?}", wait_time).into(),
+                        ),
+                    );
+                }
+            }
+        } else {
+            self.events
+                .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    event,
+                }));
+        }
     }
 
     fn poll(
         &mut self,
-        _cx: &mut Context,
+        cx: &mut Context,
         _: &mut impl PollParameters,
     ) -> Poll<
         NetworkBehaviourAction<
@@ -212,6 +269,8 @@ where
             Self::OutEvent,
         >,
     > {
+        // let the rate limiter prune
+        let _ = self.limiter.poll_unpin(cx);
         if !self.events.is_empty() {
             return Poll::Ready(self.events.remove(0));
         }

@@ -331,6 +331,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
+                RPCResponseErrorCode::RateLimited => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -359,6 +360,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 Protocol::Status => return,
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
+            RPCError::RateLimited => match protocol {
+                Protocol::Ping => PeerAction::MidToleranceError,
+                Protocol::BlocksByRange => PeerAction::HighToleranceError,
+                Protocol::BlocksByRoot => PeerAction::HighToleranceError,
+                Protocol::Goodbye => PeerAction::LowToleranceError,
+                Protocol::MetaData => PeerAction::LowToleranceError,
+                Protocol::Status => PeerAction::LowToleranceError,
+            },
         };
 
         self.report_peer(peer_id, peer_action);
