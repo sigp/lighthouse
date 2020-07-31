@@ -66,7 +66,7 @@ The example assumes that the `wally` wallet was generated from the
 [wallet](./wallet-create.md) example.
 
 ```bash
-lighthouse --testnet medalla account wallet validator --name wally --wallet-password wally.pass
+lighthouse --testnet medalla account validator create --name wally --wallet-passphrase wally.pass --count 1
 ```
 
 This command will:
