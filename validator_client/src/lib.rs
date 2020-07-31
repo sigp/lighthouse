@@ -216,6 +216,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_node(beacon_node.clone())
             .runtime_context(context.service_context("block".into()))
+            .graffiti(config.graffiti)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()

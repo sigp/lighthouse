@@ -1,4 +1,6 @@
-use crate::helpers::{check_content_type_for_json, publish_beacon_block_to_network};
+use crate::helpers::{
+    check_content_type_for_json, parse_hex_ssz_bytes, publish_beacon_block_to_network,
+};
 use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult, NetworkChannel, UrlQuery};
 use beacon_chain::{
@@ -288,8 +290,14 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
     let slot = query.slot()?;
     let randao_reveal = query.randao_reveal()?;
 
+    let validator_graffiti = if let Some((_key, value)) = query.first_of_opt(&["graffiti"]) {
+        Some(parse_hex_ssz_bytes(&value)?)
+    } else {
+        None
+    };
+
     let (new_block, _state) = beacon_chain
-        .produce_block(randao_reveal, slot)
+        .produce_block(randao_reveal, slot, validator_graffiti)
         .map_err(|e| {
             error!(
                 log,
