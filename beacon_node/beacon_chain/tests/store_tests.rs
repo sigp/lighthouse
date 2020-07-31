@@ -787,8 +787,8 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     assert_eq!(
         rig.get_finalized_checkpoints(),
         hashset! {
-            canonical_chain_blocks_pre_finalization[&Slot::new(rig.checkpoint_of_epoch(1))],
-            canonical_chain_blocks_post_finalization[&Slot::new(rig.checkpoint_of_epoch(2))],
+            canonical_chain_blocks_pre_finalization[&rig.checkpoint_of_epoch(1).into()],
+            canonical_chain_blocks_post_finalization[&rig.checkpoint_of_epoch(2).into()],
         },
     );
 
@@ -983,7 +983,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     // Postconditions
     assert_eq!(
         rig.get_finalized_checkpoints(),
-        hashset! {canonical_chain_blocks[&Slot::new(slots_per_epoch)]},
+        hashset! {canonical_chain_blocks[&rig.checkpoint_of_epoch(1).into()]},
     );
 
     for &block_hash in stray_blocks.values() {
