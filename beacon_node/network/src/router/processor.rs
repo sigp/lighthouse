@@ -503,17 +503,17 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// across the network.
     pub fn should_forward_block(
         &mut self,
-        peer_id: &PeerId,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
-        let result = self.chain.verify_block_for_gossip(*block.clone());
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        self.chain.verify_block_for_gossip(*block)
+    }
 
-        if let Err(BlockError::ParentUnknown(_)) = result {
-            // if we don't know the parent, start a parent lookup
-            // TODO: Modify the return to avoid the block clone.
-            self.send_to_sync(SyncMessage::UnknownBlock(peer_id.clone(), block));
-        }
-        result
+    pub fn on_unknown_parent(
+        &mut self,
+        peer_id: PeerId,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+    ) {
+        self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
     }
 
     /// Process a gossip message declaring a new block.
