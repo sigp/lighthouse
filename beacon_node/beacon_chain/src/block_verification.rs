@@ -832,6 +832,7 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
 ///
 /// Returns `Err(BlockError::ParentUnknown)` if the parent is not found, or if an error occurs
 /// whilst attempting the operation.
+#[allow(clippy::type_complexity)]
 fn load_parent<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec>,
     chain: &BeaconChain<T>,
