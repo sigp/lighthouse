@@ -431,12 +431,14 @@ where
         out: <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Output,
         request_info: Self::OutboundOpenInfo,
     ) {
+        debug!(self.log, "Outbound req upgraded"; "req" => format!("{:?}", request_info));
         self.dial_negotiated -= 1;
         let (id, request) = request_info;
         let proto = request.protocol();
 
         // accept outbound connections only if the handler is not deactivated
         if matches!(self.state, HandlerState::Deactivated) {
+            warn!(self.log, "Outbound error deactivated");
             self.pending_errors.push(HandlerErr::Outbound {
                 id,
                 proto,
@@ -480,6 +482,7 @@ where
                 crit!(self.log, "Duplicate outbound substream id"; "id" => format!("{:?}", self.current_outbound_substream_id));
             }
             self.current_outbound_substream_id.0 += 1;
+            debug!(self.log, "Outbound added, waiting timeout");
         }
 
         self.update_keep_alive();
@@ -888,6 +891,7 @@ where
         if !self.dial_queue.is_empty() && self.dial_negotiated < self.max_dial_negotiated {
             self.dial_negotiated += 1;
             let (id, req) = self.dial_queue.remove(0);
+            debug!(self.log, "ASKING for OUTBOUND request"; "request" => format!("{:?}", req));
             self.dial_queue.shrink_to_fit();
             self.update_keep_alive();
             return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
