@@ -199,6 +199,8 @@ impl Score {
                 <= Some(BANNED_BEFORE_DECAY)
         {
             // The peer is banned and still within the ban timeout. Do not update it's score.
+            // Update last_updated so that the decay begins correctly when ready.
+            self.last_updated = now;
             return;
         }
 
