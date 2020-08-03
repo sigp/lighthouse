@@ -29,6 +29,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
+use tokio::time::{interval, Interval};
 use types::{EnrForkId, EthSpec, SubnetId};
 
 mod subnet_predicate;
@@ -53,6 +54,9 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
+
+/// Interval duration for how often we should process queued queries.
+const QUERY_INTERVAL_DURATION: Duration = Duration::from_secs(5);
 
 /// The events emitted by polling discovery.
 pub enum DiscoveryEvent {
@@ -158,6 +162,9 @@ pub struct Discovery<TSpec: EthSpec> {
     /// always false.
     started: bool,
 
+    /// Interval for query processing.
+    query_interval: Interval,
+
     /// Logger for the discovery behaviour.
     log: slog::Logger,
 }
@@ -230,6 +237,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             event_stream,
             started: !config.disable_discovery,
             log,
+            query_interval: interval(QUERY_INTERVAL_DURATION),
             enr_dir,
         })
     }
@@ -262,13 +270,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if !self.started {
             return;
         }
-        for s in subnets_to_discover {
+        for subnet in subnets_to_discover {
             debug!(
                 self.log,
                 "Making discovery query for subnet";
-                "subnet_id" => format!("{:?}", s)
+                "subnet_id" => format!("{:?}", subnet)
             );
-            self.add_subnet_query(s.subnet_id, s.min_ttl, 0);
+            self.add_subnet_query(subnet.subnet_id, subnet.min_ttl, 0);
         }
     }
 
@@ -704,8 +712,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             return Poll::Pending;
         }
 
-        // Process the query queue
-        self.process_queue();
+        // Process the query queue every query interval
+        if let Poll::Ready(_) = self.query_interval.poll_next_unpin(cx) {
+            self.process_queue();
+        }
 
         // Drive the queries and return any results from completed queries
         if let Some(results) = self.poll_queries(cx) {
