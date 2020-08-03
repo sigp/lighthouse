@@ -1958,7 +1958,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Arc::clone(&self.head_tracker),
                 old_finalized_root,
                 finalized_block_root.into(),
-            );
+            )?;
 
             let _ = self.event_handler.register(EventKind::BeaconFinalization {
                 epoch: new_finalized_epoch,

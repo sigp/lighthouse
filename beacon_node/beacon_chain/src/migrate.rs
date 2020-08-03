@@ -7,7 +7,7 @@ use std::mem;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
-use store::hot_cold_store::{process_finalization, HotColdDBError};
+use store::hot_cold_store::{migrate_database, HotColdDBError};
 use store::iter::{ParentRootBlockIterator, RootsIterator};
 use store::{Error, ItemStore, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
@@ -28,8 +28,7 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
         _head_tracker: Arc<HeadTracker>,
         _old_finalized_block_hash: SignedBeaconBlockHash,
         _new_finalized_block_hash: SignedBeaconBlockHash,
-    ) {
-    }
+    ) -> Result<(), BeaconChainError>;
 
     /// Traverses live heads and prunes blocks and states of chains that we know can't be built
     /// upon because finalization would prohibit it.  This is an optimisation intended to save disk
@@ -174,6 +173,18 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
 pub struct NullMigrator;
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold> for NullMigrator {
+    fn process_finalization(
+        &self,
+        _state_root: Hash256,
+        _new_finalized_state: BeaconState<E>,
+        _max_finality_distance: u64,
+        _head_tracker: Arc<HeadTracker>,
+        _old_finalized_block_hash: SignedBeaconBlockHash,
+        _new_finalized_block_hash: SignedBeaconBlockHash,
+    ) -> Result<(), BeaconChainError> {
+        Ok(())
+    }
+
     fn new(_: Arc<HotColdDB<E, Hot, Cold>>, _: Logger) -> Self {
         NullMigrator
     }
@@ -201,21 +212,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
         head_tracker: Arc<HeadTracker>,
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
-    ) {
-        if let Err(e) = Self::prune_abandoned_forks(
+    ) -> Result<(), BeaconChainError> {
+        Self::prune_abandoned_forks(
             self.db.clone(),
             head_tracker,
             old_finalized_block_hash,
             new_finalized_block_hash,
             new_finalized_state.slot,
-        ) {
-            eprintln!("Pruning error: {:?}", e);
-        }
+        )?;
 
-        if let Err(e) = process_finalization(self.db.clone(), state_root, &new_finalized_state) {
-            // This migrator is only used for testing, so we just log to stderr without a logger.
-            eprintln!("Migration error: {:?}", e);
-        }
+        migrate_database(self.db.clone(), state_root, &new_finalized_state)?;
+
+        Ok(())
     }
 }
 
@@ -252,9 +260,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
         head_tracker: Arc<HeadTracker>,
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
-    ) {
+    ) -> Result<(), BeaconChainError> {
         if !self.needs_migration(new_finalized_state.slot, max_finality_distance) {
-            return;
+            return Ok(());
         }
 
         let (ref mut tx, ref mut thread) = *self.tx_thread.lock();
@@ -286,6 +294,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
             // Retry at most once, we could recurse but that would risk overflowing the stack.
             let _ = tx.send(tx_err.0);
         }
+
+        Ok(())
     }
 }
 
@@ -336,7 +346,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     Err(e) => warn!(log, "Block pruning failed: {:?}", e),
                 }
 
-                match process_finalization(db.clone(), state_root, &state) {
+                match migrate_database(db.clone(), state_root, &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                         debug!(
