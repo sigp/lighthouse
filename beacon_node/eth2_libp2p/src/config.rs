@@ -96,6 +96,13 @@ impl Default for Config {
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_millis(700))
+            .mesh_n(6)
+            .mesh_n_low(5)
+            .mesh_n_high(12)
+            .gossip_lazy(6)
+            .fanout_ttl(Duration::from_secs(60))
+            .history_length(6)
+            .history_gossip(3)
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Permissive)
             // Prevent duplicates by caching messages from an epoch + 1 slot amount of time (33*12)
