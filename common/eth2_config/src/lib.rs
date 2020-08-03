@@ -118,9 +118,9 @@ define_net!(
     medalla,
     include_medalla_file,
     "medalla",
-    "b21fef76ddf472c6cea62d5c98b678033a9b195a",
+    "2c0cd6c380fa83b65e199216e132b416bcf5a7a1",
     "https://raw.githubusercontent.com/sigp/witti/{{ commit }}/medalla/{{ file }}",
-    false
+    true
 );
 
 #[cfg(test)]
