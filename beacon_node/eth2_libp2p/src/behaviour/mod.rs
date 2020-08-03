@@ -456,8 +456,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     HandlerErr::Outbound { id, proto, error } => {
                         // Inform the peer manager that a request we sent to the peer failed
                         self.peer_manager.handle_rpc_error(&peer_id, proto, &error);
-                        // inform failures of requests coming outside the behaviour
-                        slog::warn!(self.log, "Outbound rpc error"; "id" => format!("{:?}", id), "peer_id" => peer_id.to_string(), "error" => format!("{:?}", error));
+                        // inform failures of requests comming outside the behaviour
                         if !matches!(id, RequestId::Behaviour) {
                             self.add_event(BehaviourEvent::RPCFailed { peer_id, id, error });
                         }
