@@ -406,9 +406,23 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
+                if let Some(topic_metric) = metrics::get_int_gauge(
+                    &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_COUNT,
+                    &[topic.as_str()],
+                ) {
+                    topic_metric.inc()
+                }
+
                 self.add_event(BehaviourEvent::PeerSubscribed(peer_id, topic));
             }
-            GossipsubEvent::Unsubscribed { .. } => {}
+            GossipsubEvent::Unsubscribed { peer_id: _, topic } => {
+                if let Some(topic_metric) = metrics::get_int_gauge(
+                    &metrics::GOSSIPSUB_SUBSCRIBED_PEERS_COUNT,
+                    &[topic.as_str()],
+                ) {
+                    topic_metric.dec()
+                }
+            }
         }
     }
 
