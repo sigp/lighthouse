@@ -106,7 +106,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
             .one_every(Protocol::Ping, Duration::from_secs(5))
-            .n_every(Protocol::Status, 3, Duration::from_secs(15))
+            .n_every(Protocol::Status, 5, Duration::from_secs(15))
             .one_every(Protocol::Goodbye, Duration::from_secs(10))
             .n_every(
                 Protocol::BlocksByRange,

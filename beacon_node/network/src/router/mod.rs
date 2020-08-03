@@ -125,6 +125,7 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             // A peer has disconnected
             RouterMessage::PeerDisconnected(peer_id) => {
+                debug!(self.log, "Peer disconnected"; "peer_id" => peer_id.to_string());
                 self.processor.on_disconnect(peer_id);
             }
             RouterMessage::RPCRequestReceived {
