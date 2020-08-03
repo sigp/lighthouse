@@ -7,11 +7,19 @@ STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 #
 # Binaries will most likely be found in `./target/release`
 install:
+ifeq ($(PORTABLE), true)
+	cargo install --path lighthouse --force --locked --features portable
+else
 	cargo install --path lighthouse --force --locked
+endif
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
+ifeq ($(PORTABLE), true)
+	cargo install --path lcli --force --locked --features portable
+else
 	cargo install --path lcli --force --locked
+endif
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.

@@ -7,7 +7,7 @@ client to connect to the beacon node and produce blocks and attestations.
 
 HTTP Path | HTTP Method | Description |
 | - | - | ---- |
-[`/validator/duties`](#validatorduties) | GET | Provides block and attestation production information for validators.
+[`/validator/duties`](#validatorduties) | POST | Provides block and attestation production information for validators.
 [`/validator/subscribe`](#validatorsubscribe) | POST | Subscribes a list of validators to the beacon node for a particular duty/slot.
 [`/validator/duties/all`](#validatordutiesall) | GET |Provides block and attestation production information for all validators.
 [`/validator/duties/active`](#validatordutiesactive) | GET | Provides block and attestation production information for all active validators.

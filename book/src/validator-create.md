@@ -14,7 +14,7 @@ account validator create` command:
 ```bash
 lighthouse account validator create --help
 
-Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key-derivation scheme.
+Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key derivation scheme.
 
 USAGE:
     lighthouse account_manager validator create [FLAGS] [OPTIONS] --wallet-name <WALLET_NAME> --wallet-passphrase <WALLET_PASSWORD_PATH>
@@ -34,6 +34,9 @@ OPTIONS:
             The number of validators to create, regardless of how many already exist
 
     -d, --datadir <DIR>                               Data directory for lighthouse keys and databases.
+        --debug-level <LEVEL>
+            The verbosity level for emitting logs. [default: info]  [possible values: info, debug, trace, warn, error,
+            crit]
         --deposit-gwei <DEPOSIT_GWEI>
             The GWEI value of the deposit amount. Defaults to the minimum amount required for an active validator
             (MAX_EFFECTIVE_BALANCE)
@@ -42,6 +45,9 @@ OPTIONS:
 
     -s, --spec <TITLE>
             Specifies the default eth2 spec type. [default: mainnet]  [possible values: mainnet, minimal, interop]
+
+        --testnet <testnet>
+            Name of network lighthouse will connect to [possible values: medalla, altona]
 
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
@@ -60,7 +66,7 @@ The example assumes that the `wally` wallet was generated from the
 [wallet](./wallet-create.md) example.
 
 ```bash
-lighthouse account wallet validator --name wally --wallet-password wally.pass
+lighthouse --testnet medalla account validator create --name wally --wallet-passphrase wally.pass --count 1
 ```
 
 This command will:
@@ -71,5 +77,6 @@ This command will:
     - An encrypted keystore containing the validators voting keypair.
 	- An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`
 		for most testnets and mainnet) which can be submitted to the deposit
-		contract.
+		contract for the medalla testnet. Other testnets can be set via the
+		`--testnet` CLI param.
 - Store a password to the validators voting keypair in `~/.lighthouse/secrets`.

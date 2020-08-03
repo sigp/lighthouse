@@ -1,48 +1,61 @@
 //! Downloads a testnet configuration from Github.
 
-use std::env;
+use eth2_config::{altona, medalla, Eth2NetDirectory};
+use handlebars::Handlebars;
+use serde_json::json;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
 
-const TESTNET_ID: &str = "altona-v3";
+const ETH2_NET_DIRS: &[Eth2NetDirectory<'static>] = &[altona::ETH2_NET_DIR, medalla::ETH2_NET_DIR];
 
 fn main() {
-    if !base_dir().exists() {
-        std::fs::create_dir_all(base_dir())
-            .unwrap_or_else(|_| panic!("Unable to create {:?}", base_dir()));
+    for testnet in ETH2_NET_DIRS {
+        let testnet_dir = testnet.dir();
 
-        match get_all_files() {
-            Ok(()) => (),
-            Err(e) => {
-                std::fs::remove_dir_all(base_dir()).unwrap_or_else(|_| panic!(
-                    "{}. Failed to remove {:?}, please remove the directory manually because it may contains incomplete testnet data.",
-                    e,
-                    base_dir(),
-                ));
-                panic!(e);
+        if !testnet_dir.exists() {
+            std::fs::create_dir_all(&testnet_dir)
+                .unwrap_or_else(|_| panic!("Unable to create {:?}", testnet_dir));
+
+            match get_all_files(testnet) {
+                Ok(()) => (),
+                Err(e) => {
+                    std::fs::remove_dir_all(&testnet_dir).unwrap_or_else(|_| panic!(
+                        "{}. Failed to remove {:?}, please remove the directory manually because it may contains incomplete testnet data.",
+                        e,
+                        testnet_dir,
+                    ));
+                    panic!(e);
+                }
             }
         }
     }
 }
 
-pub fn get_all_files() -> Result<(), String> {
-    get_file("boot_enr.yaml")?;
-    get_file("config.yaml")?;
-    get_file("deploy_block.txt")?;
-    get_file("deposit_contract.txt")?;
-    get_file("genesis.ssz")?;
+fn get_all_files(testnet: &Eth2NetDirectory<'static>) -> Result<(), String> {
+    get_file(testnet, "boot_enr.yaml")?;
+    get_file(testnet, "config.yaml")?;
+    get_file(testnet, "deploy_block.txt")?;
+    get_file(testnet, "deposit_contract.txt")?;
+
+    if testnet.genesis_is_known {
+        get_file(testnet, "genesis.ssz")?;
+    } else {
+        File::create(testnet.dir().join("genesis.ssz")).unwrap();
+    }
 
     Ok(())
 }
 
-pub fn get_file(filename: &str) -> Result<(), String> {
-    let url = format!(
-        "https://raw.githubusercontent.com/sigp/witti/a94e00c1a03df851f960fcf44a79f2a6b1d29af1/altona/lighthouse/{}",
-        filename
-    );
+fn get_file(testnet: &Eth2NetDirectory, filename: &str) -> Result<(), String> {
+    let url = Handlebars::new()
+        .render_template(
+            testnet.url_template,
+            &json!({"commit": testnet.commit, "file": filename}),
+        )
+        .unwrap();
 
-    let path = base_dir().join(filename);
+    let path = testnet.dir().join(filename);
+
     let mut file =
         File::create(path).map_err(|e| format!("Failed to create {}: {:?}", filename, e))?;
 
@@ -64,12 +77,4 @@ pub fn get_file(filename: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to write to {}: {:?}", filename, e))?;
 
     Ok(())
-}
-
-fn base_dir() -> PathBuf {
-    env::var("CARGO_MANIFEST_DIR")
-        .expect("should know manifest dir")
-        .parse::<PathBuf>()
-        .expect("should parse manifest dir as path")
-        .join(TESTNET_ID)
 }

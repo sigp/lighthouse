@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 request_id,
                 error,
             } => {
-                warn!(self.log, "RPC Error";
+                debug!(self.log, "RPC Error";
                     "peer_id" => peer_id.to_string(),
                     "request_id" => request_id,
                     "error" => error.to_string(),

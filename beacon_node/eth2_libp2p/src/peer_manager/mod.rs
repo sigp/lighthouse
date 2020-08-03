@@ -10,7 +10,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::multiaddr::Protocol as MProtocol;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error, warn};
+use slog::{crit, debug, error};
 use smallvec::SmallVec;
 use std::{
     net::SocketAddr,
@@ -335,7 +335,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn handle_rpc_error(&mut self, peer_id: &PeerId, protocol: Protocol, err: &RPCError) {
         let client = self.network_globals.client(peer_id);
         let score = self.network_globals.peers.read().score(peer_id);
-        warn!(self.log, "RPC Error"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string(), "peer_id" => peer_id.to_string(), "score" => score.to_string());
+        debug!(self.log, "RPC Error"; "protocol" => protocol.to_string(), "err" => err.to_string(), "client" => client.to_string(), "peer_id" => peer_id.to_string(), "score" => score.to_string());
 
         // Map this error to a `PeerAction` (if any)
         let peer_action = match err {
@@ -359,6 +359,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
+                RPCResponseErrorCode::RateLimited => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -387,6 +388,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 Protocol::Status => return,
             },
             RPCError::NegotiationTimeout => PeerAction::HighToleranceError,
+            RPCError::RateLimited => match protocol {
+                Protocol::Ping => PeerAction::MidToleranceError,
+                Protocol::BlocksByRange => PeerAction::HighToleranceError,
+                Protocol::BlocksByRoot => PeerAction::HighToleranceError,
+                Protocol::Goodbye => PeerAction::LowToleranceError,
+                Protocol::MetaData => PeerAction::LowToleranceError,
+                Protocol::Status => PeerAction::LowToleranceError,
+            },
         };
 
         self.report_peer(peer_id, peer_action);

@@ -11,6 +11,7 @@ slog = "2.5.2"
 slog-term = "2.5.0"
 slog-async = "2.5.0"
 types = { path = "../consensus/types" }
+state_processing = { path = "../consensus/state_processing" }
 dirs = "2.0.2"
 environment = { path = "../lighthouse/environment" }
 deposit_contract = { path = "../common/deposit_contract" }
