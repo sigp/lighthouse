@@ -10,9 +10,9 @@ use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
 /// Max number of disconnected nodes to remember.
-const MAX_DC_PEERS: usize = 100;
+const MAX_DC_PEERS: usize = 500;
 /// The maximum number of banned nodes to remember.
-const MAX_BANNED_PEERS: usize = 300;
+const MAX_BANNED_PEERS: usize = 1000;
 
 /// Storage of known peers, their reputation and information
 pub struct PeerDB<TSpec: EthSpec> {
