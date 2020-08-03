@@ -823,17 +823,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         conn_id: ConnectionId,
         event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
     ) {
-        // All events from banned peers are rejected
-        // The same holds if we reached the peer limit and the connected peer has no future duty.
-        if self.peer_manager.is_banned(&peer_id)
-            || (self.peer_manager.peer_limit_reached()
-                && self
-                    .network_globals
-                    .peers
-                    .read()
-                    .peer_info(&peer_id)
-                    .map_or(true, |i| !i.has_future_duty()))
-        {
+        // If the peer is not supposed to be connected (undergoing active disconnection,
+        // don't process any of its messages.
+        if !self.network_globals.peers.read().is_connected(&peer_id) {
             return;
         }
 
