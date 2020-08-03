@@ -1,7 +1,7 @@
 # 📦 Installation
 
 Lighthouse runs on Linux, MacOS and Windows. Installation should be easy. In
-fact, if you already have Rust installed all you need is:
+fact, if you already have git, make, and Rust installed all you need is:
 
 - `git clone https://github.com/sigp/lighthouse.git`
 - `cd lighthouse`
@@ -11,6 +11,9 @@ If this doesn't work or is not clear enough, see the [Detailed Instructions](#de
 
 ## Detailed Instructions
 
+1. Install [git](https://git-scm.com/)
+1. Install `make`
+    - Windows users can use [GNUWin32](http://gnuwin32.sourceforge.net/packages/make.htm), [MinGW](http://www.mingw.org), or [Chocolatey](https://chocolatey.org/install). See [HERE](https://stackoverflow.com/questions/32127524/how-to-install-and-use-make-in-windows) for more instructions.
 1. Install Rust and Cargo with [rustup](https://rustup.rs/).
     - Use the `stable` toolchain (it's the default).
 1. Clone the Lighthouse repository.
