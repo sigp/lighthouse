@@ -105,8 +105,8 @@ impl Default for Config {
             .history_gossip(3)
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Permissive)
-            // Prevent duplicates by caching messages from an epoch + 1 slot amount of time (33*12)
-            .duplicate_cache_time(Duration::from_secs(396))
+            // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
+            .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
             .build();
 
