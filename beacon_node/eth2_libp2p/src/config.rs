@@ -95,7 +95,7 @@ impl Default for Config {
         // parameter.
         let gs_config = GossipsubConfigBuilder::new()
             .max_transmit_size(GOSSIP_MAX_SIZE)
-            .heartbeat_interval(Duration::from_secs(1))
+            .heartbeat_interval(Duration::from_millis(700))
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Permissive)
             // Prevent duplicates by caching messages from an epoch + 1 slot amount of time (33*12)
