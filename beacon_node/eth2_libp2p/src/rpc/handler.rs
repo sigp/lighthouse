@@ -629,6 +629,7 @@ where
                             proto,
                             error: RPCError::StreamTimeout,
                         };
+                        warn!(self.log, "Outbound Stream timeout!");
                         // notify the user
                         return Poll::Ready(ProtocolsHandlerEvent::Custom(Err(outbound_err)));
                     } else {
@@ -743,6 +744,7 @@ where
                     request: _,
                 } if deactivated => {
                     // the handler is deactivated. Close the stream
+                    warn!(self.log, "Handler deactivated removing outbound");
                     entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                     self.pending_errors.push(HandlerErr::Outbound {
                         id: entry.get().req_id,
@@ -780,6 +782,7 @@ where
                         } else {
                             // either this is a single response request or this response closes the
                             // stream
+                            warn!(self.log, "Closing substream");
                             entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                         }
 
@@ -805,7 +808,7 @@ where
                         // stream closed
                         // if we expected multiple streams send a stream termination,
                         // else report the stream terminating only.
-                        //trace!(self.log, "RPC Response - stream closed by remote");
+                        warn!(self.log, "RPC Response - stream closed by remote");
                         // drop the stream
                         let delay_key = &entry.get().delay_key;
                         let request_id = entry.get().req_id;
@@ -834,6 +837,7 @@ where
                     }
                     Poll::Ready(Some(Err(e))) => {
                         // drop the stream
+                        warn!(self.log, "Outbound error"; "error" => e.to_string());
                         let delay_key = &entry.get().delay_key;
                         self.outbound_substreams_delay.remove(delay_key);
                         let outbound_err = HandlerErr::Outbound {
