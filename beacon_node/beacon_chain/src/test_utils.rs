@@ -901,12 +901,27 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         self.get_block(block_hash).is_some()
     }
 
-    pub fn get_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
-        self.chain.get_state(&state_hash.into(), None).unwrap()
+    pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
+        self.chain.store.load_hot_state(&state_hash.into()).unwrap()
     }
 
-    pub fn state_exists(&self, state_hash: BeaconStateHash) -> bool {
-        self.get_state(state_hash).is_some()
+    pub fn get_cold_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
+        self.chain
+            .store
+            .load_cold_state(&state_hash.into())
+            .unwrap()
+    }
+
+    pub fn hot_state_exists(&self, state_hash: BeaconStateHash) -> bool {
+        self.get_hot_state(state_hash).is_some()
+    }
+
+    pub fn cold_state_exists(&self, state_hash: BeaconStateHash) -> bool {
+        self.get_cold_state(state_hash).is_some()
+    }
+
+    pub fn is_skipped_slot(&self, state: &BeaconState<E>, slot: Slot) -> bool {
+        state.get_block_root(slot) == state.get_block_root(slot - 1)
     }
 
     pub fn make_block(

@@ -160,6 +160,7 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
                     .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash, slot)),
             )
             .collect();
+
         store.do_atomically(batch)?;
         for head_hash in abandoned_heads.into_iter() {
             head_tracker.remove_head(head_hash);

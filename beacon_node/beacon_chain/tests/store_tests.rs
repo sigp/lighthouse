@@ -13,7 +13,6 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BeaconChainTestingRig, BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::BeaconSnapshot;
-use beacon_chain::StateSkipConfig;
 use maplit::hashset;
 use rand::Rng;
 use std::collections::HashMap;
@@ -764,7 +763,7 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            rig.state_exists(state_hash),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
@@ -803,7 +802,13 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            !rig.state_exists(state_hash),
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
             "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
@@ -868,7 +873,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            rig.state_exists(state_hash),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
@@ -910,7 +915,13 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            !rig.state_exists(state_hash),
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
             "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
@@ -963,7 +974,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            rig.state_exists(state_hash),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
@@ -996,7 +1007,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            rig.state_exists(state_hash),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
@@ -1068,7 +1079,7 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            rig.state_exists(state_hash),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
@@ -1117,7 +1128,13 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 
     for (&slot, &state_hash) in &stray_states {
         assert!(
-            !rig.state_exists(state_hash),
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
             "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
@@ -1130,142 +1147,111 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[test]
 fn prunes_skipped_slots_states() {
-    const VALIDATOR_COUNT: usize = 24;
-    const VALIDATOR_SUPERMAJORITY: usize = (VALIDATOR_COUNT / 3) * 2;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(Arc::clone(&store), VALIDATOR_COUNT);
-    const HONEST_VALIDATOR_COUNT: usize = VALIDATOR_SUPERMAJORITY;
-    let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
-    let faulty_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let slots_per_epoch: usize = MinimalEthSpec::slots_per_epoch() as usize;
+    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    let mut rig = BeaconChainTestingRig::new(
+        MinimalEthSpec,
+        HONEST_VALIDATOR_COUNT,
+        ADVERSARIAL_VALIDATOR_COUNT,
+    );
+    let state = rig.get_current_state();
 
-    // Arrange skipped slots so as to cross the epoch boundary.  That way, we excercise the code
-    // responsible for storing state outside of normal block processing.
+    let canonical_slots_zeroth_epoch: Vec<Slot> =
+        (1..=rig.checkpoint_of_epoch(1)).map(Into::into).collect();
+    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig.add_attested_blocks_at_slots(
+        state.clone(),
+        &canonical_slots_zeroth_epoch,
+        &rig.get_honest_validators(),
+    );
 
-    let canonical_slot = harness.get_chain_slot();
-    let canonical_state = harness.get_head_state();
-    let (canonical_blocks_zeroth_epoch, _, canonical_slot, _, canonical_state) = harness
-        .add_canonical_chain_blocks(
-            canonical_state,
-            canonical_slot,
-            slots_per_epoch - 1,
-            &honest_validators,
-        );
+    let skipped_slot: Slot = (rig.checkpoint_of_epoch(1) + 1).into();
 
-    let (stray_blocks, stray_states, stray_slot, _, _) = harness.add_stray_blocks(
+    let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.checkpoint_of_epoch(2))
+        .map(Into::into)
+        .collect();
+    let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
         canonical_state.clone(),
-        canonical_slot,
-        slots_per_epoch,
-        &faulty_validators,
+        &stray_slots,
+        &rig.get_adversarial_validators(),
     );
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
         assert!(
-            block.is_some(),
+            rig.block_exists(block_hash),
             "stray block {} should be still present",
             block_hash
         );
     }
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_some(),
+            rig.hot_state_exists(state_hash),
             "stray state {} at slot {} should be still present",
             state_hash,
             slot
         );
     }
 
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    assert_eq!(
-        get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::zero().into()].into_iter().collect(),
-    );
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
 
     // Make sure slots were skipped
-    let stray_state = harness
-        .chain
-        .state_at_slot(stray_slot, StateSkipConfig::WithoutStateRoots)
-        .unwrap();
-    let block_root = stray_state.get_block_root(canonical_slot - 1);
-    assert_eq!(stray_state.get_block_root(canonical_slot), block_root);
-    assert_eq!(stray_state.get_block_root(canonical_slot + 1), block_root);
-
-    let skipped_slots = vec![canonical_slot, canonical_slot + 1];
-    for &slot in &skipped_slots {
-        assert_eq!(stray_state.get_block_root(slot), block_root);
-        let state_hash = stray_state.get_state_root(slot).unwrap();
+    assert!(rig.is_skipped_slot(&stray_state, skipped_slot));
+    {
+        let state_hash = (*stray_state.get_state_root(skipped_slot).unwrap()).into();
         assert!(
-            harness
-                .chain
-                .get_state(&state_hash, Some(slot))
-                .unwrap()
-                .is_some(),
-            "skipped slots state should be still present"
+            rig.hot_state_exists(state_hash),
+            "skipped slot state {} should be still present",
+            state_hash
         );
     }
 
     // Trigger finalization
-    let (canonical_blocks_post_finalization, _, _, _, _) = harness.add_canonical_chain_blocks(
+    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.checkpoint_of_epoch(7))
+        .map(Into::into)
+        .collect();
+    let (canonical_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
         canonical_state,
-        canonical_slot,
-        slots_per_epoch * 6,
-        &honest_validators,
-    );
-    assert_eq!(
-        harness
-            .chain
-            .head()
-            .unwrap()
-            .beacon_state
-            .finalized_checkpoint
-            .epoch,
-        2,
-        "chain should have finalized"
+        &canonical_slots,
+        &rig.get_honest_validators(),
     );
 
     // Postconditions
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    let finalized_blocks = get_finalized_epoch_boundary_blocks(&chain_dump);
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
         .into_iter()
         .chain(canonical_blocks_post_finalization.into_iter())
         .collect();
     assert_eq!(
-        finalized_blocks,
-        vec![
-            Hash256::zero().into(),
-            canonical_blocks[&Slot::new(slots_per_epoch as u64 * 2)],
-        ]
-        .into_iter()
-        .collect()
+        rig.get_finalized_checkpoints(),
+        hashset! {
+            canonical_blocks[&rig.checkpoint_of_epoch(1).into()],
+            canonical_blocks[&rig.checkpoint_of_epoch(2).into()],
+        },
     );
 
     for (&slot, &state_hash) in &stray_states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
         assert!(
-            state.is_none(),
-            "stray state {} at slot {} should have been deleted",
+            !rig.hot_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
+            state_hash,
+            slot
+        );
+        assert!(
+            !rig.cold_state_exists(state_hash),
+            "stray state {} at slot {} should have been pruned",
             state_hash,
             slot
         );
     }
 
-    for &slot in &skipped_slots {
-        assert_eq!(stray_state.get_block_root(slot), block_root);
-        let state_hash = stray_state.get_state_root(slot).unwrap();
+    assert!(rig.is_skipped_slot(&stray_state, skipped_slot));
+    {
+        let state_hash: BeaconStateHash =
+            (*stray_state.get_state_root(skipped_slot).unwrap()).into();
         assert!(
-            harness
-                .chain
-                .get_state(&state_hash, None)
-                .unwrap()
-                .is_none(),
+            !rig.hot_state_exists(state_hash),
             "skipped slot {} state {} should have been pruned",
-            slot,
+            skipped_slot,
             state_hash
         );
     }
