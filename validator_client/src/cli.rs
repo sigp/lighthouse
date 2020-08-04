@@ -40,7 +40,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("strict-lockfiles")
             .long("strict-lockfiles")
             .help(
-                "If present, do not load validators that have are guarded by a lockfile. Note: for \
+                "If present, do not load validators that are guarded by a lockfile. Note: for \
                 Eth2 mainnet, this flag will likely be removed and its behaviour will become default."
             )
         )
