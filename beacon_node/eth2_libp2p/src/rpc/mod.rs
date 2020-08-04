@@ -13,7 +13,7 @@ use libp2p::swarm::{
 };
 use libp2p::{Multiaddr, PeerId};
 use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
-use slog::{crit, debug, o, warn};
+use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -106,7 +106,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
             .one_every(Protocol::Ping, Duration::from_secs(5))
-            .n_every(Protocol::Status, 3, Duration::from_secs(15))
+            .n_every(Protocol::Status, 5, Duration::from_secs(15))
             .one_every(Protocol::Goodbye, Duration::from_secs(10))
             .n_every(
                 Protocol::BlocksByRange,
@@ -235,7 +235,7 @@ where
                         "protocol" => format!("{}", req.protocol()));
                 }
                 Err(RateLimitedErr::TooSoon(wait_time)) => {
-                    warn!(self.log, "Request exceeds the rate limit";
+                    debug!(self.log, "Request exceeds the rate limit";
                         "request" => req.to_string(), "peer_id" => peer_id.to_string(), "wait_time_ms" => wait_time.as_millis());
                     // send an error code to the peer.
                     // the handler upon receiving the error code will send it back to the behaviour

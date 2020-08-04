@@ -10,9 +10,9 @@ use std::time::Instant;
 use types::{EthSpec, SubnetId};
 
 /// Max number of disconnected nodes to remember.
-const MAX_DC_PEERS: usize = 100;
+const MAX_DC_PEERS: usize = 500;
 /// The maximum number of banned nodes to remember.
-const MAX_BANNED_PEERS: usize = 300;
+const MAX_BANNED_PEERS: usize = 1000;
 
 /// Storage of known peers, their reputation and information
 pub struct PeerDB<TSpec: EthSpec> {
@@ -305,17 +305,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets the peer as disconnected. A banned peer remains banned
     pub fn disconnect(&mut self, peer_id: &PeerId) {
-        let log_ref = &self.log;
-        let info = self.peers.entry(peer_id.clone()).or_insert_with(|| {
-            warn!(log_ref, "Disconnecting unknown peer";
-                "peer_id" => peer_id.to_string());
-            PeerInfo::default()
-        });
-        if !info.connection_status.is_disconnected() && !info.connection_status.is_banned() {
-            info.connection_status.disconnect();
-            self.disconnected_peers += 1;
+        // Note that it could be the case we prevent new nodes from joining. In this instance,
+        // we don't bother tracking the new node.
+        if let Some(info) = self.peers.get_mut(peer_id) {
+            if !info.connection_status.is_disconnected() && !info.connection_status.is_banned() {
+                info.connection_status.disconnect();
+                self.disconnected_peers += 1;
+            }
+            self.shrink_to_fit();
         }
-        self.shrink_to_fit();
     }
 
     /// Marks a peer as banned.
