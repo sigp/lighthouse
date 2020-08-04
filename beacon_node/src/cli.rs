@@ -242,9 +242,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("graffiti")
                 .long("graffiti")
-                .help("Specify your custom graffiti to be included in blocks.")
+                .help(
+                    "Specify your custom graffiti to be included in blocks. \
+                    Defaults to the current version and commit, truncated to fit in 32 bytes. "
+                )
                 .value_name("GRAFFITI")
-                .default_value(lighthouse_version::VERSION)
                 .takes_value(true)
         )
 }
