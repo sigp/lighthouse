@@ -22,8 +22,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 Lighthouse is:
 
 - Fully open-source, licensed under Apache 2.0.
-- Security-focused. Fuzzing has begun and security reviews are planned
-	for late-2019.
+- Security-focused. Fuzzing has begun and security reviews are underway.
 - Built in [Rust](https://www.rust-lang.org/), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the

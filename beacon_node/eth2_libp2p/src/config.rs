@@ -131,7 +131,7 @@ impl Default for Config {
             discv5_config,
             boot_nodes: vec![],
             libp2p_nodes: vec![],
-            client_version: version::version(),
+            client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             topics,
         }

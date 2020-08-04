@@ -31,7 +31,7 @@ validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }
 clap_utils = { path = "../common/clap_utils" }
 eth2_testnet_config = { path = "../common/eth2_testnet_config" }
-git-version = "0.3.4"
+lighthouse_version = { path = "../common/lighthouse_version" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
