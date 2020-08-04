@@ -736,14 +736,13 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let slots_per_epoch = rig.slots_per_epoch();
     let mut state = rig.get_current_state();
 
-    let canonical_chain_slots: Vec<Slot> =
-        (1..=rig.checkpoint_of_epoch(1)).map(Slot::new).collect();
+    let canonical_chain_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (canonical_chain_blocks_pre_finalization, _, _, new_state) = rig
         .add_attested_blocks_at_slots(state, &canonical_chain_slots, &rig.get_honest_validators());
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
-    let stray_slots: Vec<Slot> = (canonical_chain_slot + 1..rig.checkpoint_of_epoch(2))
+    let stray_slots: Vec<Slot> = (canonical_chain_slot + 1..rig.epoch_start_slot(2))
         .map(Slot::new)
         .collect();
     let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
@@ -786,8 +785,8 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     assert_eq!(
         rig.get_finalized_checkpoints(),
         hashset! {
-            canonical_chain_blocks_pre_finalization[&rig.checkpoint_of_epoch(1).into()],
-            canonical_chain_blocks_post_finalization[&rig.checkpoint_of_epoch(2).into()],
+            canonical_chain_blocks_pre_finalization[&rig.epoch_start_slot(1).into()],
+            canonical_chain_blocks_post_finalization[&rig.epoch_start_slot(2).into()],
         },
     );
 
@@ -832,7 +831,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
     // Fill up 0th epoch
     let canonical_chain_slots_zeroth_epoch: Vec<Slot> =
-        (1..rig.checkpoint_of_epoch(1)).map(Slot::new).collect();
+        (1..rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (_, _, _, state) = rig.add_attested_blocks_at_slots(
         state,
         &canonical_chain_slots_zeroth_epoch,
@@ -840,8 +839,8 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     );
 
     // Fill up 1st epoch
-    let canonical_chain_slots_first_epoch: Vec<Slot> = (rig.checkpoint_of_epoch(1)
-        ..=rig.checkpoint_of_epoch(1) + 1)
+    let canonical_chain_slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1)
+        ..=rig.epoch_start_slot(1) + 1)
         .map(Slot::new)
         .collect();
     let (canonical_chain_blocks_first_epoch, _, shared_head, state) = rig
@@ -852,8 +851,8 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         );
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
-    let stray_chain_slots_first_epoch: Vec<Slot> = (rig.checkpoint_of_epoch(1) + 2
-        ..=rig.checkpoint_of_epoch(1) + 2)
+    let stray_chain_slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 2
+        ..=rig.epoch_start_slot(1) + 2)
         .map(Slot::new)
         .collect();
     let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
@@ -900,8 +899,8 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     assert_eq!(
         rig.get_finalized_checkpoints(),
         hashset! {
-            canonical_chain_blocks_first_epoch[&rig.checkpoint_of_epoch(1).into()],
-            canonical_chain_blocks[&rig.checkpoint_of_epoch(2).into()],
+            canonical_chain_blocks_first_epoch[&rig.epoch_start_slot(1).into()],
+            canonical_chain_blocks[&rig.epoch_start_slot(2).into()],
         },
     );
 
@@ -946,15 +945,14 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let mut state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
-    let zeroth_epoch_slots: Vec<Slot> = (1..=rig.checkpoint_of_epoch(1)).map(Slot::new).collect();
+    let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (canonical_chain_blocks, _, _, new_state) =
         rig.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &rig.get_honest_validators());
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
     // Fill up 1st epoch.  Contains a fork.
-    let first_epoch_slots: Vec<Slot> = ((rig.checkpoint_of_epoch(1) + 1)
-        ..(rig.checkpoint_of_epoch(2)))
+    let first_epoch_slots: Vec<Slot> = ((rig.epoch_start_slot(1) + 1)..(rig.epoch_start_slot(2)))
         .map(Slot::new)
         .collect();
     let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
@@ -994,7 +992,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     // Postconditions
     assert_eq!(
         rig.get_finalized_checkpoints(),
-        hashset! {canonical_chain_blocks[&rig.checkpoint_of_epoch(1).into()]},
+        hashset! {canonical_chain_blocks[&rig.epoch_start_slot(1).into()]},
     );
 
     for &block_hash in stray_blocks.values() {
@@ -1029,12 +1027,12 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
-    let zeroth_epoch_slots: Vec<Slot> = (1..=rig.checkpoint_of_epoch(1)).map(Slot::new).collect();
+    let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (canonical_blocks_zeroth_epoch, _, _, state) =
         rig.add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &rig.get_honest_validators());
 
     // Fill up 1st epoch.  Contains a fork.
-    let slots_first_epoch: Vec<Slot> = (rig.checkpoint_of_epoch(1) + 1..rig.checkpoint_of_epoch(2))
+    let slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 1..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
     let (stray_blocks_first_epoch, stray_states_first_epoch, _, stray_state) = rig
@@ -1047,8 +1045,8 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         rig.add_attested_blocks_at_slots(state, &slots_first_epoch, &rig.get_honest_validators());
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
-    let stray_slots_second_epoch: Vec<Slot> = (rig.checkpoint_of_epoch(2)
-        ..=rig.checkpoint_of_epoch(2) + 1)
+    let stray_slots_second_epoch: Vec<Slot> = (rig.epoch_start_slot(2)
+        ..=rig.epoch_start_slot(2) + 1)
         .map(Into::into)
         .collect();
     let (stray_blocks_second_epoch, stray_states_second_epoch, stray_head, _) = rig
@@ -1092,7 +1090,7 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     assert!(rig.chain.knows_head(&stray_head));
 
     // Trigger finalization
-    let canonical_slots: Vec<Slot> = (rig.checkpoint_of_epoch(2)..=rig.checkpoint_of_epoch(6))
+    let canonical_slots: Vec<Slot> = (rig.epoch_start_slot(2)..=rig.epoch_start_slot(6))
         .map(Into::into)
         .collect();
     let (canonical_blocks, _, _, _) = rig.add_attested_blocks_at_slots(
@@ -1112,8 +1110,8 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     assert_eq!(
         rig.get_finalized_checkpoints(),
         hashset! {
-            canonical_blocks[&rig.checkpoint_of_epoch(1).into()],
-            canonical_blocks[&rig.checkpoint_of_epoch(2).into()],
+            canonical_blocks[&rig.epoch_start_slot(1).into()],
+            canonical_blocks[&rig.epoch_start_slot(2).into()],
         },
     );
 
@@ -1157,16 +1155,16 @@ fn prunes_skipped_slots_states() {
     let state = rig.get_current_state();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
-        (1..=rig.checkpoint_of_epoch(1)).map(Into::into).collect();
+        (1..=rig.epoch_start_slot(1)).map(Into::into).collect();
     let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig.add_attested_blocks_at_slots(
         state.clone(),
         &canonical_slots_zeroth_epoch,
         &rig.get_honest_validators(),
     );
 
-    let skipped_slot: Slot = (rig.checkpoint_of_epoch(1) + 1).into();
+    let skipped_slot: Slot = (rig.epoch_start_slot(1) + 1).into();
 
-    let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.checkpoint_of_epoch(2))
+    let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
     let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
@@ -1207,7 +1205,7 @@ fn prunes_skipped_slots_states() {
     }
 
     // Trigger finalization
-    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.checkpoint_of_epoch(7))
+    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
     let (canonical_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
@@ -1224,8 +1222,8 @@ fn prunes_skipped_slots_states() {
     assert_eq!(
         rig.get_finalized_checkpoints(),
         hashset! {
-            canonical_blocks[&rig.checkpoint_of_epoch(1).into()],
-            canonical_blocks[&rig.checkpoint_of_epoch(2).into()],
+            canonical_blocks[&rig.epoch_start_slot(1).into()],
+            canonical_blocks[&rig.epoch_start_slot(2).into()],
         },
     );
 
@@ -1259,8 +1257,7 @@ fn prunes_skipped_slots_states() {
 
 // This is to check if state outside of normal block processing are pruned correctly.
 #[test]
-#[should_panic]
-fn finalizes_noncheckpoint_block() {
+fn finalizes_non_epoch_start_slot() {
     const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
     let mut rig = BeaconChainTestingRig::new(
@@ -1271,16 +1268,16 @@ fn finalizes_noncheckpoint_block() {
     let state = rig.get_current_state();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
-        (1..rig.checkpoint_of_epoch(1)).map(Into::into).collect();
+        (1..rig.epoch_start_slot(1)).map(Into::into).collect();
     let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig.add_attested_blocks_at_slots(
         state.clone(),
         &canonical_slots_zeroth_epoch,
         &rig.get_honest_validators(),
     );
 
-    let skipped_slot: Slot = rig.checkpoint_of_epoch(1).into();
+    let skipped_slot: Slot = rig.epoch_start_slot(1).into();
 
-    let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.checkpoint_of_epoch(2))
+    let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
     let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
@@ -1321,7 +1318,7 @@ fn finalizes_noncheckpoint_block() {
     }
 
     // Trigger finalization
-    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.checkpoint_of_epoch(7))
+    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
     let (canonical_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
@@ -1338,8 +1335,8 @@ fn finalizes_noncheckpoint_block() {
     assert_eq!(
         rig.get_finalized_checkpoints(),
         hashset! {
-            canonical_blocks[&(rig.checkpoint_of_epoch(1)-1).into()],
-            canonical_blocks[&rig.checkpoint_of_epoch(2).into()],
+            canonical_blocks[&(rig.epoch_start_slot(1)-1).into()],
+            canonical_blocks[&rig.epoch_start_slot(2).into()],
         },
     );
 

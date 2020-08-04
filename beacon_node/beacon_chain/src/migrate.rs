@@ -195,13 +195,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold> fo
 /// Mostly useful for tests.
 pub struct BlockingMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
+    log: Logger,
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
     for BlockingMigrator<E, Hot, Cold>
 {
-    fn new(db: Arc<HotColdDB<E, Hot, Cold>>, _: Logger) -> Self {
-        BlockingMigrator { db }
+    fn new(db: Arc<HotColdDB<E, Hot, Cold>>, log: Logger) -> Self {
+        BlockingMigrator { db, log }
     }
 
     fn process_finalization(
@@ -221,7 +222,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
             new_finalized_state.slot,
         )?;
 
-        migrate_database(self.db.clone(), state_root, &new_finalized_state)?;
+        match migrate_database(self.db.clone(), state_root, &new_finalized_state) {
+            Ok(()) => {}
+
+            Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
+                warn!(
+                    self.log,
+                    "Database migration postponed, unaligned finalized block";
+                    "slot" => slot.as_u64()
+                );
+            }
+
+            Err(e) => return Err(e.into()),
+        }
 
         Ok(())
     }

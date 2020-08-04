@@ -735,7 +735,7 @@ impl<E: EthSpec> BeaconChainTestingRig<TestingRigType<E>> {
         E::slots_per_epoch()
     }
 
-    pub fn checkpoint_of_epoch(&self, epoch: u64) -> u64 {
+    pub fn epoch_start_slot(&self, epoch: u64) -> u64 {
         let epoch = Epoch::new(epoch);
         epoch.start_slot(E::slots_per_epoch()).into()
     }
