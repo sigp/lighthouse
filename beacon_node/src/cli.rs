@@ -250,7 +250,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("graffiti")
                 .help("Specify your custom graffiti to be included in blocks.")
                 .value_name("GRAFFITI")
-                .default_value(DEFAULT_GRAFFITI)
+                .default_value(lighthouse_version::VERSION)
                 .takes_value(true)
         )
 }
