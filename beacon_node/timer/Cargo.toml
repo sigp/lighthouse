@@ -1,7 +1,7 @@
 [package]
 name = "timer"
 version = "0.1.2"
-authors = ["Age Manning <Age@AgeManning.com>"]
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
