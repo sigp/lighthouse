@@ -564,7 +564,7 @@ dependencies = [
 [[package]]
 name = "blst"
 version = "0.1.1"
-source = "git+https://github.com/sigp/blst.git?rev=dad1ad0cd22861e5773bee177bee4e1684792605#dad1ad0cd22861e5773bee177bee4e1684792605"
+source = "git+https://github.com/sigp/blst.git?rev=22bfb91721af125d1cb08aa201a18477665a45fe#22bfb91721af125d1cb08aa201a18477665a45fe"
 dependencies = [
  "cc",
  "glob",
