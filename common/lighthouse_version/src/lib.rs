@@ -10,8 +10,8 @@ use target_info::Target;
 /// `Lighthouse/v0.2.0-1419501f2+`
 pub const VERSION: &str = git_version!(
     args = ["--always", "--dirty=+"],
-    prefix = concat!("Lighthouse/v", env!("CARGO_PKG_VERSION"), "-"),
-    fallback = crate_version!()
+    prefix = "Lighthouse/v0.2.0/",
+    fallback = "unknown"
 );
 
 /// Returns `VERSION`, but with platform information appended to the end.
