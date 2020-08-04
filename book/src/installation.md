@@ -1,7 +1,7 @@
 # 📦 Installation
 
-Lighthouse runs on Linux, MacOS and Windows. Installation should be easy. In
-fact, if you already have Rust installed all you need is:
+Lighthouse runs on Linux, macOS, and Windows via [WSL][].
+Installation should be easy. In fact, if you already have Rust installed all you need is:
 
 - `git clone https://github.com/sigp/lighthouse.git`
 - `cd lighthouse`
@@ -23,6 +23,13 @@ If this doesn't work or is not clear enough, see the [Detailed Instructions](#de
 > First time compilation may take several minutes. If you experience any
 > failures, please reach out on [discord](https://discord.gg/cyAszAh) or
 > [create an issue](https://github.com/sigp/lighthouse/issues/new).
+
+## Windows Support
+
+Compiling or running Lighthouse natively on Windows is not currently supported. However,
+Lighthouse can run successfully under the [Windows Subsystem for Linux (WSL)][WSL]. If using
+Ubuntu under WSL, you can should install the Ubuntu dependencies listed in the [Dependencies
+(Ubuntu)](#dependencies-ubuntu) section.
 
 ## Troubleshooting
 
@@ -55,7 +62,4 @@ If you get a build failure relating to OpenSSL, try installing `openssl-dev` or
 - Ubuntu: `$ apt-get install libssl-dev`.
 - Amazon Linux: `$ yum install openssl-devel`.
 
-### Perl for Windows
-
-Perl may also be required to build Lighthouse. You can install [Strawberry
-Perl](http://strawberryperl.com/), or alternatively if you're using the [Chocolatey](https://chocolatey.org/) package manager for Windows, use the following choco install command: `choco install strawberryperl`.
+[WSL]: https://docs.microsoft.com/en-us/windows/wsl/about
