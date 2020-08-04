@@ -77,7 +77,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let identify = Identify::new(
             "lighthouse/libp2p".into(),
-            version::version(),
+            lighthouse_version::version_with_platform(),
             local_key.public(),
         );
 

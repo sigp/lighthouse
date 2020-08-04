@@ -1,23 +1,15 @@
-#[macro_use]
-extern crate clap;
-
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
-use git_version::git_version;
+use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
-pub const VERSION: &str = git_version!(
-    args = ["--always", "--dirty=(modified)"],
-    prefix = concat!(crate_version!(), "-"),
-    fallback = crate_version!()
-);
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 

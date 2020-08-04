@@ -6,6 +6,7 @@ use eth2_libp2p::{Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, Logger};
 use ssz::Encode;
+use std::cmp;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
@@ -350,21 +351,22 @@ pub fn get_config<E: EthSpec>(
         client_config.genesis = ClientGenesis::DepositContract;
     }
 
-    if let Some(graffiti) = cli_args.value_of("graffiti") {
-        let graffiti_bytes = graffiti.as_bytes();
-        if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
+    let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
+        if graffiti.len() > GRAFFITI_BYTES_LEN {
             return Err(format!(
                 "Your graffiti is too long! {} bytes maximum!",
                 GRAFFITI_BYTES_LEN
             ));
-        } else {
-            // `client_config.graffiti` is initialized by default to be all 0.
-            // We simply copy the bytes from `graffiti_bytes` in there.
-            //
-            // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-            client_config.graffiti[..graffiti_bytes.len()].copy_from_slice(graffiti_bytes);
         }
-    }
+
+        graffiti.as_bytes()
+    } else {
+        lighthouse_version::VERSION.as_bytes()
+    };
+
+    let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
+    client_config.graffiti[..trimmed_graffiti_len]
+        .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
 
     Ok(client_config)
 }

@@ -424,6 +424,7 @@ dependencies = [
  "futures 0.3.5",
  "genesis",
  "hyper 0.13.7",
+ "lighthouse_version",
  "logging",
  "node_test_rig",
  "rand 0.7.3",
@@ -434,7 +435,6 @@ dependencies = [
  "store",
  "tokio 0.2.22",
  "types",
- "version",
 ]
 
 [[package]]
@@ -1546,6 +1546,7 @@ dependencies = [
  "lazy_static",
  "libp2p",
  "lighthouse_metrics",
+ "lighthouse_version",
  "lru",
  "parking_lot 0.11.0",
  "rand 0.7.3",
@@ -1565,7 +1566,6 @@ dependencies = [
  "tokio-util",
  "types",
  "unsigned-varint 0.3.3 (git+https://github.com/sigp/unsigned-varint?branch=latest-codecs)",
- "version",
  "void",
 ]
 
@@ -2591,6 +2591,7 @@ dependencies = [
  "futures 0.3.5",
  "genesis",
  "hex 0.4.2",
+ "lighthouse_version",
  "log 0.4.11",
  "rand 0.7.3",
  "regex",
@@ -2990,7 +2991,7 @@ dependencies = [
  "environment",
  "eth2_testnet_config",
  "futures 0.3.5",
- "git-version",
+ "lighthouse_version",
  "logging",
  "slog",
  "slog-async",
@@ -3009,6 +3010,14 @@ version = "0.2.0"
 dependencies = [
  "lazy_static",
  "prometheus",
+]
+
+[[package]]
+name = "lighthouse_version"
+version = "0.1.0"
+dependencies = [
+ "git-version",
+ "target_info",
 ]
 
 [[package]]
@@ -4342,6 +4351,7 @@ dependencies = [
  "itertools 0.9.0",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_version",
  "network",
  "node_test_rig",
  "operation_pool",
@@ -4363,7 +4373,6 @@ dependencies = [
  "types",
  "uhttp_sse",
  "url 2.1.1",
- "version",
 ]
 
 [[package]]
@@ -6178,13 +6187,6 @@ name = "vec_map"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
-
-[[package]]
-name = "version"
-version = "0.1.2"
-dependencies = [
- "target_info",
-]
 
 [[package]]
 name = "version_check"

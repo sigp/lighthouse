@@ -1,8 +1,0 @@
-[package]
-name = "version"
-version = "0.1.2"
-authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2018"
-
-[dependencies]
-target_info = "0.1.0"

@@ -14,7 +14,7 @@ serde_derive = "1.0.110"
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-version = { path = "../version" }
+lighthouse_version = { path = "../../common/lighthouse_version" }
 tokio = { version = "0.2.21", features = ["time", "macros"] }
 futures = "0.3.5"
 error-chain = "0.12.2"

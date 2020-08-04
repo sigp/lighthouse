@@ -34,3 +34,4 @@ eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
 validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
 rand = "0.7.2"
 eth2_keystore = { path = "../crypto/eth2_keystore" }
+lighthouse_version = { path = "../common/lighthouse_version" }
