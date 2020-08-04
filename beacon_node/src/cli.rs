@@ -4,7 +4,7 @@ use clap::{App, Arg};
 // Must be 32-bytes or will not build.
 //
 //                              |-------must be this long------|
-const DEFAULT_GRAFFITI: &str = "sigp/lighthouse-0.1.2-prerelease";
+const DEFAULT_GRAFFITI: &str = "sigp/lighthouse-0.2.0-prerelease";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
