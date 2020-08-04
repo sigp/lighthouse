@@ -596,6 +596,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         debug!(
             self.log,
             "Invalid attestation from network";
+            "reason" => format!("{:?}", error),
             "block" => format!("{}", beacon_block_root),
             "peer_id" => peer_id.to_string(),
             "type" => format!("{:?}", attestation_type),
