@@ -119,6 +119,11 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
         Ok(self.map.get(data).cloned())
     }
 
+    /// Iterate all attestations in `self`.
+    pub fn iter(&self) -> impl Iterator<Item = &Attestation<E>> {
+        self.map.iter().map(|(_key, attestation)| attestation)
+    }
+
     pub fn len(&self) -> usize {
         self.map.len()
     }
@@ -221,6 +226,11 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
             .find(|(slot, _map)| **slot == data.slot)
             .map(|(_slot, map)| map.get(data))
             .unwrap_or_else(|| Ok(None))
+    }
+
+    /// Iterate all attestations in all slots of `self`.
+    pub fn iter(&self) -> impl Iterator<Item = &Attestation<E>> {
+        self.maps.iter().map(|(_slot, map)| map.iter()).flatten()
     }
 
     /// Removes any attestations with a slot lower than `current_slot` and bars any future

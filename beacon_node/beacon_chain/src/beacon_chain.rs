@@ -1635,6 +1635,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
         };
 
+        // Iterate through the naive aggregation pool and ensure all the attestations from there
+        // are included in the operation pool.
+        for attestation in self.naive_aggregation_pool.read().iter() {
+            if let Err(e) = self.op_pool.insert_attestation(
+                attestation.clone(),
+                &state.fork,
+                state.genesis_validators_root,
+                &self.spec,
+            ) {
+                // Don't stop block production if there's an error, just create a log.
+                error!(
+                    self.log,
+                    "Attestation did not transfer to op pool";
+                    "reason" => format!("{:?}", e)
+                );
+            }
+        }
+
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
