@@ -35,7 +35,7 @@ impl ValidatorPubkeyCache {
     ///
     /// Also creates a new persistence file, returning an error if there is already a file at
     /// `persistence_path`.
-    pub fn new<T: EthSpec, P: AsRef<Path>>(
+    pub fn create_if_not_exists<T: EthSpec, P: AsRef<Path>>(
         state: &BeaconState<T>,
         persistence_path: P,
     ) -> Result<Self, BeaconChainError> {
@@ -48,6 +48,21 @@ impl ValidatorPubkeyCache {
 
         let mut cache = Self {
             persitence_file: ValidatorPubkeyCacheFile::create(persistence_path)?,
+            pubkeys: vec![],
+            indices: HashMap::new(),
+        };
+
+        cache.import_new_pubkeys(state)?;
+
+        Ok(cache)
+    }
+
+    pub fn create_or_overwrite<T: EthSpec, P: AsRef<Path>>(
+        state: &BeaconState<T>,
+        persistence_path: P,
+    ) -> Result<Self, BeaconChainError> {
+        let mut cache = Self {
+            persitence_file: ValidatorPubkeyCacheFile::create_or_overwrite(persistence_path)?,
             pubkeys: vec![],
             indices: HashMap::new(),
         };
@@ -166,6 +181,16 @@ impl ValidatorPubkeyCacheFile {
             .map_err(Error::Io)
     }
 
+    /// Creates a file for reading and writing.
+    pub fn create_or_overwrite<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)
+            .map(Self)
+            .map_err(Error::Io)
+    }
+
     /// Opens an existing file for reading and writing.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         OpenOptions::new()
@@ -278,7 +303,8 @@ mod test {
         let dir = tempdir().expect("should create tempdir");
         let path = dir.path().join("cache.ssz");
 
-        let mut cache = ValidatorPubkeyCache::new(&state, path).expect("should create cache");
+        let mut cache =
+            ValidatorPubkeyCache::create_if_not_exists(&state, path).expect("should create cache");
 
         check_cache_get(&cache, &keypairs[..]);
 
@@ -312,7 +338,8 @@ mod test {
         let path = dir.path().join("cache.ssz");
 
         // Create a new cache.
-        let cache = ValidatorPubkeyCache::new(&state, &path).expect("should create cache");
+        let cache =
+            ValidatorPubkeyCache::create_if_not_exists(&state, &path).expect("should create cache");
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

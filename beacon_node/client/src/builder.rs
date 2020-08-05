@@ -28,7 +28,7 @@ use timer::spawn_timer;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
-    SignedBeaconBlockHash,
+    SignedBeaconBlock, SignedBeaconBlockHash,
 };
 use websocket_server::{Config as WebSocketConfig, WebSocketSender};
 
@@ -172,7 +172,7 @@ where
             info!(context.log(), "Defaulting to deposit contract genesis");
 
             ClientGenesis::DepositContract
-        } else if chain_exists {
+        } else if chain_exists && !matches!(client_genesis, ClientGenesis::TrustedState { .. }) {
             ClientGenesis::FromStore
         } else {
             client_genesis
@@ -199,6 +199,25 @@ where
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
+            }
+            ClientGenesis::TrustedState {
+                state_bytes,
+                block_bytes,
+            } => {
+                info!(
+                    context.log(),
+                    "Starting from a trusted state";
+                );
+
+                let trusted_state = BeaconState::from_ssz_bytes(&state_bytes)
+                    .map_err(|e| format!("Unable to parse state SSZ: {:?}", e))?;
+
+                let trusted_block = SignedBeaconBlock::from_ssz_bytes(&block_bytes)
+                    .map_err(|e| format!("Unable to parse block SSZ: {:?}", e))?;
+
+                builder
+                    .trusted_state(trusted_state, trusted_block)
+                    .map(|v| (v, None))?
             }
             ClientGenesis::DepositContract => {
                 info!(

@@ -11,7 +11,7 @@ use hyper::body::Bytes;
 use hyper::{Body, Request, Response};
 use rest_types::{
     BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
-    ValidatorRequest, ValidatorResponse, SubjectiveStateResponse,
+    SubjectiveStateResponse, ValidatorRequest, ValidatorResponse,
 };
 use std::io::Write;
 use std::sync::Arc;
@@ -498,9 +498,11 @@ pub fn get_weak_subjectivity_checkpoint<T: BeaconChainTypes>(
     let epoch = beacon_chain.get_latest_weak_subjectivity_checkpoint_epoch(&state, 0.1)?;
     let slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
     let state_root = state_root_at_slot(&beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
-    let block_root = block_root_at_slot(&beacon_chain, slot)?.ok_or_else(|| ApiError::ServerError(format!("No block for slot {}", slot)))?;
+    let block_root = block_root_at_slot(&beacon_chain, slot)?
+        .ok_or_else(|| ApiError::ServerError(format!("No block for slot {}", slot)))?;
     let response = SubjectiveStateResponse {
-        block_root, state_root,
+        block_root,
+        state_root,
     };
     ResponseBuilder::new(&req)?.body(&response)
 }

@@ -384,6 +384,68 @@ where
         Ok(self.empty_op_pool())
     }
 
+    pub fn trusted_state(
+        mut self,
+        mut beacon_state: BeaconState<TEthSpec>,
+        beacon_block: SignedBeaconBlock<TEthSpec>,
+    ) -> Result<Self, String> {
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "trusted_state() requires a store")?;
+
+        beacon_state
+            .build_all_caches(&self.spec)
+            .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
+
+        let beacon_state_root = beacon_state.canonical_root();
+        let beacon_block_root = beacon_block.canonical_root();
+
+        if beacon_block.message.state_root != beacon_state_root {
+            return Err(format!(
+                "Block {} does not correspond with the state {}",
+                beacon_block_root, beacon_state_root
+            ));
+        }
+
+        let genesis_block = genesis_block(&mut beacon_state, &self.spec)?;
+        self.genesis_block_root = Some(genesis_block.canonical_root());
+
+        store
+            .put_state(&beacon_state_root, &beacon_state)
+            .map_err(|e| format!("Failed to store state: {:?}", e))?;
+        store
+            .put_item(&beacon_block_root, &beacon_block)
+            .map_err(|e| format!("Failed to store block: {:?}", e))?;
+
+        self.validator_pubkey_cache = {
+            let pubkey_cache_path = self
+                .pubkey_cache_path
+                .as_ref()
+                .ok_or_else(|| "trusted_state() requires a data_dir".to_string())?;
+            let pubkey_cache =
+                ValidatorPubkeyCache::create_or_overwrite(&beacon_state, pubkey_cache_path)
+                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))?;
+            Some(pubkey_cache)
+        };
+
+        self.finalized_snapshot = Some(BeaconSnapshot {
+            beacon_block_root,
+            beacon_block: beacon_block.clone(),
+            beacon_state_root,
+            beacon_state: beacon_state.clone(),
+        });
+
+        self.canonical_head = Some(BeaconSnapshot {
+            beacon_block_root,
+            beacon_block,
+            beacon_state_root,
+            beacon_state,
+        });
+
+        Ok(self.empty_op_pool())
+    }
+
     /// Sets the `BeaconChain` eth1 backend.
     pub fn eth1_backend(mut self, backend: Option<TEth1Backend>) -> Self {
         self.eth1_chain = backend.map(Eth1Chain::new);
@@ -481,8 +543,11 @@ where
             .ok_or_else(|| "Cannot build without a pubkey cache path".to_string())?;
 
         let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&canonical_head.beacon_state, pubkey_cache_path)
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+            ValidatorPubkeyCache::create_if_not_exists(
+                &canonical_head.beacon_state,
+                pubkey_cache_path,
+            )
+            .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
         })?;
 
         let persisted_fork_choice = store

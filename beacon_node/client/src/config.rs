@@ -30,6 +30,12 @@ pub enum ClientGenesis {
     /// We include the bytes instead of the `BeaconState<E>` because the `EthSpec` type
     /// parameter would be very annoying.
     SszBytes { genesis_state_bytes: Vec<u8> },
+    /// Loads the first block from a SSZ-encoded representation.  For use in the weak subjectivity
+    /// period.
+    TrustedState {
+        state_bytes: Vec<u8>,
+        block_bytes: Vec<u8>,
+    },
 }
 
 impl Default for ClientGenesis {

@@ -8,6 +8,8 @@ use slog::{crit, info, Logger};
 use ssz::Encode;
 use std::cmp;
 use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
@@ -358,7 +360,37 @@ pub fn get_config<E: EthSpec>(
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(genesis_state) = eth2_testnet_config.genesis_state {
+    if let Some(state_ssz_path) = cli_args.value_of("trusted-state") {
+        if let Some(block_ssz_path) = cli_args.value_of("trusted-block") {
+            let state_bytes = {
+                let mut state_file = File::open(state_ssz_path)
+                    .map_err(|e| format!("Unable to open the state file: {}", e))?;
+                let mut buffer: Vec<u8> = Vec::new();
+                state_file
+                    .read_to_end(&mut buffer)
+                    .map_err(|e| format!("Unable to read the state file: {}", e))?;
+                buffer
+            };
+            let block_bytes = {
+                let mut block_file = File::open(block_ssz_path)
+                    .map_err(|e| format!("Unable to open the block file: {}", e))?;
+                let mut buffer: Vec<u8> = Vec::new();
+                block_file
+                    .read_to_end(&mut buffer)
+                    .map_err(|e| format!("Unable to read the block file: {}", e))?;
+                buffer
+            };
+            client_config.genesis = ClientGenesis::TrustedState {
+                state_bytes,
+                block_bytes,
+            };
+        } else {
+            return Err(format!(
+                "Passing state SSZ file also requires passing the block SSZ file: {}",
+                state_ssz_path
+            ));
+        }
+    } else if let Some(genesis_state) = eth2_testnet_config.genesis_state {
         // Note: re-serializing the genesis state is not so efficient, however it avoids adding
         // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
         // effects.

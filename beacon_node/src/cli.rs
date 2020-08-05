@@ -262,4 +262,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("700")
         )
+        .arg(
+            Arg::with_name("trusted-state")
+                .long("trusted-state")
+                .value_name("PATH")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("trusted-block")
+                .long("trusted-block")
+                .value_name("PATH")
+                .takes_value(true)
+        )
 }
