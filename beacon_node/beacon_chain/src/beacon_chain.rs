@@ -1348,6 +1348,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let import_block = |unverified_block: B| -> Result<Hash256, BlockError> {
             let fully_verified = unverified_block.into_fully_verified_block(self)?;
+            debug!(
+                self.log,
+                "Block is fully verified";
+                "block_root" => format!("{:?}", fully_verified.block_root),
+            );
             self.import_block(fully_verified)
         };
 
@@ -1491,6 +1496,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
+        debug!(
+            self.log,
+            "Applied block to fork choice";
+            "block_root" => format!("{:?}", block_root),
+        );
+
         // Register each attestation in the block with the fork choice service.
         for attestation in &block.body.attestations[..] {
             let _fork_choice_attestation_timer =
@@ -1510,6 +1521,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }?;
         }
 
+        debug!(
+            self.log,
+            "Applied block attns to fork choice";
+            "block_root" => format!("{:?}", block_root),
+        );
+
         metrics::observe(
             &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
             block.body.attestations.len() as f64,
@@ -1524,6 +1541,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Cow::Borrowed(&state),
         ));
         self.store.do_atomically(ops)?;
+
+        debug!(
+            self.log,
+            "Stored block and state in DB";
+            "block_root" => format!("{:?}", block_root),
+        );
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
@@ -1551,12 +1574,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             });
 
+        debug!(
+            self.log,
+            "Updated snapshot cache";
+            "block_root" => format!("{:?}", block_root),
+        );
+
         self.head_tracker
             .register_block(block_root, parent_root, slot);
 
         metrics::stop_timer(db_write_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
+
+        debug!(
+            self.log,
+            "Block import complete";
+            "block_root" => format!("{:?}", block_root),
+        );
 
         Ok(block_root)
     }
