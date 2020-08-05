@@ -11,7 +11,7 @@ use hyper::body::Bytes;
 use hyper::{Body, Request, Response};
 use rest_types::{
     BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
-    ValidatorRequest, ValidatorResponse,
+    ValidatorRequest, ValidatorResponse, SubjectiveStateResponse,
 };
 use std::io::Write;
 use std::sync::Arc;
@@ -79,7 +79,9 @@ pub fn get_block<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> ApiResult {
     let query_params = ["root", "slot"];
-    let (key, value) = UrlQuery::from_request(&req)?.first_of(&query_params)?;
+    let query = UrlQuery::from_request(&req)?;
+    let (key, value) = query.first_of(&query_params)?;
+    let bare = query.is_present("bare")?;
 
     let block_root = match (key.as_ref(), value) {
         ("slot", value) => {
@@ -103,12 +105,15 @@ pub fn get_block<T: BeaconChainTypes>(
         ))
     })?;
 
-    let response = BlockResponse {
-        root: block_root,
-        beacon_block: block,
-    };
-
-    ResponseBuilder::new(&req)?.body(&response)
+    if bare {
+        ResponseBuilder::new(&req)?.body(&block)
+    } else {
+        let response = BlockResponse {
+            root: block_root,
+            beacon_block: block,
+        };
+        ResponseBuilder::new(&req)?.body(&response)
+    }
 }
 
 /// HTTP handler to return a `SignedBeaconBlock` root at a given `slot`.
@@ -413,15 +418,16 @@ pub fn get_state<T: BeaconChainTypes>(
 ) -> ApiResult {
     let head_state = beacon_chain.head()?.beacon_state;
 
-    let (key, value) = match UrlQuery::from_request(&req) {
+    let (key, value, bare) = match UrlQuery::from_request(&req) {
         Ok(query) => {
             // We have *some* parameters, just check them.
             let query_params = ["root", "slot"];
-            query.first_of(&query_params)?
+            let (key, value) = query.first_of(&query_params)?;
+            (key, value, query.is_present("bare")?)
         }
         Err(ApiError::BadRequest(_)) => {
             // No parameters provided at all, use current slot.
-            (String::from("slot"), head_state.slot.to_string())
+            (String::from("slot"), head_state.slot.to_string(), false)
         }
         Err(e) => {
             return Err(e);
@@ -443,12 +449,15 @@ pub fn get_state<T: BeaconChainTypes>(
         _ => return Err(ApiError::ServerError("Unexpected query parameter".into())),
     };
 
-    let response = StateResponse {
-        root,
-        beacon_state: state,
-    };
-
-    ResponseBuilder::new(&req)?.body(&response)
+    if bare {
+        ResponseBuilder::new(&req)?.body(&state)
+    } else {
+        let response = StateResponse {
+            root,
+            beacon_state: state,
+        };
+        ResponseBuilder::new(&req)?.body(&response)
+    }
 }
 
 /// HTTP handler to return a `BeaconState` root at a given `slot`.
@@ -478,6 +487,22 @@ pub fn get_genesis_state<T: BeaconChainTypes>(
     let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
 
     ResponseBuilder::new(&req)?.body(&state)
+}
+
+/// https://notes.ethereum.org/@adiasg/weak-subjectvity-eth2#Updating-Weak-Subjectivity-Checkpoint-States
+pub fn get_weak_subjectivity_checkpoint<T: BeaconChainTypes>(
+    req: Request<Body>,
+    beacon_chain: Arc<BeaconChain<T>>,
+) -> ApiResult {
+    let state = beacon_chain.head()?.beacon_state;
+    let epoch = beacon_chain.get_latest_weak_subjectivity_checkpoint_epoch(&state, 0.1)?;
+    let slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
+    let state_root = state_root_at_slot(&beacon_chain, slot, StateSkipConfig::WithStateRoots)?;
+    let block_root = block_root_at_slot(&beacon_chain, slot)?.ok_or_else(|| ApiError::ServerError(format!("No block for slot {}", slot)))?;
+    let response = SubjectiveStateResponse {
+        block_root, state_root,
+    };
+    ResponseBuilder::new(&req)?.body(&response)
 }
 
 /// Read the genesis time from the current beacon chain state.

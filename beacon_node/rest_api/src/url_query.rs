@@ -33,6 +33,10 @@ impl<'a> UrlQuery<'a> {
             })
     }
 
+    pub fn is_present(mut self, needle: &str) -> Result<bool, ApiError> {
+        Ok(self.0.any(|(key, _)| key == needle))
+    }
+
     /// Returns the first `(key, value)` pair found where the `key` is in `keys`, if any.
     ///
     /// Returns `None` if no match is found.

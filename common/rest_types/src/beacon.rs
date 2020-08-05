@@ -63,3 +63,10 @@ pub struct StateResponse<T: EthSpec> {
     pub root: Hash256,
     pub beacon_state: BeaconState<T>,
 }
+
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct SubjectiveStateResponse {
+    pub block_root: Hash256,
+    pub state_root: Hash256,
+}

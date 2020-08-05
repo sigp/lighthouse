@@ -94,6 +94,9 @@ pub async fn route<T: BeaconChainTypes>(
             }
             (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req, beacon_chain),
             (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req, beacon_chain),
+            (&Method::GET, "/beacon/weak_subjectivity_checkpoint") => {
+                beacon::get_weak_subjectivity_checkpoint::<T>(req, beacon_chain)
+            }
             (&Method::GET, "/beacon/state/genesis") => {
                 beacon::get_genesis_state::<T>(req, beacon_chain)
             }

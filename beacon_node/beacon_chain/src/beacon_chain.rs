@@ -2042,6 +2042,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .duration_to_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
     }
 
+    /// https://notes.ethereum.org/@adiasg/weak-subjectvity-eth2#Updating-Weak-Subjectivity-Checkpoint-States
+    pub fn get_latest_weak_subjectivity_checkpoint_epoch(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        safety_decay: f64,
+    ) -> Result<Epoch, Error> {
+        let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
+        let val_count: u64 = committee_cache.active_validator_count() as u64;
+
+        let mut weak_subjectivity_mod = self.spec.min_validator_withdrawability_delay;
+        weak_subjectivity_mod += if val_count
+            >= self.spec.min_per_epoch_churn_limit * self.spec.churn_limit_quotient
+        {
+            (256.0 * (safety_decay * ((self.spec.churn_limit_quotient / 2) as f64) / 256.0)) as u64
+        } else {
+            (256.0
+                * ((safety_decay * (val_count / (2 * self.spec.min_per_epoch_churn_limit)) as f64)
+                    / 256.0)) as u64
+        };
+
+        Ok(state.finalized_checkpoint.epoch / weak_subjectivity_mod)
+    }
+
     pub fn dump_as_dot<W: Write>(&self, output: &mut W) {
         let canonical_head_hash = self
             .canonical_head

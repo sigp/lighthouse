@@ -9,7 +9,7 @@ mod validator;
 
 pub use beacon::{
     BlockResponse, CanonicalHeadResponse, Committee, HeadBeaconBlock, StateResponse,
-    ValidatorRequest, ValidatorResponse,
+    ValidatorRequest, ValidatorResponse, SubjectiveStateResponse,
 };
 
 pub use validator::{
