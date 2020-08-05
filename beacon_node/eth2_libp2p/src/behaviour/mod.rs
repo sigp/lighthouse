@@ -67,7 +67,7 @@ pub struct Behaviour<TSpec: EthSpec> {
 
 /// Implements the combined behaviour for the libp2p service.
 impl<TSpec: EthSpec> Behaviour<TSpec> {
-    pub fn new(
+    pub async fn new(
         local_key: &Keypair,
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
@@ -106,7 +106,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 net_conf.gs_config.clone(),
             ),
             identify,
-            peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)?,
+            peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
+                .await?,
             events: VecDeque::new(),
             peers_to_dc: VecDeque::new(),
             meta_data,
@@ -123,7 +124,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ///
     /// All external dials, dial a multiaddr. This is currently unused but kept here in case any
     /// part of lighthouse needs to connect to a peer_id in the future.
-    pub fn _dial(&mut self, peer_id: &PeerId) {
+    pub fn dial(&mut self, peer_id: &PeerId) {
         self.peer_manager.dial_peer(peer_id);
     }
 

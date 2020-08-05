@@ -2,7 +2,7 @@ use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
 use clap_utils::BAD_TESTNET_DIR_MESSAGE;
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
-use eth2_libp2p::{Enr, Multiaddr};
+use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, Logger};
 use ssz::Encode;
@@ -111,10 +111,28 @@ pub fn get_config<E: EthSpec>(
     }
 
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
-        client_config.network.boot_nodes = boot_enr_str
-            .split(',')
-            .map(|enr| enr.parse().map_err(|_| format!("Invalid ENR: {}", enr)))
-            .collect::<Result<Vec<Enr>, _>>()?;
+        let mut enrs: Vec<Enr> = vec![];
+        let mut multiaddrs: Vec<Multiaddr> = vec![];
+        for addr in boot_enr_str.split(',') {
+            match addr.parse() {
+                Ok(enr) => enrs.push(enr),
+                Err(_) => {
+                    // parsing as ENR failed, try as Multiaddr
+                    let multi: Multiaddr = addr
+                        .parse()
+                        .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
+                        slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                    }
+                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
+                        slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                    }
+                    multiaddrs.push(multi);
+                }
+            }
+        }
+        client_config.network.boot_nodes_enr = enrs;
+        client_config.network.boot_nodes_multiaddr = multiaddrs;
     }
 
     if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
@@ -337,7 +355,7 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
 
     if let Some(mut boot_nodes) = eth2_testnet_config.boot_enr {
-        client_config.network.boot_nodes.append(&mut boot_nodes)
+        client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
     if let Some(genesis_state) = eth2_testnet_config.genesis_state {
