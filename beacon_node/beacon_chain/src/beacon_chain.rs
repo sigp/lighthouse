@@ -175,7 +175,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     ///
     /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
-    pub naive_aggregation_pool: NaiveAggregationPool<T::EthSpec>,
+    pub naive_aggregation_pool: RwLock<NaiveAggregationPool<T::EthSpec>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
     pub observed_attestations: ObservedAttestations<T::EthSpec>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
@@ -747,7 +747,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         data: &AttestationData,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        self.naive_aggregation_pool.get(data).map_err(Into::into)
+        self.naive_aggregation_pool
+            .read()
+            .get(data)
+            .map_err(Into::into)
     }
 
     /// Produce an unaggregated `Attestation` that is valid for the given `slot` and `index`.
@@ -937,7 +940,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attestation = unaggregated_attestation.attestation();
 
-        match self.naive_aggregation_pool.insert(attestation) {
+        match self.naive_aggregation_pool.write().insert(attestation) {
             Ok(outcome) => trace!(
                 self.log,
                 "Stored unaggregated attestation";
@@ -1852,7 +1855,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn per_slot_task(&self) {
         trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
-            self.naive_aggregation_pool.prune(slot);
+            self.naive_aggregation_pool.write().prune(slot);
         }
     }
 
