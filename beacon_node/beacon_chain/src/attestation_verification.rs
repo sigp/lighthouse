@@ -295,6 +295,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         let attestation_root = attestation.tree_hash_root();
         if chain
             .observed_attestations
+            .write()
             .is_known(attestation, attestation_root)
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
@@ -369,6 +370,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         // attestations processed at the same time could be published.
         if let ObserveOutcome::AlreadyKnown = chain
             .observed_attestations
+            .write()
             .observe_attestation(attestation, Some(attestation_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {

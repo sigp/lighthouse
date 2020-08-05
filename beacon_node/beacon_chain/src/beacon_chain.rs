@@ -177,7 +177,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
     pub naive_aggregation_pool: RwLock<NaiveAggregationPool<T::EthSpec>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
-    pub observed_attestations: ObservedAttestations<T::EthSpec>,
+    pub observed_attestations: RwLock<ObservedAttestations<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
     pub observed_attesters: ObservedAttesters<T::EthSpec>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
@@ -1429,7 +1429,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
         for a in &block.body.attestations {
-            match self.observed_attestations.observe_attestation(a, None) {
+            match self
+                .observed_attestations
+                .write()
+                .observe_attestation(a, None)
+            {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
                 //
