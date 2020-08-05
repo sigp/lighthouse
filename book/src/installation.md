@@ -33,7 +33,9 @@ Ubuntu under WSL, you can should install the Ubuntu dependencies listed in the [
 
 ## Troubleshooting
 
-### Dependencies (Ubuntu)
+### Dependencies
+
+#### Ubuntu
 
 Several dependencies may be required to compile Lighthouse. The following
 packages may be required in addition a base Ubuntu Server installation:
@@ -41,6 +43,12 @@ packages may be required in addition a base Ubuntu Server installation:
 ```bash
 sudo apt install -y git gcc g++ make cmake pkg-config libssl-dev
 ```
+
+#### macOS
+
+You will need `cmake`. You can install via homebrew:
+
+    brew install cmake
 
 ### Command is not found
 
