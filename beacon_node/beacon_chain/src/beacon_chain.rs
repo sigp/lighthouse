@@ -179,10 +179,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Contains a store of attestations which have been observed by the beacon chain.
     pub observed_attestations: RwLock<ObservedAttestations<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
-    pub observed_attesters: ObservedAttesters<T::EthSpec>,
+    pub observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
-    pub observed_aggregators: ObservedAggregators<T::EthSpec>,
+    pub observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: ObservedBlockProducers<T::EthSpec>,
     /// Maintains a record of which validators have submitted voluntary exits.
