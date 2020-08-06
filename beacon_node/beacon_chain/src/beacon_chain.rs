@@ -184,7 +184,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// in recent epochs.
     pub observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
-    pub observed_block_producers: ObservedBlockProducers<T::EthSpec>,
+    pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
     pub observed_voluntary_exits: ObservedOperations<SignedVoluntaryExit, T::EthSpec>,
     /// Maintains a record of which validators we've seen proposer slashings for.
@@ -1942,6 +1942,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.fork_choice.write().prune()?;
 
             self.observed_block_producers
+                .write()
                 .prune(new_finalized_epoch.start_slot(T::EthSpec::slots_per_epoch()));
 
             self.snapshot_cache
