@@ -741,6 +741,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         };
 
         if goodbye_reason.is_some() {
+            debug!(self.log, "Disconnecting newly connected peer"; "peer_id" => peer_id.to_string(), "reason" => goodbye_reason.as_ref().expect("Is some").to_string());
             self.peers_to_dc
                 .push_back((peer_id.clone(), goodbye_reason));
             return;
