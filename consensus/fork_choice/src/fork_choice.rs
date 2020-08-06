@@ -738,14 +738,36 @@ where
         Ok(())
     }
 
-    /// Returns `true` if the block is known.
+    /// Returns `true` if the block is known **and** a descendant of the finalized root.
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.proto_array.contains_block(block_root)
+        self.proto_array.contains_block(block_root) && self.is_descendant_of_finalized(*block_root)
     }
 
-    /// Returns a `ProtoBlock` if the block is known.
+    /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        self.proto_array.get_block(block_root)
+        self.proto_array.get_block(block_root).filter(|block| {
+            // If available, use the parent_root to perform the lookup since it will involve one
+            // less lookup. This involves making the assumption that the finalized block will
+            // always have `block.parent_root` of `None`.
+            self.is_descendant_of_finalized(block.parent_root.unwrap_or(block.root))
+        })
+    }
+
+    /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
+    pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
+        let checkpoint = self.fc_store.finalized_checkpoint();
+
+        if checkpoint.root == block_root {
+            return true;
+        }
+
+        self.get_ancestor(
+            block_root,
+            checkpoint.epoch.start_slot(E::slots_per_epoch()),
+        )
+        .map_or(false, |root_opt| {
+            root_opt.map_or(false, |root| root == checkpoint.root)
+        })
     }
 
     /// Returns the latest message for a given validator, if any.

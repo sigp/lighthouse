@@ -35,7 +35,11 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
     harness.extend_chain(
         CHAIN_SEGMENT_LENGTH,
         BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
+        // Don't include all attestations so we can prevent the chain from finalizing. We need at
+        // least one attestation, though.
+        //
+        // If the chain finalizes then we lose the ability to do repeat-imports.
+        AttestationStrategy::SomeValidators((0..VALIDATOR_COUNT / 2).collect()),
     );
 
     harness
