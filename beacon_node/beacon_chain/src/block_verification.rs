@@ -118,6 +118,13 @@ pub enum BlockError {
         block_slot: Slot,
         finalized_slot: Slot,
     },
+    /// The block conflicts with finalization, no need to propagate.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but this block is for a finalized slot and is
+    /// therefore useless to us.
+    NotFinalizedDescendant { block_root: Hash256 },
     /// Block is already known, no need to re-import.
     ///
     /// ## Peer scoring
@@ -425,6 +432,19 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 proposer: block.message.proposer_index,
                 slot: block.message.slot,
             });
+        }
+
+        // The current finalized_checkpoint is an ancestor of block.
+        //
+        // Note: this check is technically redundant since fork choice will not return the parent
+        // block unless it's a finalized descendant, however we leave this check around to protect
+        // against future regression.
+        if !chain
+            .fork_choice
+            .read()
+            .is_descendant_of_finalized(block.parent_root())
+        {
+            return Err(BlockError::NotFinalizedDescendant { block_root });
         }
 
         let expected_proposer =
