@@ -71,14 +71,14 @@ pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 /// The result of a chain segment processing.
 #[derive(Debug)]
-pub enum ChainSegmentResult {
+pub enum ChainSegmentResult<T: EthSpec> {
     /// Processing this chain segment finished successfully.
     Successful { imported_blocks: usize },
     /// There was an error processing this chain segment. Before the error, some blocks could
     /// have been imported.
     Failed {
         imported_blocks: usize,
-        error: BlockError,
+        error: BlockError<T>,
     },
 }
 
@@ -1153,7 +1153,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_chain_segment(
         &self,
         chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
-    ) -> ChainSegmentResult {
+    ) -> ChainSegmentResult<T::EthSpec> {
         let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
         let mut imported_blocks = 0;
 
@@ -1286,7 +1286,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_block_for_gossip(
         &self,
         block: SignedBeaconBlock<T::EthSpec>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let slot = block.message.slot;
         let graffiti_string = String::from_utf8(block.message.body.graffiti[..].to_vec())
             .unwrap_or_else(|_| format!("{:?}", &block.message.body.graffiti[..]));
@@ -1332,7 +1332,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_block<B: IntoFullyVerifiedBlock<T>>(
         &self,
         unverified_block: B,
-    ) -> Result<Hash256, BlockError> {
+    ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
@@ -1343,7 +1343,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block = unverified_block.block().clone();
 
         // A small closure to group the verification and import errors.
-        let import_block = |unverified_block: B| -> Result<Hash256, BlockError> {
+        let import_block = |unverified_block: B| -> Result<Hash256, BlockError<T::EthSpec>> {
             let fully_verified = unverified_block.into_fully_verified_block(self)?;
             self.import_block(fully_verified)
         };
@@ -1411,7 +1411,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn import_block(
         &self,
         fully_verified_block: FullyVerifiedBlock<T>,
-    ) -> Result<Hash256, BlockError> {
+    ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let signed_block = fully_verified_block.block;
         let block = &signed_block.message;
         let block_root = fully_verified_block.block_root;
@@ -2133,8 +2133,8 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-impl ChainSegmentResult {
-    pub fn into_block_error(self) -> Result<(), BlockError> {
+impl<T: EthSpec> ChainSegmentResult<T> {
+    pub fn into_block_error(self) -> Result<(), BlockError<T>> {
         match self {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),
