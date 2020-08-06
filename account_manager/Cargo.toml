@@ -1,6 +1,6 @@
 [package]
 name = "account_manager"
-version = "0.0.1"
+version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Luke Anderson <luke@sigmaprime.io>"]
 edition = "2018"
 

@@ -2,7 +2,7 @@
 # It is not intended for manual editing.
 [[package]]
 name = "account_manager"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -357,7 +357,7 @@ checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
 name = "beacon_chain"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "bitvec",
  "bls",
@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -766,7 +766,7 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "bus",
@@ -1417,7 +1417,7 @@ dependencies = [
 
 [[package]]
 name = "eth1"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "environment",
  "eth1_test_rig",
@@ -1528,7 +1528,7 @@ dependencies = [
 
 [[package]]
 name = "eth2_libp2p"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "base64 0.12.3",
  "dirs",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "genesis"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "environment",
  "eth1",
@@ -2978,7 +2978,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3351,7 +3351,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "environment",
@@ -3567,7 +3567,7 @@ dependencies = [
 
 [[package]]
 name = "operation_pool"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -4333,7 +4333,7 @@ dependencies = [
 
 [[package]]
 name = "rest_api"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "assert_matches",
  "beacon_chain",
@@ -5168,7 +5168,7 @@ checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 
 [[package]]
 name = "store"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "db-key",
@@ -5248,9 +5248,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.36"
+version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cdb98bcb1f9d81d07b536179c269ea15999b5d14ea958196413869445bb5250"
+checksum = "e69abc24912995b3038597a7a593be5053eb0fb44f3cc5beec0deb421790c1f4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5429,7 +5429,7 @@ dependencies = [
 
 [[package]]
 name = "timer"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "environment",
@@ -5975,9 +5975,9 @@ checksum = "c6ff93345ba2206230b1bb1aa3ece1a63dd9443b7531024575d16a0680a59444"
 
 [[package]]
 name = "uint"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "173cd16430c206dc1a430af8a89a0e9c076cf15cb42b4aedb10e8cc8fee73681"
+checksum = "429ffcad8c8c15f874578c7337d156a3727eb4a1c2374c0ae937ad9a9b748c80"
 dependencies = [
  "arbitrary",
  "byteorder",
@@ -6121,7 +6121,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -6447,7 +6447,7 @@ dependencies = [
 
 [[package]]
 name = "websocket_server"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "environment",
  "futures 0.3.5",
