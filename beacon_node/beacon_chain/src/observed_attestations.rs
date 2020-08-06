@@ -254,7 +254,7 @@ mod tests {
         a
     }
 
-    fn single_slot_test(store: &ObservedAttestations<E>, slot: Slot) {
+    fn single_slot_test(store: &mut ObservedAttestations<E>, slot: Slot) {
         let attestations = (0..NUM_ELEMENTS as u64)
             .map(|i| get_attestation(slot, i))
             .collect::<Vec<_>>();
@@ -288,17 +288,13 @@ mod tests {
 
     #[test]
     fn single_slot() {
-        let store = ObservedAttestations::default();
+        let mut store = ObservedAttestations::default();
 
-        single_slot_test(&store, Slot::new(0));
+        single_slot_test(&mut store, Slot::new(0));
 
+        assert_eq!(store.sets.len(), 1, "should have a single set stored");
         assert_eq!(
-            store.sets.read().len(),
-            1,
-            "should have a single set stored"
-        );
-        assert_eq!(
-            store.sets.read()[0].len(),
+            store.sets[0].len(),
             NUM_ELEMENTS,
             "set should have NUM_ELEMENTS elements"
         );
@@ -306,13 +302,13 @@ mod tests {
 
     #[test]
     fn mulitple_contiguous_slots() {
-        let store = ObservedAttestations::default();
+        let mut store = ObservedAttestations::default();
         let max_cap = store.max_capacity();
 
         for i in 0..max_cap * 3 {
             let slot = Slot::new(i);
 
-            single_slot_test(&store, slot);
+            single_slot_test(&mut store, slot);
 
             /*
              * Ensure that the number of sets is correct.
@@ -320,14 +316,14 @@ mod tests {
 
             if i < max_cap {
                 assert_eq!(
-                    store.sets.read().len(),
+                    store.sets.len(),
                     i as usize + 1,
                     "should have a {} sets stored",
                     i + 1
                 );
             } else {
                 assert_eq!(
-                    store.sets.read().len(),
+                    store.sets.len(),
                     max_cap as usize,
                     "should have max_capacity sets stored"
                 );
@@ -337,7 +333,7 @@ mod tests {
              * Ensure that each set contains the correct number of elements.
              */
 
-            for set in &store.sets.read()[..] {
+            for set in &store.sets[..] {
                 assert_eq!(
                     set.len(),
                     NUM_ELEMENTS,
@@ -349,12 +345,7 @@ mod tests {
              *  Ensure that all the sets have the expected slots
              */
 
-            let mut store_slots = store
-                .sets
-                .read()
-                .iter()
-                .map(|set| set.slot)
-                .collect::<Vec<_>>();
+            let mut store_slots = store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
 
             assert!(
                 store_slots.len() <= store.max_capacity() as usize,
@@ -373,7 +364,7 @@ mod tests {
 
     #[test]
     fn mulitple_non_contiguous_slots() {
-        let store = ObservedAttestations::default();
+        let mut store = ObservedAttestations::default();
         let max_cap = store.max_capacity();
 
         let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
@@ -389,13 +380,13 @@ mod tests {
 
             let slot = Slot::from(i);
 
-            single_slot_test(&store, slot);
+            single_slot_test(&mut store, slot);
 
             /*
              * Ensure that each set contains the correct number of elements.
              */
 
-            for set in &store.sets.read()[..] {
+            for set in &store.sets[..] {
                 assert_eq!(
                     set.len(),
                     NUM_ELEMENTS,
@@ -407,12 +398,7 @@ mod tests {
              *  Ensure that all the sets have the expected slots
              */
 
-            let mut store_slots = store
-                .sets
-                .read()
-                .iter()
-                .map(|set| set.slot)
-                .collect::<Vec<_>>();
+            let mut store_slots = store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
 
             store_slots.sort_unstable();
 
@@ -421,7 +407,7 @@ mod tests {
                 "store size should not exceed max"
             );
 
-            let lowest = store.lowest_permissible_slot.read().as_u64();
+            let lowest = store.lowest_permissible_slot.as_u64();
             let highest = slot.as_u64();
             let expected_slots = (lowest..=highest)
                 .filter(|i| !to_skip.contains(i))
