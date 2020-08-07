@@ -39,11 +39,11 @@ environment = { path = "../../lighthouse/environment" }
 rand = "0.7.3"
 
 [dependencies.libp2p]
-#version = "0.19.1"
+#version = "0.23.0"
 git = "https://github.com/sigp/rust-libp2p"
-rev = "f1b660a1a96c1b6198cd62062e75d357893faf16"
+rev = "5139ec3ace4ad52506f217d790f0a9425274caef"
 default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "secio", "tcp-tokio"]
+features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["full"] }
