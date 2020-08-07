@@ -755,19 +755,8 @@ where
 
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
     pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
-        let checkpoint = self.fc_store.finalized_checkpoint();
-
-        if checkpoint.root == block_root {
-            return true;
-        }
-
-        self.get_ancestor(
-            block_root,
-            checkpoint.epoch.start_slot(E::slots_per_epoch()),
-        )
-        .map_or(false, |root_opt| {
-            root_opt.map_or(false, |root| root == checkpoint.root)
-        })
+        self.proto_array
+            .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
     }
 
     /// Returns the latest message for a given validator, if any.
