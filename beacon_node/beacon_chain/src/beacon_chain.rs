@@ -1475,6 +1475,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut fork_choice = self.fork_choice.write();
 
+        // Do not import a block that doesn't descend from the finalized root.
+        if !fork_choice.is_descendant_of_finalized(block.parent_root) {
+            return Err(BlockError::NotFinalizedDescendant {
+                block_parent_root: block.parent_root,
+            });
+        }
+
         // Register the new block with the fork choice service.
         {
             let _fork_choice_block_timer =

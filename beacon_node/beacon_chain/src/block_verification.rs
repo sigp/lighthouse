@@ -124,7 +124,7 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but this block is for a finalized slot and is
     /// therefore useless to us.
-    NotFinalizedDescendant { block_root: Hash256 },
+    NotFinalizedDescendant { block_parent_root: Hash256 },
     /// Block is already known, no need to re-import.
     ///
     /// ## Peer scoring
