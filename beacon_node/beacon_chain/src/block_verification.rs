@@ -48,6 +48,7 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
 };
+use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use slog::{error, Logger};
 use slot_clock::SlotClock;
@@ -62,7 +63,7 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
-use store::{Error as DBError, HotStateSummary, StoreOp};
+use store::{Error as DBError, HotColdDB, HotStateSummary, StoreOp};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, ChainSpec, CloneConfig, EthSpec, Hash256,
@@ -392,11 +393,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         // Do not process a block that doesn't descend from the finalized root.
-        //
-        // Note: this check is technically redundant since fork choice will not return the parent
-        // block unless it's a finalized descendant, however we add this check here to ensure the
-        // returned error message is sensible.
-        check_block_against_finalized_root(&block.message, chain)?;
+        check_block_is_finalized_descendant::<T, _>(
+            &block.message,
+            &chain.fork_choice.read(),
+            &chain.store,
+        )?;
 
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = get_block_root(&block);
@@ -784,25 +785,32 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 ///
 /// Returns an error if the block is earlier or equal to the finalized slot, or there was an error
 /// verifying that condition.
-pub fn check_block_against_finalized_root<T: BeaconChainTypes>(
+pub fn check_block_is_finalized_descendant<T: BeaconChainTypes, F: ForkChoiceStore<T::EthSpec>>(
     block: &BeaconBlock<T::EthSpec>,
-    chain: &BeaconChain<T>,
+    fork_choice: &ForkChoice<F, T::EthSpec>,
+    store: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
 ) -> Result<(), BlockError> {
-    // The current finalized_checkpoint is an ancestor of block.
-    //
-    // Note: this check is technically redundant since fork choice will not return the parent
-    // block unless it's a finalized descendant, however we add this check here to ensure the
-    // returned error message is sensible.
-    if chain
-        .fork_choice
-        .read()
-        .is_descendant_of_finalized(block.parent_root)
-    {
+    if fork_choice.is_descendant_of_finalized(block.parent_root) {
         Ok(())
     } else {
-        return Err(BlockError::NotFinalizedDescendant {
-            block_parent_root: block.parent_root,
-        });
+        // If fork choice does *not* consider the parent to be a descendant of the finalized block,
+        // then there are two more cases:
+        //
+        // 1. We have the parent stored in our database. Because fork-choice has confirmed the
+        //    parent is *not* in our post-finalization DAG, all other blocks must be either
+        //    pre-finalization or conflicting with finalization.
+        // 2. The parent is unknown to us, we probably want to download it since it might actually
+        //    descend from the finalized root.
+        if store
+            .item_exists::<SignedBeaconBlock<T::EthSpec>>(&block.parent_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        {
+            Err(BlockError::NotFinalizedDescendant {
+                block_parent_root: block.parent_root,
+            })
+        } else {
+            Err(BlockError::ParentUnknown(block.parent_root))
+        }
     }
 }
 

@@ -3,8 +3,9 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::block_verification::{
-    check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
-    FullyVerifiedBlock, GossipVerifiedBlock, IntoFullyVerifiedBlock,
+    check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
+    signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
+    IntoFullyVerifiedBlock,
 };
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -1490,11 +1491,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.fork_choice.write();
 
         // Do not import a block that doesn't descend from the finalized root.
-        if !fork_choice.is_descendant_of_finalized(block.parent_root) {
-            return Err(BlockError::NotFinalizedDescendant {
-                block_parent_root: block.parent_root,
-            });
-        }
+        check_block_is_finalized_descendant::<T, _>(block, &fork_choice, &self.store)?;
 
         // Register the new block with the fork choice service.
         {

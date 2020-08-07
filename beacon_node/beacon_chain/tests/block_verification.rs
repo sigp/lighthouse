@@ -675,6 +675,48 @@ fn block_gossip_verification() {
     /*
      * This test ensures that:
      *
+     * Spec v0.12.2
+     *
+     * The block's parent (defined by block.parent_root) passes validation.
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let parent_root = Hash256::from_low_u64_be(42);
+    block.message.parent_root = parent_root;
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            BlockError::ParentUnknown(root)
+            if root == parent_root
+        ),
+        "should not import a block for an unknown parent"
+    );
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.12.2
+     *
+     * The current finalized_checkpoint is an ancestor of block -- i.e. get_ancestor(store,
+     * block.parent_root, compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)) ==
+     * store.finalized_checkpoint.root
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let parent_root = CHAIN_SEGMENT[0].beacon_block_root;
+    block.message.parent_root = parent_root;
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            BlockError::NotFinalizedDescendant { block_parent_root }
+            if block_parent_root == parent_root
+        ),
+        "should not import a block that conflicts with finality"
+    );
+
+    /*
+     * This test ensures that:
+     *
      * Spec v0.12.1
      *
      * The block is proposed by the expected proposer_index for the block's slot in the context of
