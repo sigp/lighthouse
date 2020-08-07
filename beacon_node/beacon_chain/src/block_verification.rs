@@ -391,6 +391,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
+        // Do not process a block that doesn't descend from the finalized root.
+        //
+        // Note: this check is technically redundant since fork choice will not return the parent
+        // block unless it's a finalized descendant, however we add this check here to ensure the
+        // returned error message is sensible.
+        check_block_against_finalized_root(&block.message, chain)?;
+
         let mut parent = load_parent(&block.message, chain)?;
         let block_root = get_block_root(&block);
 
@@ -432,19 +439,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 proposer: block.message.proposer_index,
                 slot: block.message.slot,
             });
-        }
-
-        // The current finalized_checkpoint is an ancestor of block.
-        //
-        // Note: this check is technically redundant since fork choice will not return the parent
-        // block unless it's a finalized descendant, however we leave this check around to protect
-        // against future regression.
-        if !chain
-            .fork_choice
-            .read()
-            .is_descendant_of_finalized(block.parent_root())
-        {
-            return Err(BlockError::NotFinalizedDescendant { block_root });
         }
 
         let expected_proposer =
@@ -786,6 +780,32 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     }
 }
 
+/// Returns `Ok(())` if the block is later than the finalized slot on `chain`.
+///
+/// Returns an error if the block is earlier or equal to the finalized slot, or there was an error
+/// verifying that condition.
+pub fn check_block_against_finalized_root<T: BeaconChainTypes>(
+    block: &BeaconBlock<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<(), BlockError> {
+    // The current finalized_checkpoint is an ancestor of block.
+    //
+    // Note: this check is technically redundant since fork choice will not return the parent
+    // block unless it's a finalized descendant, however we add this check here to ensure the
+    // returned error message is sensible.
+    if chain
+        .fork_choice
+        .read()
+        .is_descendant_of_finalized(block.parent_root)
+    {
+        Ok(())
+    } else {
+        return Err(BlockError::NotFinalizedDescendant {
+            block_parent_root: block.parent_root,
+        });
+    }
+}
+
 /// Performs simple, cheap checks to ensure that the block is relevant to be imported.
 ///
 /// `Ok(block_root)` is returned if the block passes these checks and should progress with
@@ -820,6 +840,10 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     }
 
     // Do not process a block from a finalized slot.
+    //
+    // It's important that we check against the slot prior to the root. This allows us to
+    // distinguish between blocks that are *prior to the finalized block, but in the same chain*
+    // versus blocks that are *later that the finalized block and in a different chain*.
     check_block_against_finalized_slot(block, chain)?;
 
     let block_root = block_root.unwrap_or_else(|| get_block_root(&signed_block));
