@@ -123,8 +123,8 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// ## Peer scoring
     ///
-    /// It's unclear if this block is valid, but this block is for a finalized slot and is
-    /// therefore useless to us.
+    /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
+    /// imported.
     NotFinalizedDescendant { block_parent_root: Hash256 },
     /// Block is already known, no need to re-import.
     ///
@@ -395,6 +395,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         // Do not process a block that doesn't descend from the finalized root.
+        //
+        // We check this *before* we load the parent so that we can return a more detailed error.
         let block = check_block_is_finalized_descendant::<T, _>(
             block,
             &chain.fork_choice.read(),
@@ -783,10 +785,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     }
 }
 
-/// Returns `Ok(())` if the block is later than the finalized slot on `chain`.
-///
-/// Returns an error if the block is earlier or equal to the finalized slot, or there was an error
-/// verifying that condition.
+/// Returns `Ok(block)` if the block descends from the finalized root.
 pub fn check_block_is_finalized_descendant<T: BeaconChainTypes, F: ForkChoiceStore<T::EthSpec>>(
     block: SignedBeaconBlock<T::EthSpec>,
     fork_choice: &ForkChoice<F, T::EthSpec>,
@@ -850,10 +849,6 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     }
 
     // Do not process a block from a finalized slot.
-    //
-    // It's important that we check against the slot prior to the root. This allows us to
-    // distinguish between blocks that are *prior to the finalized block, but in the same chain*
-    // versus blocks that are *later that the finalized block and in a different chain*.
     check_block_against_finalized_slot(block, chain)?;
 
     let block_root = block_root.unwrap_or_else(|| get_block_root(&signed_block));

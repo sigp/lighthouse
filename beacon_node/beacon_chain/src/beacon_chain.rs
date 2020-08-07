@@ -1216,14 +1216,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
-                // If the block does not descend from the finalized checkpoint it might be either:
-                //
-                // 1. In the same chain as the finalized block, but an ancestor of it.
-                // 2. Not in the same chain as the finalized block.
-                //
-                // We assume that the cause is (1) and keep trying to find new blocks that *do*
-                // descend from the finalized block. We make this assumption since we *also* assume
-                // that we will hit `BlockError::WouldRevertFinalizedSlot` this branch.
+                // The block has a known parent that does not descend from the finalized block.
+                // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
