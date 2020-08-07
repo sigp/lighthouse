@@ -440,6 +440,15 @@ fn main() {
                         .required(true)
                         .help("The directory in which to create the network dir"),
                 )
+                .arg(
+                    Arg::with_name("genesis-fork-version")
+                        .long("genesis-fork-version")
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default."),
+                )
         )
         .subcommand(
             SubCommand::with_name("insecure-validators")

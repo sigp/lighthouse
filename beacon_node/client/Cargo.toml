@@ -1,6 +1,6 @@
 [package]
 name = "client"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 

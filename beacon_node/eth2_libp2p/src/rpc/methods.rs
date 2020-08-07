@@ -366,7 +366,7 @@ impl<T: EthSpec> std::fmt::Display for RPCCodedResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCCodedResponse::Success(res) => write!(f, "{}", res),
-            RPCCodedResponse::Error(code, err) => write!(f, "{}: {:?}", code, err),
+            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err.to_string()),
             RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }
