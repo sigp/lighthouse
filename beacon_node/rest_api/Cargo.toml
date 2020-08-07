@@ -1,6 +1,6 @@
 [package]
 name = "rest_api"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@sigmaprime.io>"]
 edition = "2018"
 

@@ -26,7 +26,7 @@ fn bls_library_name() -> &'static str {
 fn main() {
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
-        .version(VERSION)
+        .version(VERSION.replace("Lighthouse/", "").as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
         .about(
@@ -37,7 +37,7 @@ fn main() {
             format!(
                 "{}\n\
                  BLS Library: {}",
-                 VERSION, bls_library_name()
+                 VERSION.replace("Lighthouse/", ""), bls_library_name()
             ).as_str()
         )
         .arg(

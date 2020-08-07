@@ -240,13 +240,15 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
             }
             PubsubMessage::BeaconBlock(block) => {
-                match self.processor.should_forward_block(&peer_id, block) {
+                match self.processor.should_forward_block(block) {
                     Ok(verified_block) => {
                         info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
                         self.propagate_message(id, peer_id.clone());
                         self.processor.on_block_gossip(peer_id, verified_block);
                     }
-                    Err(BlockError::ParentUnknown { .. }) => {} // performing a parent lookup
+                    Err(BlockError::ParentUnknown(block)) => {
+                        self.processor.on_unknown_parent(peer_id, block);
+                    }
                     Err(e) => {
                         // performing a parent lookup
                         warn!(self.log, "Could not verify block for gossip";
@@ -260,7 +262,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     .processor
                     .verify_voluntary_exit_for_gossip(&peer_id, *exit)
                 {
-                    self.propagate_message(id, peer_id.clone());
+                    self.propagate_message(id, peer_id);
                     self.processor.import_verified_voluntary_exit(verified_exit);
                 }
             }
@@ -274,7 +276,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     .processor
                     .verify_proposer_slashing_for_gossip(&peer_id, *proposer_slashing)
                 {
-                    self.propagate_message(id, peer_id.clone());
+                    self.propagate_message(id, peer_id);
                     self.processor
                         .import_verified_proposer_slashing(verified_proposer_slashing);
                 }
@@ -289,7 +291,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     .processor
                     .verify_attester_slashing_for_gossip(&peer_id, *attester_slashing)
                 {
-                    self.propagate_message(id, peer_id.clone());
+                    self.propagate_message(id, peer_id);
                     self.processor
                         .import_verified_attester_slashing(verified_attester_slashing);
                 }

@@ -686,8 +686,8 @@ fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(block)),
-            BlockError::ParentUnknown(root)
-            if root == parent_root
+            BlockError::ParentUnknown(block)
+            if block.parent_root() == parent_root
         ),
         "should not import a block for an unknown parent"
     );
