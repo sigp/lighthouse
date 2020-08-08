@@ -114,10 +114,8 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     > {
         // Disconnect if the sub-handlers are ready.
         // Currently we only respect the RPC handler.
-        if self.shutting_down {
-            if KeepAlive::No == self.delegate.rpc().connection_keep_alive() {
-                return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Disconnected));
-            }
+        if self.shutting_down && KeepAlive::No == self.delegate.rpc().connection_keep_alive() {
+            return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Disconnected));
         }
 
         match self.delegate.poll(cx) {
