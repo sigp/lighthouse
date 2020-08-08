@@ -694,9 +694,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         conn_id: &ConnectionId,
         endpoint: &ConnectedPoint,
     ) {
-        // If the peer manager (and therefore the behaviour's believe this peer connected, inform
+        // If the peer manager (and therefore the behaviour's) believe this peer connected, inform
         // about the disconnection.
-        if !self.network_globals.peers.read().is_connected(&peer_id) {
+        if self.network_globals.peers.read().is_connected(&peer_id) {
             return;
         }
         delegate_to_behaviours!(self, inject_connection_closed, peer_id, conn_id, endpoint);
@@ -705,7 +705,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
     // This gets called once there are no more active connections.
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
         // If the application/behaviour layers thinks this peer has connected inform it of the disconnect.
-        if !self.network_globals.peers.read().is_connected(&peer_id) {
+        if self.network_globals.peers.read().is_connected(&peer_id) {
             // Inform the application.
             self.add_event(BehaviourEvent::PeerDisconnected(peer_id.clone()));
             // Inform the behaviour.
