@@ -77,7 +77,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
     fn inject_event(&mut self, event: Self::InEvent) {
         match event {
             BehaviourHandlerIn::Delegate(delegated_ev) => self.delegate.inject_event(delegated_ev),
-            /* Events comming from the behaviour */
+            /* Events coming from the behaviour */
             BehaviourHandlerIn::Shutdown(last_message) => {
                 self.shutting_down = true;
                 self.delegate.rpc_mut().shutdown(last_message);
@@ -113,12 +113,9 @@ impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {
         >,
     > {
         // Disconnect if the sub-handlers are ready.
-        if self.shutting_down {
-            let rpc_keep_alive = self.delegate.rpc().connection_keep_alive();
-            let identify_keep_alive = self.delegate.identify().connection_keep_alive();
-            if KeepAlive::No == rpc_keep_alive.max(identify_keep_alive) {
-                return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Disconnected));
-            }
+        // Currently we only respect the RPC handler.
+        if self.shutting_down && KeepAlive::No == self.delegate.rpc().connection_keep_alive() {
+            return Poll::Ready(ProtocolsHandlerEvent::Close(DelegateError::Disconnected));
         }
 
         match self.delegate.poll(cx) {
