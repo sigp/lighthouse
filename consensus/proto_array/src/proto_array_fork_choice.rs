@@ -4,7 +4,7 @@ use crate::ssz_container::SszContainer;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{Epoch, Hash256, Slot};
+use types::{Epoch, Hash256, ShufflingId, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -24,6 +24,7 @@ pub struct Block {
     pub parent_root: Option<Hash256>,
     pub state_root: Hash256,
     pub target_root: Hash256,
+    pub shuffling_id: ShufflingId,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
 }
@@ -86,6 +87,8 @@ impl ProtoArrayForkChoice {
             // We are using the finalized_root as the target_root, since it always lies on an
             // epoch boundary.
             target_root: finalized_root,
+            // TODO: explain why this is safe.
+            shuffling_id: ShufflingId::from_components(finalized_epoch, finalized_root),
             justified_epoch,
             finalized_epoch,
         };
@@ -193,6 +196,7 @@ impl ProtoArrayForkChoice {
             parent_root,
             state_root: block.state_root,
             target_root: block.target_root,
+            shuffling_id: block.shuffling_id.clone(),
             justified_epoch: block.justified_epoch,
             finalized_epoch: block.finalized_epoch,
         })

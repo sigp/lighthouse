@@ -1473,7 +1473,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 *state.get_block_root(epoch_start_slot)?
             };
 
-            shuffling_cache.insert(state.current_epoch(), target_root, committee_cache);
+            let shuffling_id = ShufflingId::new(block_root, &state)?;
+
+            shuffling_cache.insert(shuffling_id, committee_cache);
         }
 
         let mut fork_choice = self.fork_choice.write();

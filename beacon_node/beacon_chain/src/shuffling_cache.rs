@@ -1,6 +1,6 @@
 use crate::metrics;
 use lru::LruCache;
-use types::{beacon_state::CommitteeCache, Epoch, Hash256};
+use types::{beacon_state::CommitteeCache, ShufflingId};
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
 ///
@@ -14,7 +14,7 @@ const CACHE_SIZE: usize = 16;
 /// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
 /// a find/replace error.
 pub struct ShufflingCache {
-    cache: LruCache<(Epoch, Hash256), CommitteeCache>,
+    cache: LruCache<ShufflingId, CommitteeCache>,
 }
 
 impl ShufflingCache {
@@ -24,8 +24,8 @@ impl ShufflingCache {
         }
     }
 
-    pub fn get(&mut self, epoch: Epoch, root: Hash256) -> Option<&CommitteeCache> {
-        let opt = self.cache.get(&(epoch, root));
+    pub fn get(&mut self, key: &ShufflingId) -> Option<&CommitteeCache> {
+        let opt = self.cache.get(key);
 
         if opt.is_some() {
             metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
@@ -36,9 +36,7 @@ impl ShufflingCache {
         opt
     }
 
-    pub fn insert(&mut self, epoch: Epoch, root: Hash256, committee_cache: &CommitteeCache) {
-        let key = (epoch, root);
-
+    pub fn insert(&mut self, key: ShufflingId, committee_cache: &CommitteeCache) {
         if !self.cache.contains(&key) {
             self.cache.put(key, committee_cache.clone());
         }
