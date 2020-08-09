@@ -1464,15 +1464,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
 
-            let epoch_start_slot = state
-                .current_epoch()
-                .start_slot(T::EthSpec::slots_per_epoch());
-            let target_root = if state.slot == epoch_start_slot {
-                block_root
-            } else {
-                *state.get_block_root(epoch_start_slot)?
-            };
-
             let shuffling_id = ShufflingId::new(block_root, &state)?;
 
             shuffling_cache.insert(shuffling_id, committee_cache);
