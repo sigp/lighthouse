@@ -40,6 +40,10 @@ impl ShufflingId {
             shuffling_decision_block,
         }
     }
+
+    pub fn set_epoch(&mut self, epoch: Epoch) {
+        self.shuffling_epoch = epoch;
+    }
 }
 
 impl Eq for ShufflingId {}
