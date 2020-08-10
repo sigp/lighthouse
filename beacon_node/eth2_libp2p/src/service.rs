@@ -271,10 +271,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
                 }
                 SwarmEvent::ListenerClosed { addresses, reason } => {
-                    debug!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
+                    crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
                 }
                 SwarmEvent::ListenerError { error } => {
-                    debug!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
+                    warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
                 }
                 SwarmEvent::Dialing(peer_id) => {
                     debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());
