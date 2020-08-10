@@ -1419,7 +1419,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block = &signed_block.message;
         let block_root = fully_verified_block.block_root;
         let state = fully_verified_block.state;
-        let parent_block = fully_verified_block.parent_block;
         let current_slot = self.slot()?;
         let mut ops = fully_verified_block.intermediate_states;
 
@@ -1451,22 +1450,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or_else(|| Error::ValidatorPubkeyCacheLockTimeout)?
             .import_new_pubkeys(&state)?;
 
-        // If the imported block is in the previous or current epochs (according to the
-        // wall-clock), check to see if this is the first block of the epoch. If so, add the
-        // committee to the shuffling cache.
-        if state.current_epoch() + 1 >= self.epoch()?
-            && parent_block.slot().epoch(T::EthSpec::slots_per_epoch()) != state.current_epoch()
-        {
-            let mut shuffling_cache = self
+        // For the current and next epoch of this state, ensure we have the shuffling from this
+        // block in our cache.
+        for relative_epoch in &[RelativeEpoch::Current, RelativeEpoch::Next] {
+            let shuffling_id = ShufflingId::new(block_root, &state, *relative_epoch)?;
+
+            let shuffling_is_cached = self
                 .shuffling_cache
-                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .ok_or_else(|| Error::AttestationCacheLockTimeout)?;
+                .try_read_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+                .contains(&shuffling_id);
 
-            let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
-
-            let shuffling_id = ShufflingId::new(block_root, &state)?;
-
-            shuffling_cache.insert(shuffling_id, committee_cache);
+            if !shuffling_is_cached {
+                let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
+                self.shuffling_cache
+                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                    .ok_or_else(|| Error::AttestationCacheLockTimeout)?
+                    .insert(shuffling_id, committee_cache);
+            }
         }
 
         let mut fork_choice = self.fork_choice.write();

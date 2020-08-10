@@ -4,7 +4,7 @@ use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
     BeaconBlock, BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, IndexedAttestation,
-    ShufflingId, Slot,
+    RelativeEpoch, ShufflingId, Slot,
 };
 
 use crate::ForkChoiceStore;
@@ -534,7 +534,8 @@ where
             root: block_root,
             parent_root: Some(block.parent_root),
             target_root,
-            shuffling_id: ShufflingId::new(block_root, state).map_err(Error::BeaconStateError)?,
+            shuffling_id: ShufflingId::new(block_root, state, RelativeEpoch::Current)
+                .map_err(Error::BeaconStateError)?,
             state_root: block.state_root,
             justified_epoch: state.current_justified_checkpoint.epoch,
             finalized_epoch: state.finalized_checkpoint.epoch,

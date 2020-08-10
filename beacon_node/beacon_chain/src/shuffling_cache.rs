@@ -36,6 +36,10 @@ impl ShufflingCache {
         opt
     }
 
+    pub fn contains(&self, key: &ShufflingId) -> bool {
+        self.cache.contains(key)
+    }
+
     pub fn insert(&mut self, key: ShufflingId, committee_cache: &CommitteeCache) {
         if !self.cache.contains(&key) {
             self.cache.put(key, committee_cache.clone());

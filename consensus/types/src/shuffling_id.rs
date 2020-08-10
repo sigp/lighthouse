@@ -13,8 +13,9 @@ impl ShufflingId {
     pub fn new<E: EthSpec>(
         block_root: Hash256,
         state: &BeaconState<E>,
+        relative_epoch: RelativeEpoch,
     ) -> Result<Self, BeaconStateError> {
-        let shuffling_epoch = state.current_epoch();
+        let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
 
         // Taking advantage of saturating subtraction on slot and epoch.
         //
