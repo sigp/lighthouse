@@ -24,7 +24,8 @@ pub struct Block {
     pub parent_root: Option<Hash256>,
     pub state_root: Hash256,
     pub target_root: Hash256,
-    pub shuffling_id: ShufflingId,
+    pub current_epoch_shuffling_id: ShufflingId,
+    pub next_epoch_shuffling_id: ShufflingId,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
 }
@@ -88,7 +89,11 @@ impl ProtoArrayForkChoice {
             // epoch boundary.
             target_root: finalized_root,
             // TODO: explain why this is safe.
-            shuffling_id: ShufflingId::from_components(finalized_epoch, finalized_root),
+            current_epoch_shuffling_id: ShufflingId::from_components(
+                finalized_epoch,
+                finalized_root,
+            ),
+            next_epoch_shuffling_id: ShufflingId::from_components(finalized_epoch, finalized_root),
             justified_epoch,
             finalized_epoch,
         };
@@ -196,7 +201,8 @@ impl ProtoArrayForkChoice {
             parent_root,
             state_root: block.state_root,
             target_root: block.target_root,
-            shuffling_id: block.shuffling_id.clone(),
+            current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
+            next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
             justified_epoch: block.justified_epoch,
             finalized_epoch: block.finalized_epoch,
         })

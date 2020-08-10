@@ -16,7 +16,7 @@ use std::hash::Hash;
 /// The struct stores exactly that 2-tuple.
 #[derive(Debug, PartialEq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]
 pub struct ShufflingId {
-    shuffling_epoch: Epoch,
+    pub shuffling_epoch: Epoch,
     shuffling_decision_block: Hash256,
 }
 
@@ -58,10 +58,6 @@ impl ShufflingId {
             shuffling_epoch,
             shuffling_decision_block,
         }
-    }
-
-    pub fn set_epoch(&mut self, epoch: Epoch) {
-        self.shuffling_epoch = epoch;
     }
 }
 

@@ -18,7 +18,8 @@ pub struct ProtoNode {
     /// The `target_root` is not necessary for `ProtoArray` either, it also just exists for upstream
     /// components (namely fork choice attestation verification).
     pub target_root: Hash256,
-    pub shuffling_id: ShufflingId,
+    pub current_epoch_shuffling_id: ShufflingId,
+    pub next_epoch_shuffling_id: ShufflingId,
     pub root: Hash256,
     pub parent: Option<usize>,
     pub justified_epoch: Epoch,
@@ -143,7 +144,8 @@ impl ProtoArray {
             slot: block.slot,
             root: block.root,
             target_root: block.target_root,
-            shuffling_id: block.shuffling_id,
+            current_epoch_shuffling_id: block.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: block.next_epoch_shuffling_id,
             state_root: block.state_root,
             parent: block
                 .parent_root

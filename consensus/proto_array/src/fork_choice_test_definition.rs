@@ -125,7 +125,14 @@ impl ForkChoiceTestDefinition {
                         parent_root: Some(parent_root),
                         state_root: Hash256::zero(),
                         target_root: Hash256::zero(),
-                        shuffling_id: ShufflingId::from_components(Epoch::new(0), Hash256::zero()),
+                        current_epoch_shuffling_id: ShufflingId::from_components(
+                            Epoch::new(0),
+                            Hash256::zero(),
+                        ),
+                        next_epoch_shuffling_id: ShufflingId::from_components(
+                            Epoch::new(0),
+                            Hash256::zero(),
+                        ),
                         justified_epoch,
                         finalized_epoch,
                     };
