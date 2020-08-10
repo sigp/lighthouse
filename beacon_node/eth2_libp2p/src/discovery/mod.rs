@@ -210,7 +210,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Start the discv5 service and obtain an event stream
         let event_stream = if !config.disable_discovery {
-            discv5.start(listen_socket);
+            discv5.start(listen_socket).map_err(|e| e.to_string())?;
             debug!(log, "Discovery service started");
             EventStream::Awaiting(Box::pin(discv5.event_stream()))
         } else {
