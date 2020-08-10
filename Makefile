@@ -39,9 +39,9 @@ build-x86_64:
 build-x86_64-portable:
 	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features portable
 build-aarch64:
-	cross build --release --target --manifest-path lighthouse/Cargo.toml aarch64-unknown-linux-gnu
+	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu
 build-aarch64-portable:
-	cross build --release --target --manifest-path lighthouse/Cargo.toml aarch64-unknown-linux-gnu --features portable
+	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
