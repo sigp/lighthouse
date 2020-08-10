@@ -1418,7 +1418,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signed_block = fully_verified_block.block;
         let block = &signed_block.message;
         let block_root = fully_verified_block.block_root;
-        let state = fully_verified_block.state;
+        let mut state = fully_verified_block.state;
         let current_slot = self.slot()?;
         let mut ops = fully_verified_block.intermediate_states;
 
@@ -1462,7 +1462,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .contains(&shuffling_id);
 
             if !shuffling_is_cached {
-                let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
+                state.build_committee_cache(*relative_epoch, &self.spec)?;
+                let committee_cache = state.committee_cache(*relative_epoch)?;
                 self.shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                     .ok_or_else(|| Error::AttestationCacheLockTimeout)?
