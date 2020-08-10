@@ -24,7 +24,6 @@ use types::{
     RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
     SubnetId, Validator,
 };
-use version;
 
 type E = MinimalEthSpec;
 
@@ -764,7 +763,11 @@ fn get_version() {
         .block_on(remote_node.http.node().get_version())
         .expect("should fetch eth2 config from http api");
 
-    assert_eq!(version::version(), version, "result should be as expected");
+    assert_eq!(
+        lighthouse_version::version_with_platform(),
+        version,
+        "result should be as expected"
+    );
 }
 
 #[test]

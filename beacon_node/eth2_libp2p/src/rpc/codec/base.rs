@@ -174,7 +174,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::ssz::*;
     use super::super::ssz_snappy::*;
     use super::*;
     use crate::rpc::protocol::*;
@@ -189,29 +188,22 @@ mod tests {
 
         let snappy_protocol_id =
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
-        let ssz_protocol_id = ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZ);
 
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
-        let mut ssz_outbound_codec = SSZOutboundCodec::<Spec>::new(ssz_protocol_id, 1_048_576);
 
         // decode message just as snappy message
         let snappy_decoded_message = snappy_outbound_codec.decode(&mut buf.clone());
         // decode message just a ssz message
-        let ssz_decoded_message = ssz_outbound_codec.decode(&mut buf.clone());
 
         // build codecs for entire chunk
         let mut snappy_base_outbound_codec = BaseOutboundCodec::new(snappy_outbound_codec);
-        let mut ssz_base_outbound_codec = BaseOutboundCodec::new(ssz_outbound_codec);
 
         // decode message as ssz snappy chunk
         let snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf.clone());
         // decode message just a ssz chunk
-        let ssz_decoded_chunk = ssz_base_outbound_codec.decode(&mut buf.clone());
 
         let _ = dbg!(snappy_decoded_message);
-        let _ = dbg!(ssz_decoded_message);
         let _ = dbg!(snappy_decoded_chunk);
-        let _ = dbg!(ssz_decoded_chunk);
     }
 }

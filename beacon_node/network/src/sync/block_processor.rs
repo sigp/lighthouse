@@ -6,7 +6,7 @@ use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
-use types::SignedBeaconBlock;
+use types::{EthSpec, SignedBeaconBlock};
 
 /// Id associated to a block processing request, either a batch or a single block.
 #[derive(Clone, Debug, PartialEq)]
@@ -178,12 +178,18 @@ fn run_fork_choice<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>, log: &slog::
 }
 
 /// Helper function to handle a `BlockError` from `process_chain_segment`
-fn handle_failed_chain_segment(error: BlockError, log: &slog::Logger) -> Result<(), String> {
+fn handle_failed_chain_segment<T: EthSpec>(
+    error: BlockError<T>,
+    log: &slog::Logger,
+) -> Result<(), String> {
     match error {
-        BlockError::ParentUnknown(parent) => {
+        BlockError::ParentUnknown(block) => {
             // blocks should be sequential and all parents should exist
 
-            Err(format!("Block has an unknown parent: {}", parent))
+            Err(format!(
+                "Block has an unknown parent: {}",
+                block.parent_root()
+            ))
         }
         BlockError::BlockIsAlreadyKnown => {
             // This can happen for many reasons. Head sync's can download multiples and parent

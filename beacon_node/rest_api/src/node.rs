@@ -2,13 +2,14 @@ use crate::response_builder::ResponseBuilder;
 use crate::{ApiError, ApiResult};
 use eth2_libp2p::{types::SyncState, NetworkGlobals};
 use hyper::{Body, Request};
+use lighthouse_version::version_with_platform;
 use rest_types::{Health, SyncingResponse, SyncingStatus};
 use std::sync::Arc;
 use types::{EthSpec, Slot};
 
 /// Read the version string from the current Lighthouse build.
 pub fn get_version(req: Request<Body>) -> ApiResult {
-    ResponseBuilder::new(&req)?.body_no_ssz(&version::version())
+    ResponseBuilder::new(&req)?.body_no_ssz(&version_with_platform())
 }
 
 pub fn syncing<T: EthSpec>(
