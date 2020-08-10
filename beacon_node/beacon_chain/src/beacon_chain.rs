@@ -70,7 +70,6 @@ pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 /// The result of a chain segment processing.
-#[derive(Debug)]
 pub enum ChainSegmentResult<T: EthSpec> {
     /// Processing this chain segment finished successfully.
     Successful { imported_blocks: usize },
@@ -1310,7 +1309,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 debug!(
                     self.log,
                     "Rejected gossip block";
-                    "error" => format!("{:?}", e),
+                    "error" => e.to_string(),
                     "graffiti" => graffiti_string,
                     "slot" => slot,
                 );
@@ -1393,11 +1392,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 trace!(
                     self.log,
                     "Beacon block rejected";
-                    "reason" => format!("{:?}", other),
+                    "reason" => other.to_string(),
                 );
 
                 let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
-                    reason: format!("Invalid block: {:?}", other),
+                    reason: format!("Invalid block: {}", other),
                     block: Box::new(block),
                 });
 

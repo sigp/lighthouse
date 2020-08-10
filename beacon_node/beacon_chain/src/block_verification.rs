@@ -199,6 +199,17 @@ pub enum BlockError<T: EthSpec> {
     BeaconChainError(BeaconChainError),
 }
 
+impl<T: EthSpec> std::fmt::Display for BlockError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockError::ParentUnknown(block) => {
+                write!(f, "ParentUnknown(parent_root:{})", block.parent_root())
+            }
+            other => write!(f, "{:?}", other),
+        }
+    }
+}
+
 impl<T: EthSpec> From<BlockSignatureVerifierError> for BlockError<T> {
     fn from(e: BlockSignatureVerifierError) -> Self {
         match e {
