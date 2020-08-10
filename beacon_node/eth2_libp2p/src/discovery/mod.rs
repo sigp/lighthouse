@@ -56,7 +56,7 @@ const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
 /// Interval duration for how often we should process queued queries.
-const QUERY_INTERVAL_DURATION: Duration = Duration::from_secs(5);
+const QUERY_INTERVAL_DURATION: Duration = Duration::from_secs(2);
 
 /// The events emitted by polling discovery.
 pub enum DiscoveryEvent {
@@ -270,12 +270,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if !self.started {
             return;
         }
+        debug!(
+            self.log,
+            "Making discovery query for subnets";
+            "subnets" => format!("{:?}", subnets_to_discover)
+        );
         for subnet in subnets_to_discover {
-            debug!(
-                self.log,
-                "Making discovery query for subnet";
-                "subnet_id" => format!("{:?}", subnet)
-            );
             self.add_subnet_query(subnet.subnet_id, subnet.min_ttl, 0);
         }
     }

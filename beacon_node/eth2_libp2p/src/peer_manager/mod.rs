@@ -50,7 +50,6 @@ const PEER_EXCESS_FACTOR: f32 = 0.1;
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
 /// A subnet to discover peers on along with the instant after which it's no longer useful.
-// TODO(pawan): rename to something better
 #[derive(Debug, Clone)]
 pub struct SubnetDiscovery {
     pub subnet_id: SubnetId,
