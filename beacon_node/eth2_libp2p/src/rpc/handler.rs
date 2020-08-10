@@ -348,15 +348,20 @@ where
         // Check that we don't have outbound items pending for dialing, nor dialing, nor
         // established. Also check that there are no established inbound substreams.
         // Errors and events need to be reported back, so check those too.
-        let should_shutdown = if let HandlerState::ShuttingDown(_) = self.state {
-            self.dial_queue.is_empty()
-                && self.outbound_substreams.is_empty()
-                && self.inbound_substreams.is_empty()
-                && self.pending_errors.is_empty()
-                && self.events_out.is_empty()
-                && self.dial_negotiated == 0
-        } else {
-            false
+        let should_shutdown = match self.state {
+            HandlerState::ShuttingDown(_) => {
+                self.dial_queue.is_empty()
+                    && self.outbound_substreams.is_empty()
+                    && self.inbound_substreams.is_empty()
+                    && self.pending_errors.is_empty()
+                    && self.events_out.is_empty()
+                    && self.dial_negotiated == 0
+            }
+            HandlerState::Deactivated => {
+                // Regardless of events, the timeout has expired. Force the disconnect.
+                true
+            }
+            _ => false,
         };
 
         match self.keep_alive {

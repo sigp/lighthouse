@@ -1,35 +1,44 @@
-#[macro_use]
-extern crate clap;
-
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
-use git_version::git_version;
+use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
-pub const VERSION: &str = git_version!(
-    args = ["--always", "--dirty=(modified)"],
-    prefix = concat!(crate_version!(), "-"),
-    fallback = crate_version!()
-);
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
+
+fn bls_library_name() -> &'static str {
+    if cfg!(feature = "portable") {
+        "blst-portable"
+    } else if cfg!(feature = "milagro") {
+        "milagro"
+    } else {
+        "blst"
+    }
+}
 
 fn main() {
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
-        .version(VERSION)
+        .version(VERSION.replace("Lighthouse/", "").as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
+        )
+        .long_version(
+            format!(
+                "{}\n\
+                 BLS Library: {}",
+                 VERSION.replace("Lighthouse/", ""), bls_library_name()
+            ).as_str()
         )
         .arg(
             Arg::with_name("spec")

@@ -258,6 +258,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 /// The code assigned to an erroneous `RPCResponse`.
 #[derive(Debug, Clone, Copy)]
 pub enum RPCResponseErrorCode {
+    RateLimited,
     InvalidRequest,
     ServerError,
     Unknown,
@@ -322,6 +323,7 @@ impl RPCResponseErrorCode {
             RPCResponseErrorCode::InvalidRequest => 1,
             RPCResponseErrorCode::ServerError => 2,
             RPCResponseErrorCode::Unknown => 255,
+            RPCResponseErrorCode::RateLimited => 128,
         }
     }
 }
@@ -332,6 +334,7 @@ impl std::fmt::Display for RPCResponseErrorCode {
             RPCResponseErrorCode::InvalidRequest => "The request was invalid",
             RPCResponseErrorCode::ServerError => "Server error occurred",
             RPCResponseErrorCode::Unknown => "Unknown error occurred",
+            RPCResponseErrorCode::RateLimited => "Rate limited",
         };
         f.write_str(repr)
     }
@@ -363,7 +366,7 @@ impl<T: EthSpec> std::fmt::Display for RPCCodedResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCCodedResponse::Success(res) => write!(f, "{}", res),
-            RPCCodedResponse::Error(code, err) => write!(f, "{}: {:?}", code, err),
+            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err.to_string()),
             RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }

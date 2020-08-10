@@ -819,10 +819,24 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch: Batch<T::EthSpec>,
     ) {
         let request = batch.to_blocks_by_range_request();
-        if let Ok(request_id) = network.blocks_by_range_request(batch.current_peer.clone(), request)
-        {
-            // add the batch to pending list
-            self.pending_batches.insert(request_id, batch);
+
+        match network.blocks_by_range_request(batch.current_peer.clone(), request) {
+            Ok(request_id) => {
+                // add the batch to pending list
+                self.pending_batches.insert(request_id, batch);
+            }
+            Err(e) => {
+                warn!(self.log, "Batch request failed";
+                "chain_id" => self.id,
+                "start_slot" => batch.start_slot,
+                "end_slot" => batch.end_slot -1, // The -1 shows inclusive blocks
+                "id" => *batch.id,
+                "peer" => format!("{}", batch.current_peer),
+                "retries" => batch.retries,
+                "error" => e,
+                "re-processes" =>  batch.reprocess_retries);
+                self.failed_batch(network, batch);
+            }
         }
     }
 }

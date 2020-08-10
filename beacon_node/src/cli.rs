@@ -1,11 +1,5 @@
 use clap::{App, Arg};
 
-// Default text included in blocks.
-// Must be 32-bytes or will not build.
-//
-//                              |-------must be this long------|
-const DEFAULT_GRAFFITI: &str = "sigp/lighthouse-0.1.2-prerelease";
-
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
         .visible_aliases(&["b", "bn", "beacon"])
@@ -248,9 +242,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("graffiti")
                 .long("graffiti")
-                .help("Specify your custom graffiti to be included in blocks.")
+                .help(
+                    "Specify your custom graffiti to be included in blocks. \
+                    Defaults to the current version and commit, truncated to fit in 32 bytes. "
+                )
                 .value_name("GRAFFITI")
-                .default_value(DEFAULT_GRAFFITI)
                 .takes_value(true)
         )
 }

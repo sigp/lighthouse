@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate log;
-
 mod change_genesis_time;
 mod check_deposit_data;
 mod deploy_deposit_contract;
@@ -29,6 +28,7 @@ fn main() {
     simple_logger::init_with_level(Level::Info).expect("logger should initialize");
 
     let matches = App::new("Lighthouse CLI Tool")
+        .version(lighthouse_version::VERSION)
         .about(
             "Performs various testing-related tasks, including defining testnets.",
         )
@@ -439,6 +439,15 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("The directory in which to create the network dir"),
+                )
+                .arg(
+                    Arg::with_name("genesis-fork-version")
+                        .long("genesis-fork-version")
+                        .value_name("HEX")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Used to avoid reply attacks between testnets. Recommended to set to
+                              non-default."),
                 )
         )
         .subcommand(

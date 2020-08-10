@@ -1,13 +1,13 @@
 # Summary
 
 * [Introduction](./intro.md)
-* [Become a Medalla Validator](./become-a-validator.md)
+* [Become a Validator](./become-a-validator.md)
     * [Using Docker](./become-a-validator-docker.md)
     * [Building from Source](./become-a-validator-source.md)
 * [Installation](./installation.md)
     * [Docker](./docker.md)
     * [Raspberry Pi 4](./pi.md)
-* [Key Management](./key-managment.md)
+* [Key Management](./key-management.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
 * [Validator Management](./validator-management.md)

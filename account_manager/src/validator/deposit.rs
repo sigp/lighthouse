@@ -7,6 +7,7 @@ use futures::{
     stream::{FuturesUnordered, StreamExt},
 };
 use slog::{info, Logger};
+use state_processing::per_block_processing::verify_deposit_signature;
 use std::path::PathBuf;
 use tokio::time::{delay_until, Duration, Instant};
 use types::EthSpec;
@@ -135,6 +136,7 @@ where
     <T2 as web3::Transport>::Out: std::marker::Send,
 {
     let web3 = Web3::new(transport);
+    let spec = env.eth2_config.spec.clone();
 
     let deposits_fut = async {
         poll_until_synced(web3.clone(), log.clone()).await?;
@@ -143,6 +145,14 @@ where
             let futures = FuturesUnordered::default();
 
             for (ref mut validator_dir, eth1_deposit_data) in chunk.iter_mut() {
+                verify_deposit_signature(&eth1_deposit_data.deposit_data, &spec).map_err(|e| {
+                    format!(
+                        "Deposit for {:?} fails verification, \
+                         are you using the correct testnet configuration?\nError: {:?}",
+                        eth1_deposit_data.deposit_data.pubkey, e
+                    )
+                })?;
+
                 let web3 = web3.clone();
                 let log = log.clone();
                 futures.push(async move {
