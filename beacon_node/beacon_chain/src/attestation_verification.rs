@@ -724,7 +724,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 ///
 /// If the committee for `attestation` isn't found in the `shuffling_cache`, we will read a state
 /// from disk and then update the `shuffling_cache`.
-pub fn map_attestation_committee<'a, T, F, R>(
+fn map_attestation_committee<'a, T, F, R>(
     chain: &'a BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
     head_block_shuffling_id: &ShufflingId,
