@@ -21,6 +21,20 @@ else
 	cargo install --path lcli --force --locked
 endif
 
+# The following commands use `cross` to build a cross-compile.
+#
+# These commands require that:
+#
+# - `cross` is installed (`cargo install cross`).
+# - Docker is running.
+# - The current user is in the `docker` group.
+#
+# The resulting binaries will be created in the `target/` directory.
+build-x86_64:
+	cross build --release --target x86_64-unknown-linux-gnu
+build-arm64:
+	cross build --release --target aarch64-unknown-linux-gnu
+
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
