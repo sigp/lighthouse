@@ -87,6 +87,37 @@ testnet at
 
 Happy staking!
 
+## Optional: Resuming a node after an extended period of downtime
+
+Barring test networks, when a node is offline for an extended period[^1], it
+is necessary to obtain a state and block hash from another trusted node, in
+order to catch up with the chain in a safe manner.
+
+It's done via querying the trusted node's HTTP API.  `localhost` should be
+substituted with the address (IP or DNS name) of a node that we rely on:
+
+```
+$ curl http://localhost:5052/beacon/weak_subjectivity_checkpoint | json_pp
+{
+   "state_root" : "0xa7e9875cdd78079a3a9ce2e517e5b852ccdf30505c77fe3fd745b512d75fc451",
+   "block_root" : "0x4a46046175b459e68bc79da0d15d988d43681ec66a8e4bb05cc6d5d897eab56c"
+}
+$ curl -H "Accept: application/ssz" 'http://localhost:5052/beacon/block?bare=1&root=0x4a46046175b459e68bc79da0d15d988d43681ec66a8e4bb05cc6d5d897eab56c' >block.ssz
+$ curl -H "Accept: application/ssz" 'http://localhost:5052/beacon/state?bare=1&root=0xa7e9875cdd78079a3a9ce2e517e5b852ccdf30505c77fe3fd745b512d75fc451' >state.ssz
+```
+
+Note the `bare` parameter in the URLs.  If not used, the output will be
+malformed and lighthouse will complain at startup.
+
+The files `block.ssz` and `state.ssz` should be copied onto a local machine
+and their paths should be passed to Lighthouse at the command line:
+
+```
+$ lighthouse beacon --weakly-subjective-state=state.ssz --weakly-subjective-block=block.ssz
+```
+
+[^1]: See https://notes.ethereum.org/@adiasg/weak-subjectvity-eth2 for exact values
+
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
