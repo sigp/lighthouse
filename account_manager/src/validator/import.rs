@@ -211,7 +211,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
                 .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         defs.push(validator_def);
-        
+
         defs.save(&validator_dir)
             .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
 
