@@ -743,8 +743,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
                 .peer_info(peer_id)
                 .map_or(true, |i| !i.has_future_duty())
         {
-            //If we are at our peer limit and we don't need the peer for a future validator
-            //duty, send goodbye with reason TooManyPeers
+            // If we are at our peer limit and we don't need the peer for a future validator
+            // duty, send goodbye with reason TooManyPeers
             Some(GoodbyeReason::TooManyPeers)
         } else {
             None

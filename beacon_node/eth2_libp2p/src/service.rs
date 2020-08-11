@@ -102,6 +102,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .notify_handler_buffer_size(std::num::NonZeroUsize::new(32).expect("Not zero"))
                 .connection_event_buffer_size(64)
                 .incoming_connection_limit(10)
+                .outgoing_connection_limit(config.target_peers * 2)
                 .peer_connection_limit(MAX_CONNECTIONS_PER_PEER)
                 .executor(Box::new(Executor(executor)))
                 .build()
