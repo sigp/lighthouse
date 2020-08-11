@@ -92,7 +92,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Local ENR must have subnet bitfield");
 
         let meta_data = MetaData {
-            seq_number: 1,
+            seq_number: 0,
             attnets,
         };
 
