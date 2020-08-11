@@ -4,7 +4,7 @@ pub use self::peerdb::*;
 use crate::discovery::{Discovery, DiscoveryEvent};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
-use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId};
+use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
@@ -19,7 +19,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId};
+use types::EthSpec;
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -47,31 +47,6 @@ const HEARTBEAT_INTERVAL: u64 = 30;
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
 const PEER_EXCESS_FACTOR: f32 = 0.1;
-const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
-
-/// A subnet to discover peers on along with the instant after which it's no longer useful.
-#[derive(Debug, Clone)]
-pub struct SubnetDiscovery {
-    pub subnet_id: SubnetId,
-    pub min_ttl: Option<Instant>,
-}
-
-impl PartialEq for SubnetDiscovery {
-    fn eq(&self, other: &SubnetDiscovery) -> bool {
-        self.subnet_id == other.subnet_id
-            && match (self.min_ttl, other.min_ttl) {
-                (Some(min_ttl_instant), Some(other_min_ttl_instant)) => {
-                    min_ttl_instant.saturating_duration_since(other_min_ttl_instant)
-                        < DURATION_DIFFERENCE
-                        && other_min_ttl_instant.saturating_duration_since(min_ttl_instant)
-                            < DURATION_DIFFERENCE
-                }
-                (None, None) => true,
-                (None, Some(_)) => true,
-                (Some(_), None) => true,
-            }
-    }
-}
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
