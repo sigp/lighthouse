@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.10.4", features = ["json"] }
+reqwest = { version = "0.10.4", features = ["json", "native-tls-vendored"] }
 url = "2.1.1"
 serde = "1.0.110"
 futures = "0.3.5"
