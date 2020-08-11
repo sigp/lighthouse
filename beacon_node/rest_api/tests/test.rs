@@ -460,7 +460,7 @@ fn validator_block_post() {
             remote_node
                 .http
                 .validator()
-                .produce_block(slot, randao_reveal),
+                .produce_block(slot, randao_reveal, None),
         )
         .expect("should fetch block from http api");
 
@@ -547,7 +547,7 @@ fn validator_block_get() {
             remote_node
                 .http
                 .validator()
-                .produce_block(slot, randao_reveal.clone()),
+                .produce_block(slot, randao_reveal.clone(), None),
         )
         .expect("should fetch block from http api");
 
@@ -555,7 +555,50 @@ fn validator_block_get() {
         .client
         .beacon_chain()
         .expect("client should have beacon chain")
-        .produce_block(randao_reveal, slot)
+        .produce_block(randao_reveal, slot, None)
+        .expect("should produce block");
+
+    assert_eq!(
+        block, expected_block,
+        "the block returned from the API should be as expected"
+    );
+}
+
+#[test]
+fn validator_block_get_with_graffiti() {
+    let mut env = build_env();
+
+    let spec = &E::default_spec();
+
+    let node = build_node(&mut env, testing_client_config());
+    let remote_node = node.remote_node().expect("should produce remote node");
+
+    let beacon_chain = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain");
+
+    let slot = Slot::new(1);
+    let randao_reveal = get_randao_reveal(beacon_chain, slot, spec);
+
+    let block = env
+        .runtime()
+        .block_on(remote_node.http.validator().produce_block(
+            slot,
+            randao_reveal.clone(),
+            Some(*b"test-graffiti-test-graffiti-test"),
+        ))
+        .expect("should fetch block from http api");
+
+    let (expected_block, _state) = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain")
+        .produce_block(
+            randao_reveal,
+            slot,
+            Some(*b"test-graffiti-test-graffiti-test"),
+        )
         .expect("should produce block");
 
     assert_eq!(
