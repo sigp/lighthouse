@@ -5,7 +5,7 @@ If you don't have Rust installed already, visit [rustup.rs](https://rustup.rs/) 
 
 > Notes:
 >   - If you're not familiar with Rust or you'd like more detailed instructions, see our  [installation guide](./installation.md).
->   - Windows is presently only supported via [WSL](target/aarch64-unknown-linux-gnu).
+>   - Windows is presently only supported via [WSL](https://docs.microsoft.com/en-us/windows/wsl/about).
 
 
 ## 1. Download and install Lighthouse

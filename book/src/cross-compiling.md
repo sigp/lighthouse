@@ -1,6 +1,6 @@
 # Cross-compiling
 
-Lighthouse supports cross-compiling, allowing users to run a binary one
+Lighthouse supports cross-compiling, allowing users to run a binary on one
 platform (e.g., `aarch64`) that was compiled on another platform (e.g.,
 `x86_64`).
 
