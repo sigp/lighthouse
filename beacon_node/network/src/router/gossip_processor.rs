@@ -307,8 +307,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
         let network_tx = self.network_tx.clone();
         let sync_tx = self.sync_tx.clone();
         let log = self.log.clone();
+        let executor = self.executor.clone();
 
-        self.executor.spawn_blocking(
+        executor.spawn_blocking(
             move || {
                 let _worker_timer = worker_timer;
 
