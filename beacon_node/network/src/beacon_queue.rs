@@ -98,25 +98,16 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
         let (event_tx, mut event_rx) = mpsc::channel::<Event<T::EthSpec>>(MAX_WORK_QUEUE_LEN);
         let mut block_queue: Queue<SignedBeaconBlock<T::EthSpec>> =
             Queue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
-        let current_workers = AtomicUsize::default();
+        let mut current_workers = 0;
         let max_workers = self.max_workers;
 
         self.executor.spawn(
             async move {
                 while let Some(event) = event_rx.recv().await {
-                    let should_spawn = current_workers
-                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current_workers| {
-                            Some(current_workers + 1)
-                                // Don't update the variable if it will set us above max workers.
-                                .filter(|workers| *workers <= max_workers)
-                                // Don't update the variable if there's nothing to do.
-                                .filter(|_| event.is_work() || !block_queue.is_empty())
-                        })
-                        // `fetch_update` only returns `Ok` if the value was updated.
-                        .is_ok();
+                    let can_spawn = current_workers < max_workers;
 
                     match event {
-                        Event::WorkerIdle if should_spawn => {
+                        Event::WorkerIdle if can_spawn => {
                             if let Some(block) = block_queue.pop() {
                                 todo!("create block task")
                             }
@@ -127,7 +118,7 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                             peer_id,
                             work,
                         } => match work {
-                            Work::Block(block) if should_spawn => todo!("create block task"),
+                            Work::Block(block) if can_spawn => todo!("create block task"),
                             Work::Block(block) => block_queue.push(QueueItem {
                                 message_id,
                                 peer_id,
