@@ -112,7 +112,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_globals,
             enr_fork_id,
             waker: None,
-            network_dir: PathBuf::from(net_conf.network_dir.clone()),
+            network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
         })
     }
@@ -1049,7 +1049,7 @@ fn load_or_build_metadata<E: EthSpec>(network_dir: &PathBuf, log: &slog::Logger)
     let metadata_path = network_dir.join(METADATA_FILENAME);
     if let Ok(mut metadata_file) = File::open(metadata_path) {
         let mut metadata_ssz = Vec::new();
-        if let Ok(_) = metadata_file.read_to_end(&mut metadata_ssz) {
+        if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
             match MetaData::<E>::from_ssz_bytes(&metadata_ssz) {
                 Ok(persisted_metadata) => {
                     meta_data.seq_number = persisted_metadata.seq_number;
