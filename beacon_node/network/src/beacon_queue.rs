@@ -116,15 +116,13 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
 
                     match event {
                         Event::WorkerIdle => {
-                            if can_spawn {
-                                if let Some(item) = attestation_queue.pop() {
-                                    self.spawn_worker(
-                                        inner_event_tx.clone(),
-                                        item.message_id,
-                                        item.peer_id,
-                                        Work::Attestation(item.item),
-                                    );
-                                }
+                            if let Some(item) = attestation_queue.pop() {
+                                self.spawn_worker(
+                                    inner_event_tx.clone(),
+                                    item.message_id,
+                                    item.peer_id,
+                                    Work::Attestation(item.item),
+                                );
                             }
                         }
                         Event::Work {
@@ -144,6 +142,10 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                     }
 
                     metrics::set_gauge(
+                        &metrics::GOSSIP_PROCESSOR_WORKERS_ACTIVE_TOTAL,
+                        self.current_workers as i64,
+                    );
+                    metrics::set_gauge(
                         &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
                         attestation_queue.len() as i64,
                     );
@@ -152,7 +154,7 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         error!(
                             self.log,
                             "Attestation queue full";
-                            "msg" => "this occurs when the system has insufficient resources",
+                            "msg" => "the system has insufficient resources for load",
                             "queue_len" => attestation_queue.max_length,
                         )
                     }
@@ -171,7 +173,8 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
         peer_id: PeerId,
         work: Work<T::EthSpec>,
     ) {
-        let _attestation_timer = metrics::start_timer(&metrics::GOSSIP_PROCESSOR_WORKER_TIME);
+        let _worker_timer = metrics::start_timer(&metrics::GOSSIP_PROCESSOR_WORKER_TIME);
+        metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORKERS_SPAWNED_TOTAL);
 
         let _ = self.current_workers.saturating_add(1);
         let chain = self.beacon_chain.clone();

@@ -48,8 +48,12 @@ lazy_static! {
     /*
      * Gossip processor
      */
-    pub static ref GOSSIP_PROCESSOR_WORKERS_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "gossip_processor_workers_total",
+    pub static ref GOSSIP_PROCESSOR_WORKERS_SPAWNED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "gossip_processor_workers_spawned_total",
+        "The number of workers ever spawned by the gossip processing pool."
+    );
+    pub static ref GOSSIP_PROCESSOR_WORKERS_ACTIVE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "gossip_processor_workers_active_total",
         "Count of active workers in the gossip processing pool."
     );
     pub static ref GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
