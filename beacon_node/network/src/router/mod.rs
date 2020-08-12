@@ -215,14 +215,8 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
-                if let Some(gossip_verified) = self
-                    .processor
-                    .verify_aggregated_attestation_for_gossip(peer_id.clone(), *aggregate_and_proof)
-                {
-                    self.propagate_message(id, peer_id.clone());
-                    self.processor
-                        .import_aggregated_attestation(peer_id, gossip_verified);
-                }
+                self.processor
+                    .on_aggregated_attestation_gossip(id, peer_id, *aggregate_and_proof);
             }
             PubsubMessage::Attestation(subnet_attestation) => {
                 self.processor.on_unaggregated_attestation_gossip(

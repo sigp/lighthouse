@@ -9,10 +9,11 @@ use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Attestation, EthSpec, Hash256, SubnetId};
+use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
 const MAX_WORK_QUEUE_LEN: usize = 65_535;
-const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
+const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 16_384;
+const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
 const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
 
@@ -79,11 +80,24 @@ impl<E: EthSpec> Event<E> {
             work: Work::Attestation((attestation, subnet_id, should_import)),
         }
     }
+
+    pub fn aggregated_attestation(
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: SignedAggregateAndProof<E>,
+    ) -> Self {
+        Event::Work {
+            message_id,
+            peer_id,
+            work: Work::Aggregate(aggregate),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Work<E: EthSpec> {
     Attestation((Attestation<E>, SubnetId, bool)),
+    Aggregate(SignedAggregateAndProof<E>),
 }
 
 pub struct BeaconGossipProcessor<T: BeaconChainTypes> {
@@ -100,6 +114,7 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
     pub fn spawn_manager(mut self) -> mpsc::Sender<Event<T::EthSpec>> {
         let (event_tx, mut event_rx) = mpsc::channel::<Event<T::EthSpec>>(MAX_WORK_QUEUE_LEN);
         let mut attestation_queue = Queue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
+        let mut aggregate_queue = Queue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
         let inner_event_tx = event_tx.clone();
 
         self.executor.clone().spawn(
@@ -116,7 +131,17 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
 
                     match event {
                         Event::WorkerIdle => {
-                            if let Some(item) = attestation_queue.pop() {
+                            // Check the aggregates, *then* the unaggregates since we assume that
+                            // aggregates are more valuable to local validators and effectively
+                            // give us more information with less signature verification time.
+                            if let Some(item) = aggregate_queue.pop() {
+                                self.spawn_worker(
+                                    inner_event_tx.clone(),
+                                    item.message_id,
+                                    item.peer_id,
+                                    Work::Aggregate(item.item),
+                                );
+                            } else if let Some(item) = attestation_queue.pop() {
                                 self.spawn_worker(
                                     inner_event_tx.clone(),
                                     item.message_id,
@@ -138,6 +163,14 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                                 peer_id,
                                 item: attestation,
                             }),
+                            Work::Aggregate(_) if can_spawn => {
+                                self.spawn_worker(inner_event_tx.clone(), message_id, peer_id, work)
+                            }
+                            Work::Aggregate(aggregate) => aggregate_queue.push(QueueItem {
+                                message_id,
+                                peer_id,
+                                item: aggregate,
+                            }),
                         },
                     }
 
@@ -149,8 +182,21 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
                         attestation_queue.len() as i64,
                     );
+                    metrics::set_gauge(
+                        &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
+                        aggregate_queue.len() as i64,
+                    );
 
                     // TODO: rate limit the logs below.
+
+                    if aggregate_queue.is_full() {
+                        error!(
+                            self.log,
+                            "Aggregate attestation queue full";
+                            "msg" => "the system has insufficient resources for load",
+                            "queue_len" => aggregate_queue.max_length,
+                        )
+                    }
 
                     if attestation_queue.is_full() {
                         error!(
@@ -192,6 +238,9 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                 // `WorkerIdle` message from sending.
                 let handler = || {
                     match work {
+                        /*
+                         * Unaggregated attestation verification.
+                         */
                         Work::Attestation((attestation, subnet_id, should_import)) => {
                             let _attestation_timer = metrics::start_timer(
                                 &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME,
@@ -250,6 +299,76 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                                         "beacon_block_root" => format!("{:?}", beacon_block_root)
                                     ),
                                 }
+                            }
+                        }
+                        /*
+                         * Aggregated attestation verification.
+                         */
+                        Work::Aggregate(aggregate) => {
+                            let _attestation_timer = metrics::start_timer(
+                                &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_WORKER_TIME,
+                            );
+                            metrics::inc_counter(
+                                &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL,
+                            );
+
+                            let beacon_block_root =
+                                aggregate.message.aggregate.data.beacon_block_root;
+
+                            let aggregate = if let Ok(aggregate) = chain
+                                .verify_aggregated_attestation_for_gossip(aggregate)
+                                .map_err(|e| {
+                                    handle_attestation_verification_failure(
+                                        &log,
+                                        sync_tx,
+                                        peer_id.clone(),
+                                        beacon_block_root,
+                                        "aggregated",
+                                        e,
+                                    )
+                                }) {
+                                aggregate
+                            } else {
+                                return;
+                            };
+
+                            // Indicate to the `Network` service that this message is valid and can be
+                            // propagated on the gossip network.
+                            propagate_gossip_message(network_tx, message_id, peer_id.clone(), &log);
+
+                            metrics::inc_counter(
+                                &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                            );
+
+                            if let Err(e) = chain.apply_attestation_to_fork_choice(&aggregate) {
+                                match e {
+                                    BeaconChainError::ForkChoiceError(
+                                        ForkChoiceError::InvalidAttestation(e),
+                                    ) => debug!(
+                                        log,
+                                        "Aggregate invalid for fork choice";
+                                        "reason" => format!("{:?}", e),
+                                        "peer" => peer_id.to_string(),
+                                        "beacon_block_root" => format!("{:?}", beacon_block_root)
+                                    ),
+                                    e => error!(
+                                        log,
+                                        "Error applying aggregate to fork choice";
+                                        "reason" => format!("{:?}", e),
+                                        "peer" => peer_id.to_string(),
+                                        "beacon_block_root" => format!("{:?}", beacon_block_root)
+                                    ),
+                                }
+                            }
+
+                            if let Err(e) = chain.add_to_block_inclusion_pool(aggregate) {
+                                debug!(
+                                    log,
+                                    "Attestation invalid for op pool";
+                                    "reason" => format!("{:?}", e),
+                                    "peer" => peer_id.to_string(),
+                                    "beacon_block_root" => format!("{:?}", beacon_block_root)
+                                )
                             }
                         }
                     };
