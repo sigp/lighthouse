@@ -202,11 +202,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
     ) {
-        if let Err(e) = process_finalization(self.db.clone(), state_root, &new_finalized_state) {
-            // This migrator is only used for testing, so we just log to stderr without a logger.
-            eprintln!("Migration error: {:?}", e);
-        }
-
         if let Err(e) = Self::prune_abandoned_forks(
             self.db.clone(),
             head_tracker,
@@ -215,6 +210,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
             new_finalized_state.slot,
         ) {
             eprintln!("Pruning error: {:?}", e);
+        }
+
+        if let Err(e) = process_finalization(self.db.clone(), state_root, &new_finalized_state) {
+            // This migrator is only used for testing, so we just log to stderr without a logger.
+            eprintln!("Migration error: {:?}", e);
         }
     }
 }
@@ -325,6 +325,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 new_finalized_slot,
             )) = rx.recv()
             {
+                match Self::prune_abandoned_forks(
+                    db.clone(),
+                    head_tracker,
+                    old_finalized_block_hash,
+                    new_finalized_block_hash,
+                    new_finalized_slot,
+                ) {
+                    Ok(()) => {}
+                    Err(e) => warn!(log, "Block pruning failed: {:?}", e),
+                }
+
                 match process_finalization(db.clone(), state_root, &state) {
                     Ok(()) => {}
                     Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
@@ -342,17 +353,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                         );
                     }
                 };
-
-                match Self::prune_abandoned_forks(
-                    db.clone(),
-                    head_tracker,
-                    old_finalized_block_hash,
-                    new_finalized_block_hash,
-                    new_finalized_slot,
-                ) {
-                    Ok(()) => {}
-                    Err(e) => warn!(log, "Block pruning failed: {:?}", e),
-                }
             }
         });
 

@@ -743,7 +743,7 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let (stray_blocks, stray_states, _, stray_head, _) = harness.add_stray_blocks(
         harness.get_head_state(),
         slot,
-        slots_per_epoch - 1,
+        slots_per_epoch - 3,
         &faulty_validators,
     );
 
