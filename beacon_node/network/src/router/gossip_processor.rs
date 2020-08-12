@@ -188,8 +188,8 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
     /// error for an upstream caller to send a `WorkerIdle` message.
     pub fn spawn_manager(mut self) -> mpsc::Sender<Event<T::EthSpec>> {
         let (event_tx, mut event_rx) = mpsc::channel::<Event<T::EthSpec>>(MAX_WORK_QUEUE_LEN);
-        let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut aggregate_queue = LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
+        let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let inner_event_tx = event_tx.clone();
         let executor = self.executor.clone();
 
@@ -198,12 +198,15 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                 while let Some(event) = event_rx.recv().await {
                     let _event_timer =
                         metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
+                    metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_EVENTS_TOTAL);
 
                     if event == Event::WorkerIdle {
                         self.current_workers = self.current_workers.saturating_sub(1);
                     }
 
                     let can_spawn = self.current_workers < self.max_workers;
+                    let initial_aggregate_queue_len = aggregate_queue.len();
+                    let initial_attestation_queue_len = attestation_queue.len();
 
                     match event {
                         Event::WorkerIdle => {
@@ -263,9 +266,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         aggregate_queue.len() as i64,
                     );
 
-                    // TODO: rate limit the logs below.
-
-                    if aggregate_queue.is_full() {
+                    if initial_aggregate_queue_len != aggregate_queue.len()
+                        && aggregate_queue.is_full()
+                    {
                         error!(
                             self.log,
                             "Aggregate attestation queue full";
@@ -274,7 +277,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         )
                     }
 
-                    if attestation_queue.is_full() {
+                    if initial_attestation_queue_len != attestation_queue.len()
+                        && attestation_queue.is_full()
+                    {
                         error!(
                             self.log,
                             "Attestation queue full";

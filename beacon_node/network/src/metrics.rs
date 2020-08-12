@@ -56,6 +56,10 @@ lazy_static! {
         "gossip_processor_workers_active_total",
         "Count of active workers in the gossip processing pool."
     );
+    pub static ref GOSSIP_PROCESSOR_EVENTS_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "gossip_processor_events_total",
+        "Count of events processed by the gossip processor manager."
+    );
     pub static ref GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS: Result<Histogram> = try_create_histogram(
         "gossip_processor_event_handling_seconds",
         "Time spend handling a new message and allocating it to a queue or worker."
