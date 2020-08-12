@@ -44,4 +44,36 @@ lazy_static! {
         "network_subnet_subscriptions_aggregator_total",
         "Count of validator subscription requests where the subscriber is an aggregator."
     );
+
+    /*
+     * Gossip processor
+     */
+    pub static ref GOSSIP_PROCESSOR_WORKERS_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "gossip_processor_workers_total",
+        "Count of active workers in the gossip processing pool."
+    );
+    pub static ref GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "gossip_processor_unaggregated_attestation_queue_total",
+        "Count of unagg. attestations waiting to be processed."
+    );
+    pub static ref GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS: Result<Histogram> = try_create_histogram(
+        "gossip_processor_event_handling_seconds",
+        "Time spend handling a new message and allocating it to a queue or worker."
+    );
+    pub static ref GOSSIP_PROCESSOR_WORKER_TIME: Result<Histogram> = try_create_histogram(
+        "gossip_processor_worker_time",
+        "Time taken for a worker to fully process some parcel of work."
+    );
+    pub static ref GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME: Result<Histogram> = try_create_histogram(
+        "gossip_processor_unaggregated_attestation_worker_time",
+        "Time taken for a worker to fully process an unaggregated attestation."
+    );
+    pub static ref GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "gossip_processor_unaggregated_attestation_verified_total",
+        "Total number of unaggregated attestations verified for gossip."
+    );
+    pub static ref GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "gossip_processor_unaggregated_attestation_imported_total",
+        "Total number of unaggregated attestations imported to fork choice, etc."
+    );
 }

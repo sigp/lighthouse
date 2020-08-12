@@ -1,4 +1,4 @@
-use crate::{service::NetworkMessage, sync::SyncMessage};
+use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     ForkChoiceError,
@@ -44,6 +44,14 @@ impl<T> Queue<T> {
 
     pub fn pop(&mut self) -> Option<QueueItem<T>> {
         self.queue.pop_front()
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.queue.len() >= self.max_length
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
     }
 }
 
@@ -97,11 +105,17 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
         self.executor.clone().spawn(
             async move {
                 while let Some(event) = event_rx.recv().await {
+                    let _event_timer =
+                        metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
+
+                    if event == Event::WorkerIdle {
+                        let _ = self.current_workers.saturating_sub(1);
+                    }
+
                     let can_spawn = self.current_workers < self.max_workers;
 
                     match event {
                         Event::WorkerIdle => {
-                            let _ = self.current_workers.saturating_sub(1);
                             if can_spawn {
                                 if let Some(item) = attestation_queue.pop() {
                                     self.spawn_worker(
@@ -110,7 +124,6 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                                         item.peer_id,
                                         Work::Attestation(item.item),
                                     );
-                                    return;
                                 }
                             }
                         }
@@ -129,6 +142,20 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                             }),
                         },
                     }
+
+                    metrics::set_gauge(
+                        &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
+                        attestation_queue.len() as i64,
+                    );
+
+                    if attestation_queue.is_full() {
+                        error!(
+                            self.log,
+                            "Attestation queue full";
+                            "msg" => "this occurs when the system has insufficient resources",
+                            "queue_len" => attestation_queue.max_length,
+                        )
+                    }
                 }
             },
             MANAGER_TASK_NAME,
@@ -144,6 +171,8 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
         peer_id: PeerId,
         work: Work<T::EthSpec>,
     ) {
+        let _attestation_timer = metrics::start_timer(&metrics::GOSSIP_PROCESSOR_WORKER_TIME);
+
         let _ = self.current_workers.saturating_add(1);
         let chain = self.beacon_chain.clone();
         let network_tx = self.network_tx.clone();
@@ -154,6 +183,13 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
             move || {
                 match work {
                     Work::Attestation((attestation, subnet_id, should_import)) => {
+                        let _attestation_timer = metrics::start_timer(
+                            &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME,
+                        );
+                        metrics::inc_counter(
+                            &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
+                        );
+
                         let beacon_block_root = attestation.data.beacon_block_root;
 
                         let attestation = if let Ok(attestation) = chain
@@ -180,6 +216,10 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         if !should_import {
                             return;
                         }
+
+                        metrics::inc_counter(
+                            &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                        );
 
                         if let Err(e) = chain.apply_attestation_to_fork_choice(&attestation) {
                             match e {
