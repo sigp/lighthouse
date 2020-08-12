@@ -42,7 +42,6 @@
 use super::chain::{ChainId, ProcessingResult};
 use super::chain_collection::{ChainCollection, RangeSyncState};
 use super::sync_type::RangeSyncType;
-use super::BatchId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
@@ -54,7 +53,7 @@ use slog::{debug, error, trace};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{EthSpec, SignedBeaconBlock};
+use types::{Epoch, EthSpec, SignedBeaconBlock};
 
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
@@ -161,7 +160,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     .chains
                     .get_finalized_mut(remote_info.finalized_root, remote_finalized_slot)
                 {
-                    debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => format!("{:?}", peer_id), "target_root" => format!("{}", chain.target_head_root), "end_slot" => chain.target_head_slot, "start_epoch"=> chain.start_epoch);
+                    debug!(self.log, "Finalized chain exists, adding peer"; "peer_id" => peer_id.to_string(), "target_root" => chain.target_head_root.to_string(), "targe_slot" => chain.target_head_slot);
 
                     // add the peer to the chain's peer pool
                     chain.add_peer(network, peer_id);
@@ -271,7 +270,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
         chain_id: ChainId,
-        batch_id: BatchId,
+        epoch: Epoch,
         downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
         result: BatchProcessResult,
     ) {
@@ -279,13 +278,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         let mut downloaded_blocks = Some(downloaded_blocks);
 
         match self.chains.finalized_request(|chain| {
-            chain.on_batch_process_result(
-                network,
-                chain_id,
-                batch_id,
-                &mut downloaded_blocks,
-                &result,
-            )
+            chain.on_batch_process_result(network, chain_id, epoch, &mut downloaded_blocks, &result)
         }) {
             Some((index, ProcessingResult::RemoveChain)) => {
                 let chain = self.chains.remove_finalized_chain(index);
@@ -319,7 +312,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     chain.on_batch_process_result(
                         network,
                         chain_id,
-                        batch_id,
+                        epoch,
                         &mut downloaded_blocks,
                         &result,
                     )
@@ -339,7 +332,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     None => {
                         // This can happen if a chain gets purged due to being out of date whilst a
                         // batch process is in progress.
-                        debug!(self.log, "No chains match the block processing id"; "id" => *batch_id);
+                        debug!(self.log, "No chains match the block processing id"; "batch_epoch" => epoch, "chain_id" => chain_id);
                     }
                 }
             }

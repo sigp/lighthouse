@@ -9,7 +9,7 @@ use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{types::SyncState, NetworkGlobals, PeerId};
-use slog::{debug, error, info};
+use slog::{debug, error, info, o};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -313,7 +313,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             peer_id,
             beacon_processor_send,
             self.beacon_chain.clone(),
-            self.log.clone(),
+            self.log.new(o!("chain" => chain_id)),
         ));
     }
 

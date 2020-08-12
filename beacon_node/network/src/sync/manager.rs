@@ -35,7 +35,7 @@
 
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
-use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
+use super::range_sync::{ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
@@ -51,7 +51,7 @@ use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -100,7 +100,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
         chain_id: ChainId,
-        batch_id: BatchId,
+        epoch: Epoch,
         downloaded_blocks: Vec<SignedBeaconBlock<T>>,
         result: BatchProcessResult,
     },
@@ -842,14 +842,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                     SyncMessage::BatchProcessed {
                         chain_id,
-                        batch_id,
+                        epoch,
                         downloaded_blocks,
                         result,
                     } => {
                         self.range_sync.handle_block_process_result(
                             &mut self.network,
                             chain_id,
-                            batch_id,
+                            epoch,
                             downloaded_blocks,
                             result,
                         );
