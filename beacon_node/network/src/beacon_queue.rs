@@ -77,7 +77,7 @@ impl<E: EthSpec> Event<E> {
         Event::Work {
             message_id,
             peer_id,
-            work: Work::Attestation((attestation, subnet_id, should_import)),
+            work: Work::Attestation(Box::new((attestation, subnet_id, should_import))),
         }
     }
 
@@ -89,15 +89,15 @@ impl<E: EthSpec> Event<E> {
         Event::Work {
             message_id,
             peer_id,
-            work: Work::Aggregate(aggregate),
+            work: Work::Aggregate(Box::new(aggregate)),
         }
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Work<E: EthSpec> {
-    Attestation((Attestation<E>, SubnetId, bool)),
-    Aggregate(SignedAggregateAndProof<E>),
+    Attestation(Box<(Attestation<E>, SubnetId, bool)>),
+    Aggregate(Box<SignedAggregateAndProof<E>>),
 }
 
 pub struct BeaconGossipProcessor<T: BeaconChainTypes> {
@@ -241,7 +241,9 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         /*
                          * Unaggregated attestation verification.
                          */
-                        Work::Attestation((attestation, subnet_id, should_import)) => {
+                        Work::Attestation(boxed_tuple) => {
+                            let (attestation, subnet_id, should_import) = *boxed_tuple;
+
                             let _attestation_timer = metrics::start_timer(
                                 &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME,
                             );
@@ -304,7 +306,7 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         /*
                          * Aggregated attestation verification.
                          */
-                        Work::Aggregate(aggregate) => {
+                        Work::Aggregate(boxed_aggregate) => {
                             let _attestation_timer = metrics::start_timer(
                                 &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_WORKER_TIME,
                             );
@@ -313,10 +315,10 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                             );
 
                             let beacon_block_root =
-                                aggregate.message.aggregate.data.beacon_block_root;
+                                boxed_aggregate.message.aggregate.data.beacon_block_root;
 
                             let aggregate = if let Ok(aggregate) = chain
-                                .verify_aggregated_attestation_for_gossip(aggregate)
+                                .verify_aggregated_attestation_for_gossip(*boxed_aggregate)
                                 .map_err(|e| {
                                     handle_attestation_verification_failure(
                                         &log,
