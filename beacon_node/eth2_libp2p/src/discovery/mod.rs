@@ -28,7 +28,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use tokio::time::{interval, Interval};
 use types::{EnrForkId, EthSpec, SubnetId};
 
 mod subnet_predicate;

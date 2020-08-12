@@ -2,7 +2,7 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -153,7 +153,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
-        let mut subnets_to_discover = HashSet::new();
+        // Maps each subnet_id subscription to it's highest slot
+        let mut subnets_to_discover: HashMap<SubnetId, Slot> = HashMap::new();
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
@@ -182,12 +183,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     continue;
                 }
             };
+            // Ensure each subnet_id inserted into the map has the highest slot as it's value.
+            // Higher slot corresponds to higher min_ttl in the `SubnetDiscovery` entry.
+            if let Some(slot) = subnets_to_discover.get(&subnet_id) {
+                if subscription.slot > *slot {
+                    subnets_to_discover.insert(subnet_id, subscription.slot);
+                }
+            } else {
+                subnets_to_discover.insert(subnet_id, subscription.slot);
+            }
 
             let exact_subnet = ExactSubnet {
                 subnet_id,
                 slot: subscription.slot,
             };
-            subnets_to_discover.insert(exact_subnet.clone());
 
             // determine if the validator is an aggregator. If so, we subscribe to the subnet and
             // if successful add the validator to a mapping of known aggregators for that exact
@@ -217,7 +226,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             }
         }
 
-        if let Err(e) = self.discover_peers_request(subnets_to_discover) {
+        if let Err(e) = self.discover_peers_request(
+            subnets_to_discover
+                .into_iter()
+                .map(|(subnet_id, slot)| ExactSubnet { subnet_id, slot }),
+        ) {
             warn!(self.log, "Discovery lookup request error"; "error" => e);
         };
 
@@ -247,11 +260,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// Checks if there are currently queued discovery requests and the time required to make the
     /// request.
     ///
-    /// If there is sufficient time and no other request exists, queues a peer discovery request
-    /// for the required subnet.
+    /// If there is sufficient time, queues a peer discovery request for all the required subnets.
     fn discover_peers_request(
         &mut self,
-        exact_subnets: HashSet<ExactSubnet>,
+        exact_subnets: impl Iterator<Item = ExactSubnet>,
     ) -> Result<(), &'static str> {
         let current_slot = self
             .beacon_chain
@@ -260,7 +272,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .ok_or_else(|| "Could not get the current slot")?;
 
         let discovery_subnets: Vec<SubnetDiscovery> = exact_subnets
-            .into_iter()
             .filter_map(|exact_subnet| {
                 // check if there is enough time to perform a discovery lookup
                 if exact_subnet.slot
