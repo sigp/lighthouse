@@ -53,7 +53,7 @@ $ docker run lighthouse:local lighthouse --help
 You can run a Docker beacon node with the following command:
 
 ```bash
-$ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --testnet medalla beacon --http --http-address 0.0.0.0
+$ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/home/lighthouse/.lighthouse sigp/lighthouse lighthouse --testnet medalla beacon --http --http-address 0.0.0.0
 ```
 
 > To join the altona testnet, use --testnet altona instead.
@@ -62,7 +62,7 @@ $ docker run -p 9000:9000 -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lig
 
 ### Volumes
 
-Lighthouse uses the `/root/.lighthouse` directory inside the Docker image to
+Lighthouse uses the `/home/lighthouse/.lighthouse` directory inside the Docker image to
 store the configuration, database and validator keys. Users will generally want
 to create a bind-mount volume to ensure this directory persists between `docker
 run` commands.
@@ -71,7 +71,7 @@ The following example runs a beacon node with the data directory
 mapped to the users home directory:
 
 ```bash
-$ docker run -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse beacon
+$ docker run -v $HOME/.lighthouse:/home/lighthouse/.lighthouse sigp/lighthouse lighthouse beacon
 ```
 
 ### Ports
