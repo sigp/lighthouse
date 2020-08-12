@@ -11,8 +11,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Attestation, EthSpec, Hash256, SubnetId};
 
-// TODO: set this better.
-const MAX_WORK_QUEUE_LEN: usize = 16_384;
+const MAX_WORK_QUEUE_LEN: usize = 65_535;
 const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
 const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
