@@ -1053,7 +1053,11 @@ fn load_or_build_metadata<E: EthSpec>(network_dir: &PathBuf, log: &slog::Logger)
             match MetaData::<E>::from_ssz_bytes(&metadata_ssz) {
                 Ok(persisted_metadata) => {
                     meta_data.seq_number = persisted_metadata.seq_number;
-                    debug!(log, "Loaded metadata seq number from disk");
+                    // Increment seq number if persisted attnet is not default
+                    if persisted_metadata.attnets != meta_data.attnets {
+                        meta_data.seq_number += 1;
+                    }
+                    debug!(log, "Loaded metadata from disk");
                 }
                 Err(e) => {
                     debug!(
