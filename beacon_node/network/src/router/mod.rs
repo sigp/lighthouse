@@ -225,19 +225,13 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
             }
             PubsubMessage::Attestation(subnet_attestation) => {
-                if let Some(gossip_verified) =
-                    self.processor.verify_unaggregated_attestation_for_gossip(
-                        peer_id.clone(),
-                        subnet_attestation.1.clone(),
-                        subnet_attestation.0,
-                    )
-                {
-                    self.propagate_message(id, peer_id.clone());
-                    if should_process {
-                        self.processor
-                            .import_unaggregated_attestation(peer_id, gossip_verified);
-                    }
-                }
+                self.processor.on_unaggregated_attestation_gossip(
+                    id,
+                    peer_id,
+                    subnet_attestation.1.clone(),
+                    subnet_attestation.0,
+                    should_process,
+                );
             }
             PubsubMessage::BeaconBlock(block) => {
                 match self.processor.should_forward_block(block) {

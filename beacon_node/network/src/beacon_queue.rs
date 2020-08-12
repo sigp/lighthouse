@@ -1,23 +1,13 @@
-use crate::{
-    service::NetworkMessage,
-    sync::{PeerSyncInfo, SyncMessage},
-};
+use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     ForkChoiceError,
 };
 use environment::TaskExecutor;
-use eth2_libp2p::{
-    rpc::{RPCError, RequestId},
-    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
-};
-use parking_lot::RwLock;
-use slog::{debug, error, trace, warn, Logger};
+use eth2_libp2p::{MessageId, PeerId};
+use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Attestation, EthSpec, Hash256, SubnetId};
 
@@ -56,14 +46,6 @@ impl<T> Queue<T> {
     pub fn pop(&mut self) -> Option<QueueItem<T>> {
         self.queue.pop_front()
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
-    }
-
-    pub fn has_items(&self) -> bool {
-        !self.queue.is_empty()
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -77,17 +59,24 @@ pub enum Event<E: EthSpec> {
 }
 
 impl<E: EthSpec> Event<E> {
-    pub fn is_work(&self) -> bool {
-        match self {
-            Event::WorkerIdle => false,
-            Event::Work { .. } => true,
+    pub fn unaggregated_attestation(
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Attestation<E>,
+        subnet_id: SubnetId,
+        should_import: bool,
+    ) -> Self {
+        Event::Work {
+            message_id,
+            peer_id,
+            work: Work::Attestation((attestation, subnet_id, should_import)),
         }
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Work<E: EthSpec> {
-    Attestation((Attestation<E>, SubnetId)),
+    Attestation((Attestation<E>, SubnetId, bool)),
 }
 
 pub struct BeaconGossipProcessor<T: BeaconChainTypes> {
@@ -112,17 +101,20 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                     let can_spawn = self.current_workers < self.max_workers;
 
                     match event {
-                        Event::WorkerIdle if can_spawn => {
-                            if let Some(item) = attestation_queue.pop() {
-                                self.spawn_worker(
-                                    inner_event_tx.clone(),
-                                    item.message_id,
-                                    item.peer_id,
-                                    Work::Attestation(item.item),
-                                );
+                        Event::WorkerIdle => {
+                            let _ = self.current_workers.saturating_sub(1);
+                            if can_spawn {
+                                if let Some(item) = attestation_queue.pop() {
+                                    self.spawn_worker(
+                                        inner_event_tx.clone(),
+                                        item.message_id,
+                                        item.peer_id,
+                                        Work::Attestation(item.item),
+                                    );
+                                    return;
+                                }
                             }
                         }
-                        Event::WorkerIdle => {}
                         Event::Work {
                             message_id,
                             peer_id,
@@ -162,7 +154,7 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
         self.executor.spawn_blocking(
             move || {
                 match work {
-                    Work::Attestation((attestation, subnet_id)) => {
+                    Work::Attestation((attestation, subnet_id, should_import)) => {
                         let beacon_block_root = attestation.data.beacon_block_root;
 
                         let attestation = if let Ok(attestation) = chain
@@ -185,6 +177,10 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         // Indicate to the `Network` service that this message is valid and can be
                         // propagated on the gossip network.
                         propagate_gossip_message(network_tx, message_id, peer_id.clone(), &log);
+
+                        if !should_import {
+                            return;
+                        }
 
                         if let Err(e) = chain.apply_attestation_to_fork_choice(&attestation) {
                             match e {
@@ -210,11 +206,11 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                 };
 
                 event_tx.try_send(Event::WorkerIdle).unwrap_or_else(|e| {
-                    error!(
-                            log,
-                            "Unable to free worker";
-                            "msg" => "failed to send WorkerIdle message",
-                            "error" => e.to_string()
+                    crit!(
+                        log,
+                        "Unable to free worker";
+                        "msg" => "failed to send WorkerIdle message",
+                        "error" => e.to_string()
                     )
                 });
             },

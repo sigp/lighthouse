@@ -1,16 +1,18 @@
+use crate::beacon_queue::{BeaconGossipProcessor, Event as GossipProcessorEvent};
 use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
     attestation_verification::{
         Error as AttnError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
-        VerifiedUnaggregatedAttestation,
     },
     observed_operations::ObservationOutcome,
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response};
+use eth2_libp2p::{
+    MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
+};
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
@@ -37,6 +39,8 @@ pub struct Processor<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
+    /// A multi-threaded, non-blocking processor for signed, consensus gossip messages.
+    gossip_processor_send: mpsc::Sender<GossipProcessorEvent<T::EthSpec>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -54,17 +58,29 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // spawn the sync thread
         let sync_send = crate::sync::manager::spawn(
-            executor,
+            executor.clone(),
             beacon_chain.clone(),
             network_globals,
             network_send.clone(),
             sync_logger,
         );
 
+        let gossip_processor_send = BeaconGossipProcessor {
+            beacon_chain: beacon_chain.clone(),
+            network_tx: network_send.clone(),
+            sync_tx: sync_send.clone(),
+            executor,
+            max_workers: num_cpus::get(),
+            current_workers: 0,
+            log: log.clone(),
+        }
+        .spawn_manager();
+
         Processor {
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
+            gossip_processor_send,
             log: log.clone(),
         }
     }
@@ -840,6 +856,33 @@ impl<T: BeaconChainTypes> Processor<T> {
         }
     }
 
+    pub fn on_unaggregated_attestation_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        unaggregated_attestation: Attestation<T::EthSpec>,
+        subnet_id: SubnetId,
+        should_process: bool,
+    ) {
+        self.gossip_processor_send
+            .try_send(GossipProcessorEvent::unaggregated_attestation(
+                message_id,
+                peer_id,
+                unaggregated_attestation,
+                subnet_id,
+                should_process,
+            ))
+            .unwrap_or_else(|e| {
+                error!(
+                    &self.log,
+                    "Unable to send to gossip processor";
+                    "type" => "unaggregated attestation gossip",
+                    "error" => e.to_string(),
+                )
+            })
+    }
+
+    /*
     pub fn verify_unaggregated_attestation_for_gossip(
         &mut self,
         peer_id: PeerId,
@@ -889,6 +932,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             )
         }
     }
+    */
 
     /// Apply the attestation to fork choice, suppressing errors.
     ///
