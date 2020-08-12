@@ -11,7 +11,7 @@ use libp2p::{
         identity::Keypair,
         Multiaddr,
     },
-    gossipsub::{Gossipsub, GossipsubEvent, MessageAuthenticity, MessageId},
+    gossipsub::{Gossipsub, GossipsubEvent, MessageAcceptance, MessageAuthenticity, MessageId},
     identify::{Identify, IdentifyEvent},
     swarm::{
         NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters,
@@ -211,7 +211,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 match message.encode(GossipEncoding::default()) {
                     Ok(message_data) => {
-                        if let Err(e) = self.gossipsub.publish(&topic.into(), message_data) {
+                        if let Err(e) = self.gossipsub.publish(topic.into(), message_data) {
                             slog::warn!(self.log, "Could not publish message"; "error" => format!("{:?}", e));
                         }
                     }
@@ -221,11 +221,19 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
     }
 
-    /// Forwards a message that is waiting in gossipsub's mcache. Messages are only propagated
-    /// once validated by the beacon chain.
-    pub fn validate_message(&mut self, propagation_source: &PeerId, message_id: MessageId) {
-        self.gossipsub
-            .validate_message(&message_id, propagation_source);
+    /// Informs the gossipsub about the result of a message validation.
+    /// If the message is valid it will get propagated by gossipsub.
+    pub fn report_message_validation_result(
+        &mut self,
+        propagation_source: &PeerId,
+        message_id: MessageId,
+        validation_result: MessageAcceptance,
+    ) {
+        self.gossipsub.report_message_validation_result(
+            &message_id,
+            propagation_source,
+            validation_result,
+        );
     }
 
     /* Eth2 RPC behaviour functions */
@@ -389,11 +397,23 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     fn on_gossip_event(&mut self, event: GossipsubEvent) {
         match event {
-            GossipsubEvent::Message(propagation_source, id, gs_msg) => {
+            GossipsubEvent::Message {
+                propagation_source,
+                message_id: id,
+                message: gs_msg,
+            } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
                 match PubsubMessage::decode(&gs_msg.topics, &gs_msg.data) {
-                    Err(e) => debug!(self.log, "Could not decode gossipsub message"; "error" => e),
+                    Err(e) => {
+                        debug!(self.log, "Could not decode gossipsub message"; "error" => e);
+                        //reject the message
+                        self.gossipsub.report_message_validation_result(
+                            &id,
+                            &propagation_source,
+                            MessageAcceptance::Reject,
+                        );
+                    }
                     Ok(msg) => {
                         // Notify the network
                         self.add_event(BehaviourEvent::PubsubMessage {

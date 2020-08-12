@@ -8,11 +8,13 @@
 pub mod processor;
 
 use crate::error;
+use crate::router::processor::VerificationResult;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::{
     rpc::{RPCError, RequestId},
-    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
+    MessageAcceptance, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request,
+    Response,
 };
 use futures::prelude::*;
 use processor::Processor;
@@ -215,55 +217,100 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
-                if let Some(gossip_verified) = self
+                match self
                     .processor
                     .verify_aggregated_attestation_for_gossip(peer_id.clone(), *aggregate_and_proof)
                 {
-                    self.propagate_message(id, peer_id.clone());
-                    self.processor
-                        .import_aggregated_attestation(peer_id, gossip_verified);
+                    VerificationResult::Accept(gossip_verified) => {
+                        self.propagate_validation_result(
+                            id,
+                            peer_id.clone(),
+                            MessageAcceptance::Accept,
+                        );
+                        self.processor
+                            .import_aggregated_attestation(peer_id, gossip_verified);
+                    }
+                    v => self.propagate_validation_result(id, peer_id, v.into()),
                 }
             }
             PubsubMessage::Attestation(subnet_attestation) => {
-                if let Some(gossip_verified) =
-                    self.processor.verify_unaggregated_attestation_for_gossip(
-                        peer_id.clone(),
-                        subnet_attestation.1.clone(),
-                        subnet_attestation.0,
-                    )
-                {
-                    self.propagate_message(id, peer_id.clone());
-                    if should_process {
-                        self.processor
-                            .import_unaggregated_attestation(peer_id, gossip_verified);
+                match self.processor.verify_unaggregated_attestation_for_gossip(
+                    peer_id.clone(),
+                    subnet_attestation.1.clone(),
+                    subnet_attestation.0,
+                ) {
+                    VerificationResult::Accept(gossip_verified) => {
+                        self.propagate_validation_result(
+                            id,
+                            peer_id.clone(),
+                            MessageAcceptance::Accept,
+                        );
+                        if should_process {
+                            self.processor
+                                .import_unaggregated_attestation(peer_id, gossip_verified);
+                        }
                     }
+                    v => self.propagate_validation_result(id, peer_id, v.into()),
                 }
             }
             PubsubMessage::BeaconBlock(block) => {
                 match self.processor.should_forward_block(block) {
                     Ok(verified_block) => {
                         info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
-                        self.propagate_message(id, peer_id.clone());
+                        self.propagate_validation_result(
+                            id,
+                            peer_id.clone(),
+                            MessageAcceptance::Accept,
+                        );
                         self.processor.on_block_gossip(peer_id, verified_block);
                     }
                     Err(BlockError::ParentUnknown(block)) => {
+                        self.propagate_validation_result(
+                            id,
+                            peer_id.clone(),
+                            MessageAcceptance::Ignore,
+                        );
                         self.processor.on_unknown_parent(peer_id, block);
                     }
-                    Err(e) => {
-                        // performing a parent lookup
-                        warn!(self.log, "Could not verify block for gossip";
+
+                    //TODO which errors result in Ignore and which in Reject?
+                    Err(e @ BlockError::FutureSlot { .. })
+                    | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
+                    | Err(e @ BlockError::BlockIsAlreadyKnown)
+                    | Err(e @ BlockError::RepeatProposal { .. })
+                    | Err(e @ BlockError::BlockSlotLimitReached)
+                    | Err(e @ BlockError::IncorrectBlockProposer { .. })
+                    | Err(e @ BlockError::ProposalSignatureInvalid)
+                    | Err(e @ BlockError::UnknownValidator(_))
+                    | Err(e @ BlockError::InvalidSignature)
+                    | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
+                    | Err(e @ BlockError::NonLinearParentRoots)
+                    | Err(e @ BlockError::NonLinearSlots)
+                    | Err(e @ BlockError::PerBlockProcessingError(_))
+                    | Err(e @ BlockError::BeaconChainError(_)) => {
+                        warn!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => format!("{:?}", e));
+                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Ignore);
+                    }
+                    Err(e @ BlockError::StateRootMismatch { .. })
+                    | Err(e @ BlockError::GenesisBlock) => {
+                        warn!(self.log, "Could not verify block for gossip, rejecting the block";
+                            "error" => format!("{:?}", e));
+                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Reject);
                     }
                 }
             }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id));
-                if let Some(verified_exit) = self
+                match self
                     .processor
                     .verify_voluntary_exit_for_gossip(&peer_id, *exit)
                 {
-                    self.propagate_message(id, peer_id);
-                    self.processor.import_verified_voluntary_exit(verified_exit);
+                    VerificationResult::Accept(verified_exit) => {
+                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Accept);
+                        self.processor.import_verified_voluntary_exit(verified_exit);
+                    }
+                    v => self.propagate_validation_result(id, peer_id, v.into()),
                 }
             }
             PubsubMessage::ProposerSlashing(proposer_slashing) => {
@@ -272,13 +319,16 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received a proposer slashing";
                     "peer_id" => format!("{}", peer_id)
                 );
-                if let Some(verified_proposer_slashing) = self
+                match self
                     .processor
                     .verify_proposer_slashing_for_gossip(&peer_id, *proposer_slashing)
                 {
-                    self.propagate_message(id, peer_id);
-                    self.processor
-                        .import_verified_proposer_slashing(verified_proposer_slashing);
+                    VerificationResult::Accept(verified_proposer_slashing) => {
+                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Accept);
+                        self.processor
+                            .import_verified_proposer_slashing(verified_proposer_slashing);
+                    }
+                    v => self.propagate_validation_result(id, peer_id, v.into()),
                 }
             }
             PubsubMessage::AttesterSlashing(attester_slashing) => {
@@ -287,24 +337,34 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received a attester slashing";
                     "peer_id" => format!("{}", peer_id)
                 );
-                if let Some(verified_attester_slashing) = self
+                match self
                     .processor
                     .verify_attester_slashing_for_gossip(&peer_id, *attester_slashing)
                 {
-                    self.propagate_message(id, peer_id);
-                    self.processor
-                        .import_verified_attester_slashing(verified_attester_slashing);
+                    VerificationResult::Accept(verified_attester_slashing) => {
+                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Accept);
+                        self.processor
+                            .import_verified_attester_slashing(verified_attester_slashing);
+                    }
+                    v => self.propagate_validation_result(id, peer_id, v.into()),
                 }
             }
         }
     }
 
-    /// Informs the network service that the message should be forwarded to other peers (is valid).
-    fn propagate_message(&mut self, message_id: MessageId, propagation_source: PeerId) {
+    /// Propagates the result of the validation fot the given message to the network. If the result
+    /// is valid the message gets forwarded to other peers.
+    fn propagate_validation_result(
+        &mut self,
+        message_id: MessageId,
+        propagation_source: PeerId,
+        validation_result: MessageAcceptance,
+    ) {
         self.network_send
-            .send(NetworkMessage::Validate {
+            .send(NetworkMessage::ValidationResult {
                 propagation_source,
                 message_id,
+                validation_result,
             })
             .unwrap_or_else(|_| {
                 warn!(

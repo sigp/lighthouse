@@ -108,7 +108,8 @@ impl Default for Config {
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
             .duplicate_cache_time(Duration::from_secs(385))
             .message_id_fn(gossip_message_id)
-            .build();
+            .build()
+            .expect("valid gossipsub configuration");
 
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()

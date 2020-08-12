@@ -10,7 +10,9 @@ use beacon_chain::{
     GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response};
+use eth2_libp2p::{
+    MessageAcceptance, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
+};
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
@@ -39,6 +41,22 @@ pub struct Processor<T: BeaconChainTypes> {
     network: HandlerNetworkContext<T::EthSpec>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
+}
+
+pub enum VerificationResult<T> {
+    Accept(T),
+    Ignore,
+    Reject,
+}
+
+impl<T> Into<MessageAcceptance> for VerificationResult<T> {
+    fn into(self) -> MessageAcceptance {
+        match self {
+            VerificationResult::Accept(_) => MessageAcceptance::Accept,
+            VerificationResult::Ignore => MessageAcceptance::Ignore,
+            VerificationResult::Reject => MessageAcceptance::Reject,
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> Processor<T> {
@@ -586,13 +604,13 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
     /// network.
-    pub fn handle_attestation_verification_failure(
+    pub fn handle_attestation_verification_failure<S>(
         &mut self,
         peer_id: PeerId,
         beacon_block_root: Hash256,
         attestation_type: &str,
         error: AttnError,
-    ) {
+    ) -> VerificationResult<S> {
         debug!(
             self.log,
             "Invalid attestation from network";
@@ -602,6 +620,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             "type" => format!("{:?}", attestation_type),
         );
 
+        //TODO review if VerificationResult is correct for all the cases
         match error {
             AttnError::FutureEpoch { .. }
             | AttnError::PastEpoch { .. }
@@ -613,6 +632,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
                  */
+                VerificationResult::Ignore
             }
             AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {
                 /*
@@ -620,6 +640,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::EmptyAggregationBitfield => {
                 /*
@@ -632,6 +653,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * https://github.com/ethereum/eth2.0-specs/pull/1732
                  */
+                VerificationResult::Reject
             }
             AttnError::AggregatorPubkeyUnknown(_) => {
                 /*
@@ -647,6 +669,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::AggregatorNotInCommittee { .. } => {
                 /*
@@ -662,6 +685,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::AttestationAlreadyKnown { .. } => {
                 /*
@@ -670,6 +694,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer is not necessarily faulty.
                  */
+                VerificationResult::Ignore
             }
             AttnError::AggregatorAlreadyKnown(_) => {
                 /*
@@ -678,6 +703,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer is not necessarily faulty.
                  */
+                VerificationResult::Ignore
             }
             AttnError::PriorAttestationKnown { .. } => {
                 /*
@@ -685,6 +711,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer is not necessarily faulty.
                  */
+                VerificationResult::Ignore
             }
             AttnError::ValidatorIndexTooHigh(_) => {
                 /*
@@ -693,6 +720,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 // Note: its a little bit unclear as to whether or not this block is unknown or
@@ -709,6 +737,8 @@ impl<T: BeaconChainTypes> Processor<T> {
                 );
                 // we don't know the block, get the sync manager to handle the block lookup
                 self.send_to_sync(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root));
+
+                VerificationResult::Ignore
             }
             AttnError::UnknownTargetRoot(_) => {
                 /*
@@ -727,6 +757,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Ignore
             }
             AttnError::BadTargetEpoch => {
                 /*
@@ -735,6 +766,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::NoCommitteeForSlotAndIndex { .. } => {
                 /*
@@ -742,6 +774,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::NotExactlyOneAggregationBitSet(_) => {
                 /*
@@ -749,6 +782,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::AttestsToFutureBlock { .. } => {
                 /*
@@ -756,6 +790,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
 
             AttnError::InvalidSubnetId { received, expected } => {
@@ -767,7 +802,8 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "Received attestation on incorrect subnet";
                     "expected" => format!("{:?}", expected),
                     "received" => format!("{:?}", received),
-                )
+                );
+                VerificationResult::Reject
             }
             AttnError::Invalid(_) => {
                 /*
@@ -775,6 +811,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                  *
                  * The peer has published an invalid consensus message.
                  */
+                VerificationResult::Reject
             }
             AttnError::BeaconChainError(e) => {
                 /*
@@ -790,6 +827,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "peer_id" => peer_id.to_string(),
                     "error" => format!("{:?}", e),
                 );
+                VerificationResult::Ignore
             }
         }
     }
@@ -798,21 +836,23 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         aggregate_and_proof: SignedAggregateAndProof<T::EthSpec>,
-    ) -> Option<VerifiedAggregatedAttestation<T>> {
+    ) -> VerificationResult<VerifiedAggregatedAttestation<T>> {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = aggregate_and_proof.message.aggregate.data.beacon_block_root;
 
         self.chain
             .verify_aggregated_attestation_for_gossip(aggregate_and_proof)
-            .map_err(|e| {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    beacon_block_root,
-                    "aggregated",
-                    e,
-                )
-            })
-            .ok()
+            .map_or_else(
+                |e| {
+                    self.handle_attestation_verification_failure(
+                        peer_id,
+                        beacon_block_root,
+                        "aggregated",
+                        e,
+                    )
+                },
+                |v| VerificationResult::Accept(v),
+            )
     }
 
     pub fn import_aggregated_attestation(
@@ -845,21 +885,23 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: SubnetId,
-    ) -> Option<VerifiedUnaggregatedAttestation<T>> {
+    ) -> VerificationResult<VerifiedUnaggregatedAttestation<T>> {
         // This is provided to the error handling function to assist with debugging.
         let beacon_block_root = unaggregated_attestation.data.beacon_block_root;
 
         self.chain
             .verify_unaggregated_attestation_for_gossip(unaggregated_attestation, subnet_id)
-            .map_err(|e| {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    beacon_block_root,
-                    "unaggregated",
-                    e,
-                )
-            })
-            .ok()
+            .map_or_else(
+                |e| {
+                    self.handle_attestation_verification_failure(
+                        peer_id,
+                        beacon_block_root,
+                        "unaggregated",
+                        e,
+                    )
+                },
+                |v| VerificationResult::Accept(v),
+            )
     }
 
     pub fn import_unaggregated_attestation(
@@ -934,11 +976,14 @@ impl<T: BeaconChainTypes> Processor<T> {
         &self,
         peer_id: &PeerId,
         voluntary_exit: SignedVoluntaryExit,
-    ) -> Option<SigVerifiedOp<SignedVoluntaryExit>> {
+    ) -> VerificationResult<SigVerifiedOp<SignedVoluntaryExit>> {
         let validator_index = voluntary_exit.message.validator_index;
 
         match self.chain.verify_voluntary_exit_for_gossip(voluntary_exit) {
-            Ok(ObservationOutcome::New(sig_verified_exit)) => Some(sig_verified_exit),
+            //TODO review if VerificationResult is correct for all the cases
+            Ok(ObservationOutcome::New(sig_verified_exit)) => {
+                VerificationResult::Accept(sig_verified_exit)
+            }
             Ok(ObservationOutcome::AlreadyKnown) => {
                 debug!(
                     self.log,
@@ -946,7 +991,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "validator_index" => validator_index,
                     "peer" => peer_id.to_string()
                 );
-                None
+                VerificationResult::Ignore
             }
             Err(e) => {
                 debug!(
@@ -956,7 +1001,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
-                None
+                VerificationResult::Reject
             }
         }
     }
@@ -977,14 +1022,17 @@ impl<T: BeaconChainTypes> Processor<T> {
         &self,
         peer_id: &PeerId,
         proposer_slashing: ProposerSlashing,
-    ) -> Option<SigVerifiedOp<ProposerSlashing>> {
+    ) -> VerificationResult<SigVerifiedOp<ProposerSlashing>> {
         let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
 
         match self
             .chain
             .verify_proposer_slashing_for_gossip(proposer_slashing)
         {
-            Ok(ObservationOutcome::New(verified_slashing)) => Some(verified_slashing),
+            //TODO review if VerificationResult is correct for all the cases
+            Ok(ObservationOutcome::New(verified_slashing)) => {
+                VerificationResult::Accept(verified_slashing)
+            }
             Ok(ObservationOutcome::AlreadyKnown) => {
                 debug!(
                     self.log,
@@ -993,7 +1041,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "validator_index" => validator_index,
                     "peer" => peer_id.to_string()
                 );
-                None
+                VerificationResult::Ignore
             }
             Err(e) => {
                 debug!(
@@ -1003,7 +1051,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
-                None
+                VerificationResult::Reject
             }
         }
     }
@@ -1024,12 +1072,15 @@ impl<T: BeaconChainTypes> Processor<T> {
         &self,
         peer_id: &PeerId,
         attester_slashing: AttesterSlashing<T::EthSpec>,
-    ) -> Option<SigVerifiedOp<AttesterSlashing<T::EthSpec>>> {
+    ) -> VerificationResult<SigVerifiedOp<AttesterSlashing<T::EthSpec>>> {
         match self
             .chain
             .verify_attester_slashing_for_gossip(attester_slashing)
         {
-            Ok(ObservationOutcome::New(verified_slashing)) => Some(verified_slashing),
+            //TODO review if VerificationResult is correct for all the cases
+            Ok(ObservationOutcome::New(verified_slashing)) => {
+                VerificationResult::Accept(verified_slashing)
+            }
             Ok(ObservationOutcome::AlreadyKnown) => {
                 debug!(
                     self.log,
@@ -1037,7 +1088,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "reason" => "Slashings already known for all slashed validators",
                     "peer" => peer_id.to_string()
                 );
-                None
+                VerificationResult::Ignore
             }
             Err(e) => {
                 debug!(
@@ -1046,7 +1097,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "peer" => peer_id.to_string(),
                     "error" => format!("{:?}", e)
                 );
-                None
+                VerificationResult::Reject
             }
         }
     }
