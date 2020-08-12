@@ -1,4 +1,4 @@
-use crate::beacon_queue::{BeaconGossipProcessor, Event as GossipProcessorEvent};
+use super::gossip_processor::{Event as GossipProcessorEvent, GossipProcessor};
 use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
@@ -61,7 +61,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             sync_logger,
         );
 
-        let gossip_processor_send = BeaconGossipProcessor {
+        let gossip_processor_send = GossipProcessor {
             beacon_chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),

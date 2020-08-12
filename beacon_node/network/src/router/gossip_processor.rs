@@ -1,3 +1,40 @@
+//! Provdes the `GossipProcessor`, a mutli-threaded processor for messages received on the network
+//! that need to be processed by the `BeaconChain`.
+//!
+//! Uses `tokio` tasks (instead of raw threads) to provide the following tasks:
+//!
+//! - A "manager" task, which either spawns worker tasks or enqueues work.
+//! - One or more "worker" tasks which perform time-intensive work on the `BeaconChain`.
+//!
+//! ## Purpose
+//!
+//! The purpose of the `GossipProcessor` is to provide two things:
+//!
+//! 1. Moving long-running, blocking tasks off the main `tokio` executor.
+//! 2. A fixed-length buffer for consensus messages.
+//!
+//! (1) ensures that we don't clog up the networking stack with long-running tasks, potentially
+//! causing timeouts. (2) means that we can easily and explicitly reject messages when we're
+//! overloaded and also distribute load across time.
+//!
+//! ## Detail
+//!
+//! There is a single "manager" thread who listens to a channel of events. These events are either:
+//!
+//! - A new parcel of work.
+//! - Indication that a worker has finished a parcel of work.
+//!
+//! Then, there is a maximum of `n` "worker" blocking threads, where `n` is the CPU count.
+//!
+//! Whenver the manager receives a new parcel of work, it either:
+//!
+//! - Provided to a newly-spawned worker tasks (if we are not already at `n` workers).
+//! - Added to a queue.
+//!
+//! Whenever the manager receives a notification that a worker has finished a parcel of work, it
+//! checks the queues to see if there are more parcels of work that can be spawned in a new worker
+//! task.
+
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -11,24 +48,40 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
+/// The maximum number of items that can be enqueued for the manager to process.
+///
+/// Setting this number too low can cause `WorkerIdle` messages to be lost, effectively jamming the
+/// system.
 const MAX_WORK_QUEUE_LEN: usize = 65_535;
+
+/// The maximum number of queued `Attestation` objects that will be stored before we start dropping
+/// them.
 const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 16_384;
+
+/// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
+/// start dropping them.
 const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
+
+/// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
+/// The name of the worker tokio tasks.
 const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
 
+/// A queued item from gossip, awaiting processing.
 struct QueueItem<T> {
     message_id: MessageId,
     peer_id: PeerId,
     item: T,
 }
 
-struct Queue<T> {
+/// A simple last-in-first-out queue with a maximum length.
+struct LifoQueue<T> {
     queue: VecDeque<QueueItem<T>>,
     max_length: usize,
 }
 
-impl<T> Queue<T> {
+impl<T> LifoQueue<T> {
+    /// Create a new, empty queue with the given length.
     pub fn new(max_length: usize) -> Self {
         Self {
             queue: VecDeque::default(),
@@ -36,6 +89,7 @@ impl<T> Queue<T> {
         }
     }
 
+    /// Add a new item to the queue.
     pub fn push(&mut self, item: QueueItem<T>) {
         if self.queue.len() == self.max_length {
             self.queue.pop_back();
@@ -43,22 +97,28 @@ impl<T> Queue<T> {
         self.queue.push_front(item);
     }
 
+    /// Remove the next item from the queue.
     pub fn pop(&mut self) -> Option<QueueItem<T>> {
         self.queue.pop_front()
     }
 
+    /// Returns `true` if the queue is full.
     pub fn is_full(&self) -> bool {
         self.queue.len() >= self.max_length
     }
 
+    /// Returns the current length of the queue.
     pub fn len(&self) -> usize {
         self.queue.len()
     }
 }
 
+/// An event to be processed by the manager task.
 #[derive(Debug, PartialEq)]
 pub enum Event<E: EthSpec> {
+    /// A worker has finished its work and is idle/shutdown.
     WorkerIdle,
+    /// There is some work to be done.
     Work {
         message_id: MessageId,
         peer_id: PeerId,
@@ -67,6 +127,7 @@ pub enum Event<E: EthSpec> {
 }
 
 impl<E: EthSpec> Event<E> {
+    /// Create a new `Work` event for some unaggregated attestation.
     pub fn unaggregated_attestation(
         message_id: MessageId,
         peer_id: PeerId,
@@ -81,6 +142,7 @@ impl<E: EthSpec> Event<E> {
         }
     }
 
+    /// Create a new `Work` event for some aggregated attestation.
     pub fn aggregated_attestation(
         message_id: MessageId,
         peer_id: PeerId,
@@ -94,13 +156,18 @@ impl<E: EthSpec> Event<E> {
     }
 }
 
+/// A consensus message from gossip which requires processing.
 #[derive(Debug, PartialEq)]
 pub enum Work<E: EthSpec> {
     Attestation(Box<(Attestation<E>, SubnetId, bool)>),
     Aggregate(Box<SignedAggregateAndProof<E>>),
 }
 
-pub struct BeaconGossipProcessor<T: BeaconChainTypes> {
+/// A mutli-threaded processor for messages received on the network
+/// that need to be processed by the `BeaconChain`
+///
+/// See module level documentation for more information.
+pub struct GossipProcessor<T: BeaconChainTypes> {
     pub beacon_chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
@@ -110,11 +177,19 @@ pub struct BeaconGossipProcessor<T: BeaconChainTypes> {
     pub log: Logger,
 }
 
-impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
+impl<T: BeaconChainTypes> GossipProcessor<T> {
+    /// Spawns the "manager" task which checks the receiver end of the returned `Sender` for
+    /// messages which either:
+    ///
+    /// - Indicate that a worker has completed a task.
+    /// - Indicate that there is new work to be done.
+    ///
+    /// The caller should use the returned `Sender` **only** to send work to manager. It is a logic
+    /// error for an upstream caller to send a `WorkerIdle` message.
     pub fn spawn_manager(mut self) -> mpsc::Sender<Event<T::EthSpec>> {
         let (event_tx, mut event_rx) = mpsc::channel::<Event<T::EthSpec>>(MAX_WORK_QUEUE_LEN);
-        let mut attestation_queue = Queue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
-        let mut aggregate_queue = Queue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
+        let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
+        let mut aggregate_queue = LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
         let inner_event_tx = event_tx.clone();
 
         self.executor.clone().spawn(
@@ -214,6 +289,9 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
         event_tx
     }
 
+    /// Spawns a blocking worker thread to process some `Work`.
+    ///
+    /// Sends an `Event::WorkerIdle` message on `event_tx` when the work is complete.
     fn spawn_worker(
         &mut self,
         mut event_tx: mpsc::Sender<Event<T::EthSpec>>,
@@ -391,15 +469,19 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
     }
 }
 
+/// Send a message on `message_tx` that the `message_id` sent by `peer_id` should be propagated on
+/// the gossip network.
+///
+/// Creates a log if there is an interal error.
 fn propagate_gossip_message<E: EthSpec>(
     network_tx: mpsc::UnboundedSender<NetworkMessage<E>>,
     message_id: MessageId,
-    propagation_source: PeerId,
+    peer_id: PeerId,
     log: &Logger,
 ) {
     network_tx
         .send(NetworkMessage::Validate {
-            propagation_source,
+            propagation_source: peer_id,
             message_id,
         })
         .unwrap_or_else(|_| {
