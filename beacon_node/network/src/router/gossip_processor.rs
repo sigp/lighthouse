@@ -191,8 +191,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut aggregate_queue = LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
         let inner_event_tx = event_tx.clone();
+        let executor = self.executor.clone();
 
-        self.executor.clone().spawn(
+        executor.spawn(
             async move {
                 while let Some(event) = event_rx.recv().await {
                     let _event_timer =
