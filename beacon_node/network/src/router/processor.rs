@@ -851,7 +851,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                         e,
                     )
                 },
-                |v| VerificationResult::Accept(v),
+                VerificationResult::Accept,
             )
     }
 
@@ -900,7 +900,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                         e,
                     )
                 },
-                |v| VerificationResult::Accept(v),
+                VerificationResult::Accept,
             )
     }
 
