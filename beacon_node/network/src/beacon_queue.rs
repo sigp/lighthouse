@@ -109,7 +109,7 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
 
                     if event == Event::WorkerIdle {
-                        let _ = self.current_workers.saturating_sub(1);
+                        self.current_workers = self.current_workers.saturating_sub(1);
                     }
 
                     let can_spawn = self.current_workers < self.max_workers;
@@ -150,6 +150,8 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
                         attestation_queue.len() as i64,
                     );
 
+                    // TODO: rate limit the logs below.
+
                     if attestation_queue.is_full() {
                         error!(
                             self.log,
@@ -173,10 +175,10 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
         peer_id: PeerId,
         work: Work<T::EthSpec>,
     ) {
-        let _worker_timer = metrics::start_timer(&metrics::GOSSIP_PROCESSOR_WORKER_TIME);
+        let worker_timer = metrics::start_timer(&metrics::GOSSIP_PROCESSOR_WORKER_TIME);
         metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORKERS_SPAWNED_TOTAL);
 
-        let _ = self.current_workers.saturating_add(1);
+        self.current_workers = self.current_workers.saturating_add(1);
         let chain = self.beacon_chain.clone();
         let network_tx = self.network_tx.clone();
         let sync_tx = self.sync_tx.clone();
@@ -184,68 +186,75 @@ impl<T: BeaconChainTypes> BeaconGossipProcessor<T> {
 
         self.executor.spawn_blocking(
             move || {
-                match work {
-                    Work::Attestation((attestation, subnet_id, should_import)) => {
-                        let _attestation_timer = metrics::start_timer(
-                            &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME,
-                        );
-                        metrics::inc_counter(
-                            &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
-                        );
+                let _worker_timer = worker_timer;
 
-                        let beacon_block_root = attestation.data.beacon_block_root;
+                // We use this closure pattern to avoid using a `return` that prevents the
+                // `WorkerIdle` message from sending.
+                let handler = || {
+                    match work {
+                        Work::Attestation((attestation, subnet_id, should_import)) => {
+                            let _attestation_timer = metrics::start_timer(
+                                &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME,
+                            );
+                            metrics::inc_counter(
+                                &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
+                            );
 
-                        let attestation = if let Ok(attestation) = chain
-                            .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
-                            .map_err(|e| {
-                                handle_attestation_verification_failure(
-                                    &log,
-                                    sync_tx,
-                                    peer_id.clone(),
-                                    beacon_block_root,
-                                    "unaggregated",
-                                    e,
-                                )
-                            }) {
-                            attestation
-                        } else {
-                            return;
-                        };
+                            let beacon_block_root = attestation.data.beacon_block_root;
 
-                        // Indicate to the `Network` service that this message is valid and can be
-                        // propagated on the gossip network.
-                        propagate_gossip_message(network_tx, message_id, peer_id.clone(), &log);
+                            let attestation = if let Ok(attestation) = chain
+                                .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
+                                .map_err(|e| {
+                                    handle_attestation_verification_failure(
+                                        &log,
+                                        sync_tx,
+                                        peer_id.clone(),
+                                        beacon_block_root,
+                                        "unaggregated",
+                                        e,
+                                    )
+                                }) {
+                                attestation
+                            } else {
+                                return;
+                            };
 
-                        if !should_import {
-                            return;
-                        }
+                            // Indicate to the `Network` service that this message is valid and can be
+                            // propagated on the gossip network.
+                            propagate_gossip_message(network_tx, message_id, peer_id.clone(), &log);
 
-                        metrics::inc_counter(
-                            &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
-                        );
+                            if !should_import {
+                                return;
+                            }
 
-                        if let Err(e) = chain.apply_attestation_to_fork_choice(&attestation) {
-                            match e {
-                                BeaconChainError::ForkChoiceError(
-                                    ForkChoiceError::InvalidAttestation(e),
-                                ) => debug!(
-                                    log,
-                                    "Attestation invalid for fork choice";
-                                    "reason" => format!("{:?}", e),
-                                    "peer" => peer_id.to_string(),
-                                    "beacon_block_root" => format!("{:?}", beacon_block_root)
-                                ),
-                                e => error!(
-                                    log,
-                                    "Error applying attestation to fork choice";
-                                    "reason" => format!("{:?}", e),
-                                    "peer" => peer_id.to_string(),
-                                    "beacon_block_root" => format!("{:?}", beacon_block_root)
-                                ),
+                            metrics::inc_counter(
+                                &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                            );
+
+                            if let Err(e) = chain.apply_attestation_to_fork_choice(&attestation) {
+                                match e {
+                                    BeaconChainError::ForkChoiceError(
+                                        ForkChoiceError::InvalidAttestation(e),
+                                    ) => debug!(
+                                        log,
+                                        "Attestation invalid for fork choice";
+                                        "reason" => format!("{:?}", e),
+                                        "peer" => peer_id.to_string(),
+                                        "beacon_block_root" => format!("{:?}", beacon_block_root)
+                                    ),
+                                    e => error!(
+                                        log,
+                                        "Error applying attestation to fork choice";
+                                        "reason" => format!("{:?}", e),
+                                        "peer" => peer_id.to_string(),
+                                        "beacon_block_root" => format!("{:?}", beacon_block_root)
+                                    ),
+                                }
                             }
                         }
-                    }
+                    };
                 };
+                handler();
 
                 event_tx.try_send(Event::WorkerIdle).unwrap_or_else(|e| {
                     crit!(
