@@ -93,11 +93,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let attnets = network_globals
-            .local_enr()
-            .bitfield::<TSpec>()
-            .expect("Local ENR must have subnet bitfield");
-
         let meta_data = load_or_build_metadata(&net_conf.network_dir, &log);
 
         // TODO: Until other clients support no author, we will use a 0 peer_id as our author.
@@ -350,6 +345,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .local_enr()
             .bitfield::<TSpec>()
             .expect("Local discovery must have bitfield");
+        // Save the updated metadata to disk
         save_metadata_to_disk(&self.network_dir, self.meta_data.clone(), &self.log);
     }
 
