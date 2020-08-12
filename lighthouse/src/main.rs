@@ -245,6 +245,7 @@ fn run<E: EthSpec>(
         log,
         "Ethereum 2.0 is pre-release. This software is experimental."
     );
+    info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
         log,
         "Configured for testnet";

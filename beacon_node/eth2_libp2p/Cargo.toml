@@ -32,18 +32,18 @@ snap = "1.0.0"
 void = "1.0.2"
 tokio-io-timeout = "0.4.0"
 tokio-util = { version = "0.3.1", features = ["codec", "compat"] }
-discv5 = { version = "0.1.0-alpha.7", features = ["libp2p"] }
+discv5 = { version = "0.1.0-alpha.8", features = ["libp2p", "openssl-vendored"] }
 tiny-keccak = "2.0.2"
 environment = { path = "../../lighthouse/environment" }
 # TODO: Remove rand crate for mainnet
 rand = "0.7.3"
 
 [dependencies.libp2p]
-#version = "0.19.1"
+#version = "0.23.0"
 git = "https://github.com/sigp/rust-libp2p"
-rev = "f1b660a1a96c1b6198cd62062e75d357893faf16"
+rev = "3096cb6b89b2883a79ce5ffcb03d41778a09b695"
 default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "secio", "tcp-tokio"]
+features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["full"] }

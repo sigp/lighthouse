@@ -70,7 +70,6 @@ pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 /// The result of a chain segment processing.
-#[derive(Debug)]
 pub enum ChainSegmentResult<T: EthSpec> {
     /// Processing this chain segment finished successfully.
     Successful { imported_blocks: usize },
@@ -1310,7 +1309,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 debug!(
                     self.log,
                     "Rejected gossip block";
-                    "error" => format!("{:?}", e),
+                    "error" => e.to_string(),
                     "graffiti" => graffiti_string,
                     "slot" => slot,
                 );
@@ -1393,11 +1392,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 trace!(
                     self.log,
                     "Beacon block rejected";
-                    "reason" => format!("{:?}", other),
+                    "reason" => other.to_string(),
                 );
 
                 let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
-                    reason: format!("Invalid block: {:?}", other),
+                    reason: format!("Invalid block: {}", other),
                     block: Box::new(block),
                 });
 
@@ -1565,12 +1564,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         randao_reveal: Signature,
         slot: Slot,
+        validator_graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         let state = self
             .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-        self.produce_block_on_state(state, slot, randao_reveal)
+        self.produce_block_on_state(state, slot, randao_reveal, validator_graffiti)
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -1586,6 +1586,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
+        validator_graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
@@ -1653,6 +1654,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // Override the beacon node's graffiti with graffiti from the validator, if present.
+        let graffiti = match validator_graffiti {
+            Some(graffiti) => graffiti,
+            None => self.graffiti,
+        };
+
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
@@ -1662,7 +1669,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 body: BeaconBlockBody {
                     randao_reveal,
                     eth1_data,
-                    graffiti: self.graffiti,
+                    graffiti,
                     proposer_slashings: proposer_slashings.into(),
                     attester_slashings: attester_slashings.into(),
                     attestations: self

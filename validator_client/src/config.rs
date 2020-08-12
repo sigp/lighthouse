@@ -2,6 +2,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
+use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 pub const DEFAULT_DATA_DIR: &str = ".lighthouse/validators";
@@ -27,6 +28,8 @@ pub struct Config {
     pub strict_lockfiles: bool,
     /// If true, don't scan the validators dir for new keystores.
     pub disable_auto_discover: bool,
+    /// Graffiti to be inserted everytime we create a block.
+    pub graffiti: Option<Graffiti>,
 }
 
 impl Default for Config {
@@ -45,6 +48,7 @@ impl Default for Config {
             allow_unsynced_beacon_node: false,
             strict_lockfiles: false,
             disable_auto_discover: false,
+            graffiti: None,
         }
     }
 }
@@ -78,6 +82,26 @@ impl Config {
 
         if let Some(secrets_dir) = parse_optional(cli_args, "secrets-dir")? {
             config.secrets_dir = secrets_dir;
+        }
+
+        if let Some(input_graffiti) = cli_args.value_of("graffiti") {
+            let graffiti_bytes = input_graffiti.as_bytes();
+            if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
+                return Err(format!(
+                    "Your graffiti is too long! {} bytes maximum!",
+                    GRAFFITI_BYTES_LEN
+                ));
+            } else {
+                // Default graffiti to all 0 bytes.
+                let mut graffiti = Graffiti::default();
+
+                // Copy the provided bytes over.
+                //
+                // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
+                graffiti[..graffiti_bytes.len()].copy_from_slice(&graffiti_bytes);
+
+                config.graffiti = Some(graffiti);
+            }
         }
 
         Ok(config)
