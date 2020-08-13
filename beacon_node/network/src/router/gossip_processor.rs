@@ -196,7 +196,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
         let executor = self.executor.clone();
 
         // The manager future will run on the non-blocking executor and delegate tasks to worker
-        // threads on the blocking future.
+        // threads on the blocking executor.
         let manager_future = async move {
             loop {
                 // Listen to both the event and idle channels, acting on whichever is ready
