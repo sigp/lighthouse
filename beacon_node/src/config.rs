@@ -15,6 +15,7 @@ use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
 
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
+pub const CUSTOM_TESTNET_DIR: &str = "custom";
 
 /// Gets the fully-initialized global client.
 ///
@@ -394,12 +395,34 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     // Read the `--datadir` flag.
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
-    // directory onto it.
+    // directory and the testnet name onto it.
+
     cli_args
         .value_of("datadir")
         .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
-        .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_DATADIR).join(BEACON_NODE_DIR)))
+        .or_else(|| {
+            dirs::home_dir().map(|home| {
+                home.join(DEFAULT_DATADIR)
+                    .join(get_testnet_dir(cli_args))
+                    .join(BEACON_NODE_DIR)
+            })
+        })
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Gets the testnet directory name
+///
+/// Tries to get the name first from the "testnet" flag,
+/// if not present, then checks the "testnet-dir" flag and returns a custom name
+/// If neither flags are present, returns the default hardcoded network name.
+fn get_testnet_dir(cli_args: &ArgMatches) -> String {
+    if let Some(testnet_name) = cli_args.value_of("testnet") {
+        return testnet_name.to_string();
+    } else if cli_args.value_of("testnet-dir").is_some() {
+        return CUSTOM_TESTNET_DIR.to_string();
+    } else {
+        return eth2_testnet_config::DEFAULT_HARDCODED_TESTNET.to_string();
+    }
 }
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.
