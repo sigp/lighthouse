@@ -253,53 +253,50 @@ impl<T: BeaconChainTypes> Router<T> {
                     v => self.propagate_validation_result(id, peer_id, v.into()),
                 }
             }
-            PubsubMessage::BeaconBlock(block) => {
-                match self.processor.should_forward_block(block) {
-                    Ok(verified_block) => {
-                        info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
-                        self.propagate_validation_result(
-                            id,
-                            peer_id.clone(),
-                            MessageAcceptance::Accept,
-                        );
-                        self.processor.on_block_gossip(peer_id, verified_block);
-                    }
-                    Err(BlockError::ParentUnknown(block)) => {
-                        self.propagate_validation_result(
-                            id,
-                            peer_id.clone(),
-                            MessageAcceptance::Ignore,
-                        );
-                        self.processor.on_unknown_parent(peer_id, block);
-                    }
-
-                    //TODO which errors result in Ignore and which in Reject?
-                    Err(e @ BlockError::FutureSlot { .. })
-                    | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-                    | Err(e @ BlockError::BlockIsAlreadyKnown)
-                    | Err(e @ BlockError::RepeatProposal { .. })
-                    | Err(e @ BlockError::BlockSlotLimitReached)
-                    | Err(e @ BlockError::IncorrectBlockProposer { .. })
-                    | Err(e @ BlockError::ProposalSignatureInvalid)
-                    | Err(e @ BlockError::UnknownValidator(_))
-                    | Err(e @ BlockError::InvalidSignature)
-                    | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
-                    | Err(e @ BlockError::NonLinearParentRoots)
-                    | Err(e @ BlockError::NonLinearSlots)
-                    | Err(e @ BlockError::PerBlockProcessingError(_))
-                    | Err(e @ BlockError::BeaconChainError(_)) => {
-                        warn!(self.log, "Could not verify block for gossip, ignoring the block";
-                            "error" => format!("{:?}", e));
-                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Ignore);
-                    }
-                    Err(e @ BlockError::StateRootMismatch { .. })
-                    | Err(e @ BlockError::GenesisBlock) => {
-                        warn!(self.log, "Could not verify block for gossip, rejecting the block";
-                            "error" => format!("{:?}", e));
-                        self.propagate_validation_result(id, peer_id, MessageAcceptance::Reject);
-                    }
+            PubsubMessage::BeaconBlock(block) => match self.processor.should_forward_block(block) {
+                Ok(verified_block) => {
+                    info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
+                    self.propagate_validation_result(
+                        id,
+                        peer_id.clone(),
+                        MessageAcceptance::Accept,
+                    );
+                    self.processor.on_block_gossip(peer_id, verified_block);
                 }
-            }
+                Err(BlockError::ParentUnknown(block)) => {
+                    self.propagate_validation_result(
+                        id,
+                        peer_id.clone(),
+                        MessageAcceptance::Ignore,
+                    );
+                    self.processor.on_unknown_parent(peer_id, block);
+                }
+
+                Err(e @ BlockError::FutureSlot { .. })
+                | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
+                | Err(e @ BlockError::BlockIsAlreadyKnown)
+                | Err(e @ BlockError::RepeatProposal { .. })
+                | Err(e @ BlockError::BeaconChainError(_)) => {
+                    warn!(self.log, "Could not verify block for gossip, ignoring the block";
+                            "error" => e.to_string());
+                    self.propagate_validation_result(id, peer_id, MessageAcceptance::Ignore);
+                }
+                Err(e @ BlockError::StateRootMismatch { .. })
+                | Err(e @ BlockError::IncorrectBlockProposer { .. })
+                | Err(e @ BlockError::BlockSlotLimitReached)
+                | Err(e @ BlockError::ProposalSignatureInvalid)
+                | Err(e @ BlockError::NonLinearSlots)
+                | Err(e @ BlockError::UnknownValidator(_))
+                | Err(e @ BlockError::PerBlockProcessingError(_))
+                | Err(e @ BlockError::NonLinearParentRoots)
+                | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
+                | Err(e @ BlockError::InvalidSignature)
+                | Err(e @ BlockError::GenesisBlock) => {
+                    warn!(self.log, "Could not verify block for gossip, rejecting the block";
+                            "error" => e.to_string());
+                    self.propagate_validation_result(id, peer_id, MessageAcceptance::Reject);
+                }
+            },
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id));
                 match self
