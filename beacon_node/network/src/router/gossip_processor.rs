@@ -283,11 +283,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         );
                     }
                     // There is a new work event, but the chain is syncing. Ignore it.
-                    Some(WorkEvent {
-                        message_id,
-                        peer_id,
-                        work,
-                    }) if self.network_globals.sync_state.read().is_syncing() => {
+                    Some(WorkEvent { .. })
+                        if self.network_globals.sync_state.read().is_syncing() =>
+                    {
                         metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORK_EVENTS_IGNORED_TOTAL);
                         trace!(
                             self.log,
