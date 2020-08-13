@@ -1,6 +1,6 @@
 use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
-use clap_utils::BAD_TESTNET_DIR_MESSAGE;
+use clap_utils::{get_testnet_dir, BAD_TESTNET_DIR_MESSAGE};
 use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
@@ -15,7 +15,6 @@ use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
 
 pub const BEACON_NODE_DIR: &str = "beacon";
 pub const NETWORK_DIR: &str = "network";
-pub const CUSTOM_TESTNET_DIR: &str = "custom";
 
 /// Gets the fully-initialized global client.
 ///
@@ -408,21 +407,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Gets the testnet directory name
-///
-/// Tries to get the name first from the "testnet" flag,
-/// if not present, then checks the "testnet-dir" flag and returns a custom name
-/// If neither flags are present, returns the default hardcoded network name.
-fn get_testnet_dir(cli_args: &ArgMatches) -> String {
-    if let Some(testnet_name) = cli_args.value_of("testnet") {
-        return testnet_name.to_string();
-    } else if cli_args.value_of("testnet-dir").is_some() {
-        return CUSTOM_TESTNET_DIR.to_string();
-    } else {
-        return eth2_testnet_config::DEFAULT_HARDCODED_TESTNET.to_string();
-    }
 }
 
 /// Try to parse the eth2 testnet config from the `testnet`, `testnet-dir` flags in that order.

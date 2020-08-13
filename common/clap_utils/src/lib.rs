@@ -12,6 +12,9 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
                                         or when there is no default public network to connect to. \
                                         During these times you must specify a --testnet-dir.";
 
+/// Base directory name for unnamed testnets passed through the --testnet-dir flag
+pub const CUSTOM_TESTNET_DIR: &str = "custom";
+
 /// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
 /// the path cannot be found or the testnet dir is invalid.
 pub fn parse_testnet_dir<E: EthSpec>(
@@ -32,6 +35,21 @@ pub fn parse_hardcoded_network<E: EthSpec>(
 ) -> Result<Option<Eth2TestnetConfig<E>>, String> {
     let network_name = parse_required::<String>(matches, name)?;
     Eth2TestnetConfig::constant(network_name.as_str())
+}
+
+/// Gets the testnet directory name
+///
+/// Tries to get the name first from the "testnet" flag,
+/// if not present, then checks the "testnet-dir" flag and returns a custom name
+/// If neither flags are present, returns the default hardcoded network name.
+pub fn get_testnet_dir(matches: &ArgMatches) -> String {
+    if let Some(testnet_name) = matches.value_of("testnet") {
+        return testnet_name.to_string();
+    } else if matches.value_of("testnet-dir").is_some() {
+        return CUSTOM_TESTNET_DIR.to_string();
+    } else {
+        return eth2_testnet_config::DEFAULT_HARDCODED_TESTNET.to_string();
+    }
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
