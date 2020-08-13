@@ -5,6 +5,9 @@ use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, BehaviourHandlerOut, DelegateIn, DelegateOut};
+use libp2p::gossipsub::{
+    IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams,
+};
 use libp2p::{
     core::{
         connection::{ConnectedPoint, ConnectionId, ListenerId},
@@ -99,12 +102,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         // TODO: Until other clients support no author, we will use a 0 peer_id as our author.
         let message_author = PeerId::from_bytes(vec![0, 1, 0]).expect("Valid peer id");
 
+        let mut gossipsub = Gossipsub::new(
+            MessageAuthenticity::Author(message_author),
+            net_conf.gs_config.clone(),
+        );
+
+        gossipsub
+            .with_peer_score(PeerScoreParams::default(), PeerScoreThresholds::default())
+            .expect("Valid score params and thresholds");
+
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
-            gossipsub: Gossipsub::new(
-                MessageAuthenticity::Author(message_author),
-                net_conf.gs_config.clone(),
-            ),
+            gossipsub,
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)?,
             events: VecDeque::new(),
@@ -147,6 +156,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
+        let t: Topic = gossip_topic.clone().into();
+        self.gossipsub
+            .set_topic_params(t.hash(), TopicScoreParams::default());
         self.subscribe(gossip_topic)
     }
 
@@ -168,6 +180,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             GossipEncoding::default(),
             self.enr_fork_id.fork_digest,
         );
+        let t: Topic = topic.clone().into();
+        self.gossipsub
+            .set_topic_params(t.hash(), TopicScoreParams::default());
         self.subscribe(topic)
     }
 
