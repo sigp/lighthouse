@@ -1,4 +1,4 @@
-use super::gossip_processor::{Event as GossipProcessorEvent, GossipProcessor};
+use super::gossip_processor::{GossipProcessor, WorkEvent as GossipWorkEvent};
 use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
@@ -36,7 +36,7 @@ pub struct Processor<T: BeaconChainTypes> {
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for signed, consensus gossip messages.
-    gossip_processor_send: mpsc::Sender<GossipProcessorEvent<T::EthSpec>>,
+    gossip_processor_send: mpsc::Sender<GossipWorkEvent<T::EthSpec>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -605,7 +605,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         should_process: bool,
     ) {
         self.gossip_processor_send
-            .try_send(GossipProcessorEvent::unaggregated_attestation(
+            .try_send(GossipWorkEvent::unaggregated_attestation(
                 message_id,
                 peer_id,
                 unaggregated_attestation,
@@ -629,7 +629,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) {
         self.gossip_processor_send
-            .try_send(GossipProcessorEvent::aggregated_attestation(
+            .try_send(GossipWorkEvent::aggregated_attestation(
                 message_id, peer_id, aggregate,
             ))
             .unwrap_or_else(|e| {
