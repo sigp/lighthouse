@@ -48,11 +48,16 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
-/// The maximum number of items that can be enqueued for the manager to process.
+/// The maximum size of the channel for work events to the `GossipProcessor`.
 ///
-/// Setting this number too low can cause `WorkerIdle` messages to be lost, effectively jamming the
-/// system.
-const MAX_WORK_QUEUE_LEN: usize = 65_535;
+/// Setting this too low will cause consensus messages to be dropped.
+const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
+
+/// The maximum size of the channel for idle events to the `GossipProcessor`.
+///
+/// Setting this too low will prevent new workers from being spawned. It *should* only need to be
+/// set to the CPU count, but we set it high to be safe.
+const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.
@@ -182,8 +187,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
     /// Only `self.max_workers` will ever be spawned at one time. Each worker is a `tokio` task
     /// started with `spawn_blocking`.
     pub fn spawn_manager(mut self) -> mpsc::Sender<WorkEvent<T::EthSpec>> {
-        let (event_tx, mut event_rx) = mpsc::channel::<WorkEvent<T::EthSpec>>(MAX_WORK_QUEUE_LEN);
-        let (idle_tx, mut idle_rx) = mpsc::channel::<()>(MAX_WORK_QUEUE_LEN);
+        let (event_tx, mut event_rx) =
+            mpsc::channel::<WorkEvent<T::EthSpec>>(MAX_WORK_EVENT_QUEUE_LEN);
+        let (idle_tx, mut idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
         let mut aggregate_queue = LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let executor = self.executor.clone();
