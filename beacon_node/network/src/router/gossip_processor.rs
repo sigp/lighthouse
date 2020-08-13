@@ -561,6 +561,7 @@ pub fn handle_attestation_verification_failure<E: EthSpec>(
     attestation_type: &str,
     error: AttnError,
 ) {
+    metrics::register_attestation_error(&error);
     match &error {
         AttnError::FutureEpoch { .. }
         | AttnError::PastEpoch { .. }
