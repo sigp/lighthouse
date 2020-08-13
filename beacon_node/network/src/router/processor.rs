@@ -13,6 +13,7 @@ use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use state_processing::SigVerifiedOp;
+use std::cmp;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
@@ -35,7 +36,7 @@ pub struct Processor<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
-    /// A multi-threaded, non-blocking processor for signed, consensus gossip messages.
+    /// A multi-threaded, non-blocking processor for consensus gossip messages.
     gossip_processor_send: mpsc::Sender<GossipWorkEvent<T::EthSpec>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
@@ -67,7 +68,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             sync_tx: sync_send.clone(),
             network_globals,
             executor,
-            max_workers: num_cpus::get(),
+            max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
             log: log.clone(),
         }

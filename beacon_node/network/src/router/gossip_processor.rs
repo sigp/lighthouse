@@ -362,7 +362,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
 
     /// Spawns a blocking worker thread to process some `Work`.
     ///
-    /// Sends an `Event::WorkerIdle` message on `event_tx` when the work is complete.
+    /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(
         &mut self,
         mut idle_tx: mpsc::Sender<()>,
@@ -385,7 +385,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                 let _worker_timer = worker_timer;
 
                 // We use this closure pattern to avoid using a `return` that prevents the
-                // `WorkerIdle` message from sending.
+                // `idle_tx` message from sending.
                 let handler = || {
                     match work {
                         /*
@@ -531,7 +531,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     crit!(
                         log,
                         "Unable to free worker";
-                        "msg" => "failed to send WorkerIdle message",
+                        "msg" => "failed to send idle_tx message",
                         "error" => e.to_string()
                     )
                 });
