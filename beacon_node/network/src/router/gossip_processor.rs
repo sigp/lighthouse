@@ -194,153 +194,155 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let executor = self.executor.clone();
 
-        executor.spawn(
-            async move {
-                loop {
-                    // Listen to both the event and idle channels, acting on whichever is ready
-                    // first.
-                    //
-                    // Set `work_event = Some(event)` if there is new work to be done. Otherwise sets
-                    // `event = None` if it was a worker becoming idle.
-                    let work_event;
-                    tokio::select! {
-                        // A worker has finished some work.
-                        new_idle_opt = idle_rx.recv() => {
-                            if new_idle_opt.is_some() {
-                                self.current_workers = self.current_workers.saturating_sub(1);
-                                work_event = None
-                            } else {
-                                // Exit if all idle senders have been dropped.
-                                //
-                                // This shouldn't happen since this function holds a sender.
-                                crit!(
-                                    self.log,
-                                    "Gossip processor stopped";
-                                    "msg" => "all idle senders dropped"
-                                );
-                                break
-                            }
-                        },
-                        // There is a new piece of work to be handled.
-                        new_work_event_opt = event_rx.recv() => {
-                            if let Some(new_work_event) = new_work_event_opt {
-                                work_event = Some(new_work_event)
-                            } else {
-                                // Exit if all event senders have been dropped.
-                                //
-                                // This should happen when the client shuts down.
-                                debug!(
-                                    self.log,
-                                    "Gossip processor stopped";
-                                    "msg" => "all event senders dropped"
-                                );
-                                break
-                            }
-                        }
-                    };
-
-                    let _event_timer =
-                        metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
-                    metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_EVENTS_TOTAL);
-
-                    let can_spawn = self.current_workers < self.max_workers;
-                    let initial_aggregate_queue_len = aggregate_queue.len();
-                    let initial_attestation_queue_len = attestation_queue.len();
-
-                    match work_event {
-                        // There is no new work event, but we are able to spawn a new worker.
-                        None if can_spawn => {
-                            // Check the aggregates, *then* the unaggregates since we assume that
-                            // aggregates are more valuable to local validators and effectively
-                            // give us more information with less signature verification time.
-                            if let Some(item) = aggregate_queue.pop() {
-                                self.spawn_worker(
-                                    idle_tx.clone(),
-                                    item.message_id,
-                                    item.peer_id,
-                                    Work::Aggregate(item.item),
-                                );
-                            } else if let Some(item) = attestation_queue.pop() {
-                                self.spawn_worker(
-                                    idle_tx.clone(),
-                                    item.message_id,
-                                    item.peer_id,
-                                    Work::Attestation(item.item),
-                                );
-                            }
-                        }
-                        // There is no new work event and we are unable to spawn a new worker.
-                        //
-                        // I cannot see any good reason why this would happen.
-                        None => {
-                            warn!(
+        // The manager future will run on the non-blocking executor and delegate tasks to worker
+        // threads on the blocking future.
+        let manager_future = async move {
+            loop {
+                // Listen to both the event and idle channels, acting on whichever is ready
+                // first.
+                //
+                // Set `work_event = Some(event)` if there is new work to be done. Otherwise sets
+                // `event = None` if it was a worker becoming idle.
+                let work_event;
+                tokio::select! {
+                    // A worker has finished some work.
+                    new_idle_opt = idle_rx.recv() => {
+                        if new_idle_opt.is_some() {
+                            metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_IDLE_EVENTS_TOTAL);
+                            self.current_workers = self.current_workers.saturating_sub(1);
+                            work_event = None
+                        } else {
+                            // Exit if all idle senders have been dropped.
+                            //
+                            // This shouldn't happen since this function holds a sender.
+                            crit!(
                                 self.log,
-                                "Unexpected gossip processor condition";
-                                "msg" => "no new work and cannot spawn worker"
+                                "Gossip processor stopped";
+                                "msg" => "all idle senders dropped"
+                            );
+                            break
+                        }
+                    },
+                    // There is a new piece of work to be handled.
+                    new_work_event_opt = event_rx.recv() => {
+                        if let Some(new_work_event) = new_work_event_opt {
+                            metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORK_EVENTS_TOTAL);
+                            work_event = Some(new_work_event)
+                        } else {
+                            // Exit if all event senders have been dropped.
+                            //
+                            // This should happen when the client shuts down.
+                            debug!(
+                                self.log,
+                                "Gossip processor stopped";
+                                "msg" => "all event senders dropped"
+                            );
+                            break
+                        }
+                    }
+                };
+
+                let _event_timer =
+                    metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
+
+                let can_spawn = self.current_workers < self.max_workers;
+                let initial_aggregate_queue_len = aggregate_queue.len();
+                let initial_attestation_queue_len = attestation_queue.len();
+
+                match work_event {
+                    // There is no new work event, but we are able to spawn a new worker.
+                    None if can_spawn => {
+                        // Check the aggregates, *then* the unaggregates since we assume that
+                        // aggregates are more valuable to local validators and effectively
+                        // give us more information with less signature verification time.
+                        if let Some(item) = aggregate_queue.pop() {
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item.message_id,
+                                item.peer_id,
+                                Work::Aggregate(item.item),
+                            );
+                        } else if let Some(item) = attestation_queue.pop() {
+                            self.spawn_worker(
+                                idle_tx.clone(),
+                                item.message_id,
+                                item.peer_id,
+                                Work::Attestation(item.item),
                             );
                         }
-                        Some(WorkEvent {
+                    }
+                    // There is no new work event and we are unable to spawn a new worker.
+                    //
+                    // I cannot see any good reason why this would happen.
+                    None => {
+                        warn!(
+                            self.log,
+                            "Unexpected gossip processor condition";
+                            "msg" => "no new work and cannot spawn worker"
+                        );
+                    }
+                    Some(WorkEvent {
+                        message_id,
+                        peer_id,
+                        work,
+                    }) => match work {
+                        Work::Attestation(_) if can_spawn => {
+                            self.spawn_worker(idle_tx.clone(), message_id, peer_id, work)
+                        }
+                        Work::Attestation(attestation) => attestation_queue.push(QueueItem {
                             message_id,
                             peer_id,
-                            work,
-                        }) => match work {
-                            Work::Attestation(_) if can_spawn => {
-                                self.spawn_worker(idle_tx.clone(), message_id, peer_id, work)
-                            }
-                            Work::Attestation(attestation) => attestation_queue.push(QueueItem {
-                                message_id,
-                                peer_id,
-                                item: attestation,
-                            }),
-                            Work::Aggregate(_) if can_spawn => {
-                                self.spawn_worker(idle_tx.clone(), message_id, peer_id, work)
-                            }
-                            Work::Aggregate(aggregate) => aggregate_queue.push(QueueItem {
-                                message_id,
-                                peer_id,
-                                item: aggregate,
-                            }),
-                        },
-                    }
-
-                    metrics::set_gauge(
-                        &metrics::GOSSIP_PROCESSOR_WORKERS_ACTIVE_TOTAL,
-                        self.current_workers as i64,
-                    );
-                    metrics::set_gauge(
-                        &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
-                        attestation_queue.len() as i64,
-                    );
-                    metrics::set_gauge(
-                        &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
-                        aggregate_queue.len() as i64,
-                    );
-
-                    if initial_aggregate_queue_len != aggregate_queue.len()
-                        && aggregate_queue.is_full()
-                    {
-                        error!(
-                            self.log,
-                            "Aggregate attestation queue full";
-                            "msg" => "the system has insufficient resources for load",
-                            "queue_len" => aggregate_queue.max_length,
-                        )
-                    }
-
-                    if initial_attestation_queue_len != attestation_queue.len()
-                        && attestation_queue.is_full()
-                    {
-                        error!(
-                            self.log,
-                            "Attestation queue full";
-                            "msg" => "the system has insufficient resources for load",
-                            "queue_len" => attestation_queue.max_length,
-                        )
-                    }
+                            item: attestation,
+                        }),
+                        Work::Aggregate(_) if can_spawn => {
+                            self.spawn_worker(idle_tx.clone(), message_id, peer_id, work)
+                        }
+                        Work::Aggregate(aggregate) => aggregate_queue.push(QueueItem {
+                            message_id,
+                            peer_id,
+                            item: aggregate,
+                        }),
+                    },
                 }
-            },
-            MANAGER_TASK_NAME,
-        );
+
+                metrics::set_gauge(
+                    &metrics::GOSSIP_PROCESSOR_WORKERS_ACTIVE_TOTAL,
+                    self.current_workers as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
+                    attestation_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
+                    aggregate_queue.len() as i64,
+                );
+
+                if initial_aggregate_queue_len != aggregate_queue.len() && aggregate_queue.is_full()
+                {
+                    error!(
+                        self.log,
+                        "Aggregate attestation queue full";
+                        "msg" => "the system has insufficient resources for load",
+                        "queue_len" => aggregate_queue.max_length,
+                    )
+                }
+
+                if initial_attestation_queue_len != attestation_queue.len()
+                    && attestation_queue.is_full()
+                {
+                    error!(
+                        self.log,
+                        "Attestation queue full";
+                        "msg" => "the system has insufficient resources for load",
+                        "queue_len" => attestation_queue.max_length,
+                    )
+                }
+            }
+        };
+
+        // Spawn on the non-blocking executor.
+        executor.spawn(manager_future, MANAGER_TASK_NAME);
 
         event_tx
     }
