@@ -56,7 +56,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         let sync_send = crate::sync::manager::spawn(
             executor.clone(),
             beacon_chain.clone(),
-            network_globals,
+            network_globals.clone(),
             network_send.clone(),
             sync_logger,
         );
@@ -65,6 +65,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             beacon_chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
+            network_globals,
             executor,
             max_workers: num_cpus::get(),
             current_workers: 0,

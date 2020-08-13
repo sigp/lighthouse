@@ -41,7 +41,7 @@ use beacon_chain::{
     ForkChoiceError,
 };
 use environment::TaskExecutor;
-use eth2_libp2p::{MessageId, PeerId};
+use eth2_libp2p::{MessageId, NetworkGlobals, PeerId};
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -171,6 +171,7 @@ pub struct GossipProcessor<T: BeaconChainTypes> {
     pub beacon_chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub executor: TaskExecutor,
     pub max_workers: usize,
     pub current_workers: usize,
@@ -281,6 +282,20 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                             "msg" => "no new work and cannot spawn worker"
                         );
                     }
+                    // There is a new work event, but the chain is syncing. Ignore it.
+                    Some(WorkEvent {
+                        message_id,
+                        peer_id,
+                        work,
+                    }) if self.network_globals.sync_state.read().is_syncing() => {
+                        metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORK_EVENTS_IGNORED_TOTAL);
+                        trace!(
+                            self.log,
+                            "Gossip processor skipping work";
+                            "msg" => "chain is syncing"
+                        );
+                    }
+                    // There is a new work event and the chain is not syncing. Process it.
                     Some(WorkEvent {
                         message_id,
                         peer_id,
