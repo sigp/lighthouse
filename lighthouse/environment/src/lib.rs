@@ -151,6 +151,77 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Sets the logger (and all child loggers) to log to a file.
+    pub fn log_to_file(
+        mut self,
+        path: PathBuf,
+        debug_level: &str,
+        log_format: Option<&str>,
+    ) -> Result<Self, String> {
+        // Creating a backup if the logfile already exists.
+        if path.exists() {
+            let start = SystemTime::now();
+            let timestamp = start
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs();
+            let file_stem = path
+                .file_stem()
+                .ok_or_else(|| "Invalid file name".to_string())?
+                .to_str()
+                .ok_or_else(|| "Failed to create str from filename".to_string())?;
+            let file_ext = path.extension().unwrap_or_else(|| OsStr::new(""));
+            let backup_name = format!("{}_backup_{}", file_stem, timestamp);
+            let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
+            FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
+        }
+
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
+
+        // Setting up the initial logger format and building it.
+        let drain = if let Some(format) = log_format {
+            match format.to_uppercase().as_str() {
+                "JSON" => {
+                    let drain = slog_json::Json::default(file).fuse();
+                    slog_async::Async::new(drain).build()
+                }
+                _ => return Err("Logging format provided is not supported".to_string()),
+            }
+        } else {
+            let decorator = slog_term::PlainDecorator::new(file);
+            let decorator =
+                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+            let drain = slog_term::FullFormat::new(decorator).build().fuse();
+            slog_async::Async::new(drain).build()
+        };
+
+        let drain = match debug_level {
+            "info" => drain.filter_level(Level::Info),
+            "debug" => drain.filter_level(Level::Debug),
+            "trace" => drain.filter_level(Level::Trace),
+            "warn" => drain.filter_level(Level::Warning),
+            "error" => drain.filter_level(Level::Error),
+            "crit" => drain.filter_level(Level::Critical),
+            unknown => return Err(format!("Unknown debug-level: {}", unknown)),
+        };
+
+        let log = Logger::root(drain.fuse(), o!());
+        info!(
+            log,
+            "Logging to file";
+            "path" => format!("{:?}", path)
+        );
+
+        self.log = Some(log);
+
+        Ok(self)
+    }
+
     /// Adds a testnet configuration to the environment.
     pub fn eth2_testnet_config(
         mut self,
@@ -318,68 +389,6 @@ impl<E: EthSpec> Environment<E> {
         if let Some(signal) = self.signal.take() {
             let _ = signal.fire();
         }
-    }
-
-    /// Sets the logger (and all child loggers) to log to a file.
-    pub fn log_to_json_file(
-        &mut self,
-        path: PathBuf,
-        debug_level: &str,
-        log_format: Option<&str>,
-    ) -> Result<(), String> {
-        // Creating a backup if the logfile already exists.
-        if path.exists() {
-            let start = SystemTime::now();
-            let timestamp = start
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_secs();
-            let file_stem = path
-                .file_stem()
-                .ok_or_else(|| "Invalid file name".to_string())?
-                .to_str()
-                .ok_or_else(|| "Failed to create str from filename".to_string())?;
-            let file_ext = path.extension().unwrap_or_else(|| OsStr::new(""));
-            let backup_name = format!("{}_backup_{}", file_stem, timestamp);
-            let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
-            FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
-        }
-
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
-
-        let log_format = log_format.unwrap_or("JSON");
-        let drain = match log_format.to_uppercase().as_str() {
-            "JSON" => {
-                let drain = slog_json::Json::default(file).fuse();
-                slog_async::Async::new(drain).build()
-            }
-            _ => return Err("Logging format provided is not supported".to_string()),
-        };
-
-        let drain = match debug_level {
-            "info" => drain.filter_level(Level::Info),
-            "debug" => drain.filter_level(Level::Debug),
-            "trace" => drain.filter_level(Level::Trace),
-            "warn" => drain.filter_level(Level::Warning),
-            "error" => drain.filter_level(Level::Error),
-            "crit" => drain.filter_level(Level::Critical),
-            unknown => return Err(format!("Unknown debug-level: {}", unknown)),
-        };
-
-        self.log = Logger::root(drain.fuse(), o!());
-
-        info!(
-            self.log,
-            "Logging to JSON file";
-            "path" => format!("{:?}", path)
-        );
-
-        Ok(())
     }
 
     pub fn eth_spec_instance(&self) -> &E {
