@@ -2,14 +2,14 @@ use crate::helpers::{
     check_content_type_for_json, parse_hex_ssz_bytes, publish_beacon_block_to_network,
 };
 use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, NetworkChannel, UrlQuery};
+use crate::{ApiError, ApiResult, Context, NetworkChannel, UrlQuery};
 use beacon_chain::{
     attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     BlockError, ForkChoiceError, StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
-use hyper::{Body, Request};
+use hyper::{body::Bytes, Body, Request};
 use network::NetworkMessage;
 use rayon::prelude::*;
 use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscription};
@@ -445,6 +445,46 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
             e
         ))),
     }
+}
+
+/// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.
+pub fn publish_attestations_blocking<T: BeaconChainTypes>(
+    ctx: Arc<Context<T>>,
+    body: Bytes,
+) -> Result<(), ApiError> {
+    let bytes = body.into_iter().collect::<Vec<_>>();
+
+    serde_json::from_slice(&bytes)
+        .map_err(|e| {
+            ApiError::BadRequest(format!(
+                "Unable to deserialize JSON into a list of attestations: {:?}",
+                e
+            ))
+        })
+        // Process all of the aggregates _without_ exiting early if one fails.
+        .map(
+            move |attestations: Vec<(Attestation<T::EthSpec>, SubnetId)>| {
+                attestations
+                    .into_par_iter()
+                    .enumerate()
+                    .map(|(i, (attestation, subnet_id))| {
+                        process_unaggregated_attestation(
+                            &ctx.beacon_chain,
+                            ctx.network_chan.clone(),
+                            attestation,
+                            subnet_id,
+                            i,
+                            &ctx.log,
+                        )
+                    })
+                    .collect::<Vec<Result<_, _>>>()
+            },
+        )
+        // Iterate through all the results and return on the first `Err`.
+        //
+        // Note: this will only provide info about the _first_ failure, not all failures.
+        .and_then(|processing_results| processing_results.into_iter().try_for_each(|result| result))
+        .and_then(|_| Ok(()))
 }
 
 /// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.

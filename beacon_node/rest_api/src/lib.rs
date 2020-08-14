@@ -2,6 +2,8 @@
 mod macros;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+mod router;
 extern crate network as client_network;
 
 mod advanced;
@@ -15,7 +17,6 @@ mod metrics;
 mod network;
 mod node;
 mod response_builder;
-mod router;
 mod spec;
 mod url_query;
 mod validator;
@@ -42,6 +43,7 @@ use url_query::UrlQuery;
 
 pub use crate::helpers::parse_pubkey_bytes;
 pub use config::Config;
+pub use router::Context;
 
 pub type NetworkChannel<T> = mpsc::UnboundedSender<NetworkMessage<T>>;
 
@@ -67,32 +69,26 @@ pub fn start_server<T: BeaconChainTypes>(
     let rest_api_config = Arc::new(config.clone());
     let eth2_config = Arc::new(eth2_config);
 
+    let context = Arc::new(Context {
+        executor: executor.clone(),
+        config: config.clone(),
+        beacon_chain: beacon_chain.clone(),
+        network_globals: network_info.network_globals.clone(),
+        network_chan: network_info.network_chan.clone(),
+        eth2_config: eth2_config.clone(),
+        log: log.clone(),
+        db_path: db_path.clone(),
+        freezer_db_path: freezer_db_path.clone(),
+        events: events.clone(),
+    });
+
     // Define the function that will build the request handler.
     let make_service = make_service_fn(move |_socket: &AddrStream| {
-        let beacon_chain = beacon_chain.clone();
-        let log = inner_log.clone();
-        let rest_api_config = rest_api_config.clone();
-        let eth2_config = eth2_config.clone();
-        let network_globals = network_info.network_globals.clone();
-        let network_channel = network_info.network_chan.clone();
-        let db_path = db_path.clone();
-        let freezer_db_path = freezer_db_path.clone();
-        let events = events.clone();
+        let ctx = context.clone();
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
-                router::route(
-                    req,
-                    beacon_chain.clone(),
-                    network_globals.clone(),
-                    network_channel.clone(),
-                    rest_api_config.clone(),
-                    eth2_config.clone(),
-                    log.clone(),
-                    db_path.clone(),
-                    freezer_db_path.clone(),
-                    events.clone(),
-                )
+                router::route(req, ctx.clone())
             }))
         }
     });

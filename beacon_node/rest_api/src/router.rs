@@ -1,40 +1,213 @@
 use crate::{
     advanced, beacon, config::Config, consensus, error::ApiError, helpers, lighthouse, metrics,
-    network, node, spec, validator, NetworkChannel,
+    network, node, response_builder::ResponseBuilder, spec, validator, ApiResult, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bus::Bus;
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
 use hyper::header::HeaderValue;
-use hyper::{Body, Method, Request, Response};
+use hyper::{body::Bytes, Body, Method, Request, Response};
 use parking_lot::Mutex;
 use slog::debug;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use types::{SignedBeaconBlockHash, Slot};
 
+use environment::TaskExecutor;
+use slog::{info, warn};
+
+pub struct Context<T: BeaconChainTypes> {
+    pub executor: TaskExecutor,
+    pub config: Config,
+    pub beacon_chain: Arc<BeaconChain<T>>,
+    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    pub network_chan: NetworkChannel<T::EthSpec>,
+    pub eth2_config: Arc<Eth2Config>,
+    pub log: slog::Logger,
+    pub db_path: PathBuf,
+    pub freezer_db_path: PathBuf,
+    pub events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
+}
+
+/*
+#[macro_export]
+macro_rules! get_make_service_fn {
+    ($router: ident) => {{
+        let router = $router;
+        let bind_addr = (router.config.listen_address, router.config.port).into();
+
+        // Define the function that will build the request handler.
+        let make_service =
+            hyper::service::make_service_fn(move |_socket: &AddrStream| async move {
+                Ok::<_, hyper::Error>(hyper::service::service_fn(move |req: Request<Body>| {
+                    dbg!(router.config);
+                    Response::new(Body::from(format!("Hello, {}!", remote_addr)))
+                }))
+            });
+
+        Server::bind(&bind_addr).serve(make_service)
+    }};
+}
+*/
+
+/*
+impl<T: BeaconChainTypes> BeaconNodeServer<T> {
+    pub fn spawn(self) -> Result<SocketAddr, hyper::Error> {
+        let bind_addr = (self.config.listen_address, self.config.port).into();
+        let executor = self.executor.clone();
+        let log = self.log.clone();
+        let ctx = Arc::new(self);
+
+        let make_svc = hyper::service::make_service_fn(move |socket: &AddrStream| {
+            let remote_addr = socket.remote_addr();
+            let ctx = ctx.clone();
+
+            async move {
+                Ok::<_, Infallible>(hyper::service::service_fn(move |_: Request<Body>| {
+                    let ctx = ctx.clone();
+
+                    async move {
+                        dbg!(&ctx.config);
+                        Ok::<_, Infallible>(Response::new(Body::from(format!(
+                            "Hello, {}!",
+                            remote_addr
+                        ))))
+                    }
+                }))
+            }
+        });
+
+        let server = Server::bind(&bind_addr).serve(make_svc);
+
+        // Determine the address the server is actually listening on.
+        //
+        // This may be different to `bind_addr` if bind port was 0 (this allows the OS to choose a free
+        // port).
+        let actual_listen_addr = server.local_addr();
+
+        // Build a channel to kill the HTTP server.
+        let exit = executor.exit();
+        let inner_log = log.clone();
+        let server_exit = async move {
+            let _ = exit.await;
+            info!(inner_log, "HTTP service shutdown");
+        };
+
+        // Configure the `hyper` server to gracefully shutdown when the shutdown channel is triggered.
+        let inner_log = log.clone();
+        let server_future = server
+            .with_graceful_shutdown(async {
+                server_exit.await;
+            })
+            .map_err(move |e| {
+                warn!(
+                inner_log,
+                "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
+                )
+            })
+            .unwrap_or_else(|_| ());
+
+        info!(
+            log,
+            "HTTP API started";
+            "address" => format!("{}", actual_listen_addr.ip()),
+            "port" => actual_listen_addr.port(),
+        );
+
+        executor.spawn_without_exit(server_future, "http");
+
+        Ok(actual_listen_addr)
+    }
+}
+*/
+
+/*
+pub async fn paul_test(socket: &AddrStream) ->  {
+    hyper::service::make_service_fn(|socket: &AddrStream| {
+        let remote_addr = socket.remote_addr();
+        async move {
+            Ok::<_, Infallible>(hyper::service::service_fn(
+                move |_: Request<Body>| async move {
+                    Ok::<_, Infallible>(Response::new(Body::from(format!(
+                        "Hello, {}!",
+                        remote_addr
+                    ))))
+                },
+            ))
+        }
+    })
+}
+*/
+
+async fn blocking<T, I, NB, B>(
+    ctx: Arc<Context<T>>,
+    non_blocking_fn: NB,
+    blocking_fn: B,
+) -> Result<(), ApiError>
+where
+    I: Send + Sync + 'static,
+    T: BeaconChainTypes,
+    NB: Future<Output = Result<I, ApiError>>,
+    B: Fn(Arc<Context<T>>, I) -> Result<(), ApiError> + Send + Sync + 'static,
+{
+    let intermediate_values = non_blocking_fn.await?;
+    let result = ctx
+        .executor
+        .clone()
+        .handle
+        .spawn_blocking(move || blocking_fn(ctx, intermediate_values))
+        .await
+        .map_err(|e| {
+            ApiError::ServerError(format!(
+                "Failed to get blocking join handle: {}",
+                e.to_string()
+            ))
+        })?;
+
+    result
+}
+
+async fn blocking_with_body<T, I, NB, B>(
+    ctx: Arc<Context<T>>,
+    req: Request<Body>,
+    blocking_fn: B,
+) -> ApiResult
+where
+    T: BeaconChainTypes,
+    B: Fn(Arc<Context<T>>, Bytes) -> Result<(), ApiError> + Send + Sync + 'static,
+{
+    let response_builder = ResponseBuilder::new(&req)?;
+
+    let non_blocking_fn = async {
+        let body = get_body(req).await;
+        body
+    };
+
+    let result = blocking(ctx, non_blocking_fn, blocking_fn).await?;
+
+    response_builder.body_no_ssz(&result)
+}
+
+async fn get_body(req: Request<Body>) -> Result<Bytes, ApiError> {
+    hyper::body::to_bytes(req.into_body())
+        .await
+        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
+}
+
 // Allowing more than 7 arguments.
 #[allow(clippy::too_many_arguments)]
 pub async fn route<T: BeaconChainTypes>(
     req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    network_channel: NetworkChannel<T::EthSpec>,
-    rest_api_config: Arc<Config>,
-    eth2_config: Arc<Eth2Config>,
-    local_log: slog::Logger,
-    db_path: PathBuf,
-    freezer_db_path: PathBuf,
-    events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
+    ctx: Arc<Context<T>>,
 ) -> Result<Response<Body>, ApiError> {
     metrics::inc_counter(&metrics::REQUEST_COUNT);
     let received_instant = Instant::now();
 
     let path = req.uri().path().to_string();
 
-    let log = local_log.clone();
     let result = {
         let _timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
 
@@ -42,6 +215,21 @@ pub async fn route<T: BeaconChainTypes>(
             // Methods for Client
             (&Method::GET, "/node/health") => node::get_health(req),
             (&Method::GET, "/node/version") => node::get_version(req),
+            (&Method::POST, "/validator/attestations") => {
+                blocking_with_body::<_, (), _, _>(
+                    ctx,
+                    req,
+                    validator::publish_attestations_blocking,
+                )
+                .await
+            }
+            /*
+            (&Method::POST, "/validator/attestations") => blocking(
+                ctx,
+                || get_body(req),
+                |body| validator::publish_attestations_blocking(body, &ctx),
+            ),
+
             (&Method::GET, "/node/syncing") => {
                 // inform the current slot, or set to 0
                 let current_slot = beacon_chain
@@ -198,6 +386,10 @@ pub async fn route<T: BeaconChainTypes>(
             _ => Err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
             )),
+            */
+            _ => Err(ApiError::NotFound(
+                "Request path and/or method not found.".to_owned(),
+            )),
         }
     };
 
@@ -209,17 +401,17 @@ pub async fn route<T: BeaconChainTypes>(
 
     match result {
         Ok(mut response) => {
-            if rest_api_config.allow_origin != "" {
+            if ctx.config.allow_origin != "" {
                 let headers = response.headers_mut();
                 headers.insert(
                     hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-                    HeaderValue::from_str(&rest_api_config.allow_origin)?,
+                    HeaderValue::from_str(&ctx.config.allow_origin)?,
                 );
                 headers.insert(hyper::header::VARY, HeaderValue::from_static("Origin"));
             }
 
             debug!(
-                local_log,
+                ctx.log,
                 "HTTP API request successful";
                 "path" => path,
                 "duration_ms" => request_processing_duration.as_millis()
@@ -230,7 +422,7 @@ pub async fn route<T: BeaconChainTypes>(
 
         Err(error) => {
             debug!(
-                local_log,
+                ctx.log,
                 "HTTP API request failure";
                 "path" => path,
                 "duration_ms" => request_processing_duration.as_millis()
