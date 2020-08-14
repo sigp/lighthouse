@@ -1,15 +1,24 @@
 use crate::{
-    advanced, beacon, config::Config, consensus, error::ApiError, helpers, lighthouse, metrics,
-    network, node, response_builder::ResponseBuilder, spec, validator, ApiResult, NetworkChannel,
+    advanced, beacon,
+    config::{ApiEncodingFormat, Config},
+    consensus,
+    error::ApiError,
+    helpers, lighthouse, metrics, network, node,
+    response_builder::ResponseBuilder,
+    spec, validator, ApiResult, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bus::Bus;
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
-use hyper::header::HeaderValue;
-use hyper::{body::Bytes, Body, Method, Request, Response};
+use hyper::header::{self, HeaderValue};
+use hyper::{body::Bytes, Body, Method, Request, Response, StatusCode};
+use lighthouse_version::version_with_platform;
 use parking_lot::Mutex;
+use rest_types::Health;
+use serde::Serialize;
 use slog::debug;
+use ssz::Encode;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,163 +41,160 @@ pub struct Context<T: BeaconChainTypes> {
     pub events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
 }
 
-/*
-#[macro_export]
-macro_rules! get_make_service_fn {
-    ($router: ident) => {{
-        let router = $router;
-        let bind_addr = (router.config.listen_address, router.config.port).into();
-
-        // Define the function that will build the request handler.
-        let make_service =
-            hyper::service::make_service_fn(move |_socket: &AddrStream| async move {
-                Ok::<_, hyper::Error>(hyper::service::service_fn(move |req: Request<Body>| {
-                    dbg!(router.config);
-                    Response::new(Body::from(format!("Hello, {}!", remote_addr)))
-                }))
-            });
-
-        Server::bind(&bind_addr).serve(make_service)
-    }};
+struct Handler<T: BeaconChainTypes> {
+    req: Request<Body>,
+    ctx: Arc<Context<T>>,
+    encoding: ApiEncodingFormat,
+    allow_body: bool,
 }
-*/
 
-/*
-impl<T: BeaconChainTypes> BeaconNodeServer<T> {
-    pub fn spawn(self) -> Result<SocketAddr, hyper::Error> {
-        let bind_addr = (self.config.listen_address, self.config.port).into();
-        let executor = self.executor.clone();
-        let log = self.log.clone();
-        let ctx = Arc::new(self);
-
-        let make_svc = hyper::service::make_service_fn(move |socket: &AddrStream| {
-            let remote_addr = socket.remote_addr();
-            let ctx = ctx.clone();
-
-            async move {
-                Ok::<_, Infallible>(hyper::service::service_fn(move |_: Request<Body>| {
-                    let ctx = ctx.clone();
-
-                    async move {
-                        dbg!(&ctx.config);
-                        Ok::<_, Infallible>(Response::new(Body::from(format!(
-                            "Hello, {}!",
-                            remote_addr
-                        ))))
-                    }
-                }))
-            }
-        });
-
-        let server = Server::bind(&bind_addr).serve(make_svc);
-
-        // Determine the address the server is actually listening on.
-        //
-        // This may be different to `bind_addr` if bind port was 0 (this allows the OS to choose a free
-        // port).
-        let actual_listen_addr = server.local_addr();
-
-        // Build a channel to kill the HTTP server.
-        let exit = executor.exit();
-        let inner_log = log.clone();
-        let server_exit = async move {
-            let _ = exit.await;
-            info!(inner_log, "HTTP service shutdown");
-        };
-
-        // Configure the `hyper` server to gracefully shutdown when the shutdown channel is triggered.
-        let inner_log = log.clone();
-        let server_future = server
-            .with_graceful_shutdown(async {
-                server_exit.await;
+impl<T: BeaconChainTypes> Handler<T> {
+    pub fn new(req: Request<Body>, ctx: Arc<Context<T>>) -> Result<Self, ApiError> {
+        let accept_header: String = req
+            .headers()
+            .get(header::ACCEPT)
+            .map_or(Ok(""), |h| h.to_str())
+            .map_err(|e| {
+                ApiError::BadRequest(format!(
+                    "The Accept header contains invalid characters: {:?}",
+                    e
+                ))
             })
-            .map_err(move |e| {
-                warn!(
-                inner_log,
-                "HTTP server failed to start, Unable to bind"; "address" => format!("{:?}", e)
-                )
-            })
-            .unwrap_or_else(|_| ());
+            .map(String::from)?;
 
-        info!(
-            log,
-            "HTTP API started";
-            "address" => format!("{}", actual_listen_addr.ip()),
-            "port" => actual_listen_addr.port(),
-        );
+        Ok(Self {
+            req,
+            ctx,
+            allow_body: false,
+            encoding: ApiEncodingFormat::from(accept_header.as_str()),
+        })
+    }
 
-        executor.spawn_without_exit(server_future, "http");
+    pub fn allow_body(mut self) -> Self {
+        self.allow_body = true;
+        self
+    }
 
-        Ok(actual_listen_addr)
+    async fn static_value<V>(self, value: V) -> Result<HandledRequest<V>, ApiError> {
+        let body = get_body(self.req).await?;
+
+        if !self.allow_body && !&body[..].is_empty() {
+            return Err(ApiError::BadRequest(
+                "The request body must be empty".to_string(),
+            ));
+        }
+
+        Ok(HandledRequest {
+            value,
+            encoding: self.encoding,
+        })
+    }
+
+    async fn in_blocking_thread<F, V>(self, blocking_fn: F) -> Result<HandledRequest<V>, ApiError>
+    where
+        V: Send + Sync + 'static,
+        F: Fn(Arc<Context<T>>, Bytes) -> Result<V, ApiError> + Send + Sync + 'static,
+    {
+        let body = get_body(self.req).await?;
+
+        if !self.allow_body && !&body[..].is_empty() {
+            return Err(ApiError::BadRequest(
+                "The request body must be empty".to_string(),
+            ));
+        }
+
+        let ctx = self.ctx.clone();
+
+        let value = ctx
+            .executor
+            .clone()
+            .handle
+            .spawn_blocking(move || blocking_fn(ctx, body))
+            .await
+            .map_err(|e| {
+                ApiError::ServerError(format!(
+                    "Failed to get blocking join handle: {}",
+                    e.to_string()
+                ))
+            })??;
+
+        Ok(HandledRequest {
+            value,
+            encoding: self.encoding,
+        })
     }
 }
-*/
 
-/*
-pub async fn paul_test(socket: &AddrStream) ->  {
-    hyper::service::make_service_fn(|socket: &AddrStream| {
-        let remote_addr = socket.remote_addr();
-        async move {
-            Ok::<_, Infallible>(hyper::service::service_fn(
-                move |_: Request<Body>| async move {
-                    Ok::<_, Infallible>(Response::new(Body::from(format!(
-                        "Hello, {}!",
-                        remote_addr
-                    ))))
-                },
-            ))
+struct HandledRequest<V> {
+    encoding: ApiEncodingFormat,
+    value: V,
+}
+
+impl HandledRequest<String> {
+    pub fn from_string(value: String) -> ApiResult {
+        Self {
+            encoding: ApiEncodingFormat::JSON,
+            value,
         }
-    })
-}
-*/
+        .text_encoding()
+    }
 
-async fn blocking<T, I, NB, B>(
-    ctx: Arc<Context<T>>,
-    non_blocking_fn: NB,
-    blocking_fn: B,
-) -> Result<(), ApiError>
-where
-    I: Send + Sync + 'static,
-    T: BeaconChainTypes,
-    NB: Future<Output = Result<I, ApiError>>,
-    B: Fn(Arc<Context<T>>, I) -> Result<(), ApiError> + Send + Sync + 'static,
-{
-    let intermediate_values = non_blocking_fn.await?;
-    let result = ctx
-        .executor
-        .clone()
-        .handle
-        .spawn_blocking(move || blocking_fn(ctx, intermediate_values))
-        .await
-        .map_err(|e| {
-            ApiError::ServerError(format!(
-                "Failed to get blocking join handle: {}",
-                e.to_string()
-            ))
-        })?;
-
-    result
+    pub fn text_encoding(self) -> ApiResult {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "text/plain; charset=utf-8")
+            .body(Body::from(self.value))
+            .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
+    }
 }
 
-async fn blocking_with_body<T, I, NB, B>(
-    ctx: Arc<Context<T>>,
-    req: Request<Body>,
-    blocking_fn: B,
-) -> ApiResult
-where
-    T: BeaconChainTypes,
-    B: Fn(Arc<Context<T>>, Bytes) -> Result<(), ApiError> + Send + Sync + 'static,
-{
-    let response_builder = ResponseBuilder::new(&req)?;
+impl<V: Serialize + Encode> HandledRequest<V> {
+    pub fn all_encodings(self) -> ApiResult {
+        match self.encoding {
+            ApiEncodingFormat::SSZ => Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/ssz")
+                .body(Body::from(self.value.as_ssz_bytes()))
+                .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e))),
+            _ => self.serde_encodings(),
+        }
+    }
+}
 
-    let non_blocking_fn = async {
-        let body = get_body(req).await;
-        body
-    };
+impl<V: Serialize> HandledRequest<V> {
+    pub fn serde_encodings(self) -> ApiResult {
+        let (body, content_type) = match self.encoding {
+            ApiEncodingFormat::JSON => (
+                Body::from(serde_json::to_string(&self.value).map_err(|e| {
+                    ApiError::ServerError(format!(
+                        "Unable to serialize response body as JSON: {:?}",
+                        e
+                    ))
+                })?),
+                "application/json",
+            ),
+            ApiEncodingFormat::SSZ => {
+                return Err(ApiError::UnsupportedType(
+                    "Response cannot be encoded as SSZ.".into(),
+                ));
+            }
+            ApiEncodingFormat::YAML => (
+                Body::from(serde_yaml::to_string(&self.value).map_err(|e| {
+                    ApiError::ServerError(format!(
+                        "Unable to serialize response body as YAML: {:?}",
+                        e
+                    ))
+                })?),
+                "application/yaml",
+            ),
+        };
 
-    let result = blocking(ctx, non_blocking_fn, blocking_fn).await?;
-
-    response_builder.body_no_ssz(&result)
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", content_type)
+            .body(body)
+            .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
+    }
 }
 
 async fn get_body(req: Request<Body>) -> Result<Bytes, ApiError> {
@@ -210,19 +216,25 @@ pub async fn route<T: BeaconChainTypes>(
 
     let result = {
         let _timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
+        let ctx = ctx.clone();
+        let method = req.method().clone();
+        let handler = || Handler::new(req, ctx);
 
-        match (req.method(), path.as_ref()) {
+        match (method, path.as_ref()) {
             // Methods for Client
-            (&Method::GET, "/node/health") => node::get_health(req),
-            (&Method::GET, "/node/version") => node::get_version(req),
-            (&Method::POST, "/validator/attestations") => {
-                blocking_with_body::<_, (), _, _>(
-                    ctx,
-                    req,
-                    validator::publish_attestations_blocking,
-                )
-                .await
-            }
+            (Method::GET, "/node/version") => handler()?
+                .static_value(version_with_platform())
+                .await?
+                .text_encoding(),
+            (Method::GET, "/node/health") => handler()?
+                .static_value(Health::observe().map_err(ApiError::ServerError)?)
+                .await?
+                .serde_encodings(),
+            (Method::POST, "/validator/attestations") => handler()?
+                .allow_body()
+                .in_blocking_thread(validator::publish_attestations_blocking)
+                .await?
+                .serde_encodings(),
             /*
             (&Method::POST, "/validator/attestations") => blocking(
                 ctx,
