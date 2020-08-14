@@ -45,6 +45,7 @@ use eth2_libp2p::{MessageId, NetworkGlobals, PeerId};
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
@@ -71,6 +72,9 @@ const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
 /// The name of the worker tokio tasks.
 const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
+
+/// The minimum interval between log messages indicating that a queue is full.
+const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// A queued item from gossip, awaiting processing.
 struct QueueItem<T> {
@@ -163,6 +167,25 @@ pub enum Work<E: EthSpec> {
     Aggregate(Box<SignedAggregateAndProof<E>>),
 }
 
+/// Provides de-bounce functionality for logging.
+#[derive(Default)]
+struct TimeLatch(Option<Instant>);
+
+impl TimeLatch {
+    /// Only returns true once every `LOG_DEBOUNCE_INTERVAL`.
+    fn elapsed(&mut self) -> bool {
+        let now = Instant::now();
+
+        let is_elapsed = self.0.map_or(false, |elapse_time| now > elapse_time);
+
+        if is_elapsed || self.0.is_none() {
+            self.0 = Some(now + LOG_DEBOUNCE_INTERVAL);
+        }
+
+        is_elapsed
+    }
+}
+
 /// A mutli-threaded processor for messages received on the network
 /// that need to be processed by the `BeaconChain`
 ///
@@ -191,8 +214,13 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
         let (event_tx, mut event_rx) =
             mpsc::channel::<WorkEvent<T::EthSpec>>(MAX_WORK_EVENT_QUEUE_LEN);
         let (idle_tx, mut idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
+
         let mut aggregate_queue = LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
+        let mut aggregate_debounce = TimeLatch::default();
+
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
+        let mut attestation_debounce = TimeLatch::default();
+
         let executor = self.executor.clone();
 
         // The manager future will run on the non-blocking executor and delegate tasks to worker
@@ -246,8 +274,6 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
 
                 let can_spawn = self.current_workers < self.max_workers;
-                let initial_aggregate_queue_len = aggregate_queue.len();
-                let initial_attestation_queue_len = attestation_queue.len();
 
                 match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
@@ -330,8 +356,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     aggregate_queue.len() as i64,
                 );
 
-                if initial_aggregate_queue_len != aggregate_queue.len() && aggregate_queue.is_full()
-                {
+                if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
                         self.log,
                         "Aggregate attestation queue full";
@@ -340,9 +365,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     )
                 }
 
-                if initial_attestation_queue_len != attestation_queue.len()
-                    && attestation_queue.is_full()
-                {
+                if attestation_queue.is_full() && attestation_debounce.elapsed() {
                     error!(
                         self.log,
                         "Attestation queue full";
