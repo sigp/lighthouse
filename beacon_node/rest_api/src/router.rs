@@ -218,30 +218,40 @@ pub async fn route<T: BeaconChainTypes>(
         let _timer = metrics::start_timer(&metrics::REQUEST_RESPONSE_TIME);
         let ctx = ctx.clone();
         let method = req.method().clone();
-        let handler = || Handler::new(req, ctx);
+        let handler = Handler::new(req, ctx)?;
 
         match (method, path.as_ref()) {
-            // Methods for Client
-            (Method::GET, "/node/version") => handler()?
+            /*
+             * Current lighthouse version.
+             */
+            (Method::GET, "/node/version") => handler
                 .static_value(version_with_platform())
                 .await?
                 .text_encoding(),
-            (Method::GET, "/node/health") => handler()?
+            /*
+             * The health of the host.
+             */
+            (Method::GET, "/node/health") => handler
                 .static_value(Health::observe().map_err(ApiError::ServerError)?)
                 .await?
                 .serde_encodings(),
-            (Method::POST, "/validator/attestations") => handler()?
+            /*
+             * Network syncing status
+             */
+            (Method::GET, "/node/syncing") => handler
+                .allow_body()
+                .in_blocking_thread(|ctx, _| Ok(node::syncing(ctx)))
+                .await?
+                .serde_encodings(),
+            /*
+             * Unaggregated attestations from local validators.
+             */
+            (Method::POST, "/validator/attestations") => handler
                 .allow_body()
                 .in_blocking_thread(validator::publish_attestations_blocking)
                 .await?
                 .serde_encodings(),
             /*
-            (&Method::POST, "/validator/attestations") => blocking(
-                ctx,
-                || get_body(req),
-                |body| validator::publish_attestations_blocking(body, &ctx),
-            ),
-
             (&Method::GET, "/node/syncing") => {
                 // inform the current slot, or set to 0
                 let current_slot = beacon_chain
