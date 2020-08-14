@@ -3,8 +3,9 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::block_verification::{
-    check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
-    FullyVerifiedBlock, GossipVerifiedBlock, IntoFullyVerifiedBlock,
+    check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
+    signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
+    IntoFullyVerifiedBlock,
 };
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -1214,6 +1215,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                // The block has a known parent that does not descend from the finalized block.
+                // There is no need to process this block or any children.
+                Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::NotFinalizedDescendant { block_parent_root },
+                    }
+                }
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
                 Err(BlockError::BeaconChainError(e)) => {
@@ -1415,7 +1424,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         fully_verified_block: FullyVerifiedBlock<T>,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let signed_block = fully_verified_block.block;
-        let block = &signed_block.message;
         let block_root = fully_verified_block.block_root;
         let state = fully_verified_block.state;
         let parent_block = fully_verified_block.parent_block;
@@ -1427,7 +1435,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
-        for a in &block.body.attestations {
+        for a in &signed_block.message.body.attestations {
             match self.observed_attestations.observe_attestation(a, None) {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
@@ -1476,6 +1484,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let mut fork_choice = self.fork_choice.write();
+
+        // Do not import a block that doesn't descend from the finalized root.
+        let signed_block =
+            check_block_is_finalized_descendant::<T, _>(signed_block, &fork_choice, &self.store)?;
+        let block = &signed_block.message;
 
         // Register the new block with the fork choice service.
         {
