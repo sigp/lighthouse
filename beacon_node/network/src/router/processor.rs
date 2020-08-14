@@ -1,20 +1,19 @@
+use super::gossip_processor::{GossipProcessor, WorkEvent as GossipWorkEvent};
 use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{
-    attestation_verification::{
-        Error as AttnError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
-        VerifiedUnaggregatedAttestation,
-    },
-    observed_operations::ObservationOutcome,
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, BlockError,
     GossipVerifiedBlock,
 };
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response};
+use eth2_libp2p::{
+    MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
+};
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
 use ssz::Encode;
 use state_processing::SigVerifiedOp;
+use std::cmp;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
@@ -37,6 +36,8 @@ pub struct Processor<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
+    /// A multi-threaded, non-blocking processor for consensus gossip messages.
+    gossip_processor_send: mpsc::Sender<GossipWorkEvent<T::EthSpec>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -54,17 +55,30 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         // spawn the sync thread
         let sync_send = crate::sync::manager::spawn(
-            executor,
+            executor.clone(),
             beacon_chain.clone(),
-            network_globals,
+            network_globals.clone(),
             network_send.clone(),
             sync_logger,
         );
+
+        let gossip_processor_send = GossipProcessor {
+            beacon_chain: beacon_chain.clone(),
+            network_tx: network_send.clone(),
+            sync_tx: sync_send.clone(),
+            network_globals,
+            executor,
+            max_workers: cmp::max(1, num_cpus::get()),
+            current_workers: 0,
+            log: log.clone(),
+        }
+        .spawn_manager();
 
         Processor {
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
+            gossip_processor_send,
             log: log.clone(),
         }
     }
@@ -584,347 +598,50 @@ impl<T: BeaconChainTypes> Processor<T> {
         true
     }
 
-    /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
-    /// network.
-    pub fn handle_attestation_verification_failure(
+    pub fn on_unaggregated_attestation_gossip(
         &mut self,
-        peer_id: PeerId,
-        beacon_block_root: Hash256,
-        attestation_type: &str,
-        error: AttnError,
-    ) {
-        debug!(
-            self.log,
-            "Invalid attestation from network";
-            "reason" => format!("{:?}", error),
-            "block" => format!("{}", beacon_block_root),
-            "peer_id" => peer_id.to_string(),
-            "type" => format!("{:?}", attestation_type),
-        );
-
-        match error {
-            AttnError::FutureEpoch { .. }
-            | AttnError::PastEpoch { .. }
-            | AttnError::FutureSlot { .. }
-            | AttnError::PastSlot { .. } => {
-                /*
-                 * These errors can be triggered by a mismatch between our slot and the peer.
-                 *
-                 *
-                 * The peer has published an invalid consensus message, _only_ if we trust our own clock.
-                 */
-            }
-            AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {
-                /*
-                 * These errors are caused by invalid signatures.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::EmptyAggregationBitfield => {
-                /*
-                 * The aggregate had no signatures and is therefore worthless.
-                 *
-                 * Whilst we don't gossip this attestation, this act is **not** a clear
-                 * violation of the spec nor indication of fault.
-                 *
-                 * This may change soon. Reference:
-                 *
-                 * https://github.com/ethereum/eth2.0-specs/pull/1732
-                 */
-            }
-            AttnError::AggregatorPubkeyUnknown(_) => {
-                /*
-                 * The aggregator index was higher than any known validator index. This is
-                 * possible in two cases:
-                 *
-                 * 1. The attestation is malformed
-                 * 2. The attestation attests to a beacon_block_root that we do not know.
-                 *
-                 * It should be impossible to reach (2) without triggering
-                 * `AttnError::UnknownHeadBlock`, so we can safely assume the peer is
-                 * faulty.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::AggregatorNotInCommittee { .. } => {
-                /*
-                 * The aggregator index was higher than any known validator index. This is
-                 * possible in two cases:
-                 *
-                 * 1. The attestation is malformed
-                 * 2. The attestation attests to a beacon_block_root that we do not know.
-                 *
-                 * It should be impossible to reach (2) without triggering
-                 * `AttnError::UnknownHeadBlock`, so we can safely assume the peer is
-                 * faulty.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::AttestationAlreadyKnown { .. } => {
-                /*
-                 * The aggregate attestation has already been observed on the network or in
-                 * a block.
-                 *
-                 * The peer is not necessarily faulty.
-                 */
-            }
-            AttnError::AggregatorAlreadyKnown(_) => {
-                /*
-                 * There has already been an aggregate attestation seen from this
-                 * aggregator index.
-                 *
-                 * The peer is not necessarily faulty.
-                 */
-            }
-            AttnError::PriorAttestationKnown { .. } => {
-                /*
-                 * We have already seen an attestation from this validator for this epoch.
-                 *
-                 * The peer is not necessarily faulty.
-                 */
-            }
-            AttnError::ValidatorIndexTooHigh(_) => {
-                /*
-                 * The aggregator index (or similar field) was higher than the maximum
-                 * possible number of validators.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::UnknownHeadBlock { beacon_block_root } => {
-                // Note: its a little bit unclear as to whether or not this block is unknown or
-                // just old. See:
-                //
-                // https://github.com/sigp/lighthouse/issues/1039
-
-                // TODO: Maintain this attestation and re-process once sync completes
-                debug!(
-                    self.log,
-                    "Attestation for unknown block";
-                    "peer_id" => peer_id.to_string(),
-                    "block" => format!("{}", beacon_block_root)
-                );
-                // we don't know the block, get the sync manager to handle the block lookup
-                self.send_to_sync(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root));
-            }
-            AttnError::UnknownTargetRoot(_) => {
-                /*
-                 * The block indicated by the target root is not known to us.
-                 *
-                 * We should always get `AttnError::UnknwonHeadBlock` before we get this
-                 * error, so this means we can get this error if:
-                 *
-                 * 1. The target root does not represent a valid block.
-                 * 2. We do not have the target root in our DB.
-                 *
-                 * For (2), we should only be processing attestations when we should have
-                 * all the available information. Note: if we do a weak-subjectivity sync
-                 * it's possible that this situation could occur, but I think it's
-                 * unlikely. For now, we will declare this to be an invalid message>
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::BadTargetEpoch => {
-                /*
-                 * The aggregator index (or similar field) was higher than the maximum
-                 * possible number of validators.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::NoCommitteeForSlotAndIndex { .. } => {
-                /*
-                 * It is not possible to attest this the given committee in the given slot.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::NotExactlyOneAggregationBitSet(_) => {
-                /*
-                 * The unaggregated attestation doesn't have only one signature.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::AttestsToFutureBlock { .. } => {
-                /*
-                 * The beacon_block_root is from a higher slot than the attestation.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-
-            AttnError::InvalidSubnetId { received, expected } => {
-                /*
-                 * The attestation was received on an incorrect subnet id.
-                 */
-                debug!(
-                    self.log,
-                    "Received attestation on incorrect subnet";
-                    "expected" => format!("{:?}", expected),
-                    "received" => format!("{:?}", received),
-                )
-            }
-            AttnError::Invalid(_) => {
-                /*
-                 * The attestation failed the state_processing verification.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-            }
-            AttnError::BeaconChainError(e) => {
-                /*
-                 * Lighthouse hit an unexpected error whilst processing the attestation. It
-                 * should be impossible to trigger a `BeaconChainError` from the network,
-                 * so we have a bug.
-                 *
-                 * It's not clear if the message is invalid/malicious.
-                 */
-                error!(
-                    self.log,
-                    "Unable to validate aggregate";
-                    "peer_id" => peer_id.to_string(),
-                    "error" => format!("{:?}", e),
-                );
-            }
-        }
-    }
-
-    pub fn verify_aggregated_attestation_for_gossip(
-        &mut self,
-        peer_id: PeerId,
-        aggregate_and_proof: SignedAggregateAndProof<T::EthSpec>,
-    ) -> Option<VerifiedAggregatedAttestation<T>> {
-        // This is provided to the error handling function to assist with debugging.
-        let beacon_block_root = aggregate_and_proof.message.aggregate.data.beacon_block_root;
-
-        self.chain
-            .verify_aggregated_attestation_for_gossip(aggregate_and_proof)
-            .map_err(|e| {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    beacon_block_root,
-                    "aggregated",
-                    e,
-                )
-            })
-            .ok()
-    }
-
-    pub fn import_aggregated_attestation(
-        &mut self,
-        peer_id: PeerId,
-        verified_attestation: VerifiedAggregatedAttestation<T>,
-    ) {
-        // This is provided to the error handling function to assist with debugging.
-        let beacon_block_root = verified_attestation.attestation().data.beacon_block_root;
-
-        self.apply_attestation_to_fork_choice(
-            peer_id.clone(),
-            beacon_block_root,
-            &verified_attestation,
-        );
-
-        if let Err(e) = self.chain.add_to_block_inclusion_pool(verified_attestation) {
-            debug!(
-                self.log,
-                "Attestation invalid for op pool";
-                "reason" => format!("{:?}", e),
-                "peer" => peer_id.to_string(),
-                "beacon_block_root" => format!("{:?}", beacon_block_root)
-            )
-        }
-    }
-
-    pub fn verify_unaggregated_attestation_for_gossip(
-        &mut self,
+        message_id: MessageId,
         peer_id: PeerId,
         unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: SubnetId,
-    ) -> Option<VerifiedUnaggregatedAttestation<T>> {
-        // This is provided to the error handling function to assist with debugging.
-        let beacon_block_root = unaggregated_attestation.data.beacon_block_root;
-
-        self.chain
-            .verify_unaggregated_attestation_for_gossip(unaggregated_attestation, subnet_id)
-            .map_err(|e| {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    beacon_block_root,
-                    "unaggregated",
-                    e,
+        should_process: bool,
+    ) {
+        self.gossip_processor_send
+            .try_send(GossipWorkEvent::unaggregated_attestation(
+                message_id,
+                peer_id,
+                unaggregated_attestation,
+                subnet_id,
+                should_process,
+            ))
+            .unwrap_or_else(|e| {
+                error!(
+                    &self.log,
+                    "Unable to send to gossip processor";
+                    "type" => "unaggregated attestation gossip",
+                    "error" => e.to_string(),
                 )
             })
-            .ok()
     }
 
-    pub fn import_unaggregated_attestation(
+    pub fn on_aggregated_attestation_gossip(
         &mut self,
+        message_id: MessageId,
         peer_id: PeerId,
-        verified_attestation: VerifiedUnaggregatedAttestation<T>,
+        aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) {
-        // This is provided to the error handling function to assist with debugging.
-        let beacon_block_root = verified_attestation.attestation().data.beacon_block_root;
-
-        self.apply_attestation_to_fork_choice(
-            peer_id.clone(),
-            beacon_block_root,
-            &verified_attestation,
-        );
-
-        if let Err(e) = self
-            .chain
-            .add_to_naive_aggregation_pool(verified_attestation)
-        {
-            debug!(
-                self.log,
-                "Attestation invalid for agg pool";
-                "reason" => format!("{:?}", e),
-                "peer" => peer_id.to_string(),
-                "beacon_block_root" => format!("{:?}", beacon_block_root)
-            )
-        }
-    }
-
-    /// Apply the attestation to fork choice, suppressing errors.
-    ///
-    /// We suppress the errors when adding an attestation to fork choice since the spec
-    /// permits gossiping attestations that are invalid to be applied to fork choice.
-    ///
-    /// An attestation that is invalid for fork choice can still be included in a block.
-    ///
-    /// Reference:
-    /// https://github.com/ethereum/eth2.0-specs/issues/1408#issuecomment-617599260
-    fn apply_attestation_to_fork_choice<'a>(
-        &self,
-        peer_id: PeerId,
-        beacon_block_root: Hash256,
-        attestation: &'a impl SignatureVerifiedAttestation<T>,
-    ) {
-        if let Err(e) = self.chain.apply_attestation_to_fork_choice(attestation) {
-            match e {
-                BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
-                    debug!(
-                        self.log,
-                        "Attestation invalid for fork choice";
-                        "reason" => format!("{:?}", e),
-                        "peer" => peer_id.to_string(),
-                        "beacon_block_root" => format!("{:?}", beacon_block_root)
-                    )
-                }
-                e => error!(
-                    self.log,
-                    "Error applying attestation to fork choice";
-                    "reason" => format!("{:?}", e),
-                    "peer" => peer_id.to_string(),
-                    "beacon_block_root" => format!("{:?}", beacon_block_root)
-                ),
-            }
-        }
+        self.gossip_processor_send
+            .try_send(GossipWorkEvent::aggregated_attestation(
+                message_id, peer_id, aggregate,
+            ))
+            .unwrap_or_else(|e| {
+                error!(
+                    &self.log,
+                    "Unable to send to gossip processor";
+                    "type" => "aggregated attestation gossip",
+                    "error" => e.to_string(),
+                )
+            })
     }
 
     /// Verify a voluntary exit before gossiping or processing it.

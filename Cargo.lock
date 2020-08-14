@@ -3285,6 +3285,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "matches",
+ "num_cpus",
  "parking_lot 0.11.0",
  "rand 0.7.3",
  "rest_types",

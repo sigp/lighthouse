@@ -5,6 +5,7 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
+pub mod gossip_processor;
 pub mod processor;
 
 use crate::error;
@@ -215,29 +216,17 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
-                if let Some(gossip_verified) = self
-                    .processor
-                    .verify_aggregated_attestation_for_gossip(peer_id.clone(), *aggregate_and_proof)
-                {
-                    self.propagate_message(id, peer_id.clone());
-                    self.processor
-                        .import_aggregated_attestation(peer_id, gossip_verified);
-                }
+                self.processor
+                    .on_aggregated_attestation_gossip(id, peer_id, *aggregate_and_proof);
             }
             PubsubMessage::Attestation(subnet_attestation) => {
-                if let Some(gossip_verified) =
-                    self.processor.verify_unaggregated_attestation_for_gossip(
-                        peer_id.clone(),
-                        subnet_attestation.1.clone(),
-                        subnet_attestation.0,
-                    )
-                {
-                    self.propagate_message(id, peer_id.clone());
-                    if should_process {
-                        self.processor
-                            .import_unaggregated_attestation(peer_id, gossip_verified);
-                    }
-                }
+                self.processor.on_unaggregated_attestation_gossip(
+                    id,
+                    peer_id,
+                    subnet_attestation.1.clone(),
+                    subnet_attestation.0,
+                    should_process,
+                );
             }
             PubsubMessage::BeaconBlock(block) => {
                 match self.processor.should_forward_block(block) {
