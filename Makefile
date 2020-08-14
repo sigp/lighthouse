@@ -2,6 +2,13 @@
 
 EF_TESTS = "testing/ef_tests"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
+GIT_TAG := $(shell git describe --tags --candidates 1)
+BIN_DIR = "bin"
+
+X86_64_TAG = "x86_64-unknown-linux-gnu"
+BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
+AARCH64_TAG = "aarch64-unknown-linux-gnu"
+BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -42,6 +49,31 @@ build-aarch64:
 	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu
 build-aarch64-portable:
 	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
+
+# Create a `.tar.gz` containing a binary for a specific target.
+define tarball_release_binary
+	cp $(1)/lighthouse $(BIN_DIR)/lighthouse
+	cd $(BIN_DIR) && \
+		tar -czf lighthouse-$(GIT_TAG)-$(2)$(3).tar.gz lighthouse && \
+		rm lighthouse
+endef
+
+# Create a series of `.tar.gz` files in the BIN_DIR directory, each containing
+# a `lighthouse` binary for a different target.
+#
+# The current git tag will be used as the version in the output file names. You
+# will likely need to use `git tag` and create a semver tag (e.g., `v0.2.3`).
+build-release-tarballs:
+	[ -d $(BIN_DIR) ] || mkdir -p $(BIN_DIR)
+	$(MAKE) build-x86_64
+	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"")
+	$(MAKE) build-x86_64-portable
+	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"-portable")
+	$(MAKE) build-aarch64
+	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"")
+	$(MAKE) build-aarch64-portable
+	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"-portable")
+
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
