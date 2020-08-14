@@ -2,7 +2,7 @@
 # It is not intended for manual editing.
 [[package]]
 name = "account_manager"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "account_utils",
  "bls",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "clap",
  "discv5",
@@ -2894,7 +2894,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6022,7 +6022,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "account_utils",
  "bls",
