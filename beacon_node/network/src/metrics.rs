@@ -71,7 +71,7 @@ lazy_static! {
     );
     pub static ref GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS: Result<Histogram> = try_create_histogram(
         "gossip_processor_event_handling_seconds",
-        "Time spend handling a new message and allocating it to a queue or worker."
+        "Time spent handling a new message and allocating it to a queue or worker."
     );
     pub static ref GOSSIP_PROCESSOR_WORKER_TIME: Result<Histogram> = try_create_histogram(
         "gossip_processor_worker_time",
@@ -115,91 +115,91 @@ lazy_static! {
      */
     pub static ref GOSSIP_ATTESTATION_ERROR_FUTURE_EPOCH: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_future_epoch",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_PAST_EPOCH: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_past_epoch",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_FUTURE_SLOT: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_future_slot",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_PAST_SLOT: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_past_slot",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_INVALID_SELECTION_PROOF: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_invalid_selection_proof",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_INVALID_SIGNATURE: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_invalid_signature",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_EMPTY_AGGREGATION_BITFIELD: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_empty_aggregation_bitfield",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_AGGREGATOR_PUBKEY_UNKNOWN: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_aggregator_pubkey_unknown",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_AGGREGATOR_NOT_IN_COMMITTEE: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_aggregator_not_in_committee",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_ATTESTATION_ALREADY_KNOWN: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_attestation_already_known",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_AGGREGATOR_ALREADY_KNOWN: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_aggregator_already_known",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_PRIOR_ATTESTATION_KNOWN: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_prior_attestation_known",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_VALIDATOR_INDEX_TOO_HIGH: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_validator_index_too_high",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_UNKNOWN_HEAD_BLOCK: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_unknown_head_block",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_UNKNOWN_TARGET_ROOT: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_unknown_target_root",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_BAD_TARGET_EPOCH: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_bad_target_epoch",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_NO_COMMITTEE_FOR_SLOT_AND_INDEX: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_no_committee_for_slot_and_index",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_NOT_EXACTLY_ONE_AGGREGATION_BIT_SET: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_not_exactly_one_aggregation_bit_set",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_ATTESTS_TO_FUTURE_BLOCK: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_attests_to_future_block",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_INVALID_SUBNET_ID: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_invalid_subnet_id",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_INVALID_STATE_PROCESSING: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_invalid_state_processing",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
     pub static ref GOSSIP_ATTESTATION_ERROR_BEACON_CHAIN_ERROR: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_beacon_chain_error",
-        "Count of an specific error type (see metric name)"
+        "Count of a specific error type (see metric name)"
     );
 }
 

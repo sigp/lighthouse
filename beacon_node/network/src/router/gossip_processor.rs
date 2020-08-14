@@ -1,4 +1,4 @@
-//! Provdes the `GossipProcessor`, a mutli-threaded processor for messages received on the network
+//! Provides the `GossipProcessor`, a mutli-threaded processor for messages received on the network
 //! that need to be processed by the `BeaconChain`.
 //!
 //! Uses `tokio` tasks (instead of raw threads) to provide the following tasks:
@@ -26,7 +26,7 @@
 //!
 //! Then, there is a maximum of `n` "worker" blocking threads, where `n` is the CPU count.
 //!
-//! Whenver the manager receives a new parcel of work, it either:
+//! Whenever the manager receives a new parcel of work, it either:
 //!
 //! - Provided to a newly-spawned worker tasks (if we are not already at `n` workers).
 //! - Added to a queue.
@@ -204,14 +204,13 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                 //
                 // Set `work_event = Some(event)` if there is new work to be done. Otherwise sets
                 // `event = None` if it was a worker becoming idle.
-                let work_event;
-                tokio::select! {
+                let work_event = tokio::select! {
                     // A worker has finished some work.
                     new_idle_opt = idle_rx.recv() => {
                         if new_idle_opt.is_some() {
                             metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_IDLE_EVENTS_TOTAL);
                             self.current_workers = self.current_workers.saturating_sub(1);
-                            work_event = None
+                            None
                         } else {
                             // Exit if all idle senders have been dropped.
                             //
@@ -228,7 +227,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     new_work_event_opt = event_rx.recv() => {
                         if let Some(new_work_event) = new_work_event_opt {
                             metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORK_EVENTS_TOTAL);
-                            work_event = Some(new_work_event)
+                            Some(new_work_event)
                         } else {
                             // Exit if all event senders have been dropped.
                             //
@@ -403,9 +402,11 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
 
                             let beacon_block_root = attestation.data.beacon_block_root;
 
-                            let attestation = if let Ok(attestation) = chain
+                            let attestation = match chain
                                 .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
-                                .map_err(|e| {
+                            {
+                                Ok(attestation) => attestation,
+                                Err(e) => {
                                     handle_attestation_verification_failure(
                                         &log,
                                         sync_tx,
@@ -413,11 +414,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                                         beacon_block_root,
                                         "unaggregated",
                                         e,
-                                    )
-                                }) {
-                                attestation
-                            } else {
-                                return;
+                                    );
+                                    return;
+                                }
                             };
 
                             // Indicate to the `Network` service that this message is valid and can be
@@ -452,6 +451,16 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                                     ),
                                 }
                             }
+
+                            if let Err(e) = chain.add_to_naive_aggregation_pool(attestation) {
+                                debug!(
+                                    log,
+                                    "Attestation invalid for agg pool";
+                                    "reason" => format!("{:?}", e),
+                                    "peer" => peer_id.to_string(),
+                                    "beacon_block_root" => format!("{:?}", beacon_block_root)
+                                )
+                            }
                         }
                         /*
                          * Aggregated attestation verification.
@@ -467,9 +476,11 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                             let beacon_block_root =
                                 boxed_aggregate.message.aggregate.data.beacon_block_root;
 
-                            let aggregate = if let Ok(aggregate) = chain
+                            let aggregate = match chain
                                 .verify_aggregated_attestation_for_gossip(*boxed_aggregate)
-                                .map_err(|e| {
+                            {
+                                Ok(aggregate) => aggregate,
+                                Err(e) => {
                                     handle_attestation_verification_failure(
                                         &log,
                                         sync_tx,
@@ -477,11 +488,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                                         beacon_block_root,
                                         "aggregated",
                                         e,
-                                    )
-                                }) {
-                                aggregate
-                            } else {
-                                return;
+                                    );
+                                    return;
+                                }
                             };
 
                             // Indicate to the `Network` service that this message is valid and can be
