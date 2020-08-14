@@ -90,7 +90,7 @@ impl<T: BeaconChainTypes> Handler<T> {
         })
     }
 
-    async fn in_blocking_thread<F, V>(self, blocking_fn: F) -> Result<HandledRequest<V>, ApiError>
+    async fn in_blocking_task<F, V>(self, blocking_fn: F) -> Result<HandledRequest<V>, ApiError>
     where
         V: Send + Sync + 'static,
         F: Fn(Arc<Context<T>>, Bytes) -> Result<V, ApiError> + Send + Sync + 'static,
@@ -240,7 +240,7 @@ pub async fn route<T: BeaconChainTypes>(
              */
             (Method::GET, "/node/syncing") => handler
                 .allow_body()
-                .in_blocking_thread(|ctx, _| Ok(node::syncing(ctx)))
+                .in_blocking_task(|ctx, _| node::syncing(ctx))
                 .await?
                 .serde_encodings(),
             /*
@@ -248,7 +248,7 @@ pub async fn route<T: BeaconChainTypes>(
              */
             (Method::POST, "/validator/attestations") => handler
                 .allow_body()
-                .in_blocking_thread(validator::publish_attestations_blocking)
+                .in_blocking_task(validator::publish_attestations_blocking)
                 .await?
                 .serde_encodings(),
             /*
