@@ -1,5 +1,6 @@
 use crate::helpers::*;
 use crate::response_builder::ResponseBuilder;
+use crate::Context;
 use crate::validator::get_state_for_epoch;
 use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{
@@ -22,14 +23,14 @@ use types::{
     RelativeEpoch, SignedBeaconBlockHash, Slot,
 };
 
-/// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
+/// Returns a summary of the head of the beacon chain.
 pub fn get_head<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    ctx: Arc<Context<T>>,
+) -> Result<CanonicalHeadResponse, ApiError> {
+    let beacon_chain = &ctx.beacon_chain;
     let chain_head = beacon_chain.head()?;
 
-    let head = CanonicalHeadResponse {
+    Ok(CanonicalHeadResponse {
         slot: chain_head.beacon_state.slot,
         block_root: chain_head.beacon_block_root,
         state_root: chain_head.beacon_state_root,
@@ -51,33 +52,29 @@ pub fn get_head<T: BeaconChainTypes>(
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch()),
         previous_justified_block_root: chain_head.beacon_state.previous_justified_checkpoint.root,
-    };
-
-    ResponseBuilder::new(&req)?.body(&head)
+    })
 }
 
-/// HTTP handler to return a list of head BeaconBlocks.
+/// Return the list of heads of the beacon chain.
 pub fn get_heads<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let heads = beacon_chain
+    ctx: Arc<Context<T>>,
+) -> Vec<HeadBeaconBlock> {
+    ctx.beacon_chain
         .heads()
         .into_iter()
         .map(|(beacon_block_root, beacon_block_slot)| HeadBeaconBlock {
             beacon_block_root,
             beacon_block_slot,
         })
-        .collect::<Vec<_>>();
-
-    ResponseBuilder::new(&req)?.body(&heads)
+        .collect()
 }
 
 /// HTTP handler to return a `BeaconBlock` at a given `root` or `slot`.
 pub fn get_block<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<BlockResponse<T::EthSpec>, ApiError> {
+    let beacon_chain = &ctx.beacon_chain;
     let query_params = ["root", "slot"];
     let (key, value) = UrlQuery::from_request(&req)?.first_of(&query_params)?;
 
@@ -85,7 +82,7 @@ pub fn get_block<T: BeaconChainTypes>(
         ("slot", value) => {
             let target = parse_slot(&value)?;
 
-            block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
+            block_root_at_slot(beacon_chain, target)?.ok_or_else(|| {
                 ApiError::NotFound(format!(
                     "Unable to find SignedBeaconBlock for slot {:?}",
                     target
@@ -103,30 +100,26 @@ pub fn get_block<T: BeaconChainTypes>(
         ))
     })?;
 
-    let response = BlockResponse {
+    Ok(BlockResponse {
         root: block_root,
         beacon_block: block,
-    };
-
-    ResponseBuilder::new(&req)?.body(&response)
+    })
 }
 
 /// HTTP handler to return a `SignedBeaconBlock` root at a given `slot`.
 pub fn get_block_root<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<Hash256, ApiError> {
     let slot_string = UrlQuery::from_request(&req)?.only_one("slot")?;
     let target = parse_slot(&slot_string)?;
 
-    let root = block_root_at_slot(&beacon_chain, target)?.ok_or_else(|| {
+    block_root_at_slot(&ctx.beacon_chain, target)?.ok_or_else(|| {
         ApiError::NotFound(format!(
             "Unable to find SignedBeaconBlock for slot {:?}",
             target
         ))
-    })?;
-
-    ResponseBuilder::new(&req)?.body(&root)
+    })
 }
 
 fn make_sse_response_chunk(new_head_hash: SignedBeaconBlockHash) -> std::io::Result<Bytes> {
@@ -171,14 +164,6 @@ pub fn stream_forks<T: BeaconChainTypes>(
         .body(body)
         .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))?;
     Ok(response)
-}
-
-/// HTTP handler to return the `Fork` of the current head.
-pub fn get_fork<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head()?.beacon_state.fork)
 }
 
 /// HTTP handler to which accepts a query string of a list of validator pubkeys and maps it to a
@@ -478,22 +463,6 @@ pub fn get_genesis_state<T: BeaconChainTypes>(
     let (_root, state) = state_at_slot(&beacon_chain, Slot::new(0))?;
 
     ResponseBuilder::new(&req)?.body(&state)
-}
-
-/// Read the genesis time from the current beacon chain state.
-pub fn get_genesis_time<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head_info()?.genesis_time)
-}
-
-/// Read the `genesis_validators_root` from the current beacon chain state.
-pub fn get_genesis_validators_root<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    ResponseBuilder::new(&req)?.body(&beacon_chain.head_info()?.genesis_validators_root)
 }
 
 pub async fn proposer_slashing<T: BeaconChainTypes>(

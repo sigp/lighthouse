@@ -42,7 +42,8 @@ pub struct Context<T: BeaconChainTypes> {
 }
 
 struct Handler<T: BeaconChainTypes> {
-    req: Request<Body>,
+    req: Request<()>,
+    body: Body,
     ctx: Arc<Context<T>>,
     encoding: ApiEncodingFormat,
     allow_body: bool,
@@ -50,6 +51,9 @@ struct Handler<T: BeaconChainTypes> {
 
 impl<T: BeaconChainTypes> Handler<T> {
     pub fn new(req: Request<Body>, ctx: Arc<Context<T>>) -> Result<Self, ApiError> {
+        let (req_parts, body) = req.into_parts();
+        let req = Request::from_parts(req_parts, ());
+
         let accept_header: String = req
             .headers()
             .get(header::ACCEPT)
@@ -64,6 +68,7 @@ impl<T: BeaconChainTypes> Handler<T> {
 
         Ok(Self {
             req,
+            body,
             ctx,
             allow_body: false,
             encoding: ApiEncodingFormat::from(accept_header.as_str()),
@@ -76,13 +81,8 @@ impl<T: BeaconChainTypes> Handler<T> {
     }
 
     async fn static_value<V>(self, value: V) -> Result<HandledRequest<V>, ApiError> {
-        let body = get_body(self.req).await?;
-
-        if !self.allow_body && !&body[..].is_empty() {
-            return Err(ApiError::BadRequest(
-                "The request body must be empty".to_string(),
-            ));
-        }
+        // Always check and disallow a body for a static value.
+        let _ = Self::get_body(self.body, false).await?;
 
         Ok(HandledRequest {
             value,
@@ -93,17 +93,13 @@ impl<T: BeaconChainTypes> Handler<T> {
     async fn in_core_task<F, V>(self, func: F) -> Result<HandledRequest<V>, ApiError>
     where
         V: Send + Sync + 'static,
-        F: Fn(Arc<Context<T>>, Bytes) -> Result<V, ApiError> + Send + Sync + 'static,
+        F: Fn(Request<Vec<u8>>, Arc<Context<T>>) -> Result<V, ApiError> + Send + Sync + 'static,
     {
-        let body = get_body(self.req).await?;
+        let body = Self::get_body(self.body, self.allow_body).await?;
+        let (req_parts, _) = self.req.into_parts();
+        let req = Request::from_parts(req_parts, body);
 
-        if !self.allow_body && !&body[..].is_empty() {
-            return Err(ApiError::BadRequest(
-                "The request body must be empty".to_string(),
-            ));
-        }
-
-        let value = func(self.ctx, body)?;
+        let value = func(req, self.ctx)?;
 
         Ok(HandledRequest {
             value,
@@ -114,23 +110,18 @@ impl<T: BeaconChainTypes> Handler<T> {
     async fn in_blocking_task<F, V>(self, func: F) -> Result<HandledRequest<V>, ApiError>
     where
         V: Send + Sync + 'static,
-        F: Fn(Arc<Context<T>>, Bytes) -> Result<V, ApiError> + Send + Sync + 'static,
+        F: Fn(Request<Vec<u8>>, Arc<Context<T>>) -> Result<V, ApiError> + Send + Sync + 'static,
     {
-        let body = get_body(self.req).await?;
-
-        if !self.allow_body && !&body[..].is_empty() {
-            return Err(ApiError::BadRequest(
-                "The request body must be empty".to_string(),
-            ));
-        }
-
-        let ctx = self.ctx.clone();
+        let ctx = self.ctx;
+        let body = Self::get_body(self.body, self.allow_body).await?;
+        let (req_parts, _) = self.req.into_parts();
+        let req = Request::from_parts(req_parts, body);
 
         let value = ctx
             .executor
             .clone()
             .handle
-            .spawn_blocking(move || func(ctx, body))
+            .spawn_blocking(move || func(req, ctx))
             .await
             .map_err(|e| {
                 ApiError::ServerError(format!(
@@ -144,7 +135,23 @@ impl<T: BeaconChainTypes> Handler<T> {
             encoding: self.encoding,
         })
     }
+
+    async fn get_body(body: Body, allow_body: bool) -> Result<Vec<u8>, ApiError> {
+        let bytes = hyper::body::to_bytes(body)
+            .await
+            .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
+
+        if !allow_body && !bytes[..].is_empty() {
+            return Err(ApiError::BadRequest(
+                "The request body must be empty".to_string(),
+            ));
+        } else {
+            Ok(bytes.into_iter().collect())
+        }
+    }
+
 }
+
 
 struct HandledRequest<V> {
     encoding: ApiEncodingFormat,
@@ -224,8 +231,6 @@ async fn get_body(req: Request<Body>) -> Result<Bytes, ApiError> {
         .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))
 }
 
-// Allowing more than 7 arguments.
-#[allow(clippy::too_many_arguments)]
 pub async fn route<T: BeaconChainTypes>(
     req: Request<Body>,
     ctx: Arc<Context<T>>,
@@ -261,35 +266,35 @@ pub async fn route<T: BeaconChainTypes>(
              */
             (Method::GET, "/node/syncing") => handler
                 .allow_body()
-                .in_blocking_task(|ctx, _| node::syncing(ctx))
+                .in_blocking_task(|_, ctx| node::syncing(ctx))
                 .await?
                 .serde_encodings(),
             /*
              * ENR of this node.
              */
             (Method::GET, "/network/enr") => handler
-                .in_core_task(|ctx, _| Ok(ctx.network_globals.local_enr().to_base64()))
+                .in_core_task(|_, ctx| Ok(ctx.network_globals.local_enr().to_base64()))
                 .await?
                 .serde_encodings(),
             /*
              * Count of peers connected to this node.
              */
             (Method::GET, "/network/peer_count") => handler
-                .in_core_task(|ctx, _| Ok(ctx.network_globals.connected_peers()))
+                .in_core_task(|_, ctx| Ok(ctx.network_globals.connected_peers()))
                 .await?
                 .serde_encodings(),
             /*
              * Peer id (libp2p) of this node.
              */
             (Method::GET, "/network/peer_id") => handler
-                .in_core_task(|ctx, _| Ok(ctx.network_globals.local_peer_id().to_base58()))
+                .in_core_task(|_, ctx| Ok(ctx.network_globals.local_peer_id().to_base58()))
                 .await?
                 .serde_encodings(),
             /*
              * List of peers connected to this node.
              */
             (Method::GET, "/network/peers") => handler
-                .in_blocking_task(|ctx, _| Ok(
+                .in_blocking_task(|_, ctx| Ok(
                     ctx.network_globals.peers
                         .read()
                         .connected_peer_ids()
@@ -302,7 +307,7 @@ pub async fn route<T: BeaconChainTypes>(
              * Returns the TCP port number used by libp2p (not discovery).
              */
             (Method::GET, "/network/listen_port") => handler
-                .in_core_task(|ctx, _| Ok(ctx.network_globals.listen_port_tcp()))
+                .in_core_task(|_, ctx| Ok(ctx.network_globals.listen_port_tcp()))
                 .await?
                 .serde_encodings(),
             /*
@@ -310,27 +315,71 @@ pub async fn route<T: BeaconChainTypes>(
              * on.
              */
             (Method::GET, "/network/listen_addresses") => handler
-                .in_blocking_task(|ctx, _| Ok(ctx.network_globals.listen_multiaddrs()))
+                .in_blocking_task(|_, ctx| Ok(ctx.network_globals.listen_multiaddrs()))
                 .await?
                 .serde_encodings(),
             /*
-
-            // Methods for Beacon Node
-            (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/heads") => beacon::get_heads::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/block") => beacon::get_block::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/block_root") => beacon::get_block_root::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/fork") => beacon::get_fork::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/fork/stream") => {
+             * Returns a summary of the head block of the beacon chain.
+             */
+            (Method::GET, "/beacon/head") => handler
+                .in_blocking_task(|_, ctx| beacon::get_head(ctx))
+                .await?
+                .all_encodings(),
+            /*
+             * Returns the list of heads of the beacon chain.
+             */
+            (Method::GET, "/beacon/heads") => handler
+                .in_blocking_task(|_, ctx| Ok(beacon::get_heads(ctx)))
+                .await?
+                .all_encodings(),
+            /*
+             * Returns a block by slot or root.
+             */
+            (Method::GET, "/beacon/block") => handler
+                .in_blocking_task(beacon::get_block)
+                .await?
+                .all_encodings(),
+            /*
+             * Returns the block root in the canonical chain for the given slot.
+             */
+            (Method::GET, "/beacon/block_root") => handler
+                .in_blocking_task(beacon::get_block_root)
+                .await?
+                .all_encodings(),
+            /*
+             * Returns the fork of the canonical head.
+             */
+            (Method::GET, "/beacon/fork") => handler
+                .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.head_info()?.fork))
+                .await?
+                .all_encodings(),
+            /*
+             * SSE stream of changes to the canonical head.
+             */
+            (Method::GET, "/beacon/fork/stream") => {
+                todo!()
+                /* TODO
                 let reader = events.lock().add_rx();
                 beacon::stream_forks::<T>(log, reader)
+                */
             }
-            (&Method::GET, "/beacon/genesis_time") => {
-                beacon::get_genesis_time::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/genesis_validators_root") => {
-                beacon::get_genesis_validators_root::<T>(req, beacon_chain)
-            }
+            /*
+             * Returns the genesis time of the canonical head.
+             */
+            (Method::GET, "/beacon/genesis_time") => handler
+                .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.head_info()?.genesis_time))
+                .await?
+                .all_encodings(),
+            /*
+             * Returns the genesis validators root of the canonical head.
+             */
+            (Method::GET, "/beacon/genesis_validators_root") => handler
+                .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.head_info()?.genesis_validators_root))
+                .await?
+                .all_encodings(),
+            /*
+
+            // Methods for Beacon Node
             (&Method::GET, "/beacon/validators") => beacon::get_validators::<T>(req, beacon_chain),
             (&Method::POST, "/beacon/validators") => {
                 beacon::post_validators::<T>(req, beacon_chain).await

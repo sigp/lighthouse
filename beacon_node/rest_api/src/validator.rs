@@ -449,10 +449,10 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 
 /// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.
 pub fn publish_attestations_blocking<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
     ctx: Arc<Context<T>>,
-    body: Bytes,
 ) -> Result<(), ApiError> {
-    let bytes = body.into_iter().collect::<Vec<_>>();
+    let bytes = req.into_body();
 
     serde_json::from_slice(&bytes)
         .map_err(|e| {
