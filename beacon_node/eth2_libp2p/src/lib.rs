@@ -26,4 +26,4 @@ pub use metrics::scrape_discovery_metrics;
 pub use peer_manager::{
     client::Client, score::PeerAction, PeerDB, PeerInfo, PeerSyncStatus, SyncInfo,
 };
-pub use service::{Libp2pEvent, Service, NETWORK_KEY_FILENAME};
+pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};

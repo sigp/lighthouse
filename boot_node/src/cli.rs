@@ -12,7 +12,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         surface compared to a full beacon node.")
         .settings(&[clap::AppSettings::ColoredHelp])
         .arg(
-            Arg::with_name("boot-node-enr-address")
+            Arg::with_name("enr-address")
                 .value_name("IP-ADDRESS")
                 .help("The external IP address/ DNS address to broadcast to other peers on how to reach this node. \
                 If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
@@ -44,7 +44,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("enr-port")
+            Arg::with_name("enr-udp-port")
                 .long("enr-port")
                 .value_name("PORT")
                 .help("The UDP port of the boot node's ENR. This is the port that external peers will dial to reach this boot node. Set this only if the external port differs from the listening port.")
