@@ -3,14 +3,14 @@ use crate::{
     config::{ApiEncodingFormat, Config},
     consensus,
     error::ApiError,
-    helpers, lighthouse, metrics, network, node,
+    helpers, lighthouse, metrics, node,
     response_builder::ResponseBuilder,
     spec, validator, ApiResult, NetworkChannel,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bus::Bus;
 use eth2_config::Eth2Config;
-use eth2_libp2p::NetworkGlobals;
+use eth2_libp2p::{NetworkGlobals, PeerId};
 use hyper::header::{self, HeaderValue};
 use hyper::{body::Bytes, Body, Method, Request, Response, StatusCode};
 use lighthouse_version::version_with_platform;
@@ -90,7 +90,28 @@ impl<T: BeaconChainTypes> Handler<T> {
         })
     }
 
-    async fn in_blocking_task<F, V>(self, blocking_fn: F) -> Result<HandledRequest<V>, ApiError>
+    async fn in_core_task<F, V>(self, func: F) -> Result<HandledRequest<V>, ApiError>
+    where
+        V: Send + Sync + 'static,
+        F: Fn(Arc<Context<T>>, Bytes) -> Result<V, ApiError> + Send + Sync + 'static,
+    {
+        let body = get_body(self.req).await?;
+
+        if !self.allow_body && !&body[..].is_empty() {
+            return Err(ApiError::BadRequest(
+                "The request body must be empty".to_string(),
+            ));
+        }
+
+        let value = func(self.ctx, body)?;
+
+        Ok(HandledRequest {
+            value,
+            encoding: self.encoding,
+        })
+    }
+
+    async fn in_blocking_task<F, V>(self, func: F) -> Result<HandledRequest<V>, ApiError>
     where
         V: Send + Sync + 'static,
         F: Fn(Arc<Context<T>>, Bytes) -> Result<V, ApiError> + Send + Sync + 'static,
@@ -109,7 +130,7 @@ impl<T: BeaconChainTypes> Handler<T> {
             .executor
             .clone()
             .handle
-            .spawn_blocking(move || blocking_fn(ctx, body))
+            .spawn_blocking(move || func(ctx, body))
             .await
             .map_err(|e| {
                 ApiError::ServerError(format!(
@@ -236,7 +257,7 @@ pub async fn route<T: BeaconChainTypes>(
                 .await?
                 .serde_encodings(),
             /*
-             * Network syncing status
+             * Network syncing status.
              */
             (Method::GET, "/node/syncing") => handler
                 .allow_body()
@@ -244,37 +265,55 @@ pub async fn route<T: BeaconChainTypes>(
                 .await?
                 .serde_encodings(),
             /*
-             * Unaggregated attestations from local validators.
+             * ENR of this node.
              */
-            (Method::POST, "/validator/attestations") => handler
-                .allow_body()
-                .in_blocking_task(validator::publish_attestations_blocking)
+            (Method::GET, "/network/enr") => handler
+                .in_core_task(|ctx, _| Ok(ctx.network_globals.local_enr().to_base64()))
                 .await?
                 .serde_encodings(),
             /*
-            (&Method::GET, "/node/syncing") => {
-                // inform the current slot, or set to 0
-                let current_slot = beacon_chain
-                    .head_info()
-                    .map(|info| info.slot)
-                    .unwrap_or_else(|_| Slot::from(0u64));
-
-                node::syncing::<T::EthSpec>(req, network_globals, current_slot)
-            }
-
-            // Methods for Network
-            (&Method::GET, "/network/enr") => network::get_enr::<T>(req, network_globals),
-            (&Method::GET, "/network/peer_count") => {
-                network::get_peer_count::<T>(req, network_globals)
-            }
-            (&Method::GET, "/network/peer_id") => network::get_peer_id::<T>(req, network_globals),
-            (&Method::GET, "/network/peers") => network::get_peer_list::<T>(req, network_globals),
-            (&Method::GET, "/network/listen_port") => {
-                network::get_listen_port::<T>(req, network_globals)
-            }
-            (&Method::GET, "/network/listen_addresses") => {
-                network::get_listen_addresses::<T>(req, network_globals)
-            }
+             * Count of peers connected to this node.
+             */
+            (Method::GET, "/network/peer_count") => handler
+                .in_core_task(|ctx, _| Ok(ctx.network_globals.connected_peers()))
+                .await?
+                .serde_encodings(),
+            /*
+             * Peer id (libp2p) of this node.
+             */
+            (Method::GET, "/network/peer_id") => handler
+                .in_core_task(|ctx, _| Ok(ctx.network_globals.local_peer_id().to_base58()))
+                .await?
+                .serde_encodings(),
+            /*
+             * List of peers connected to this node.
+             */
+            (Method::GET, "/network/peers") => handler
+                .in_blocking_task(|ctx, _| Ok(
+                    ctx.network_globals.peers
+                        .read()
+                        .connected_peer_ids()
+                        .map(PeerId::to_string)
+                        .collect::<Vec<_>>()
+                ))
+                .await?
+                .serde_encodings(),
+            /*
+             * Returns the TCP port number used by libp2p (not discovery).
+             */
+            (Method::GET, "/network/listen_port") => handler
+                .in_core_task(|ctx, _| Ok(ctx.network_globals.listen_port_tcp()))
+                .await?
+                .serde_encodings(),
+            /*
+             * Returns a list of multiaddrs (libp2p) for each address that this node is listening
+             * on.
+             */
+            (Method::GET, "/network/listen_addresses") => handler
+                .in_blocking_task(|ctx, _| Ok(ctx.network_globals.listen_multiaddrs()))
+                .await?
+                .serde_encodings(),
+            /*
 
             // Methods for Beacon Node
             (&Method::GET, "/beacon/head") => beacon::get_head::<T>(req, beacon_chain),
@@ -409,6 +448,14 @@ pub async fn route<T: BeaconChainTypes>(
                 "Request path and/or method not found.".to_owned(),
             )),
             */
+            /*
+             * Unaggregated attestations from local validators.
+             */
+            (Method::POST, "/validator/attestations") => handler
+                .allow_body()
+                .in_blocking_task(validator::publish_attestations_blocking)
+                .await?
+                .serde_encodings(),
             _ => Err(ApiError::NotFound(
                 "Request path and/or method not found.".to_owned(),
             )),

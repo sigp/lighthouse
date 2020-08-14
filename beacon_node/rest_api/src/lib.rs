@@ -14,7 +14,6 @@ mod error;
 mod helpers;
 mod lighthouse;
 mod metrics;
-mod network;
 mod node;
 mod response_builder;
 mod spec;
