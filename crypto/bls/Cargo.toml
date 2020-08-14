@@ -17,7 +17,7 @@ eth2_hashing = "0.1.0"
 ethereum-types = "0.9.1"
 arbitrary = { version = "0.4.4", features = ["derive"], optional = true }
 zeroize = { version = "1.0.0", features = ["zeroize_derive"] }
-blst = { git = "https://github.com/sigp/blst.git", rev = "22bfb91721af125d1cb08aa201a18477665a45fe" }
+blst = { git = "https://github.com/sigp/blst.git", rev = "284f7059642851c760a09fb1708bcb59c7ca323c" }
 
 [features]
 default = ["supranational"]

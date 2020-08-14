@@ -19,26 +19,26 @@ Assuming you are happy with the configuration in `var.env`, create the testnet
 directory, genesis state and validator keys with:
 
 ```bash
-./setup
+./setup.sh
 ```
 
 Start the first beacon node:
 
 ```bash
-./beacon_node
+./beacon_node.sh
 ```
 
 In a new terminal, start the validator client which will attach to the first
 beacon node:
 
 ```bash
-./validator_client
+./validator_client.sh
 ```
 
 In a new terminal, start the second beacon node which will peer with the first:
 
 ```bash
-./second_beacon_node
+./second_beacon_node.sh
 ```
 
 ## Additional Info
@@ -49,9 +49,9 @@ The beacon nodes and validator client have their `--debug-level` set to `info`.
 Specify a different debug level like this:
 
 ```bash
-./validator_client debug
-./beacon_node trace
-./second_beacon_node warn
+./validator_client.sh debug
+./beacon_node.sh trace
+./second_beacon_node.sh warn
 ```
 
 ### Starting fresh
@@ -59,7 +59,7 @@ Specify a different debug level like this:
 Delete the current testnet and all related files using:
 
 ```bash
-./clean
+./clean.sh
 ```
 
 
@@ -71,9 +71,9 @@ genesis state will be far in the future, causing lots of skip slots.
 Update the genesis time to now using:
 
 ```bash
-./reset_genesis_time
+./reset_genesis_time.sh
 ```
 
 > Note: you probably want to drop the beacon node database and the validator
 > client slashing database if you do this. When using small validator counts
-> it's probably easy to just use `./clean && ./setup`.
+> it's probably easy to just use `./clean.sh && ./setup.sh`.

@@ -21,6 +21,28 @@ else
 	cargo install --path lcli --force --locked
 endif
 
+# The following commands use `cross` to build a cross-compile.
+#
+# These commands require that:
+#
+# - `cross` is installed (`cargo install cross`).
+# - Docker is running.
+# - The current user is in the `docker` group.
+#
+# The resulting binaries will be created in the `target/` directory.
+#
+# The *-portable options compile the blst library *without* the use of some
+# optimized CPU functions that may not be available on some systems. This
+# results in a more portable binary with ~20% slower BLS verification.
+build-x86_64:
+	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu
+build-x86_64-portable:
+	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features portable
+build-aarch64:
+	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu
+build-aarch64-portable:
+	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
+
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:

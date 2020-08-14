@@ -4,6 +4,7 @@ extern crate lazy_static;
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
+use slog_term::Decorator;
 use std::io::{Result, Write};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
@@ -19,13 +20,13 @@ lazy_static! {
         try_create_int_counter("crit_total", "Count of crits logged");
 }
 
-pub struct AlignedTermDecorator {
-    wrapped: slog_term::TermDecorator,
+pub struct AlignedTermDecorator<D: Decorator> {
+    wrapped: D,
     message_width: usize,
 }
 
-impl AlignedTermDecorator {
-    pub fn new(decorator: slog_term::TermDecorator, message_width: usize) -> AlignedTermDecorator {
+impl<D: Decorator> AlignedTermDecorator<D> {
+    pub fn new(decorator: D, message_width: usize) -> Self {
         AlignedTermDecorator {
             wrapped: decorator,
             message_width,
@@ -33,7 +34,7 @@ impl AlignedTermDecorator {
     }
 }
 
-impl slog_term::Decorator for AlignedTermDecorator {
+impl<D: Decorator> Decorator for AlignedTermDecorator<D> {
     fn with_record<F>(
         &self,
         record: &slog::Record,

@@ -7,6 +7,7 @@
 * [Installation](./installation.md)
     * [Docker](./docker.md)
     * [Raspberry Pi 4](./pi.md)
+    * [Cross-Compiling](./cross-compiling.md)
 * [Key Management](./key-management.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #
 # Produces a testnet specification and a genesis state where the genesis time

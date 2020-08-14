@@ -43,7 +43,10 @@ pub async fn run(config: BootNodeConfig, log: slog::Logger) {
     }
 
     // start the server
-    discv5.start(config.listen_socket);
+    if let Err(e) = discv5.start(config.listen_socket) {
+        slog::crit!(log, "Could not start discv5 server"; "error" => e.to_string());
+        return;
+    }
 
     // if there are peers in the local routing table, establish a session by running a query
     if !discv5.table_entries_id().is_empty() {

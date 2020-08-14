@@ -49,7 +49,7 @@ impl<TSpec: EthSpec> DelegatingHandler<TSpec> {
     }
 
     /// Gives access to identify's handler.
-    pub fn identify(&self) -> &IdentifyHandler {
+    pub fn _identify(&self) -> &IdentifyHandler {
         &self.identify_handler
     }
 }
