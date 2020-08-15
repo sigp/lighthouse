@@ -397,6 +397,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // Check if the block is already known. We know it is post-finalization, so it is
         // sufficient to check the fork choice.
+        //
+        // In normal operation this isn't necessary, however it is useful immediately after a
+        // reboot if the `observed_block_producers` cache is empty. In that case, without this
+        // check, we will load the parent and state from disk only to find out later that we
+        // already know this block.
         if chain.fork_choice.read().contains_block(&block_root) {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
