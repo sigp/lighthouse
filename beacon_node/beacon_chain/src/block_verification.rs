@@ -390,8 +390,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
+        let block_root = get_block_root(&block);
+
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(&block.message, chain)?;
+
+        // Check if the block is already known. We know it is post-finalization, so it is
+        // sufficient to check the fork choice.
+        if chain.fork_choice.read().contains_block(&block_root) {
+            return Err(BlockError::BlockIsAlreadyKnown);
+        }
 
         // Check that we have not already received a block with a valid signature for this slot.
         if chain
@@ -415,7 +423,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         )?;
 
         let (mut parent, block) = load_parent(block, chain)?;
-        let block_root = get_block_root(&block);
 
         let state = cheap_state_advance_to_obtain_committees(
             &mut parent.beacon_state,
