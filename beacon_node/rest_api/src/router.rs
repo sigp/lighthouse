@@ -378,24 +378,43 @@ pub async fn route<T: BeaconChainTypes>(
                 .await?
                 .all_encodings(),
             /*
+             * Return a list of all validators in the canonical head state.
+             */
+            (Method::GET, "/beacon/validators") => handler
+                .in_blocking_task(beacon::get_validators)
+                .await?
+                .all_encodings(),
+            (Method::POST, "/beacon/validators") => handler
+                .in_blocking_task(beacon::post_validators)
+                .await?
+                .all_encodings(),
+            (Method::GET, "/beacon/validators/all") => handler
+                .in_blocking_task(beacon::get_all_validators)
+                .await?
+                .all_encodings(),
+            (Method::GET, "/beacon/validators/active") => handler
+                .in_blocking_task(beacon::get_active_validators)
+                .await?
+                .all_encodings(),
+            (Method::GET, "/beacon/state") => handler
+                .in_blocking_task(beacon::get_state)
+                .await?
+                .all_encodings(),
+            (Method::GET, "/beacon/state_root") => handler
+                .in_blocking_task(beacon::get_state_root)
+                .await?
+                .all_encodings(),
+            (Method::GET, "/beacon/state/genesis") => handler
+                .in_blocking_task(beacon::get_genesis_state)
+                .await?
+                .all_encodings(),
+            (Method::GET, "/beacon/committees") => handler
+                .in_blocking_task(beacon::get_committees)
+                .await?
+                .all_encodings(),
+            /*
 
             // Methods for Beacon Node
-            (&Method::GET, "/beacon/validators") => beacon::get_validators::<T>(req, beacon_chain),
-            (&Method::POST, "/beacon/validators") => {
-                beacon::post_validators::<T>(req, beacon_chain).await
-            }
-            (&Method::GET, "/beacon/validators/all") => {
-                beacon::get_all_validators::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/validators/active") => {
-                beacon::get_active_validators::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/state") => beacon::get_state::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/state_root") => beacon::get_state_root::<T>(req, beacon_chain),
-            (&Method::GET, "/beacon/state/genesis") => {
-                beacon::get_genesis_state::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/beacon/committees") => beacon::get_committees::<T>(req, beacon_chain),
             (&Method::POST, "/beacon/proposer_slashing") => {
                 beacon::proposer_slashing::<T>(req, beacon_chain).await
             }
