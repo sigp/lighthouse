@@ -120,6 +120,11 @@ impl<T> FifoQueue<T> {
     pub fn pop(&mut self) -> Option<QueueItem<T>> {
         self.queue.pop_front()
     }
+
+    /// Returns the current length of the queue.
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
 }
 
 /// A simple last-in-first-out queue with a maximum length.
@@ -430,6 +435,10 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
                     aggregate_queue.len() as i64,
                 );
+                metrics::set_gauge(
+                    &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_QUEUE_TOTAL,
+                    block_queue.len() as i64,
+                );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
@@ -634,6 +643,13 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                          * Beacon block verification.
                          */
                         Work::Block(boxed_block) => {
+                            let _block_timer = metrics::start_timer(
+                                &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_WORKER_TIME,
+                            );
+                            metrics::inc_counter(
+                                &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_VERIFIED_TOTAL,
+                            );
+
                             let verified_block =
                                 match chain.verify_block_for_gossip(*boxed_block) {
                                     Ok(verified_block) => {
@@ -669,6 +685,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                                     }
                                 };
 
+                            metrics::inc_counter(
+                                &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_IMPORTED_TOTAL,
+                            );
 
                             let block = Box::new(verified_block.block.clone());
                             match chain.process_block(verified_block) {
