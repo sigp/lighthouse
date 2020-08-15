@@ -21,4 +21,4 @@ slog-json = "2.3.0"
 exit-future = "0.2.0"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-discv5 = { version = "0.1.0-alpha.8", features = ["libp2p", "openssl-vendored"] }
+discv5 = "0.1.0-alpha.9"
