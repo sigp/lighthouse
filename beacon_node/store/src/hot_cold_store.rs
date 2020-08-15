@@ -30,6 +30,7 @@ use types::*;
 /// 32-byte key for accessing the `split` of the freezer DB.
 pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
 
+#[derive(PartialEq)]
 pub enum BlockReplay {
     Accurate,
     InconsistentStateRoots,
@@ -650,10 +651,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
-        blocks: Vec<SignedBeaconBlock<E>>,
+        mut blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
         block_replay: BlockReplay,
     ) -> Result<BeaconState<E>, Error> {
+        if block_replay == BlockReplay::InconsistentStateRoots {
+            for i in 0..blocks.len() {
+                blocks[i].message.state_root = Hash256::zero();
+                if i > 0 {
+                    blocks[i].message.parent_root = blocks[i - 1].canonical_root()
+                }
+            }
+        }
+
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
                 let prev_block = &blocks[i - 1].message;
