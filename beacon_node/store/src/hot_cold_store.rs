@@ -673,20 +673,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             while state.slot < block.message.slot {
-                let state_root = state_root_from_prev_block(i, &state);
+                let state_root = match block_replay {
+                    BlockReplay::Accurate => state_root_from_prev_block(i, &state),
+                    BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
+                };
                 per_slot_processing(&mut state, state_root, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
             }
 
-            let state_root = match block_replay {
-                BlockReplay::Accurate => None,
-                BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
-            };
-
             per_block_processing(
                 &mut state,
                 &block,
-                state_root,
+                None,
                 BlockSignatureStrategy::NoVerification,
                 &self.spec,
             )
