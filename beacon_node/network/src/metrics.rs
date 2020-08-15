@@ -78,19 +78,19 @@ lazy_static! {
         "Time taken for a worker to fully process some parcel of work."
     );
     pub static ref GOSSIP_PROCESSOR_BEACON_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "gossip_processor_gossip_block_queue_total",
+        "gossip_processor_beacon_block_queue_total",
         "Count of unagg. attestations waiting to be processed."
     );
     pub static ref GOSSIP_PROCESSOR_BEACON_BLOCK_WORKER_TIME: Result<Histogram> = try_create_histogram(
-        "gossip_processor_gossip_block_worker_time",
+        "gossip_processor_beacon_block_worker_time",
         "Time taken for a worker to fully process an gossip block."
     );
     pub static ref GOSSIP_PROCESSOR_BEACON_BLOCK_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "gossip_processor_gossip_block_verified_total",
+        "gossip_processor_beacon_block_verified_total",
         "Total number of gossip blocks verified for gossip."
     );
     pub static ref GOSSIP_PROCESSOR_BEACON_BLOCK_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "gossip_processor_gossip_block_imported_total",
+        "gossip_processor_beacon_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
     );
     pub static ref GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
