@@ -1,4 +1,4 @@
-//! Provides the `GossipProcessor`, a mutli-threaded processor for messages received on the network
+//! Provides the `BeaconProcessor`, a mutli-threaded processor for messages received on the network
 //! that need to be processed by the `BeaconChain`.
 //!
 //! Uses `tokio` tasks (instead of raw threads) to provide the following tasks:
@@ -8,7 +8,7 @@
 //!
 //! ## Purpose
 //!
-//! The purpose of the `GossipProcessor` is to provide two things:
+//! The purpose of the `BeaconProcessor` is to provide two things:
 //!
 //! 1. Moving long-running, blocking tasks off the main `tokio` executor.
 //! 2. A fixed-length buffer for consensus messages.
@@ -50,12 +50,12 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
 
-/// The maximum size of the channel for work events to the `GossipProcessor`.
+/// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
 /// Setting this too low will cause consensus messages to be dropped.
 pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 
-/// The maximum size of the channel for idle events to the `GossipProcessor`.
+/// The maximum size of the channel for idle events to the `BeaconProcessor`.
 ///
 /// Setting this too low will prevent new workers from being spawned. It *should* only need to be
 /// set to the CPU count, but we set it high to be safe.
@@ -288,7 +288,7 @@ impl TimeLatch {
 /// that need to be processed by the `BeaconChain`
 ///
 /// See module level documentation for more information.
-pub struct GossipProcessor<T: BeaconChainTypes> {
+pub struct BeaconProcessor<T: BeaconChainTypes> {
     pub beacon_chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
@@ -299,7 +299,7 @@ pub struct GossipProcessor<T: BeaconChainTypes> {
     pub log: Logger,
 }
 
-impl<T: BeaconChainTypes> GossipProcessor<T> {
+impl<T: BeaconChainTypes> BeaconProcessor<T> {
     /// Spawns the "manager" task which checks the receiver end of the returned `Sender` for
     /// messages which contain some new work which will be:
     ///
