@@ -40,6 +40,7 @@ use beacon_chain::{
     attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     BlockError, ForkChoiceError,
 };
+use chain_segment::handle_chain_segment;
 use environment::TaskExecutor;
 use eth2_libp2p::{MessageId, NetworkGlobals, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -77,9 +78,13 @@ const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `SignedBeaconBlock` objects received during syncing that will be
-/// stored before we start dropping them.
+/// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
+/// will be stored before we start dropping them.
 const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `Vec<SignedBeaconBlock>` objects received during syncing that will
+/// be stored before we start dropping them.
+const MAX_CHAIN_SEGMENT_QUEUE_LEN: usize = 1_024;
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
@@ -243,8 +248,11 @@ impl<E: EthSpec> WorkEvent<E> {
     }
 
     /// Create a new work event to import `blocks` as a beacon chain segment.
-    pub fn chain_segment(process_id: ProcessId, block: Vec<SignedBeaconBlock<E>>) -> Self {
-        todo!()
+    pub fn chain_segment(process_id: ProcessId, blocks: Vec<SignedBeaconBlock<E>>) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::ChainSegment { process_id, blocks },
+        }
     }
 }
 
@@ -271,6 +279,10 @@ pub enum Work<E: EthSpec> {
     RpcBlock {
         block: Box<SignedBeaconBlock<E>>,
         result_tx: BlockResultSender<E>,
+    },
+    ChainSegment {
+        process_id: ProcessId,
+        blocks: Vec<SignedBeaconBlock<E>>,
     },
 }
 
@@ -329,6 +341,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
 
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
+
+        let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
 
         let executor = self.executor.clone();
 
@@ -435,6 +449,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         Work::GossipAggregate { .. } => aggregate_queue.push(work),
                         Work::GossipBlock { .. } => gossip_block_queue.push(work, &self.log),
                         Work::RpcBlock { .. } => rpc_block_queue.push(work, &self.log),
+                        Work::ChainSegment { .. } => chain_segment_queue.push(work, &self.log),
                     },
                 }
 
@@ -457,6 +472,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::GOSSIP_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
                     rpc_block_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::GOSSIP_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
+                    chain_segment_queue.len() as i64,
                 );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
@@ -510,10 +529,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         executor.spawn_blocking(
             move || {
                 let _worker_timer = worker_timer;
+                let inner_log = log.clone();
 
                 // We use this closure pattern to avoid using a `return` that prevents the
                 // `idle_tx` message from sending.
                 let handler = || {
+                    let log = inner_log.clone();
                     match work {
                         /*
                          * Unaggregated attestation verification.
@@ -795,6 +816,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             if let Err(_) = result_tx.send(block_result) {
                                 crit!(log, "Failed return sync block result");
                             }
+                        }
+                        /*
+                         * Verification for a chain segment (multiple blocks).
+                         */
+                        Work::ChainSegment { process_id, blocks } => {
+                            handle_chain_segment(chain, process_id, blocks, sync_tx, log)
                         }
                     };
                 };

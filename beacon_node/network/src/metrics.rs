@@ -90,7 +90,7 @@ lazy_static! {
         "gossip_processor_gossip_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
     );
-    // Sync blocks.
+    // Rpc blocks.
     pub static ref GOSSIP_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "gossip_processor_rpc_block_queue_total",
         "Count of blocks from the rpc waiting to be verified."
@@ -106,6 +106,19 @@ lazy_static! {
     pub static ref GOSSIP_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "gossip_processor_rpc_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
+    );
+    // Chain segments.
+    pub static ref GOSSIP_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "gossip_processor_chain_segment_queue_total",
+        "Count of chain segments from the rpc waiting to be verified."
+    );
+    pub static ref GOSSIP_PROCESSOR_CHAIN_SEGMENT_WORKER_TIME: Result<Histogram> = try_create_histogram(
+        "gossip_processor_chain_segment_worker_time",
+        "Time taken for a worker to fully process a chain segment."
+    );
+    pub static ref GOSSIP_PROCESSOR_CHAIN_SEGMENT_ATTEMPTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "gossip_processor_chain_segment_imported_total",
+        "Total number of chain segments attempted."
     );
     // Unaggregated attestations.
     pub static ref GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(

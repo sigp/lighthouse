@@ -1,8 +1,8 @@
 use super::batch::{Batch, BatchId, PendingBatches};
 use crate::beacon_processor::ProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::sync::RequestId;
 use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult};
-use crate::sync::{RequestId, SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{PeerAction, PeerId};
 use rand::prelude::*;
@@ -85,10 +85,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The current processing batch, if any.
     current_processing_batch: Option<Batch<T::EthSpec>>,
 
-    /// A send channel to the sync manager. This is given to the batch processor thread to report
-    /// back once batch processing has completed.
-    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
 
@@ -115,7 +111,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
-        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
         beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
         chain: Arc<BeaconChain<T>>,
         log: slog::Logger,
@@ -136,7 +131,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             to_be_processed_id: BatchId(1),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
-            sync_send,
             beacon_processor_send,
             chain,
             log,

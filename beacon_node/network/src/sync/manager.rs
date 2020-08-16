@@ -170,9 +170,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// The logger for the import manager.
     log: Logger,
 
-    /// The sending part of input_channel
-    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
 }
@@ -217,7 +214,6 @@ pub fn spawn<T: BeaconChainTypes>(
         range_sync: RangeSync::new(
             beacon_chain.clone(),
             network_globals.clone(),
-            sync_send.clone(),
             beacon_processor_send.clone(),
             log.clone(),
         ),
@@ -228,7 +224,6 @@ pub fn spawn<T: BeaconChainTypes>(
         parent_queue: SmallVec::new(),
         single_block_lookups: FnvHashMap::default(),
         log: log.clone(),
-        sync_send: sync_send.clone(),
         beacon_processor_send,
     };
 
