@@ -1,6 +1,6 @@
 use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
-use crate::sync::range_sync::{BatchId, ChainId};
+use crate::sync::{BatchId, BatchProcessResult, ChainId};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
@@ -15,18 +15,6 @@ pub enum ProcessId {
     RangeBatchId(ChainId, BatchId),
     /// Processing Id of the parent lookup of a block
     ParentLookup(PeerId),
-}
-
-/// The result of a block processing request.
-// TODO: When correct batch error handling occurs, we will include an error type.
-#[derive(Debug)]
-pub enum BatchProcessResult {
-    /// The batch was completed successfully.
-    Success,
-    /// The batch processing failed.
-    Failed,
-    /// The batch processing failed but managed to import at least one block.
-    Partial,
 }
 
 /// Spawns a thread handling the block processing of a request: range syncing or parent lookup.

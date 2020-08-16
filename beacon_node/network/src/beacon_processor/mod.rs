@@ -50,6 +50,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
 
+mod chain_segment;
+
+pub use chain_segment::ProcessId;
+
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
 /// Setting this too low will cause consensus messages to be dropped.
@@ -236,6 +240,11 @@ impl<E: EthSpec> WorkEvent<E> {
             work: Work::RpcBlock { block, result_tx },
         };
         (event, result_rx)
+    }
+
+    /// Create a new work event to import `blocks` as a beacon chain segment.
+    pub fn chain_segment(process_id: ProcessId, block: Vec<SignedBeaconBlock<E>>) -> Self {
+        todo!()
     }
 }
 

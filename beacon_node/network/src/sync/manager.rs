@@ -33,12 +33,11 @@
 //! if an attestation references an unknown block) this manager can search for the block and
 //! subsequently search for parents if needed.
 
-use super::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
 use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
-use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
@@ -110,6 +109,18 @@ pub enum SyncMessage<T: EthSpec> {
     ParentLookupFailed(PeerId),
 }
 
+/// The result of processing a multiple blocks (a chain segment).
+// TODO: When correct batch error handling occurs, we will include an error type.
+#[derive(Debug)]
+pub enum BatchProcessResult {
+    /// The batch was completed successfully.
+    Success,
+    /// The batch processing failed.
+    Failed,
+    /// The batch processing failed but managed to import at least one block.
+    Partial,
+}
+
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
 struct ParentRequests<T: EthSpec> {
     /// The blocks that have currently been downloaded.
@@ -163,7 +174,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    gossip_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
 }
 
 /// Object representing a single block lookup request.
@@ -191,7 +202,7 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    gossip_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(
@@ -207,6 +218,7 @@ pub fn spawn<T: BeaconChainTypes>(
             beacon_chain.clone(),
             network_globals.clone(),
             sync_send.clone(),
+            beacon_processor_send.clone(),
             log.clone(),
         ),
         network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
@@ -217,7 +229,7 @@ pub fn spawn<T: BeaconChainTypes>(
         single_block_lookups: FnvHashMap::default(),
         log: log.clone(),
         sync_send: sync_send.clone(),
-        gossip_processor_send,
+        beacon_processor_send,
     };
 
     // spawn the sync manager thread
@@ -393,7 +405,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Option<Result<Hash256, BlockError<T::EthSpec>>> {
         let (event, rx) = BeaconWorkEvent::rpc_beacon_block(Box::new(block));
-        match self.gossip_processor_send.try_send(event) {
+        match self.beacon_processor_send.try_send(event) {
             Ok(_) => {}
             Err(e) => {
                 error!(
@@ -708,13 +720,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.request_parent(parent_request);
                 }
                 Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
-                    spawn_block_processor(
-                        Arc::downgrade(&self.chain),
-                        ProcessId::ParentLookup(parent_request.last_submitted_peer.clone()),
-                        parent_request.downloaded_blocks,
-                        self.sync_send.clone(),
-                        self.log.clone(),
-                    );
+                    let process_id =
+                        ProcessId::ParentLookup(parent_request.last_submitted_peer.clone());
+                    let blocks = parent_request.downloaded_blocks;
+
+                    match self
+                        .beacon_processor_send
+                        .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!(
+                                self.log,
+                                "Failed to send chain segment to processor";
+                                "error" => format!("{:?}", e)
+                            );
+                        }
+                    }
                 }
                 Err(outcome) => {
                     // all else we consider the chain a failure and downvote the peer that sent
