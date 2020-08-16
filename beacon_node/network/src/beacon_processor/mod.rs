@@ -403,10 +403,17 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
                 match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
+                    //
+                    // We don't check the `work.drop_during_sync` here. We assume that if it made
+                    // it into the queue at any point then we should process it.
                     None if can_spawn => {
+                        // Check for chain segments first, they're the most efficient way to get
+                        // blocks into the system.
+                        if let Some(item) = chain_segment_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
                         // Check sync blocks before gossip blocks, since we've already explicitly
                         // requested these blocks.
-                        if let Some(item) = rpc_block_queue.pop() {
+                        } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
@@ -430,7 +437,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             "msg" => "no new work and cannot spawn worker"
                         );
                     }
-                    // There is a new work event, but the chain is syncing. Ignore it.
+                    // The chain is syncing and this event should be dropped during sync.
                     Some(WorkEvent { .. })
                         if self.network_globals.sync_state.read().is_syncing()
                             && drop_during_sync =>
