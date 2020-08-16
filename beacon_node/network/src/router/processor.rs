@@ -1,4 +1,6 @@
-use super::gossip_processor::{GossipProcessor, WorkEvent as GossipWorkEvent};
+use super::gossip_processor::{
+    GossipProcessor, WorkEvent as GossipWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+};
 use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
 use beacon_chain::{observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes};
@@ -32,7 +34,7 @@ pub struct Processor<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
-    /// A multi-threaded, non-blocking processor for consensus gossip messages.
+    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     gossip_processor_send: mpsc::Sender<GossipWorkEvent<T::EthSpec>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
@@ -48,6 +50,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
+        let (gossip_processor_send, gossip_processor_receive) =
+            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
 
         // spawn the sync thread
         let sync_send = crate::sync::manager::spawn(
@@ -55,10 +59,11 @@ impl<T: BeaconChainTypes> Processor<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_send.clone(),
+            gossip_processor_send.clone(),
             sync_logger,
         );
 
-        let gossip_processor_send = GossipProcessor {
+        GossipProcessor {
             beacon_chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
@@ -68,7 +73,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             current_workers: 0,
             log: log.clone(),
         }
-        .spawn_manager();
+        .spawn_manager(gossip_processor_receive);
 
         Processor {
             chain: beacon_chain,
@@ -521,7 +526,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.gossip_processor_send
-            .try_send(GossipWorkEvent::beacon_block(message_id, peer_id, block))
+            .try_send(GossipWorkEvent::gossip_beacon_block(
+                message_id, peer_id, block,
+            ))
             .unwrap_or_else(|e| {
                 error!(
                     &self.log,

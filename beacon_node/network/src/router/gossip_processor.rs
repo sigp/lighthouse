@@ -47,13 +47,13 @@ use ssz::Encode;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
 
 /// The maximum size of the channel for work events to the `GossipProcessor`.
 ///
 /// Setting this too low will cause consensus messages to be dropped.
-const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
+pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 
 /// The maximum size of the channel for idle events to the `GossipProcessor`.
 ///
@@ -69,9 +69,13 @@ const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 16_384;
 /// start dropping them.
 const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `SignedBeaconBlock` objects that will be stored before we start
-/// dropping them.
-const MAX_BLOCK_QUEUE_LEN: usize = 1_024;
+/// The maximum number of queued `SignedBeaconBlock` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `SignedBeaconBlock` objects received during syncing that will be
+/// stored before we start dropping them.
+const MAX_SYNC_BLOCK_QUEUE_LEN: usize = 1_024;
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
@@ -81,16 +85,13 @@ const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
-/// A queued item from gossip, awaiting processing.
-struct QueueItem<T> {
-    message_id: MessageId,
-    peer_id: PeerId,
-    item: T,
-}
+/// Used to send/receive results from a sync block import in a blocking task.
+pub type BlockResultSender<E> = oneshot::Sender<Result<Hash256, BlockError<E>>>;
+pub type BlockResultReceiver<E> = oneshot::Receiver<Result<Hash256, BlockError<E>>>;
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
-    queue: VecDeque<QueueItem<T>>,
+    queue: VecDeque<T>,
     max_length: usize,
 }
 
@@ -104,7 +105,7 @@ impl<T> FifoQueue<T> {
     }
 
     /// Add a new item to the queue.
-    pub fn push(&mut self, item: QueueItem<T>, log: &Logger) {
+    pub fn push(&mut self, item: T, log: &Logger) {
         if self.queue.len() == self.max_length {
             error!(
                 log,
@@ -117,7 +118,7 @@ impl<T> FifoQueue<T> {
     }
 
     /// Remove the next item from the queue.
-    pub fn pop(&mut self) -> Option<QueueItem<T>> {
+    pub fn pop(&mut self) -> Option<T> {
         self.queue.pop_front()
     }
 
@@ -129,7 +130,7 @@ impl<T> FifoQueue<T> {
 
 /// A simple last-in-first-out queue with a maximum length.
 struct LifoQueue<T> {
-    queue: VecDeque<QueueItem<T>>,
+    queue: VecDeque<T>,
     max_length: usize,
 }
 
@@ -143,7 +144,7 @@ impl<T> LifoQueue<T> {
     }
 
     /// Add a new item to the queue.
-    pub fn push(&mut self, item: QueueItem<T>) {
+    pub fn push(&mut self, item: T) {
         if self.queue.len() == self.max_length {
             self.queue.pop_back();
         }
@@ -151,7 +152,7 @@ impl<T> LifoQueue<T> {
     }
 
     /// Remove the next item from the queue.
-    pub fn pop(&mut self) -> Option<QueueItem<T>> {
+    pub fn pop(&mut self) -> Option<T> {
         self.queue.pop_front()
     }
 
@@ -167,10 +168,9 @@ impl<T> LifoQueue<T> {
 }
 
 /// An event to be processed by the manager task.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct WorkEvent<E: EthSpec> {
-    message_id: MessageId,
-    peer_id: PeerId,
+    drop_during_sync: bool,
     work: Work<E>,
 }
 
@@ -184,9 +184,14 @@ impl<E: EthSpec> WorkEvent<E> {
         should_import: bool,
     ) -> Self {
         Self {
-            message_id,
-            peer_id,
-            work: Work::Attestation(Box::new((attestation, subnet_id, should_import))),
+            drop_during_sync: true,
+            work: Work::Attestation {
+                message_id,
+                peer_id,
+                attestation: Box::new(attestation),
+                subnet_id,
+                should_import,
+            },
         }
     }
 
@@ -197,32 +202,71 @@ impl<E: EthSpec> WorkEvent<E> {
         aggregate: SignedAggregateAndProof<E>,
     ) -> Self {
         Self {
-            message_id,
-            peer_id,
-            work: Work::Aggregate(Box::new(aggregate)),
+            drop_during_sync: true,
+            work: Work::Aggregate {
+                message_id,
+                peer_id,
+                aggregate: Box::new(aggregate),
+            },
         }
     }
 
     /// Create a new `Work` event for some block.
-    pub fn beacon_block(
+    pub fn gossip_beacon_block(
         message_id: MessageId,
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<E>>,
     ) -> Self {
         Self {
-            message_id,
-            peer_id,
-            work: Work::Block(block),
+            drop_during_sync: true,
+            work: Work::GossipBlock {
+                message_id,
+                peer_id,
+                block,
+            },
         }
+    }
+
+    /// Create a new `Work` event for some block, where the result from computation (if any) is
+    /// sent to the other side of `result_tx`.
+    pub fn sync_beacon_block(block: Box<SignedBeaconBlock<E>>) -> (Self, BlockResultReceiver<E>) {
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = Self {
+            drop_during_sync: false,
+            work: Work::SyncBlock { block, result_tx },
+        };
+        (event, result_rx)
     }
 }
 
 /// A consensus message from gossip which requires processing.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Work<E: EthSpec> {
-    Attestation(Box<(Attestation<E>, SubnetId, bool)>),
-    Aggregate(Box<SignedAggregateAndProof<E>>),
-    Block(Box<SignedBeaconBlock<E>>),
+    // Attestation(Box<(Attestation<E>, SubnetId, bool)>),
+    Attestation {
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<Attestation<E>>,
+        subnet_id: SubnetId,
+        should_import: bool,
+    },
+    // Aggregate(Box<SignedAggregateAndProof<E>>),
+    Aggregate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: Box<SignedAggregateAndProof<E>>,
+    },
+    // GossipBlock(Box<SignedBeaconBlock<E>>),
+    GossipBlock {
+        message_id: MessageId,
+        peer_id: PeerId,
+        block: Box<SignedBeaconBlock<E>>,
+    },
+    // SyncBlock((Box<SignedBeaconBlock<E>>, Box<BlockResultSender<E>>)),
+    SyncBlock {
+        block: Box<SignedBeaconBlock<E>>,
+        result_tx: BlockResultSender<E>,
+    },
 }
 
 /// Provides de-bounce functionality for logging.
@@ -268,9 +312,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
     ///
     /// Only `self.max_workers` will ever be spawned at one time. Each worker is a `tokio` task
     /// started with `spawn_blocking`.
-    pub fn spawn_manager(mut self) -> mpsc::Sender<WorkEvent<T::EthSpec>> {
-        let (event_tx, mut event_rx) =
-            mpsc::channel::<WorkEvent<T::EthSpec>>(MAX_WORK_EVENT_QUEUE_LEN);
+    pub fn spawn_manager(mut self, mut event_rx: mpsc::Receiver<WorkEvent<T::EthSpec>>) {
         let (idle_tx, mut idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
 
         let mut aggregate_queue = LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
@@ -279,7 +321,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_debounce = TimeLatch::default();
 
-        let mut block_queue = FifoQueue::new(MAX_BLOCK_QUEUE_LEN);
+        let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
+
+        let mut sync_block_queue = FifoQueue::new(MAX_SYNC_BLOCK_QUEUE_LEN);
 
         let executor = self.executor.clone();
 
@@ -334,36 +378,27 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
 
                 let can_spawn = self.current_workers < self.max_workers;
+                let drop_during_sync = work_event
+                    .as_ref()
+                    .map_or(false, |event| event.drop_during_sync);
 
                 match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
                     None if can_spawn => {
-                        // Always check blocks first, since they might be required to process an
-                        // attestation. After blocks, heck the aggregates, *then* the unaggregates
+                        // Check sync blocks before gossip blocks, since we've already explicitly
+                        // requested these blocks.
+                        if let Some(item) = sync_block_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
+                        } else if let Some(item) = gossip_block_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
+                        // Check the aggregates, *then* the unaggregates
                         // since we assume that aggregates are more valuable to local validators
                         // and effectively give us more information with less signature
                         // verification time.
-                        if let Some(item) = block_queue.pop() {
-                            self.spawn_worker(
-                                idle_tx.clone(),
-                                item.message_id,
-                                item.peer_id,
-                                Work::Block(item.item),
-                            );
                         } else if let Some(item) = aggregate_queue.pop() {
-                            self.spawn_worker(
-                                idle_tx.clone(),
-                                item.message_id,
-                                item.peer_id,
-                                Work::Aggregate(item.item),
-                            );
+                            self.spawn_worker(idle_tx.clone(), item);
                         } else if let Some(item) = attestation_queue.pop() {
-                            self.spawn_worker(
-                                idle_tx.clone(),
-                                item.message_id,
-                                item.peer_id,
-                                Work::Attestation(item.item),
-                            );
+                            self.spawn_worker(idle_tx.clone(), item);
                         }
                     }
                     // There is no new work event and we are unable to spawn a new worker.
@@ -378,7 +413,8 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     }
                     // There is a new work event, but the chain is syncing. Ignore it.
                     Some(WorkEvent { .. })
-                        if self.network_globals.sync_state.read().is_syncing() =>
+                        if self.network_globals.sync_state.read().is_syncing()
+                            && drop_during_sync =>
                     {
                         metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORK_EVENTS_IGNORED_TOTAL);
                         trace!(
@@ -388,38 +424,12 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         );
                     }
                     // There is a new work event and the chain is not syncing. Process it.
-                    Some(WorkEvent {
-                        message_id,
-                        peer_id,
-                        work,
-                    }) => match work {
-                        Work::Attestation(_) if can_spawn => {
-                            self.spawn_worker(idle_tx.clone(), message_id, peer_id, work)
-                        }
-                        Work::Attestation(attestation) => attestation_queue.push(QueueItem {
-                            message_id,
-                            peer_id,
-                            item: attestation,
-                        }),
-                        Work::Aggregate(_) if can_spawn => {
-                            self.spawn_worker(idle_tx.clone(), message_id, peer_id, work)
-                        }
-                        Work::Aggregate(aggregate) => aggregate_queue.push(QueueItem {
-                            message_id,
-                            peer_id,
-                            item: aggregate,
-                        }),
-                        Work::Block(_) if can_spawn => {
-                            self.spawn_worker(idle_tx.clone(), message_id, peer_id, work)
-                        }
-                        Work::Block(block) => block_queue.push(
-                            QueueItem {
-                                message_id,
-                                peer_id,
-                                item: block,
-                            },
-                            &self.log,
-                        ),
+                    Some(WorkEvent { work, .. }) => match work {
+                        _ if can_spawn => self.spawn_worker(idle_tx.clone(), work),
+                        Work::Attestation { .. } => attestation_queue.push(work),
+                        Work::Aggregate { .. } => aggregate_queue.push(work),
+                        Work::GossipBlock { .. } => gossip_block_queue.push(work, &self.log),
+                        Work::SyncBlock { .. } => sync_block_queue.push(work, &self.log),
                     },
                 }
 
@@ -436,8 +446,12 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     aggregate_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_QUEUE_TOTAL,
-                    block_queue.len() as i64,
+                    &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
+                    gossip_block_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::GOSSIP_PROCESSOR_SYNC_BLOCK_QUEUE_TOTAL,
+                    sync_block_queue.len() as i64,
                 );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
@@ -462,20 +476,12 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
 
         // Spawn on the non-blocking executor.
         executor.spawn(manager_future, MANAGER_TASK_NAME);
-
-        event_tx
     }
 
     /// Spawns a blocking worker thread to process some `Work`.
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
-    fn spawn_worker(
-        &mut self,
-        mut idle_tx: mpsc::Sender<()>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        work: Work<T::EthSpec>,
-    ) {
+    fn spawn_worker(&mut self, mut idle_tx: mpsc::Sender<()>, work: Work<T::EthSpec>) {
         let worker_timer = metrics::start_timer(&metrics::GOSSIP_PROCESSOR_WORKER_TIME);
         metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORKERS_SPAWNED_TOTAL);
 
@@ -497,9 +503,13 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         /*
                          * Unaggregated attestation verification.
                          */
-                        Work::Attestation(boxed_tuple) => {
-                            let (attestation, subnet_id, should_import) = *boxed_tuple;
-
+                        Work::Attestation {
+                            message_id,
+                            peer_id,
+                            attestation,
+                            subnet_id,
+                            should_import,
+                        } => {
                             let _attestation_timer = metrics::start_timer(
                                 &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME,
                             );
@@ -510,7 +520,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                             let beacon_block_root = attestation.data.beacon_block_root;
 
                             let attestation = match chain
-                                .verify_unaggregated_attestation_for_gossip(attestation, subnet_id)
+                                .verify_unaggregated_attestation_for_gossip(*attestation, subnet_id)
                             {
                                 Ok(attestation) => attestation,
                                 Err(e) => {
@@ -572,7 +582,11 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         /*
                          * Aggregated attestation verification.
                          */
-                        Work::Aggregate(boxed_aggregate) => {
+                        Work::Aggregate {
+                            message_id,
+                            peer_id,
+                            aggregate,
+                        } => {
                             let _attestation_timer = metrics::start_timer(
                                 &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_WORKER_TIME,
                             );
@@ -581,24 +595,23 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                             );
 
                             let beacon_block_root =
-                                boxed_aggregate.message.aggregate.data.beacon_block_root;
+                                aggregate.message.aggregate.data.beacon_block_root;
 
-                            let aggregate = match chain
-                                .verify_aggregated_attestation_for_gossip(*boxed_aggregate)
-                            {
-                                Ok(aggregate) => aggregate,
-                                Err(e) => {
-                                    handle_attestation_verification_failure(
-                                        &log,
-                                        sync_tx,
-                                        peer_id.clone(),
-                                        beacon_block_root,
-                                        "aggregated",
-                                        e,
-                                    );
-                                    return;
-                                }
-                            };
+                            let aggregate =
+                                match chain.verify_aggregated_attestation_for_gossip(*aggregate) {
+                                    Ok(aggregate) => aggregate,
+                                    Err(e) => {
+                                        handle_attestation_verification_failure(
+                                            &log,
+                                            sync_tx,
+                                            peer_id.clone(),
+                                            beacon_block_root,
+                                            "aggregated",
+                                            e,
+                                        );
+                                        return;
+                                    }
+                                };
 
                             // Indicate to the `Network` service that this message is valid and can be
                             // propagated on the gossip network.
@@ -640,53 +653,56 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                             }
                         }
                         /*
-                         * Beacon block verification.
+                         * Verification for beacon blocks received on gossip.
                          */
-                        Work::Block(boxed_block) => {
+                        Work::GossipBlock {
+                            message_id,
+                            peer_id,
+                            block,
+                        } => {
                             let _block_timer = metrics::start_timer(
-                                &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_WORKER_TIME,
+                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_WORKER_TIME,
                             );
                             metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_VERIFIED_TOTAL,
+                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
                             );
 
-                            let verified_block =
-                                match chain.verify_block_for_gossip(*boxed_block) {
-                                    Ok(verified_block) => {
-                                        info!(
-                                            log,
-                                            "New block received";
-                                            "slot" => verified_block.block.slot(),
-                                            "hash" => verified_block.block_root.to_string()
-                                        );
-                                        propagate_gossip_message(
-                                            network_tx,
-                                            message_id,
-                                            peer_id.clone(),
-                                            &log,
-                                        );
-                                        verified_block
-                                    }
-                                    Err(BlockError::ParentUnknown(block)) => {
-                                        send_sync_message(
-                                            sync_tx,
-                                            SyncMessage::UnknownBlock(peer_id, block),
-                                            &log,
-                                        );
-                                        return;
-                                    }
-                                    Err(e) => {
-                                        warn!(
-                                            log,
-                                            "Could not verify block for gossip";
-                                            "error" => format!("{:?}", e)
-                                        );
-                                        return;
-                                    }
-                                };
+                            let verified_block = match chain.verify_block_for_gossip(*block) {
+                                Ok(verified_block) => {
+                                    info!(
+                                        log,
+                                        "New block received";
+                                        "slot" => verified_block.block.slot(),
+                                        "hash" => verified_block.block_root.to_string()
+                                    );
+                                    propagate_gossip_message(
+                                        network_tx,
+                                        message_id,
+                                        peer_id.clone(),
+                                        &log,
+                                    );
+                                    verified_block
+                                }
+                                Err(BlockError::ParentUnknown(block)) => {
+                                    send_sync_message(
+                                        sync_tx,
+                                        SyncMessage::UnknownBlock(peer_id, block),
+                                        &log,
+                                    );
+                                    return;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        log,
+                                        "Could not verify block for gossip";
+                                        "error" => format!("{:?}", e)
+                                    );
+                                    return;
+                                }
+                            };
 
                             metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_BEACON_BLOCK_IMPORTED_TOTAL,
+                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
                             );
 
                             let block = Box::new(verified_block.block.clone());
@@ -746,6 +762,23 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                                         "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
                                     );
                                 }
+                            }
+                        }
+                        /*
+                         * Verification for beacon blocks received during syncing via RPC.
+                         */
+                        Work::SyncBlock { block, result_tx } => {
+                            let _block_timer = metrics::start_timer(
+                                &metrics::GOSSIP_PROCESSOR_SYNC_BLOCK_WORKER_TIME,
+                            );
+                            metrics::inc_counter(
+                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
+                            );
+
+                            let block_result = chain.process_block(*block);
+
+                            if let Err(_) = result_tx.send(block_result) {
+                                crit!(log, "Failed return sync block result");
                             }
                         }
                     };

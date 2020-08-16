@@ -38,9 +38,9 @@ use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{PeerSyncInfo, PeerSyncType};
 use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
+use crate::router::gossip_processor::WorkEvent as BeaconWorkEvent;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
-use environment::TaskExecutor;
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::{PeerAction, PeerId};
@@ -135,9 +135,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
 
-    /// Executor for spawning tokio tasks.
-    executor: TaskExecutor,
-
     /// A reference to the network globals and peer-db.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 
@@ -164,6 +161,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     /// The sending part of input_channel
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+
+    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
+    gossip_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
 }
 
 /// Object representing a single block lookup request.
@@ -191,6 +191,7 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    gossip_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(
@@ -208,7 +209,6 @@ pub fn spawn<T: BeaconChainTypes>(
             sync_send.clone(),
             log.clone(),
         ),
-        executor: executor.clone(),
         network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
         chain: beacon_chain,
         network_globals,
@@ -217,6 +217,7 @@ pub fn spawn<T: BeaconChainTypes>(
         single_block_lookups: FnvHashMap::default(),
         log: log.clone(),
         sync_send: sync_send.clone(),
+        gossip_processor_send,
     };
 
     // spawn the sync manager thread
@@ -387,6 +388,36 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    async fn process_block_async(
+        &mut self,
+        block: SignedBeaconBlock<T::EthSpec>,
+    ) -> Option<Result<Hash256, BlockError<T::EthSpec>>> {
+        let (event, rx) = BeaconWorkEvent::sync_beacon_block(Box::new(block));
+        match self.gossip_processor_send.try_send(event) {
+            Ok(_) => {}
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to send sync block to processor";
+                    "error" => format!("{:?}", e)
+                );
+                return None;
+            }
+        }
+
+        match rx.await {
+            Ok(block_result) => Some(block_result),
+            Err(_) => {
+                warn!(
+                    self.log,
+                    "Sync block not processed";
+                    "msg" => "likely due to system resource exhaustion"
+                );
+                None
+            }
+        }
+    }
+
     /// Processes the response obtained from a single block lookup search. If the block is
     /// processed or errors, the search ends. If the blocks parent is unknown, a block parent
     /// lookup search is started.
@@ -396,8 +427,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         expected_block_hash: Hash256,
     ) {
-        const FN_NAME: &str = "single_block_lookup_response";
-
         // verify the hash is correct and try and process the block
         if expected_block_hash != block.canonical_root() {
             // The peer that sent this, sent us the wrong block.
@@ -407,25 +436,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         }
 
-        let chain = self.chain.clone();
-        let inner_block = block.clone();
-
-        let block_result = match self
-            .executor
-            .handle
-            .spawn_blocking(move || chain.process_block(inner_block))
-            .await
-        {
-            Ok(block_result) => block_result,
-            Err(e) => {
-                error!(
-                    self.log,
-                    "Failed to spawn blocking task";
-                    "msg" => FN_NAME,
-                    "error" => format!("{:?}", e)
-                );
-                return;
-            }
+        let block_result = match self.process_block_async(block.clone()).await {
+            Some(block_result) => block_result,
+            None => return,
         };
 
         // we have the correct block, try and process it
@@ -682,25 +695,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .pop()
                 .expect("There is always at least one block in the queue");
 
-            let chain = self.chain.clone();
-            let inner_block = newest_block.clone();
-
-            let block_result = match self
-                .executor
-                .handle
-                .spawn_blocking(move || chain.process_block(inner_block))
-                .await
-            {
-                Ok(block_result) => block_result,
-                Err(e) => {
-                    error!(
-                        self.log,
-                        "Failed to spawn blocking task";
-                        "msg" => "process_parent_request",
-                        "error" => format!("{:?}", e)
-                    );
-                    return;
-                }
+            let block_result = match self.process_block_async(newest_block.clone()).await {
+                Some(block_result) => block_result,
+                None => return,
             };
 
             match block_result {
