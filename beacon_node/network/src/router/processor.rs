@@ -64,7 +64,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         );
 
         BeaconProcessor {
-            beacon_chain: beacon_chain.clone(),
+            beacon_chain: Arc::downgrade(&beacon_chain),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
             network_globals,

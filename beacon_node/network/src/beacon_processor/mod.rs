@@ -45,7 +45,7 @@ use eth2_libp2p::{MessageId, NetworkGlobals, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use ssz::Encode;
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
@@ -298,7 +298,7 @@ impl TimeLatch {
 ///
 /// See module level documentation for more information.
 pub struct BeaconProcessor<T: BeaconChainTypes> {
-    pub beacon_chain: Arc<BeaconChain<T>>,
+    pub beacon_chain: Weak<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
@@ -491,7 +491,17 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORKERS_SPAWNED_TOTAL);
 
         self.current_workers = self.current_workers.saturating_add(1);
-        let chain = self.beacon_chain.clone();
+
+        let chain = if let Some(chain) = self.beacon_chain.upgrade() {
+            chain
+        } else {
+            debug!(
+                self.log,
+                "Beacon chain dropped, shutting down";
+            );
+            return;
+        };
+
         let network_tx = self.network_tx.clone();
         let sync_tx = self.sync_tx.clone();
         let log = self.log.clone();
