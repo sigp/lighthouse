@@ -40,6 +40,7 @@ use super::range_sync::{BatchId, ChainId, RangeSync, EPOCHS_PER_BATCH};
 use super::RequestId;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use environment::TaskExecutor;
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
 use eth2_libp2p::types::NetworkGlobals;
 use eth2_libp2p::{PeerAction, PeerId};
@@ -134,6 +135,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
 
+    /// Executor for spawning tokio tasks.
+    executor: TaskExecutor,
+
     /// A reference to the network globals and peer-db.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 
@@ -204,6 +208,7 @@ pub fn spawn<T: BeaconChainTypes>(
             sync_send.clone(),
             log.clone(),
         ),
+        executor: executor.clone(),
         network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
         chain: beacon_chain,
         network_globals,
@@ -300,7 +305,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// There are two reasons we could have received a BlocksByRoot response
     /// - We requested a single hash and have received a response for the single_block_lookup
     /// - We are looking up parent blocks in parent lookup search
-    fn blocks_by_root_response(
+    async fn blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
@@ -318,7 +323,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     single_block_hash = Some(block_request.hash);
                 }
                 if let Some(block_hash) = single_block_hash {
-                    self.single_block_lookup_response(peer_id, block, block_hash);
+                    self.single_block_lookup_response(peer_id, block, block_hash)
+                        .await;
                     return;
                 }
 
@@ -340,7 +346,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // add the block to response
                 parent_request.downloaded_blocks.push(block);
                 // queue for processing
-                self.process_parent_request(parent_request);
+                self.process_parent_request(parent_request).await;
             }
             None => {
                 // this is a stream termination
@@ -384,12 +390,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// Processes the response obtained from a single block lookup search. If the block is
     /// processed or errors, the search ends. If the blocks parent is unknown, a block parent
     /// lookup search is started.
-    fn single_block_lookup_response(
+    async fn single_block_lookup_response(
         &mut self,
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
         expected_block_hash: Hash256,
     ) {
+        const FN_NAME: &str = "single_block_lookup_response";
+
         // verify the hash is correct and try and process the block
         if expected_block_hash != block.canonical_root() {
             // The peer that sent this, sent us the wrong block.
@@ -399,8 +407,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         }
 
+        let chain = self.chain.clone();
+        let inner_block = block.clone();
+
+        let block_result = match self
+            .executor
+            .handle
+            .spawn_blocking(move || chain.process_block(inner_block))
+            .await
+        {
+            Ok(block_result) => block_result,
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to spawn blocking task";
+                    "msg" => FN_NAME,
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
         // we have the correct block, try and process it
-        match self.chain.process_block(block.clone()) {
+        match block_result {
             Ok(block_root) => {
                 info!(self.log, "Processed block"; "block" => format!("{}", block_root));
 
@@ -599,7 +628,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     // manager
 
     /// A new block has been received for a parent lookup query, process it.
-    fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
+    async fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
         // verify the last added block is the parent of the last requested block
 
         if parent_request.downloaded_blocks.len() < 2 {
@@ -652,7 +681,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .downloaded_blocks
                 .pop()
                 .expect("There is always at least one block in the queue");
-            match self.chain.process_block(newest_block.clone()) {
+
+            let chain = self.chain.clone();
+            let inner_block = newest_block.clone();
+
+            let block_result = match self
+                .executor
+                .handle
+                .spawn_blocking(move || chain.process_block(inner_block))
+                .await
+            {
+                Ok(block_result) => block_result,
+                Err(e) => {
+                    error!(
+                        self.log,
+                        "Failed to spawn blocking task";
+                        "msg" => "process_parent_request",
+                        "error" => format!("{:?}", e)
+                    );
+                    return;
+                }
+            };
+
+            match block_result {
                 Err(BlockError::ParentUnknown { .. }) => {
                     // need to keep looking for parents
                     // add the block back to the queue and continue the search
@@ -760,7 +811,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         request_id,
                         beacon_block,
                     } => {
-                        self.blocks_by_root_response(peer_id, request_id, beacon_block.map(|b| *b));
+                        self.blocks_by_root_response(peer_id, request_id, beacon_block.map(|b| *b))
+                            .await;
                     }
                     SyncMessage::UnknownBlock(peer_id, block) => {
                         self.add_unknown_block(peer_id, *block);

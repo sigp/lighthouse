@@ -7,7 +7,7 @@ use tokio::runtime::Handle;
 #[derive(Clone)]
 pub struct TaskExecutor {
     /// The handle to the runtime on which tasks are spawned
-    pub(crate) handle: Handle,
+    pub handle: Handle,
     /// The receiver exit future which on receiving shuts down the task
     pub(crate) exit: exit_future::Exit,
     pub(crate) log: slog::Logger,
