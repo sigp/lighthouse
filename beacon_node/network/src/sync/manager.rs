@@ -392,7 +392,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         block: SignedBeaconBlock<T::EthSpec>,
     ) -> Option<Result<Hash256, BlockError<T::EthSpec>>> {
-        let (event, rx) = BeaconWorkEvent::sync_beacon_block(Box::new(block));
+        let (event, rx) = BeaconWorkEvent::rpc_beacon_block(Box::new(block));
         match self.gossip_processor_send.try_send(event) {
             Ok(_) => {}
             Err(e) => {

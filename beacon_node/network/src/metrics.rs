@@ -80,7 +80,7 @@ lazy_static! {
     // Gossip blocks.
     pub static ref GOSSIP_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "gossip_processor_gossip_block_queue_total",
-        "Count of unagg. attestations waiting to be processed."
+        "Count of blocks from gossip waiting to be verified."
     );
     pub static ref GOSSIP_PROCESSOR_GOSSIP_BLOCK_WORKER_TIME: Result<Histogram> = try_create_histogram(
         "gossip_processor_gossip_block_worker_time",
@@ -91,20 +91,20 @@ lazy_static! {
         "Total number of gossip blocks imported to fork choice, etc."
     );
     // Sync blocks.
-    pub static ref GOSSIP_PROCESSOR_SYNC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "gossip_processor_sync_block_queue_total",
-        "Count of unagg. attestations waiting to be processed."
+    pub static ref GOSSIP_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "gossip_processor_rpc_block_queue_total",
+        "Count of blocks from the rpc waiting to be verified."
     );
-    pub static ref GOSSIP_PROCESSOR_SYNC_BLOCK_WORKER_TIME: Result<Histogram> = try_create_histogram(
-        "gossip_processor_sync_block_worker_time",
-        "Time taken for a worker to fully process an gossip block."
+    pub static ref GOSSIP_PROCESSOR_RPC_BLOCK_WORKER_TIME: Result<Histogram> = try_create_histogram(
+        "gossip_processor_rpc_block_worker_time",
+        "Time taken for a worker to fully process a block from the rpc."
     );
-    pub static ref GOSSIP_PROCESSOR_SYNC_BLOCK_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "gossip_processor_sync_block_verified_total",
-        "Total number of gossip blocks verified for gossip."
+    pub static ref GOSSIP_PROCESSOR_RPC_BLOCK_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "gossip_processor_rpc_block_verified_total",
+        "Total number of verified blocks from the rpc."
     );
-    pub static ref GOSSIP_PROCESSOR_SYNC_BLOCK_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "gossip_processor_sync_block_imported_total",
+    pub static ref GOSSIP_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "gossip_processor_rpc_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
     );
     // Unaggregated attestations.

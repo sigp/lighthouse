@@ -75,7 +75,7 @@ const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received during syncing that will be
 /// stored before we start dropping them.
-const MAX_SYNC_BLOCK_QUEUE_LEN: usize = 1_024;
+const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
@@ -85,7 +85,7 @@ const WORKER_TASK_NAME: &str = "beacon_gossip_processor_worker";
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Used to send/receive results from a sync block import in a blocking task.
+/// Used to send/receive results from a rpc block import in a blocking task.
 pub type BlockResultSender<E> = oneshot::Sender<Result<Hash256, BlockError<E>>>;
 pub type BlockResultReceiver<E> = oneshot::Receiver<Result<Hash256, BlockError<E>>>;
 
@@ -185,7 +185,7 @@ impl<E: EthSpec> WorkEvent<E> {
     ) -> Self {
         Self {
             drop_during_sync: true,
-            work: Work::Attestation {
+            work: Work::GossipAttestation {
                 message_id,
                 peer_id,
                 attestation: Box::new(attestation),
@@ -203,7 +203,7 @@ impl<E: EthSpec> WorkEvent<E> {
     ) -> Self {
         Self {
             drop_during_sync: true,
-            work: Work::Aggregate {
+            work: Work::GossipAggregate {
                 message_id,
                 peer_id,
                 aggregate: Box::new(aggregate),
@@ -229,11 +229,11 @@ impl<E: EthSpec> WorkEvent<E> {
 
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
-    pub fn sync_beacon_block(block: Box<SignedBeaconBlock<E>>) -> (Self, BlockResultReceiver<E>) {
+    pub fn rpc_beacon_block(block: Box<SignedBeaconBlock<E>>) -> (Self, BlockResultReceiver<E>) {
         let (result_tx, result_rx) = oneshot::channel();
         let event = Self {
             drop_during_sync: false,
-            work: Work::SyncBlock { block, result_tx },
+            work: Work::RpcBlock { block, result_tx },
         };
         (event, result_rx)
     }
@@ -242,28 +242,24 @@ impl<E: EthSpec> WorkEvent<E> {
 /// A consensus message from gossip which requires processing.
 #[derive(Debug)]
 pub enum Work<E: EthSpec> {
-    // Attestation(Box<(Attestation<E>, SubnetId, bool)>),
-    Attestation {
+    GossipAttestation {
         message_id: MessageId,
         peer_id: PeerId,
         attestation: Box<Attestation<E>>,
         subnet_id: SubnetId,
         should_import: bool,
     },
-    // Aggregate(Box<SignedAggregateAndProof<E>>),
-    Aggregate {
+    GossipAggregate {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<E>>,
     },
-    // GossipBlock(Box<SignedBeaconBlock<E>>),
     GossipBlock {
         message_id: MessageId,
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<E>>,
     },
-    // SyncBlock((Box<SignedBeaconBlock<E>>, Box<BlockResultSender<E>>)),
-    SyncBlock {
+    RpcBlock {
         block: Box<SignedBeaconBlock<E>>,
         result_tx: BlockResultSender<E>,
     },
@@ -323,7 +319,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
 
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
 
-        let mut sync_block_queue = FifoQueue::new(MAX_SYNC_BLOCK_QUEUE_LEN);
+        let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
 
         let executor = self.executor.clone();
 
@@ -387,7 +383,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     None if can_spawn => {
                         // Check sync blocks before gossip blocks, since we've already explicitly
                         // requested these blocks.
-                        if let Some(item) = sync_block_queue.pop() {
+                        if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
@@ -426,10 +422,10 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     // There is a new work event and the chain is not syncing. Process it.
                     Some(WorkEvent { work, .. }) => match work {
                         _ if can_spawn => self.spawn_worker(idle_tx.clone(), work),
-                        Work::Attestation { .. } => attestation_queue.push(work),
-                        Work::Aggregate { .. } => aggregate_queue.push(work),
+                        Work::GossipAttestation { .. } => attestation_queue.push(work),
+                        Work::GossipAggregate { .. } => aggregate_queue.push(work),
                         Work::GossipBlock { .. } => gossip_block_queue.push(work, &self.log),
-                        Work::SyncBlock { .. } => sync_block_queue.push(work, &self.log),
+                        Work::RpcBlock { .. } => rpc_block_queue.push(work, &self.log),
                     },
                 }
 
@@ -450,8 +446,8 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                     gossip_block_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_SYNC_BLOCK_QUEUE_TOTAL,
-                    sync_block_queue.len() as i64,
+                    &metrics::GOSSIP_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
+                    rpc_block_queue.len() as i64,
                 );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
@@ -503,7 +499,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         /*
                          * Unaggregated attestation verification.
                          */
-                        Work::Attestation {
+                        Work::GossipAttestation {
                             message_id,
                             peer_id,
                             attestation,
@@ -582,7 +578,7 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         /*
                          * Aggregated attestation verification.
                          */
-                        Work::Aggregate {
+                        Work::GossipAggregate {
                             message_id,
                             peer_id,
                             aggregate,
@@ -767,9 +763,9 @@ impl<T: BeaconChainTypes> GossipProcessor<T> {
                         /*
                          * Verification for beacon blocks received during syncing via RPC.
                          */
-                        Work::SyncBlock { block, result_tx } => {
+                        Work::RpcBlock { block, result_tx } => {
                             let _block_timer = metrics::start_timer(
-                                &metrics::GOSSIP_PROCESSOR_SYNC_BLOCK_WORKER_TIME,
+                                &metrics::GOSSIP_PROCESSOR_RPC_BLOCK_WORKER_TIME,
                             );
                             metrics::inc_counter(
                                 &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
