@@ -11,6 +11,7 @@ use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, EventHandler,
@@ -110,6 +111,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     pubkey_cache_path: Option<PathBuf>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache>,
     spec: ChainSpec,
+    chain_config: ChainConfig,
     disabled_forks: Vec<String>,
     log: Option<Logger>,
     graffiti: Graffiti,
@@ -157,6 +159,7 @@ where
             disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
+            chain_config: ChainConfig::default(),
             log: None,
             graffiti: Graffiti::default(),
         }
@@ -406,6 +409,12 @@ where
         self
     }
 
+    /// Sets the `ChainConfig` that determines `BeaconChain` runtime behaviour.
+    pub fn chain_config(mut self, config: ChainConfig) -> Self {
+        self.chain_config = config;
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -489,6 +498,7 @@ where
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
+            config: self.chain_config,
             store,
             store_migrator: self
                 .store_migrator
