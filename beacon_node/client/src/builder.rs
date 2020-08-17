@@ -135,6 +135,7 @@ where
         let eth_spec_instance = self.eth_spec_instance.clone();
         let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
+        let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
 
         let store =
@@ -153,6 +154,7 @@ where
             .store_migrator(store_migrator)
             .data_dir(data_dir)
             .custom_spec(spec.clone())
+            .chain_config(chain_config)
             .disabled_forks(disabled_forks)
             .graffiti(graffiti);
 

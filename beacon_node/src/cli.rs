@@ -249,4 +249,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("GRAFFITI")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("max-skip-slots")
+                .long("max-skip-slots")
+                .help(
+                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    This prevents nodes on minority forks from wasting our time and RAM, \
+                    but might need to be raised or set to 'none' in times of extreme network \
+                    outage."
+                )
+                .value_name("NUM_SLOTS")
+                .takes_value(true)
+                .default_value("320")
+        )
 }

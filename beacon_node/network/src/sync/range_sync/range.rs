@@ -43,9 +43,9 @@ use super::chain::{ChainId, ProcessingResult};
 use super::chain_collection::{ChainCollection, RangeSyncState};
 use super::sync_type::RangeSyncType;
 use super::BatchId;
-use crate::sync::block_processor::BatchProcessResult;
-use crate::sync::manager::SyncMessage;
+use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::BatchProcessResult;
 use crate::sync::PeerSyncInfo;
 use crate::sync::RequestId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -69,9 +69,8 @@ pub struct RangeSync<T: BeaconChainTypes> {
     /// finalized chain(s) complete, these peer's get STATUS'ed to update their head slot before
     /// the head chains are formed and downloaded.
     awaiting_head_peers: HashSet<PeerId>,
-    /// The sync manager channel, allowing the batch processor thread to callback the sync task
-    /// once complete.
-    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     /// The syncing logger.
     log: slog::Logger,
 }
@@ -80,14 +79,14 @@ impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+        beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
         log: slog::Logger,
     ) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
             chains: ChainCollection::new(beacon_chain, network_globals, log.clone()),
             awaiting_head_peers: HashSet::new(),
-            sync_send,
+            beacon_processor_send,
             log,
         }
     }
@@ -181,7 +180,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         remote_info.finalized_root,
                         remote_finalized_slot,
                         peer_id,
-                        self.sync_send.clone(),
+                        self.beacon_processor_send.clone(),
                     );
                     self.chains.update_finalized(network);
                     // update the global sync state
@@ -228,7 +227,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         remote_info.head_root,
                         remote_info.head_slot,
                         peer_id,
-                        self.sync_send.clone(),
+                        self.beacon_processor_send.clone(),
                     );
                 }
                 self.chains.update_finalized(network);
