@@ -35,11 +35,7 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
-use crate::{
-    metrics,
-    service::NetworkMessage,
-    sync::{manager::SLOT_IMPORT_TOLERANCE, SyncMessage},
-};
+use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     BlockError, ForkChoiceError,
@@ -50,13 +46,10 @@ use eth2_libp2p::{MessageId, NetworkGlobals, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use ssz::Encode;
 use std::collections::VecDeque;
-use std::ops::Sub;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
-use types::{
-    Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, Slot, SubnetId,
-};
+use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
 
 mod chain_segment;
 
@@ -240,7 +233,7 @@ impl<E: EthSpec> WorkEvent<E> {
         block: Box<SignedBeaconBlock<E>>,
     ) -> Self {
         Self {
-            drop_during_sync: false,
+            drop_during_sync: true,
             work: Work::GossipBlock {
                 message_id,
                 peer_id,
@@ -757,25 +750,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             peer_id,
                             block,
                         } => {
-                            let head_slot = chain
-                                .head_info()
-                                .map(|info| info.slot)
-                                .unwrap_or_else(|_| Slot::from(0u64));
-                            let block_slot = block.message.slot;
-
-                            // If the block is far in the future, ignore it. If its within the slot tolerance of
-                            // our current head, regardless of the syncing state, fetch it.
-                            if (head_slot >= block_slot
-                                && head_slot.sub(block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
-                                || (head_slot < block_slot
-                                    && block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
-                            {
-                                metrics::inc_counter(
-                                    &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IGNORED_TOTAL,
-                                );
-                                return;
-                            }
-
                             let verified_block = match chain.verify_block_for_gossip(*block) {
                                 Ok(verified_block) => {
                                     info!(
