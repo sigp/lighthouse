@@ -601,7 +601,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     handle_attestation_verification_failure(
                                         &log,
                                         sync_tx,
-                                        peer_id.clone(),
+                                        peer_id,
                                         beacon_block_root,
                                         "unaggregated",
                                         e,
@@ -675,7 +675,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                         handle_attestation_verification_failure(
                                             &log,
                                             sync_tx,
-                                            peer_id.clone(),
+                                            peer_id,
                                             beacon_block_root,
                                             "aggregated",
                                             e,
@@ -846,7 +846,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 &metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL,
                             );
 
-                            if let Err(_) = result_tx.send(block_result) {
+                            if result_tx.send(block_result).is_err() {
                                 crit!(log, "Failed return sync block result");
                             }
                         }
