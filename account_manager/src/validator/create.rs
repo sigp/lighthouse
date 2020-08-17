@@ -1,5 +1,5 @@
 use crate::{
-    common::{base_validator_dir, ensure_dir_exists},
+    common::{base_secrets_dir, base_validator_dir, ensure_dir_exists},
     SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
 };
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
@@ -50,7 +50,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path where the validator directories will be created. \
-                    Defaults to ~/.lighthouse/validators",
+                    Defaults to ~/.lighthouse/{testnet}/validators",
                 )
                 .takes_value(true),
         )
@@ -60,7 +60,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECRETS_DIR")
                 .help(
                     "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/secrets",
+                    Defaults to ~/.lighthouse/{testnet}/secrets",
                 )
                 .takes_value(true),
         )
@@ -115,11 +115,7 @@ pub fn cli_run<T: EthSpec>(
     let wallet_password_path: PathBuf =
         clap_utils::parse_required(matches, WALLET_PASSPHRASE_FLAG)?;
     let validator_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
-    let secrets_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        SECRETS_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("secrets"),
-    )?;
+    let secrets_dir = base_secrets_dir(matches, SECRETS_DIR_FLAG)?;
     let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
         .unwrap_or_else(|| spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;

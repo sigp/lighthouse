@@ -33,3 +33,14 @@ pub fn base_validator_dir(matches: &ArgMatches, arg: &'static str) -> Result<Pat
             .join("validators"),
     )
 }
+
+pub fn base_secrets_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBuf, String> {
+    clap_utils::parse_path_with_default_in_home_dir(
+        matches,
+        arg,
+        PathBuf::new()
+            .join(".lighthouse")
+            .join(clap_utils::get_testnet_dir(matches))
+            .join("secrets"),
+    )
+}
