@@ -1,6 +1,6 @@
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
-use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use crate::types::{EnrBitfield, GossipEncoding, GossipKind, GossipTopic};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -19,7 +19,11 @@ use libp2p::{
     },
     PeerId,
 };
-use slog::{crit, debug, o, trace};
+use slog::{crit, debug, o, trace, warn};
+use ssz::{Decode, Encode};
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -32,6 +36,7 @@ use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
 mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
+const METADATA_FILENAME: &str = "metadata";
 
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
@@ -61,6 +66,8 @@ pub struct Behaviour<TSpec: EthSpec> {
     enr_fork_id: EnrForkId,
     /// The waker for the current thread.
     waker: Option<std::task::Waker>,
+    /// Directory where metadata is stored
+    network_dir: PathBuf,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -86,15 +93,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let attnets = network_globals
-            .local_enr()
-            .bitfield::<TSpec>()
-            .expect("Local ENR must have subnet bitfield");
-
-        let meta_data = MetaData {
-            seq_number: 1,
-            attnets,
-        };
+        let meta_data = load_or_build_metadata(&net_conf.network_dir, &log);
 
         // TODO: Until other clients support no author, we will use a 0 peer_id as our author.
         let message_author = PeerId::from_bytes(vec![0, 1, 0]).expect("Valid peer id");
@@ -114,6 +113,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_globals,
             enr_fork_id,
             waker: None,
+            network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
         })
     }
@@ -346,6 +346,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .local_enr()
             .bitfield::<TSpec>()
             .expect("Local discovery must have bitfield");
+        // Save the updated metadata to disk
+        save_metadata_to_disk(&self.network_dir, self.meta_data.clone(), &self.log);
     }
 
     /// Sends a Ping request to the peer.
@@ -1035,4 +1037,61 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     PeerSubscribed(PeerId, TopicHash),
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
+}
+
+/// Load metadata from persisted file. Return default metadata if loading fails.
+fn load_or_build_metadata<E: EthSpec>(network_dir: &PathBuf, log: &slog::Logger) -> MetaData<E> {
+    // Default metadata
+    let mut meta_data = MetaData {
+        seq_number: 0,
+        attnets: EnrBitfield::<E>::default(),
+    };
+    // Read metadata from persisted file if available
+    let metadata_path = network_dir.join(METADATA_FILENAME);
+    if let Ok(mut metadata_file) = File::open(metadata_path) {
+        let mut metadata_ssz = Vec::new();
+        if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
+            match MetaData::<E>::from_ssz_bytes(&metadata_ssz) {
+                Ok(persisted_metadata) => {
+                    meta_data.seq_number = persisted_metadata.seq_number;
+                    // Increment seq number if persisted attnet is not default
+                    if persisted_metadata.attnets != meta_data.attnets {
+                        meta_data.seq_number += 1;
+                    }
+                    debug!(log, "Loaded metadata from disk");
+                }
+                Err(e) => {
+                    debug!(
+                        log,
+                        "Metadata from file could not be decoded";
+                        "error" => format!("{:?}", e),
+                    );
+                }
+            }
+        }
+    };
+
+    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number);
+    save_metadata_to_disk(network_dir, meta_data.clone(), &log);
+    meta_data
+}
+
+/// Persist metadata to disk
+fn save_metadata_to_disk<E: EthSpec>(dir: &PathBuf, metadata: MetaData<E>, log: &slog::Logger) {
+    let _ = std::fs::create_dir_all(&dir);
+    match File::create(dir.join(METADATA_FILENAME))
+        .and_then(|mut f| f.write_all(&metadata.as_ssz_bytes()))
+    {
+        Ok(_) => {
+            debug!(log, "Metadata written to disk");
+        }
+        Err(e) => {
+            warn!(
+                log,
+                "Could not write metadata to disk";
+                "file" => format!("{:?}{:?}",dir, METADATA_FILENAME),
+                "error" => format!("{}", e)
+            );
+        }
+    }
 }

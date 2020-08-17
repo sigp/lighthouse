@@ -384,6 +384,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
+
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
     }
 
@@ -416,6 +419,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // replace the global version with discovery version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
+
+        // persist modified enr to disk
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
     }
 
     /* Internal Functions */
