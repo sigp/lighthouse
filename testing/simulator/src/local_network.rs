@@ -86,7 +86,7 @@ impl<E: EthSpec> LocalNetwork<E> {
 
             let boot_node = read_lock.first().expect("should have at least one node");
 
-            beacon_config.network.boot_nodes.push(
+            beacon_config.network.boot_nodes_enr.push(
                 boot_node
                     .client
                     .enr()
