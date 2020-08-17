@@ -1,12 +1,11 @@
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
-use directory::{get_testnet_dir, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{get_testnet_dir, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
-pub const DEFAULT_DATADIR: &str = ".lighthouse";
 /// Path to the slashing protection database within the datadir.
 pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
@@ -36,10 +35,10 @@ impl Default for Config {
     /// Build a new configuration from defaults.
     fn default() -> Self {
         let data_dir = dirs::home_dir()
-            .map(|home| home.join(DEFAULT_DATADIR))
+            .map(|home| home.join(DEFAULT_ROOT_DIR))
             .unwrap_or_else(|| PathBuf::from("."));
         let secrets_dir = dirs::home_dir()
-            .map(|home| home.join(DEFAULT_DATADIR))
+            .map(|home| home.join(DEFAULT_ROOT_DIR))
             .unwrap_or_else(|| PathBuf::from("."));
         Self {
             data_dir,
@@ -62,7 +61,7 @@ impl Config {
         config.data_dir = parse_path_with_default_in_home_dir(
             cli_args,
             "datadir",
-            PathBuf::from(DEFAULT_DATADIR)
+            PathBuf::from(DEFAULT_ROOT_DIR)
                 .join(get_testnet_dir(cli_args))
                 .join(DEFAULT_VALIDATOR_DIR),
         )?;
@@ -70,7 +69,7 @@ impl Config {
         config.secrets_dir = parse_path_with_default_in_home_dir(
             cli_args,
             "secrets-dir",
-            PathBuf::from(DEFAULT_DATADIR)
+            PathBuf::from(DEFAULT_ROOT_DIR)
                 .join(get_testnet_dir(cli_args))
                 .join(DEFAULT_SECRET_DIR),
         )?;

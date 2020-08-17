@@ -91,7 +91,7 @@ fn main() {
                 .short("d")
                 .value_name("DIR")
                 .global(true)
-                .help("Data directory for lighthouse keys and databases.")
+                .help("Root data directory for lighthouse keys and databases. Defaults to ~/.lighthouse")
                 .takes_value(true),
         )
         .arg(
