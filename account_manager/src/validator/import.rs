@@ -1,4 +1,7 @@
-use crate::{common::ensure_dir_exists, VALIDATOR_DIR_FLAG};
+use crate::{
+    common::{base_validator_dir, ensure_dir_exists},
+    VALIDATOR_DIR_FLAG,
+};
 use account_utils::{
     eth2_keystore::Keystore,
     read_password_from_user,
@@ -73,11 +76,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
     let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
-    let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        VALIDATOR_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("validators"),
-    )?;
+    let validator_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
     let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
 
     ensure_dir_exists(&validator_dir)?;

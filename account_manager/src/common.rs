@@ -16,6 +16,20 @@ pub fn base_wallet_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBu
     clap_utils::parse_path_with_default_in_home_dir(
         matches,
         arg,
-        PathBuf::new().join(".lighthouse").join("wallets"),
+        PathBuf::new()
+            .join(".lighthouse")
+            .join(clap_utils::get_testnet_dir(matches))
+            .join("wallets"),
+    )
+}
+
+pub fn base_validator_dir(matches: &ArgMatches, arg: &'static str) -> Result<PathBuf, String> {
+    clap_utils::parse_path_with_default_in_home_dir(
+        matches,
+        arg,
+        PathBuf::new()
+            .join(".lighthouse")
+            .join(clap_utils::get_testnet_dir(matches))
+            .join("validators"),
     )
 }

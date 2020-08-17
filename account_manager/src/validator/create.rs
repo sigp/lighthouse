@@ -1,4 +1,7 @@
-use crate::{common::ensure_dir_exists, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
+use crate::{
+    common::{base_validator_dir, ensure_dir_exists},
+    SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
+};
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
@@ -111,11 +114,7 @@ pub fn cli_run<T: EthSpec>(
     let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;
     let wallet_password_path: PathBuf =
         clap_utils::parse_required(matches, WALLET_PASSPHRASE_FLAG)?;
-    let validator_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        VALIDATOR_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("validators"),
-    )?;
+    let validator_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
     let secrets_dir = clap_utils::parse_path_with_default_in_home_dir(
         matches,
         SECRETS_DIR_FLAG,

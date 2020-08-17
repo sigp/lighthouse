@@ -1,4 +1,4 @@
-use crate::VALIDATOR_DIR_FLAG;
+use crate::{common::base_validator_dir, VALIDATOR_DIR_FLAG};
 use clap::{App, Arg, ArgMatches};
 use deposit_contract::DEPOSIT_GAS;
 use environment::Environment;
@@ -212,11 +212,7 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let log = env.core_context().log().clone();
 
-    let data_dir = clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        VALIDATOR_DIR_FLAG,
-        PathBuf::new().join(".lighthouse").join("validators"),
-    )?;
+    let data_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
     let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
     let eth1_ipc_path: Option<PathBuf> = clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?;
     let eth1_http_url: Option<String> = clap_utils::parse_optional(matches, ETH1_HTTP_FLAG)?;
