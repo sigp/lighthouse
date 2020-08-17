@@ -1,7 +1,8 @@
 use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
-use clap_utils::{get_testnet_dir, BAD_TESTNET_DIR_MESSAGE};
-use client::{config::DEFAULT_DATADIR, ClientConfig, ClientGenesis};
+use clap_utils::BAD_TESTNET_DIR_MESSAGE;
+use client::{ClientConfig, ClientGenesis};
+use directory::{get_testnet_dir, DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr};
 use eth2_testnet_config::Eth2TestnetConfig;
 use slog::{crit, info, Logger};
@@ -12,9 +13,6 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpec, GRAFFITI_BYTES_LEN};
-
-pub const BEACON_NODE_DIR: &str = "beacon";
-pub const NETWORK_DIR: &str = "network";
 
 /// Gets the fully-initialized global client.
 ///
@@ -79,7 +77,7 @@ pub fn get_config<E: EthSpec>(
     if let Some(dir) = cli_args.value_of("network-dir") {
         client_config.network.network_dir = PathBuf::from(dir);
     } else {
-        client_config.network.network_dir = client_config.data_dir.join(NETWORK_DIR);
+        client_config.network.network_dir = client_config.data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
@@ -398,12 +396,12 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 
     cli_args
         .value_of("datadir")
-        .map(|path| PathBuf::from(path).join(BEACON_NODE_DIR))
+        .map(|path| PathBuf::from(path).join(DEFAULT_BEACON_NODE_DIR))
         .or_else(|| {
             dirs::home_dir().map(|home| {
-                home.join(DEFAULT_DATADIR)
+                home.join(DEFAULT_ROOT_DIR)
                     .join(get_testnet_dir(cli_args))
-                    .join(BEACON_NODE_DIR)
+                    .join(DEFAULT_BEACON_NODE_DIR)
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))

@@ -1,4 +1,3 @@
-mod common;
 pub mod validator;
 pub mod wallet;
 

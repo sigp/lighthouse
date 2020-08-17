@@ -1,9 +1,7 @@
-use crate::{
-    common::{base_secrets_dir, base_validator_dir, ensure_dir_exists},
-    SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG,
-};
+use crate::{BASE_DIR_FLAG, SECRETS_DIR_FLAG, VALIDATOR_DIR_FLAG};
 use account_utils::{random_password, strip_off_newlines, validator_definitions};
 use clap::{App, Arg, ArgMatches};
+use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
 use eth2_wallet::PlainText;
 use eth2_wallet_manager::WalletManager;
@@ -14,7 +12,6 @@ use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
 pub const CMD: &str = "create";
-pub const BASE_DIR_FLAG: &str = "base-dir";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
 pub const WALLET_PASSPHRASE_FLAG: &str = "wallet-passphrase";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
@@ -114,8 +111,8 @@ pub fn cli_run<T: EthSpec>(
     let name: String = clap_utils::parse_required(matches, WALLET_NAME_FLAG)?;
     let wallet_password_path: PathBuf =
         clap_utils::parse_required(matches, WALLET_PASSPHRASE_FLAG)?;
-    let validator_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
-    let secrets_dir = base_secrets_dir(matches, SECRETS_DIR_FLAG)?;
+    let validator_dir = custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?;
+    let secrets_dir = custom_base_dir(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?;
     let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
         .unwrap_or_else(|| spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;

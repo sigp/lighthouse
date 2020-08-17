@@ -1,13 +1,12 @@
 use clap::ArgMatches;
-use clap_utils::{get_testnet_dir, parse_optional, parse_path_with_default_in_home_dir};
+use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
+use directory::{get_testnet_dir, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR};
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_HTTP_SERVER: &str = "http://localhost:5052/";
 pub const DEFAULT_DATADIR: &str = ".lighthouse";
-pub const VALIDATOR_DIR: &str = "validators";
-pub const SECRETS_DIR: &str = "secrets";
 /// Path to the slashing protection database within the datadir.
 pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 
@@ -65,7 +64,7 @@ impl Config {
             "datadir",
             PathBuf::from(DEFAULT_DATADIR)
                 .join(get_testnet_dir(cli_args))
-                .join(VALIDATOR_DIR),
+                .join(DEFAULT_VALIDATOR_DIR),
         )?;
 
         config.secrets_dir = parse_path_with_default_in_home_dir(
@@ -73,7 +72,7 @@ impl Config {
             "secrets-dir",
             PathBuf::from(DEFAULT_DATADIR)
                 .join(get_testnet_dir(cli_args))
-                .join(SECRETS_DIR),
+                .join(DEFAULT_SECRET_DIR),
         )?;
 
         if !config.data_dir.exists() {

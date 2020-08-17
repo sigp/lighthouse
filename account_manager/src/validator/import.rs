@@ -1,7 +1,4 @@
-use crate::{
-    common::{base_validator_dir, ensure_dir_exists},
-    VALIDATOR_DIR_FLAG,
-};
+use crate::VALIDATOR_DIR_FLAG;
 use account_utils::{
     eth2_keystore::Keystore,
     read_password_from_user,
@@ -11,6 +8,7 @@ use account_utils::{
     },
 };
 use clap::{App, Arg, ArgMatches};
+use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_VALIDATOR_DIR};
 use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
@@ -62,7 +60,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path where the validator directories will be created. \
-                    Defaults to ~/.lighthouse/validators",
+                    Defaults to ~/.lighthouse/{testnet}/validators",
                 )
                 .takes_value(true),
         )
@@ -76,7 +74,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
     let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
-    let validator_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
+    let validator_dir = custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?;
     let stdin_password = matches.is_present(STDIN_PASSWORD_FLAG);
 
     ensure_dir_exists(&validator_dir)?;

@@ -9,6 +9,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "deposit_contract",
+ "directory",
  "dirs",
  "environment",
  "eth2_keystore",
@@ -380,6 +381,7 @@ dependencies = [
  "clap_utils",
  "client",
  "ctrlc",
+ "directory",
  "dirs",
  "environment",
  "eth2_config",
@@ -727,6 +729,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "bus",
+ "directory",
  "dirs",
  "environment",
  "error-chain",
@@ -1164,6 +1167,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 dependencies = [
  "generic-array 0.14.4",
+]
+
+[[package]]
+name = "directory"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "clap_utils",
+ "dirs",
+ "eth2_testnet_config",
 ]
 
 [[package]]
@@ -2890,6 +2903,7 @@ dependencies = [
  "boot_node",
  "clap",
  "clap_utils",
+ "directory",
  "dirs",
  "env_logger",
  "environment",
@@ -6046,6 +6060,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "deposit_contract",
+ "directory",
  "dirs",
  "environment",
  "eth2_config",

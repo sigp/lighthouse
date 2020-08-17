@@ -1,6 +1,7 @@
-use crate::{common::base_validator_dir, VALIDATOR_DIR_FLAG};
+use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
 use deposit_contract::DEPOSIT_GAS;
+use directory::{custom_base_dir, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
 use futures::{
     compat::Future01CompatExt,
@@ -52,7 +53,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path to the validator client data directory. \
-                    Defaults to ~/.lighthouse/validators",
+                    Defaults to ~/.lighthouse/{tesntet}/validators",
                 )
                 .takes_value(true),
         )
@@ -212,7 +213,7 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let log = env.core_context().log().clone();
 
-    let data_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
+    let data_dir = custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?;
     let validator: String = clap_utils::parse_required(matches, VALIDATOR_FLAG)?;
     let eth1_ipc_path: Option<PathBuf> = clap_utils::parse_optional(matches, ETH1_IPC_FLAG)?;
     let eth1_http_url: Option<String> = clap_utils::parse_optional(matches, ETH1_HTTP_FLAG)?;

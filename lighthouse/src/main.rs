@@ -1,5 +1,6 @@
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
+use directory::DEFAULT_ROOT_DIR;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_testnet_config::{Eth2TestnetConfig, DEFAULT_HARDCODED_TESTNET};
@@ -10,7 +11,6 @@ use std::process::exit;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 
-pub const DEFAULT_DATA_DIR: &str = ".lighthouse";
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn bls_library_name() -> &'static str {
@@ -199,16 +199,16 @@ fn run<E: EthSpec>(
 
     // WARNING: Temporary migration code for directory restructure
     // Remove after reasonably sure most users have migrated.
-    let default_dir = dirs::home_dir()
-        .map(|home| home.join(DEFAULT_DATA_DIR))
+    let default_root_dir = dirs::home_dir()
+        .map(|home| home.join(DEFAULT_ROOT_DIR))
         .unwrap_or_else(|| PathBuf::from("."));
-    let testnet_dir = default_dir.join(clap_utils::get_testnet_dir(matches));
+    let testnet_dir = default_root_dir.join(directory::get_testnet_dir(matches));
 
     if !matches.is_present("datadir") && !testnet_dir.exists() {
         std::fs::create_dir_all(&testnet_dir)
             .map_err(|e| format!("Failed to create testnet directory: {}", e))?;
         for dir in ["validators", "wallets", "secrets", "beacon"].iter() {
-            let old_path = default_dir.join(dir);
+            let old_path = default_root_dir.join(dir);
             if old_path.exists() {
                 std::fs::rename(old_path, testnet_dir.join(dir))
                     .map_err(|e| format!("Failed to move directory: {}", e))?;

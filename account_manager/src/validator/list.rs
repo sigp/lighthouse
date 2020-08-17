@@ -1,6 +1,6 @@
-use crate::common::base_validator_dir;
 use crate::VALIDATOR_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
+use directory::{custom_base_dir, DEFAULT_VALIDATOR_DIR};
 use validator_dir::Manager as ValidatorManager;
 
 pub const CMD: &str = "list";
@@ -13,7 +13,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path to search for validator directories. \
-                    Defaults to ~/.lighthouse/validators",
+                    Defaults to ~/.lighthouse/{testnet}/validators",
                 )
                 .takes_value(true),
         )
@@ -21,7 +21,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches<'_>) -> Result<(), String> {
-    let data_dir = base_validator_dir(matches, VALIDATOR_DIR_FLAG)?;
+    let data_dir = custom_base_dir(matches, VALIDATOR_DIR_FLAG, DEFAULT_VALIDATOR_DIR)?;
 
     let mgr = ValidatorManager::open(&data_dir)
         .map_err(|e| format!("Unable to read --{}: {:?}", VALIDATOR_DIR_FLAG, e))?;

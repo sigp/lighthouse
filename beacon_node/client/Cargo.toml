@@ -41,3 +41,4 @@ lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 time = "0.2.16"
 bus = "2.2.3"
+directory = {path = "../../common/directory"}

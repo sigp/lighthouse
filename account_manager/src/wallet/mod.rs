@@ -1,11 +1,9 @@
 pub mod create;
 pub mod list;
 
-use crate::{
-    common::{base_wallet_dir, ensure_dir_exists},
-    BASE_DIR_FLAG,
-};
+use crate::BASE_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
+use directory::{custom_base_dir, ensure_dir_exists, DEFAULT_WALLET_DIR};
 
 pub const CMD: &str = "wallet";
 
@@ -24,7 +22,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
-    let base_dir = base_wallet_dir(matches, BASE_DIR_FLAG)?;
+    let base_dir = custom_base_dir(matches, BASE_DIR_FLAG, DEFAULT_WALLET_DIR)?;
     ensure_dir_exists(&base_dir)?;
 
     match matches.subcommand() {

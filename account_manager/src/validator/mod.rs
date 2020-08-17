@@ -3,8 +3,9 @@ pub mod deposit;
 pub mod import;
 pub mod list;
 
-use crate::common::base_wallet_dir;
+use crate::BASE_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
+use directory::{custom_base_dir, DEFAULT_WALLET_DIR};
 use environment::Environment;
 use types::EthSpec;
 
@@ -14,10 +15,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about("Provides commands for managing Eth2 validators.")
         .arg(
-            Arg::with_name("base-dir")
-                .long("base-dir")
-                .value_name("BASE_DIRECTORY")
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/wallets")
+            Arg::with_name(BASE_DIR_FLAG)
+                .long(BASE_DIR_FLAG)
+                .value_name(BASE_DIR_FLAG)
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{testnet}/wallets")
                 .takes_value(true),
         )
         .subcommand(create::cli_app())
@@ -27,7 +28,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
-    let base_wallet_dir = base_wallet_dir(matches, "base-dir")?;
+    let base_wallet_dir = custom_base_dir(matches, BASE_DIR_FLAG, DEFAULT_WALLET_DIR)?;
 
     match matches.subcommand() {
         (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, base_wallet_dir),
