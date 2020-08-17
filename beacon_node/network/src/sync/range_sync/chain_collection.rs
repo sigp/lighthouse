@@ -307,7 +307,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         let mut currently_syncing = self
             .head_chains
             .iter()
-            .filter(|chain| !chain.is_syncing())
+            .filter(|chain| chain.is_syncing())
             .count();
         let mut not_syncing = self.head_chains.len() - currently_syncing;
 

@@ -260,12 +260,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let downloaded_blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
         let process_id = ProcessId::RangeBatchId(self.id, batch.id);
         self.current_processing_batch = Some(batch);
+        let log = self.log.new(slog::o!("service"=> "sync"));
         spawn_block_processor(
             Arc::downgrade(&self.chain.clone()),
             process_id,
             downloaded_blocks,
             self.sync_send.clone(),
-            self.log.clone(),
+            log,
         );
     }
 
