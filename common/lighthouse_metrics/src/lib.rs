@@ -57,8 +57,8 @@
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 pub use prometheus::{
-    Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result,
-    TextEncoder,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, Result, TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
@@ -141,11 +141,41 @@ pub fn try_create_float_gauge_vec(
     Ok(counter_vec)
 }
 
+/// Attempts to crate a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_int_counter_vec(
+    name: &str,
+    help: &str,
+    label_names: &[&str],
+) -> Result<IntCounterVec> {
+    let opts = Opts::new(name, help);
+    let counter_vec = IntCounterVec::new(opts, label_names)?;
+    prometheus::register(Box::new(counter_vec.clone()))?;
+    Ok(counter_vec)
+}
+
 pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Option<IntGauge> {
     if let Ok(int_gauge_vec) = int_gauge_vec {
         Some(int_gauge_vec.get_metric_with_label_values(name).ok()?)
     } else {
         None
+    }
+}
+
+pub fn get_int_counter(
+    int_counter_vec: &Result<IntCounterVec>,
+    name: &[&str],
+) -> Option<IntCounter> {
+    if let Ok(int_counter_vec) = int_counter_vec {
+        Some(int_counter_vec.get_metric_with_label_values(name).ok()?)
+    } else {
+        None
+    }
+}
+
+pub fn inc_counter_vec(int_counter_vec: &Result<IntCounterVec>, name: &[&str]) {
+    if let Some(counter) = get_int_counter(int_counter_vec, name) {
+        counter.inc()
     }
 }
 
@@ -155,6 +185,10 @@ pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Opt
     } else {
         None
     }
+}
+
+pub fn start_timer_vec(vec: &Result<HistogramVec>, name: &[&str]) -> Option<HistogramTimer> {
+    get_histogram(vec, name).map(|h| h.start_timer())
 }
 
 /// Starts a timer for the given `Histogram`, stopping when it gets dropped or given to `stop_timer(..)`.

@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
 use crate::sync::{BatchId, BatchProcessResult, ChainId};
@@ -112,6 +113,7 @@ fn process_blocks<
     let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
     match chain.process_chain_segment(blocks) {
         ChainSegmentResult::Successful { imported_blocks } => {
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
             if imported_blocks == 0 {
                 debug!(log, "All blocks already known");
             } else {
@@ -129,6 +131,7 @@ fn process_blocks<
             imported_blocks,
             error,
         } => {
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
             let r = handle_failed_chain_segment(error, log);
             if imported_blocks > 0 {
                 run_fork_choice(chain, log);

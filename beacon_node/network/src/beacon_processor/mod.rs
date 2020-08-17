@@ -286,6 +286,19 @@ pub enum Work<E: EthSpec> {
     },
 }
 
+impl<E: EthSpec> Work<E> {
+    /// Provides a `&str` that uniquely identifies each enum variant.
+    fn str_id(&self) -> &str {
+        match self {
+            Work::GossipAttestation { .. } => "gossip_attestation",
+            Work::GossipAggregate { .. } => "gossip_aggregate",
+            Work::GossipBlock { .. } => "gossip_block",
+            Work::RpcBlock { .. } => "rpc_block",
+            Work::ChainSegment { .. } => "chain_segment",
+        }
+    }
+}
+
 /// Provides de-bounce functionality for logging.
 #[derive(Default)]
 struct TimeLatch(Option<Instant>);
@@ -359,7 +372,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     // A worker has finished some work.
                     new_idle_opt = idle_rx.recv() => {
                         if new_idle_opt.is_some() {
-                            metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_IDLE_EVENTS_TOTAL);
                             self.current_workers = self.current_workers.saturating_sub(1);
                             None
                         } else {
@@ -377,7 +389,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     // There is a new piece of work to be handled.
                     new_work_event_opt = event_rx.recv() => {
                         if let Some(new_work_event) = new_work_event_opt {
-                            metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORK_EVENTS_TOTAL);
                             Some(new_work_event)
                         } else {
                             // Exit if all event senders have been dropped.
@@ -394,7 +405,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 };
 
                 let _event_timer =
-                    metrics::start_timer(&metrics::GOSSIP_PROCESSOR_EVENT_HANDLING_SECONDS);
+                    metrics::start_timer(&metrics::BEACON_PROCESSOR_EVENT_HANDLING_SECONDS);
+                if let Some(event) = &work_event {
+                    metrics::inc_counter_vec(
+                        &metrics::BEACON_PROCESSOR_WORK_EVENTS_RX_COUNT,
+                        &[event.work.str_id()],
+                    );
+                } else {
+                    metrics::inc_counter(&metrics::BEACON_PROCESSOR_IDLE_EVENTS_TOTAL);
+                }
 
                 let can_spawn = self.current_workers < self.max_workers;
                 let drop_during_sync = work_event
@@ -438,15 +457,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         );
                     }
                     // The chain is syncing and this event should be dropped during sync.
-                    Some(WorkEvent { .. })
+                    Some(work_event)
                         if self.network_globals.sync_state.read().is_syncing()
                             && drop_during_sync =>
                     {
-                        metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORK_EVENTS_IGNORED_TOTAL);
+                        let work_id = work_event.work.str_id();
+                        metrics::inc_counter_vec(
+                            &metrics::BEACON_PROCESSOR_WORK_EVENTS_IGNORED_COUNT,
+                            &[work_id],
+                        );
                         trace!(
                             self.log,
                             "Gossip processor skipping work";
-                            "msg" => "chain is syncing"
+                            "msg" => "chain is syncing",
+                            "work_id" => work_id
                         );
                     }
                     // There is a new work event and the chain is not syncing. Process it.
@@ -461,27 +485,27 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 }
 
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_WORKERS_ACTIVE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL,
                     self.current_workers as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
                     attestation_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
                     aggregate_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
                     gossip_block_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
                     rpc_block_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::GOSSIP_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
                     chain_segment_queue.len() as i64,
                 );
 
@@ -513,8 +537,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(&mut self, mut idle_tx: mpsc::Sender<()>, work: Work<T::EthSpec>) {
-        let worker_timer = metrics::start_timer(&metrics::GOSSIP_PROCESSOR_WORKER_TIME);
-        metrics::inc_counter(&metrics::GOSSIP_PROCESSOR_WORKERS_SPAWNED_TOTAL);
+        let worker_timer =
+            metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work.str_id()]);
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_WORKERS_SPAWNED_TOTAL);
+        metrics::inc_counter_vec(
+            &metrics::BEACON_PROCESSOR_WORK_EVENTS_STARTED_COUNT,
+            &[work.str_id()],
+        );
 
         self.current_workers = self.current_workers.saturating_add(1);
 
@@ -553,13 +582,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             subnet_id,
                             should_import,
                         } => {
-                            let _attestation_timer = metrics::start_timer(
-                                &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_WORKER_TIME,
-                            );
-                            metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
-                            );
-
                             let beacon_block_root = attestation.data.beacon_block_root;
 
                             let attestation = match chain
@@ -588,7 +610,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
 
                             metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                                &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                             );
 
                             if let Err(e) = chain.apply_attestation_to_fork_choice(&attestation) {
@@ -621,6 +643,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     "beacon_block_root" => format!("{:?}", beacon_block_root)
                                 )
                             }
+
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                            );
                         }
                         /*
                          * Aggregated attestation verification.
@@ -630,13 +656,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             peer_id,
                             aggregate,
                         } => {
-                            let _attestation_timer = metrics::start_timer(
-                                &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_WORKER_TIME,
-                            );
-                            metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL,
-                            );
-
                             let beacon_block_root =
                                 aggregate.message.aggregate.data.beacon_block_root;
 
@@ -661,7 +680,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             propagate_gossip_message(network_tx, message_id, peer_id.clone(), &log);
 
                             metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                                &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                             );
 
                             if let Err(e) = chain.apply_attestation_to_fork_choice(&aggregate) {
@@ -694,6 +713,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     "beacon_block_root" => format!("{:?}", beacon_block_root)
                                 )
                             }
+
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                            );
                         }
                         /*
                          * Verification for beacon blocks received on gossip.
@@ -703,13 +726,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             peer_id,
                             block,
                         } => {
-                            let _block_timer = metrics::start_timer(
-                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_WORKER_TIME,
-                            );
-                            metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
-                            );
-
                             let verified_block = match chain.verify_block_for_gossip(*block) {
                                 Ok(verified_block) => {
                                     info!(
@@ -745,12 +761,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             };
 
                             metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
+                                &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL,
                             );
 
                             let block = Box::new(verified_block.block.clone());
                             match chain.process_block(verified_block) {
                                 Ok(_block_root) => {
+                                    metrics::inc_counter(
+                                        &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
+                                    );
+
                                     trace!(
                                         log,
                                         "Gossipsub block processed";
@@ -805,20 +825,17 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                         "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
                                     );
                                 }
-                            }
+                            };
                         }
                         /*
                          * Verification for beacon blocks received during syncing via RPC.
                          */
                         Work::RpcBlock { block, result_tx } => {
-                            let _block_timer = metrics::start_timer(
-                                &metrics::GOSSIP_PROCESSOR_RPC_BLOCK_WORKER_TIME,
-                            );
-                            metrics::inc_counter(
-                                &metrics::GOSSIP_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
-                            );
-
                             let block_result = chain.process_block(*block);
+
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL,
+                            );
 
                             if let Err(_) = result_tx.send(block_result) {
                                 crit!(log, "Failed return sync block result");
