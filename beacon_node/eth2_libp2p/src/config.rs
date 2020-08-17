@@ -50,7 +50,10 @@ pub struct Config {
     pub discv5_config: Discv5Config,
 
     /// List of nodes to initially connect to.
-    pub boot_nodes: Vec<Enr>,
+    pub boot_nodes_enr: Vec<Enr>,
+
+    /// List of nodes to initially connect to, on Multiaddr format.
+    pub boot_nodes_multiaddr: Vec<Multiaddr>,
 
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
@@ -136,7 +139,8 @@ impl Default for Config {
             target_peers: 50,
             gs_config,
             discv5_config,
-            boot_nodes: vec![],
+            boot_nodes_enr: vec![],
+            boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,

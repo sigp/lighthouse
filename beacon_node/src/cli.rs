@@ -71,8 +71,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("boot-nodes")
                 .long("boot-nodes")
                 .allow_hyphen_values(true)
-                .value_name("ENR-LIST")
-                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network.")
+                .value_name("ENR/MULTIADDR LIST")
+                .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported.")
                 .takes_value(true),
         )
         .arg(

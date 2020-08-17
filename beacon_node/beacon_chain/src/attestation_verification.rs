@@ -775,7 +775,12 @@ where
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
         let mut state = chain
-            .get_state(&target_block.state_root, Some(target_block.slot))?
+            .store
+            .get_inconsistent_state_for_attestation_verification_only(
+                &target_block.state_root,
+                Some(target_block.slot),
+            )
+            .map_err(BeaconChainError::from)?
             .ok_or_else(|| BeaconChainError::MissingBeaconState(target_block.state_root))?;
 
         metrics::stop_timer(state_read_timer);

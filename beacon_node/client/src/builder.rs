@@ -232,8 +232,8 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the networking stack.
-    pub fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    /// Starts the networking stack.
+    pub async fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -246,6 +246,7 @@ where
 
         let (network_globals, network_send) =
             NetworkService::start(beacon_chain, config, context.executor)
+                .await
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
