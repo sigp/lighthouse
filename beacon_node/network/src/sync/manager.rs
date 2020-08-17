@@ -747,7 +747,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                     let process_id = ProcessId::ParentLookup(
                         parent_request.last_submitted_peer.clone(),
-                        chain_block_hash.clone(),
+                        chain_block_hash,
                     );
                     let blocks = parent_request.downloaded_blocks;
 
@@ -805,7 +805,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // peer.
                 "too many failed attempts"
             } else {
-                if parent_request.downloaded_blocks.len() > 0 {
+                if !parent_request.downloaded_blocks.is_empty() {
                     self.failed_chains
                         .insert(parent_request.downloaded_blocks[0].canonical_root());
                 } else {

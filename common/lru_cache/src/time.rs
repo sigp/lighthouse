@@ -52,10 +52,7 @@ where
 
         // add the new key to the list, if it doesn't already exist.
         if result {
-            self.list.push_back(Element {
-                key,
-                inserted: now.clone(),
-            });
+            self.list.push_back(Element { key, inserted: now });
         }
 
         result
