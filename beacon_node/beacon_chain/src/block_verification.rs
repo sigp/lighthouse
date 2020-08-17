@@ -79,6 +79,9 @@ const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
 /// Only useful for testing.
 const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 
+/// The maximum number of slots to skip while importing a block.
+pub const IMPORT_BLOCK_MAX_SKIP_SLOTS: u64 = 10 * 32;
+
 /// Returned when a block was not verified. A block is not verified for two reasons:
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
@@ -92,6 +95,8 @@ pub enum BlockError<T: EthSpec> {
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
     ParentUnknown(Box<SignedBeaconBlock<T>>),
+    /// The block skips too many slots and is a DoS risk.
+    TooManySkippedSlots { parent_slot: Slot, block_slot: Slot },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -631,6 +636,14 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             .contains_block(&block.parent_root())
         {
             return Err(BlockError::ParentUnknown(Box::new(block)));
+        }
+
+        // Reject any block that exceeds our limit on skipped slots.
+        if block.slot() > parent.beacon_block.slot() + IMPORT_BLOCK_MAX_SKIP_SLOTS {
+            return Err(BlockError::TooManySkippedSlots {
+                parent_slot: parent.beacon_block.slot(),
+                block_slot: block.slot(),
+            });
         }
 
         /*
