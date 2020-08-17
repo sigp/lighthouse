@@ -90,6 +90,10 @@ lazy_static! {
         "beacon_processor_gossip_block_queue_total",
         "Count of blocks from gossip waiting to be verified."
     );
+    pub static ref BEACON_PROCESSOR_GOSSIP_BLOCK_IGNORED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_gossip_block_ignored_total",
+        "Total number of gossip blocks ignored in the worker thread."
+    );
     pub static ref BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_gossip_block_verified_total",
         "Total number of gossip blocks verified for propagation."
