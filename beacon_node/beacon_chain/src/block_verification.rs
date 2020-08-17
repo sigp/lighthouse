@@ -636,7 +636,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         // Reject any block that exceeds our limit on skipped slots.
-        if let Some(max_skip_slots) = chain.config.import_block_max_skip_slots {
+        if let Some(max_skip_slots) = chain.config.import_max_skip_slots {
             if block.slot() > parent.beacon_block.slot() + max_skip_slots {
                 return Err(BlockError::TooManySkippedSlots {
                     parent_slot: parent.beacon_block.slot(),
