@@ -234,6 +234,10 @@ lazy_static! {
         "gossip_attestation_error_invalid_state_processing",
         "Count of a specific error type (see metric name)"
     );
+    pub static ref GOSSIP_ATTESTATION_ERROR_INVALID_TOO_MANY_SKIPPED_SLOTS: Result<IntCounter> = try_create_int_counter(
+        "gossip_attestation_error_invalid_too_many_skipped_slots",
+        "Count of a specific error type (see metric name)"
+    );
     pub static ref GOSSIP_ATTESTATION_ERROR_BEACON_CHAIN_ERROR: Result<IntCounter> = try_create_int_counter(
         "gossip_attestation_error_beacon_chain_error",
         "Count of a specific error type (see metric name)"
@@ -291,6 +295,9 @@ pub fn register_attestation_error(error: &AttnError) {
             inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_SUBNET_ID)
         }
         AttnError::Invalid(_) => inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_STATE_PROCESSING),
+        AttnError::TooManySkippedSlots { .. } => {
+            inc_counter(&GOSSIP_ATTESTATION_ERROR_INVALID_TOO_MANY_SKIPPED_SLOTS)
+        }
         AttnError::BeaconChainError(_) => inc_counter(&GOSSIP_ATTESTATION_ERROR_BEACON_CHAIN_ERROR),
     }
 }

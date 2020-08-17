@@ -386,6 +386,16 @@ pub fn get_config<E: EthSpec>(
     client_config.graffiti[..trimmed_graffiti_len]
         .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
 
+    if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
+        client_config.chain.import_max_skip_slots = match max_skip_slots {
+            "none" => None,
+            n => Some(
+                n.parse()
+                    .map_err(|_| "Invalid max-skip-slots".to_string())?,
+            ),
+        };
+    }
+
     Ok(client_config)
 }
 
