@@ -233,7 +233,7 @@ impl<E: EthSpec> WorkEvent<E> {
         block: Box<SignedBeaconBlock<E>>,
     ) -> Self {
         Self {
-            drop_during_sync: true,
+            drop_during_sync: false,
             work: Work::GossipBlock {
                 message_id,
                 peer_id,
