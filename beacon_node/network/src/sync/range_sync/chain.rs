@@ -1,11 +1,12 @@
 use super::batch::{Batch, BatchId, PendingBatches};
-use crate::sync::block_processor::{spawn_block_processor, BatchProcessResult, ProcessId};
-use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::{RequestId, SyncMessage};
+use crate::beacon_processor::ProcessId;
+use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::sync::RequestId;
+use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{PeerAction, PeerId};
 use rand::prelude::*;
-use slog::{crit, debug, warn};
+use slog::{crit, debug, error, warn};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -84,9 +85,8 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The current processing batch, if any.
     current_processing_batch: Option<Batch<T::EthSpec>>,
 
-    /// A send channel to the sync manager. This is given to the batch processor thread to report
-    /// back once batch processing has completed.
-    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
 
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
@@ -111,7 +111,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
-        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+        beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
         chain: Arc<BeaconChain<T>>,
         log: slog::Logger,
     ) -> Self {
@@ -131,7 +131,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             to_be_processed_id: BatchId(1),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
-            sync_send,
+            beacon_processor_send,
             chain,
             log,
         }
@@ -255,18 +255,23 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Sends a batch to the batch processor.
+    /// Sends a batch to the beacon processor for async processing in a queue.
     fn process_batch(&mut self, mut batch: Batch<T::EthSpec>) {
-        let downloaded_blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
+        let blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
         let process_id = ProcessId::RangeBatchId(self.id, batch.id);
         self.current_processing_batch = Some(batch);
-        spawn_block_processor(
-            Arc::downgrade(&self.chain.clone()),
-            process_id,
-            downloaded_blocks,
-            self.sync_send.clone(),
-            self.log.clone(),
-        );
+
+        if let Err(e) = self
+            .beacon_processor_send
+            .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
+        {
+            error!(
+                self.log,
+                "Failed to send chain segment to processor";
+                "msg" => "process_batch",
+                "error" => format!("{:?}", e)
+            );
+        }
     }
 
     /// The block processor has completed processing a batch. This function handles the result
