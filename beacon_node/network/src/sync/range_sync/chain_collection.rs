@@ -330,7 +330,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             currently_syncing = self
                 .head_chains
                 .iter()
-                .filter(|chain| !chain.is_syncing())
+                .filter(|chain| chain.is_syncing())
                 .count();
             not_syncing = self.head_chains.len() - currently_syncing;
         }
