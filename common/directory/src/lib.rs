@@ -20,11 +20,11 @@ pub const CUSTOM_TESTNET_DIR: &str = "custom";
 /// If neither flags are present, returns the default hardcoded network name.
 pub fn get_testnet_dir(matches: &ArgMatches) -> String {
     if let Some(testnet_name) = matches.value_of("testnet") {
-        return testnet_name.to_string();
+        testnet_name.to_string()
     } else if matches.value_of("testnet-dir").is_some() {
-        return CUSTOM_TESTNET_DIR.to_string();
+        CUSTOM_TESTNET_DIR.to_string()
     } else {
-        return eth2_testnet_config::DEFAULT_HARDCODED_TESTNET.to_string();
+        eth2_testnet_config::DEFAULT_HARDCODED_TESTNET.to_string()
     }
 }
 
