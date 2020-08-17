@@ -4,7 +4,7 @@
 //! with this struct to to simplify the logic of the other layers of sync.
 
 use super::chain::{ChainSyncingState, SyncingChain};
-use crate::sync::manager::SyncMessage;
+use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::PeerSyncInfo;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -366,7 +366,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
-        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+        beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     ) {
         let chain_id = rand::random();
         self.finalized_chains.push(SyncingChain::new(
@@ -375,7 +375,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             target_slot,
             target_head,
             peer_id,
-            sync_send,
+            beacon_processor_send,
             self.beacon_chain.clone(),
             self.log.clone(),
         ));
@@ -389,7 +389,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head: Hash256,
         target_slot: Slot,
         peer_id: PeerId,
-        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+        beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     ) {
         // remove the peer from any other head chains
 
@@ -405,7 +405,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             target_slot,
             target_head,
             peer_id,
-            sync_send,
+            beacon_processor_send,
             self.beacon_chain.clone(),
             self.log.clone(),
         );

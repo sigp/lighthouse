@@ -1,10 +1,11 @@
+use crate::metrics;
 use crate::router::processor::FUTURE_SLOT_TOLERANCE;
 use crate::sync::manager::SyncMessage;
-use crate::sync::range_sync::{BatchId, ChainId};
+use crate::sync::{BatchId, BatchProcessResult, ChainId};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{EthSpec, SignedBeaconBlock};
 
@@ -17,85 +18,71 @@ pub enum ProcessId {
     ParentLookup(PeerId),
 }
 
-/// The result of a block processing request.
-// TODO: When correct batch error handling occurs, we will include an error type.
-#[derive(Debug)]
-pub enum BatchProcessResult {
-    /// The batch was completed successfully.
-    Success,
-    /// The batch processing failed.
-    Failed,
-    /// The batch processing failed but managed to import at least one block.
-    Partial,
-}
-
-/// Spawns a thread handling the block processing of a request: range syncing or parent lookup.
-pub fn spawn_block_processor<T: BeaconChainTypes>(
-    chain: Weak<BeaconChain<T>>,
+pub fn handle_chain_segment<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
     process_id: ProcessId,
     downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
 ) {
-    std::thread::spawn(move || {
-        match process_id {
-            // this a request from the range sync
-            ProcessId::RangeBatchId(chain_id, batch_id) => {
-                let len = downloaded_blocks.len();
-                let start_slot = if len > 0 {
-                    downloaded_blocks[0].message.slot.as_u64()
-                } else {
-                    0
-                };
-                let end_slot = if len > 0 {
-                    downloaded_blocks[len - 1].message.slot.as_u64()
-                } else {
-                    0
-                };
+    match process_id {
+        // this a request from the range sync
+        ProcessId::RangeBatchId(chain_id, batch_id) => {
+            let len = downloaded_blocks.len();
+            let start_slot = if len > 0 {
+                downloaded_blocks[0].message.slot.as_u64()
+            } else {
+                0
+            };
+            let end_slot = if len > 0 {
+                downloaded_blocks[len - 1].message.slot.as_u64()
+            } else {
+                0
+            };
 
-                debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len(),  "start_slot" => start_slot, "end_slot" => end_slot);
-                let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
-                    (_, Ok(_)) => {
-                        debug!(log, "Batch processed"; "id" => *batch_id , "start_slot" => start_slot, "end_slot" => end_slot);
-                        BatchProcessResult::Success
-                    }
-                    (imported_blocks, Err(e)) if imported_blocks > 0 => {
-                        debug!(log, "Batch processing failed but imported some blocks";
+            debug!(log, "Processing batch"; "id" => *batch_id, "blocks" => downloaded_blocks.len(),  "start_slot" => start_slot, "end_slot" => end_slot);
+            let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
+                (_, Ok(_)) => {
+                    debug!(log, "Batch processed"; "id" => *batch_id , "start_slot" => start_slot, "end_slot" => end_slot);
+                    BatchProcessResult::Success
+                }
+                (imported_blocks, Err(e)) if imported_blocks > 0 => {
+                    debug!(log, "Batch processing failed but imported some blocks";
                             "id" => *batch_id, "error" => e, "imported_blocks"=> imported_blocks);
-                        BatchProcessResult::Partial
-                    }
-                    (_, Err(e)) => {
-                        debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
-                        BatchProcessResult::Failed
-                    }
-                };
+                    BatchProcessResult::Partial
+                }
+                (_, Err(e)) => {
+                    debug!(log, "Batch processing failed"; "id" => *batch_id, "error" => e);
+                    BatchProcessResult::Failed
+                }
+            };
 
-                let msg = SyncMessage::BatchProcessed {
-                    chain_id,
-                    batch_id,
-                    downloaded_blocks,
-                    result,
-                };
-                sync_send.send(msg).unwrap_or_else(|_| {
-                    debug!(
-                        log,
-                        "Block processor could not inform range sync result. Likely shutting down."
-                    );
-                });
-            }
-            // this a parent lookup request from the sync manager
-            ProcessId::ParentLookup(peer_id) => {
+            let msg = SyncMessage::BatchProcessed {
+                chain_id,
+                batch_id,
+                downloaded_blocks,
+                result,
+            };
+            sync_send.send(msg).unwrap_or_else(|_| {
                 debug!(
-                    log, "Processing parent lookup";
-                    "last_peer_id" => format!("{}", peer_id),
-                    "blocks" => downloaded_blocks.len()
+                    log,
+                    "Block processor could not inform range sync result. Likely shutting down."
                 );
-                // parent blocks are ordered from highest slot to lowest, so we need to process in
-                // reverse
-                match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
-                    (_, Err(e)) => {
-                        warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
-                        sync_send
+            });
+        }
+        // this a parent lookup request from the sync manager
+        ProcessId::ParentLookup(peer_id) => {
+            debug!(
+                log, "Processing parent lookup";
+                "last_peer_id" => format!("{}", peer_id),
+                "blocks" => downloaded_blocks.len()
+            );
+            // parent blocks are ordered from highest slot to lowest, so we need to process in
+            // reverse
+            match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
+                (_, Err(e)) => {
+                    warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
+                    sync_send
                         .send(SyncMessage::ParentLookupFailed(peer_id))
                         .unwrap_or_else(|_| {
                             // on failure, inform to downvote the peer
@@ -104,14 +91,13 @@ pub fn spawn_block_processor<T: BeaconChainTypes>(
                                 "Block processor could not inform parent lookup result. Likely shutting down."
                             );
                         });
-                    }
-                    (_, Ok(_)) => {
-                        debug!(log, "Parent lookup processed successfully");
-                    }
+                }
+                (_, Ok(_)) => {
+                    debug!(log, "Parent lookup processed successfully");
                 }
             }
         }
-    });
+    }
 }
 
 /// Helper function to process blocks batches which only consumes the chain and blocks to process.
@@ -120,43 +106,39 @@ fn process_blocks<
     T: BeaconChainTypes,
     I: Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
 >(
-    chain: Weak<BeaconChain<T>>,
+    chain: Arc<BeaconChain<T>>,
     downloaded_blocks: I,
     log: &slog::Logger,
 ) -> (usize, Result<(), String>) {
-    if let Some(chain) = chain.upgrade() {
-        let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
-        let (imported_blocks, r) = match chain.process_chain_segment(blocks) {
-            ChainSegmentResult::Successful { imported_blocks } => {
-                if imported_blocks == 0 {
-                    debug!(log, "All blocks already known");
-                } else {
-                    debug!(
-                        log, "Imported blocks from network";
-                        "count" => imported_blocks,
-                    );
-                    // Batch completed successfully with at least one block, run fork choice.
-                    run_fork_choice(chain, log);
-                }
-
-                (imported_blocks, Ok(()))
+    let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
+    match chain.process_chain_segment(blocks) {
+        ChainSegmentResult::Successful { imported_blocks } => {
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
+            if imported_blocks == 0 {
+                debug!(log, "All blocks already known");
+            } else {
+                debug!(
+                    log, "Imported blocks from network";
+                    "count" => imported_blocks,
+                );
+                // Batch completed successfully with at least one block, run fork choice.
+                run_fork_choice(chain, log);
             }
-            ChainSegmentResult::Failed {
-                imported_blocks,
-                error,
-            } => {
-                let r = handle_failed_chain_segment(error, log);
-                if imported_blocks > 0 {
-                    run_fork_choice(chain, log);
-                }
-                (imported_blocks, r)
-            }
-        };
 
-        return (imported_blocks, r);
+            (imported_blocks, Ok(()))
+        }
+        ChainSegmentResult::Failed {
+            imported_blocks,
+            error,
+        } => {
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
+            let r = handle_failed_chain_segment(error, log);
+            if imported_blocks > 0 {
+                run_fork_choice(chain, log);
+            }
+            (imported_blocks, r)
+        }
     }
-
-    (0, Ok(()))
 }
 
 /// Runs fork-choice on a given chain. This is used during block processing after one successful

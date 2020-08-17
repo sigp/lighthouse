@@ -5,19 +5,18 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-pub mod gossip_processor;
 pub mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RequestId},
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use futures::prelude::*;
 use processor::Processor;
-use slog::{debug, info, o, trace, warn};
+use slog::{debug, o, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -229,21 +228,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
             }
             PubsubMessage::BeaconBlock(block) => {
-                match self.processor.should_forward_block(block) {
-                    Ok(verified_block) => {
-                        info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
-                        self.propagate_message(id, peer_id.clone());
-                        self.processor.on_block_gossip(peer_id, verified_block);
-                    }
-                    Err(BlockError::ParentUnknown(block)) => {
-                        self.processor.on_unknown_parent(peer_id, block);
-                    }
-                    Err(e) => {
-                        // performing a parent lookup
-                        warn!(self.log, "Could not verify block for gossip";
-                            "error" => format!("{:?}", e));
-                    }
-                }
+                self.processor.on_block_gossip(id, peer_id, block);
             }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id));
