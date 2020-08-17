@@ -251,7 +251,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a state from the store, but don't compute all of the values when replaying blocks
-    /// upon that state (e.g., state roots). Additionally, only state from the hot store are
+    /// upon that state (e.g., state roots). Additionally, only states from the hot store are
     /// returned.
     ///
     /// See `Self::get_state` for information about `slot`.

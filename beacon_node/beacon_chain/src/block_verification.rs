@@ -686,7 +686,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 let op = if state.slot % T::EthSpec::slots_per_epoch() == 0 {
                     StoreOp::PutState(
                         state_root.into(),
-                        Cow::Owned(state.clone_with(CloneConfig::none())),
+                        Cow::Owned(state.clone_with(CloneConfig::committee_caches_only())),
                     )
                 } else {
                     StoreOp::PutStateSummary(
