@@ -84,7 +84,7 @@ const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `Vec<SignedBeaconBlock>` objects received during syncing that will
 /// be stored before we start dropping them.
-const MAX_CHAIN_SEGMENT_QUEUE_LEN: usize = 1_024;
+const MAX_CHAIN_SEGMENT_QUEUE_LEN: usize = 64;
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_gossip_processor_manager";
@@ -114,16 +114,20 @@ impl<T> FifoQueue<T> {
     }
 
     /// Add a new item to the queue.
-    pub fn push(&mut self, item: T, log: &Logger) {
+    ///
+    /// Drops `item` if the queue is full.
+    pub fn push(&mut self, item: T, item_desc: &str, log: &Logger) {
         if self.queue.len() == self.max_length {
             error!(
                 log,
-                "Gossip block queue full";
+                "Block queue full";
                 "msg" => "the system has insufficient resources for load",
                 "queue_len" => self.max_length,
+                "queue" => item_desc,
             )
+        } else {
+            self.queue.push_back(item);
         }
-        self.queue.push_back(item);
     }
 
     /// Remove the next item from the queue.
@@ -152,7 +156,9 @@ impl<T> LifoQueue<T> {
         }
     }
 
-    /// Add a new item to the queue.
+    /// Add a new item to the front of the queue.
+    ///
+    /// If the queue is full, the item at the back of the queue is dropped.
     pub fn push(&mut self, item: T) {
         if self.queue.len() == self.max_length {
             self.queue.pop_back();
@@ -256,7 +262,7 @@ impl<E: EthSpec> WorkEvent<E> {
     }
 }
 
-/// A consensus message from gossip which requires processing.
+/// A consensus message (or multiple) from the network that requires processing.
 #[derive(Debug)]
 pub enum Work<E: EthSpec> {
     GossipAttestation {
@@ -434,6 +440,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // requested these blocks.
                         } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
+                        // Check gossip blocks before gossip attestations, since a block might be
+                        // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
                         // Check the aggregates, *then* the unaggregates
@@ -474,14 +482,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         );
                     }
                     // There is a new work event and the chain is not syncing. Process it.
-                    Some(WorkEvent { work, .. }) => match work {
-                        _ if can_spawn => self.spawn_worker(idle_tx.clone(), work),
-                        Work::GossipAttestation { .. } => attestation_queue.push(work),
-                        Work::GossipAggregate { .. } => aggregate_queue.push(work),
-                        Work::GossipBlock { .. } => gossip_block_queue.push(work, &self.log),
-                        Work::RpcBlock { .. } => rpc_block_queue.push(work, &self.log),
-                        Work::ChainSegment { .. } => chain_segment_queue.push(work, &self.log),
-                    },
+                    Some(WorkEvent { work, .. }) => {
+                        let work_id = work.str_id();
+                        match work {
+                            _ if can_spawn => self.spawn_worker(idle_tx.clone(), work),
+                            Work::GossipAttestation { .. } => attestation_queue.push(work),
+                            Work::GossipAggregate { .. } => aggregate_queue.push(work),
+                            Work::GossipBlock { .. } => {
+                                gossip_block_queue.push(work, work_id, &self.log)
+                            }
+                            Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
+                            Work::ChainSegment { .. } => {
+                                chain_segment_queue.push(work, work_id, &self.log)
+                            }
+                        }
+                    }
                 }
 
                 metrics::set_gauge(

@@ -154,6 +154,7 @@ pub fn try_create_int_counter_vec(
     Ok(counter_vec)
 }
 
+/// If `int_gauge_vec.is_ok()`, returns a gauge with the given `name`.
 pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Option<IntGauge> {
     if let Ok(int_gauge_vec) = int_gauge_vec {
         Some(int_gauge_vec.get_metric_with_label_values(name).ok()?)
@@ -162,6 +163,7 @@ pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Opti
     }
 }
 
+/// If `int_counter_vec.is_ok()`, returns a counter with the given `name`.
 pub fn get_int_counter(
     int_counter_vec: &Result<IntCounterVec>,
     name: &[&str],
@@ -173,12 +175,14 @@ pub fn get_int_counter(
     }
 }
 
+/// Increments the `int_counter_vec` with the given `name`.
 pub fn inc_counter_vec(int_counter_vec: &Result<IntCounterVec>, name: &[&str]) {
     if let Some(counter) = get_int_counter(int_counter_vec, name) {
         counter.inc()
     }
 }
 
+/// If `histogram_vec.is_ok()`, returns a histogram with the given `name`.
 pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Option<Histogram> {
     if let Ok(histogram_vec) = histogram_vec {
         Some(histogram_vec.get_metric_with_label_values(name).ok()?)
@@ -187,6 +191,7 @@ pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Opt
     }
 }
 
+/// Starts a timer on `vec` with the given `name`.
 pub fn start_timer_vec(vec: &Result<HistogramVec>, name: &[&str]) -> Option<HistogramTimer> {
     get_histogram(vec, name).map(|h| h.start_timer())
 }
