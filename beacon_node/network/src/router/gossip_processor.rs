@@ -814,7 +814,10 @@ pub fn handle_attestation_verification_failure<E: EthSpec>(
              * The peer has published an invalid consensus message.
              */
         }
-        AttnError::TooManySkippedSlots { head_block_slot, attestation_slot } => {
+        AttnError::TooManySkippedSlots {
+            head_block_slot,
+            attestation_slot,
+        } => {
             /*
              * The attestation references a head block that is too far behind the attestation slot.
              *
