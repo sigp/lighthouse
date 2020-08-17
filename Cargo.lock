@@ -2890,6 +2890,7 @@ dependencies = [
  "boot_node",
  "clap",
  "clap_utils",
+ "dirs",
  "env_logger",
  "environment",
  "eth2_testnet_config",

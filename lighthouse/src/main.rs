@@ -197,6 +197,25 @@ fn run<E: EthSpec>(
         optional_testnet_config = clap_utils::parse_testnet_dir(matches, "testnet-dir")?;
     };
 
+    // WARNING: Temporary migration code for directory restructure
+    // Remove after reasonably sure most users have migrated.
+    let default_dir = dirs::home_dir()
+        .map(|home| home.join(DEFAULT_DATA_DIR))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let testnet_dir = default_dir.join(clap_utils::get_testnet_dir(matches));
+
+    if !matches.is_present("datadir") && !testnet_dir.exists() {
+        std::fs::create_dir_all(&testnet_dir)
+            .map_err(|e| format!("Failed to create testnet directory: {}", e))?;
+        for dir in ["validators", "wallets", "secrets", "beacon"].iter() {
+            let old_path = default_dir.join(dir);
+            if old_path.exists() {
+                std::fs::rename(old_path, testnet_dir.join(dir))
+                    .map_err(|e| format!("Failed to move directory: {}", e))?;
+            }
+        }
+    }
+
     let builder = if let Some(log_path) = matches.value_of("logfile") {
         let path = log_path
             .parse::<PathBuf>()
