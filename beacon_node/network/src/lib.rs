@@ -6,6 +6,7 @@ pub mod error;
 pub mod service;
 
 mod attestation_service;
+mod beacon_processor;
 mod metrics;
 mod persisted_dht;
 mod router;

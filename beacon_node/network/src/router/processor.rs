@@ -1,17 +1,15 @@
-use super::gossip_processor::{GossipProcessor, WorkEvent as GossipWorkEvent};
+use crate::beacon_processor::{
+    BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+};
 use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
-use beacon_chain::{
-    observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, BlockError,
-    GossipVerifiedBlock,
-};
+use beacon_chain::{observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{
     MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
 };
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
-use ssz::Encode;
 use state_processing::SigVerifiedOp;
 use std::cmp;
 use std::sync::Arc;
@@ -36,8 +34,8 @@ pub struct Processor<T: BeaconChainTypes> {
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
-    /// A multi-threaded, non-blocking processor for consensus gossip messages.
-    gossip_processor_send: mpsc::Sender<GossipWorkEvent<T::EthSpec>>,
+    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
     /// The `RPCHandler` logger.
     log: slog::Logger,
 }
@@ -52,6 +50,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
+        let (beacon_processor_send, beacon_processor_receive) =
+            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
 
         // spawn the sync thread
         let sync_send = crate::sync::manager::spawn(
@@ -59,11 +59,12 @@ impl<T: BeaconChainTypes> Processor<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_send.clone(),
+            beacon_processor_send.clone(),
             sync_logger,
         );
 
-        let gossip_processor_send = GossipProcessor {
-            beacon_chain: beacon_chain.clone(),
+        BeaconProcessor {
+            beacon_chain: Arc::downgrade(&beacon_chain),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
             network_globals,
@@ -72,13 +73,13 @@ impl<T: BeaconChainTypes> Processor<T> {
             current_workers: 0,
             log: log.clone(),
         }
-        .spawn_manager();
+        .spawn_manager(beacon_processor_receive);
 
         Processor {
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
-            gossip_processor_send,
+            beacon_processor_send,
             log: log.clone(),
         }
     }
@@ -513,23 +514,6 @@ impl<T: BeaconChainTypes> Processor<T> {
         }
     }
 
-    /// Template function to be called on a block to determine if the block should be propagated
-    /// across the network.
-    pub fn should_forward_block(
-        &mut self,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        self.chain.verify_block_for_gossip(*block)
-    }
-
-    pub fn on_unknown_parent(
-        &mut self,
-        peer_id: PeerId,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
-    ) {
-        self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
-    }
-
     /// Process a gossip message declaring a new block.
     ///
     /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
@@ -537,65 +521,22 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Returns a `bool` which, if `true`, indicates we should forward the block to our peers.
     pub fn on_block_gossip(
         &mut self,
+        message_id: MessageId,
         peer_id: PeerId,
-        verified_block: GossipVerifiedBlock<T>,
-    ) -> bool {
-        let block = Box::new(verified_block.block.clone());
-        match self.chain.process_block(verified_block) {
-            Ok(_block_root) => {
-                trace!(
-                    self.log,
-                    "Gossipsub block processed";
-                    "peer_id" => peer_id.to_string()
-                );
-
-                // TODO: It would be better if we can run this _after_ we publish the block to
-                // reduce block propagation latency.
-                //
-                // The `MessageHandler` would be the place to put this, however it doesn't seem
-                // to have a reference to the `BeaconChain`. I will leave this for future
-                // works.
-                match self.chain.fork_choice() {
-                    Ok(()) => trace!(
-                        self.log,
-                        "Fork choice success";
-                        "location" => "block gossip"
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => format!("{:?}", e),
-                        "location" => "block gossip"
-                    ),
-                }
-            }
-            Err(BlockError::ParentUnknown { .. }) => {
-                // Inform the sync manager to find parents for this block
-                // This should not occur. It should be checked by `should_forward_block`
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
+    ) {
+        self.beacon_processor_send
+            .try_send(BeaconWorkEvent::gossip_beacon_block(
+                message_id, peer_id, block,
+            ))
+            .unwrap_or_else(|e| {
                 error!(
-                    self.log,
-                    "Block with unknown parent attempted to be processed";
-                    "peer_id" => peer_id.to_string()
-                );
-                self.send_to_sync(SyncMessage::UnknownBlock(peer_id, block));
-            }
-            other => {
-                warn!(
-                    self.log,
-                    "Invalid gossip beacon block";
-                    "outcome" => format!("{:?}", other),
-                    "block root" => format!("{}", block.canonical_root()),
-                    "block slot" => block.slot()
-                );
-                trace!(
-                    self.log,
-                    "Invalid gossip beacon block ssz";
-                    "ssz" => format!("0x{}", hex::encode(block.as_ssz_bytes())),
-                );
-            }
-        }
-        // TODO: Update with correct block gossip checking
-        true
+                    &self.log,
+                    "Unable to send to gossip processor";
+                    "type" => "block gossip",
+                    "error" => e.to_string(),
+                )
+            })
     }
 
     pub fn on_unaggregated_attestation_gossip(
@@ -606,8 +547,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         subnet_id: SubnetId,
         should_process: bool,
     ) {
-        self.gossip_processor_send
-            .try_send(GossipWorkEvent::unaggregated_attestation(
+        self.beacon_processor_send
+            .try_send(BeaconWorkEvent::unaggregated_attestation(
                 message_id,
                 peer_id,
                 unaggregated_attestation,
@@ -630,8 +571,8 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         aggregate: SignedAggregateAndProof<T::EthSpec>,
     ) {
-        self.gossip_processor_send
-            .try_send(GossipWorkEvent::aggregated_attestation(
+        self.beacon_processor_send
+            .try_send(BeaconWorkEvent::aggregated_attestation(
                 message_id, peer_id, aggregate,
             ))
             .unwrap_or_else(|e| {

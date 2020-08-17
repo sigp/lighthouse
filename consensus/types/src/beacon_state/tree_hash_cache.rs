@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::cmp::Ordering;
+use std::iter::ExactSizeIterator;
 use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 
 /// The number of fields on a beacon state.
@@ -288,21 +289,44 @@ impl ValidatorsListTreeHashCache {
     fn recalculate_tree_hash_root(&mut self, validators: &[Validator]) -> Result<Hash256, Error> {
         let mut list_arena = std::mem::take(&mut self.list_arena);
 
-        let leaves = self
-            .values
-            .leaves(validators)?
-            .into_iter()
-            .flatten()
-            .map(|h| h.to_fixed_bytes())
-            .collect::<Vec<_>>();
+        let leaves = self.values.leaves(validators)?;
+        let num_leaves = leaves.iter().map(|arena| arena.len()).sum();
+
+        let leaves_iter = ForcedExactSizeIterator {
+            iter: leaves.into_iter().flatten().map(|h| h.to_fixed_bytes()),
+            len: num_leaves,
+        };
 
         let list_root = self
             .list_cache
-            .recalculate_merkle_root(&mut list_arena, leaves.into_iter())?;
+            .recalculate_merkle_root(&mut list_arena, leaves_iter)?;
 
         self.list_arena = list_arena;
 
         Ok(mix_in_length(&list_root, validators.len()))
+    }
+}
+
+/// Provides a wrapper around some `iter` if the number of items in the iterator is known to the
+/// programmer but not the compiler. This allows use of `ExactSizeIterator` in some occasions.
+///
+/// Care should be taken to ensure `len` is accurate.
+struct ForcedExactSizeIterator<I> {
+    iter: I,
+    len: usize,
+}
+
+impl<V, I: Iterator<Item = V>> Iterator for ForcedExactSizeIterator<I> {
+    type Item = V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<V, I: Iterator<Item = V>> ExactSizeIterator for ForcedExactSizeIterator<I> {
+    fn len(&self) -> usize {
+        self.len
     }
 }
 
