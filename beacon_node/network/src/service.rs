@@ -95,7 +95,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 
 impl<T: BeaconChainTypes> NetworkService<T> {
     #[allow(clippy::type_complexity)]
-    pub fn start(
+    pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: environment::TaskExecutor,
@@ -117,7 +117,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch libp2p service
         let (network_globals, mut libp2p) =
-            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log)?;
+            LibP2PService::new(executor.clone(), config, enr_fork_id, &network_log).await?;
 
         // Repopulate the DHT with stored ENR's.
         let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
@@ -126,7 +126,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Loading peers into the routing table"; "peers" => enrs_to_load.len()
         );
         for enr in enrs_to_load {
-            libp2p.swarm.add_enr(enr.clone());
+            libp2p.swarm.add_enr(enr.clone()); //TODO change?
         }
 
         // launch derived network services
@@ -145,7 +145,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             AttestationService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
 
         // create the network service and spawn the task
-        let network_log = network_log.new(o!("service"=> "network"));
+        let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
             beacon_chain,
             libp2p,

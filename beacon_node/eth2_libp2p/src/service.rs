@@ -51,7 +51,7 @@ pub struct Service<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> Service<TSpec> {
-    pub fn new(
+    pub async fn new(
         executor: environment::TaskExecutor,
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
@@ -76,7 +76,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             &log,
         ));
 
-        info!(log, "Libp2p Service"; "peer_id" => format!("{:?}", enr.peer_id()));
+        info!(log, "Libp2p Service"; "peer_id" => enr.peer_id().to_string());
         let discovery_string = if config.disable_discovery {
             "None".into()
         } else {
@@ -89,7 +89,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
             let transport = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(&local_keypair, config, network_globals.clone(), &log)?;
+            let behaviour =
+                Behaviour::new(&local_keypair, config, network_globals.clone(), &log).await?;
 
             // use the executor for libp2p
             struct Executor(environment::TaskExecutor);
@@ -151,7 +152,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         }
 
         // attempt to connect to any specified boot-nodes
-        let mut boot_nodes = config.boot_nodes.clone();
+        let mut boot_nodes = config.boot_nodes_enr.clone();
         boot_nodes.dedup();
 
         for bootnode_enr in boot_nodes {
@@ -169,6 +170,16 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 {
                     dial_addr(multiaddr.clone());
                 }
+            }
+        }
+
+        for multiaddr in &config.boot_nodes_multiaddr {
+            // check TCP support for dialing
+            if multiaddr
+                .iter()
+                .any(|proto| matches!(proto, Protocol::Tcp(_)))
+            {
+                dial_addr(multiaddr.clone());
             }
         }
 
