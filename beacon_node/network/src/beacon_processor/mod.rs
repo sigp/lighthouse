@@ -836,7 +836,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     );
                                 }
                                 other => {
-                                    warn!(
+                                    debug!(
                                         log,
                                         "Invalid gossip beacon block";
                                         "outcome" => format!("{:?}", other),

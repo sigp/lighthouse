@@ -66,7 +66,7 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
     prometheus::gather()
 }
 
-/// Attempts to crate an `IntCounter`, returning `Err` if the registry does not accept the counter
+/// Attempts to create an `IntCounter`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     let opts = Opts::new(name, help);
@@ -75,7 +75,7 @@ pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     Ok(counter)
 }
 
-/// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the counter
+/// Attempts to create an `IntGauge`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     let opts = Opts::new(name, help);
@@ -84,7 +84,7 @@ pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     Ok(gauge)
 }
 
-/// Attempts to crate a `Gauge`, returning `Err` if the registry does not accept the counter
+/// Attempts to create a `Gauge`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_float_gauge(name: &str, help: &str) -> Result<Gauge> {
     let opts = Opts::new(name, help);
@@ -93,7 +93,7 @@ pub fn try_create_float_gauge(name: &str, help: &str) -> Result<Gauge> {
     Ok(gauge)
 }
 
-/// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
+/// Attempts to create a `Histogram`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     let opts = HistogramOpts::new(name, help);
@@ -102,7 +102,7 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     Ok(histogram)
 }
 
-/// Attempts to crate a `HistogramVec`, returning `Err` if the registry does not accept the counter
+/// Attempts to create a `HistogramVec`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram_vec(
     name: &str,
@@ -115,7 +115,7 @@ pub fn try_create_histogram_vec(
     Ok(histogram_vec)
 }
 
-/// Attempts to crate a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// Attempts to create a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge_vec(
     name: &str,
@@ -128,7 +128,7 @@ pub fn try_create_int_gauge_vec(
     Ok(counter_vec)
 }
 
-/// Attempts to crate a `GaugeVec`, returning `Err` if the registry does not accept the gauge
+/// Attempts to create a `GaugeVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_float_gauge_vec(
     name: &str,
@@ -141,7 +141,7 @@ pub fn try_create_float_gauge_vec(
     Ok(counter_vec)
 }
 
-/// Attempts to crate a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// Attempts to create a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_counter_vec(
     name: &str,

@@ -255,25 +255,22 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Sends a batch to the batch processor.
+    /// Sends a batch to the beacon processor for async processing in a queue.
     fn process_batch(&mut self, mut batch: Batch<T::EthSpec>) {
         let blocks = std::mem::replace(&mut batch.downloaded_blocks, Vec::new());
         let process_id = ProcessId::RangeBatchId(self.id, batch.id);
         self.current_processing_batch = Some(batch);
 
-        match self
+        if let Err(e) = self
             .beacon_processor_send
             .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
         {
-            Ok(_) => {}
-            Err(e) => {
-                error!(
-                    self.log,
-                    "Failed to send chain segment to processor";
-                    "msg" => "process_batch",
-                    "error" => format!("{:?}", e)
-                );
-            }
+            error!(
+                self.log,
+                "Failed to send chain segment to processor";
+                "msg" => "process_batch",
+                "error" => format!("{:?}", e)
+            );
         }
     }
 
