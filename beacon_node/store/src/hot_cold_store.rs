@@ -30,9 +30,13 @@ use types::*;
 /// 32-byte key for accessing the `split` of the freezer DB.
 pub const SPLIT_DB_KEY: &str = "FREEZERDBSPLITFREEZERDBSPLITFREE";
 
+/// Defines how blocks should be replayed on states.
 #[derive(PartialEq)]
 pub enum BlockReplay {
+    /// Perform all transitions faithfully to the specification.
     Accurate,
+    /// Don't compute state roots, eventually computing an invalid beacon state that can only be
+    /// used for obtaining shuffling.
     InconsistentStateRoots,
 }
 
@@ -246,6 +250,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Fetch a state from the store, but don't compute all of the values when replaying blocks
+    /// upon that state (e.g., state roots). Additionally, only state from the hot store are
+    /// returned.
+    ///
+    /// See `Self::get_state` for information about `slot`.
+    ///
+    /// ## Warning
+    ///
+    /// The returned state **is not a valid beacon state**, it can only be used for obtaining
+    /// shuffling to process attestations.
     pub fn get_inconsistent_state_for_attestation_verification_only(
         &self,
         state_root: &Hash256,

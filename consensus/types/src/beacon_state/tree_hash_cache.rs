@@ -292,7 +292,7 @@ impl ValidatorsListTreeHashCache {
         let leaves = self.values.leaves(validators)?;
         let num_leaves = leaves.iter().map(|arena| arena.len()).sum();
 
-        let leaves_iter = ForcedLengthIterator {
+        let leaves_iter = ForcedExactSizeIterator {
             iter: leaves.into_iter().flatten().map(|h| h.to_fixed_bytes()),
             len: num_leaves,
         };
@@ -311,12 +311,12 @@ impl ValidatorsListTreeHashCache {
 /// programmer but not the compiler. This allows use of `ExactSizeIterator` in some occasions.
 ///
 /// Care should be taken to ensure `len` is accurate.
-struct ForcedLengthIterator<I> {
+struct ForcedExactSizeIterator<I> {
     iter: I,
     len: usize,
 }
 
-impl<V, I: Iterator<Item = V>> Iterator for ForcedLengthIterator<I> {
+impl<V, I: Iterator<Item = V>> Iterator for ForcedExactSizeIterator<I> {
     type Item = V;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -324,7 +324,7 @@ impl<V, I: Iterator<Item = V>> Iterator for ForcedLengthIterator<I> {
     }
 }
 
-impl<V, I: Iterator<Item = V>> ExactSizeIterator for ForcedLengthIterator<I> {
+impl<V, I: Iterator<Item = V>> ExactSizeIterator for ForcedExactSizeIterator<I> {
     fn len(&self) -> usize {
         self.len
     }
