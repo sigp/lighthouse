@@ -174,6 +174,15 @@ where
         self
     }
 
+    /// Sets the maximum number of blocks that will be skipped when processing
+    /// some consensus messages.
+    ///
+    /// Set to `None` for no limit.
+    pub fn import_block_max_skip_slots(mut self, n: Option<u64>) -> Self {
+        self.chain_config.import_block_max_skip_slots = n;
+        self
+    }
+
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
