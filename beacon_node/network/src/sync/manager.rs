@@ -361,6 +361,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         return;
                     }
                 };
+
+                // check if the parent of this block isn't in our failed cache. If it is, this
+                // chain should be dropped and the peer downscored.
+                if self.failed_chains.contains(&block.message.parent_root) {
+                    debug!(self.log, "Parent chain ignored due to past failure"; "block" => format!("{:?}", block.message.parent_root), "slot" => block.message.slot);
+                    self.network
+                        .report_peer(peer_id, PeerAction::MidToleranceError);
+                    return;
+                }
                 // add the block to response
                 parent_request.downloaded_blocks.push(block);
                 // queue for processing
