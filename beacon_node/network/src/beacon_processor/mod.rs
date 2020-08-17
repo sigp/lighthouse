@@ -288,7 +288,7 @@ pub enum Work<E: EthSpec> {
 
 impl<E: EthSpec> Work<E> {
     /// Provides a `&str` that uniquely identifies each enum variant.
-    fn str_id(&self) -> &str {
+    fn str_id(&self) -> &'static str {
         match self {
             Work::GossipAttestation { .. } => "gossip_attestation",
             Work::GossipAggregate { .. } => "gossip_aggregate",
@@ -537,14 +537,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(&mut self, mut idle_tx: mpsc::Sender<()>, work: Work<T::EthSpec>) {
+        let work_id = work.str_id();
         let worker_timer =
-            metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work.str_id()]);
+            metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work_id]);
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_WORKERS_SPAWNED_TOTAL);
         metrics::inc_counter_vec(
             &metrics::BEACON_PROCESSOR_WORK_EVENTS_STARTED_COUNT,
             &[work.str_id()],
         );
 
+        let worker_id = self.current_workers;
         self.current_workers = self.current_workers.saturating_add(1);
 
         let chain = if let Some(chain) = self.beacon_chain.upgrade() {
@@ -561,6 +563,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let sync_tx = self.sync_tx.clone();
         let log = self.log.clone();
         let executor = self.executor.clone();
+
+        trace!(
+            self.log,
+            "Spawning beacon processor worker";
+            "work" => work_id,
+            "worker" => worker_id,
+        );
 
         executor.spawn_blocking(
             move || {
@@ -850,6 +859,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     };
                 };
                 handler();
+
+                trace!(
+                    log,
+                    "Beacon processor worker done";
+                    "work" => work_id,
+                    "worker" => worker_id,
+                );
 
                 idle_tx.try_send(()).unwrap_or_else(|e| {
                     crit!(
