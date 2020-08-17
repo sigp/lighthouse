@@ -92,6 +92,8 @@ pub enum BlockError<T: EthSpec> {
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
     ParentUnknown(Box<SignedBeaconBlock<T>>),
+    /// The block skips too many slots and is a DoS risk.
+    TooManySkippedSlots { parent_slot: Slot, block_slot: Slot },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -643,6 +645,16 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             .contains_block(&block.parent_root())
         {
             return Err(BlockError::ParentUnknown(Box::new(block)));
+        }
+
+        // Reject any block that exceeds our limit on skipped slots.
+        if let Some(max_skip_slots) = chain.config.import_max_skip_slots {
+            if block.slot() > parent.beacon_block.slot() + max_skip_slots {
+                return Err(BlockError::TooManySkippedSlots {
+                    parent_slot: parent.beacon_block.slot(),
+                    block_slot: block.slot(),
+                });
+            }
         }
 
         /*

@@ -1150,6 +1150,22 @@ pub fn handle_attestation_verification_failure<E: EthSpec>(
              * The peer has published an invalid consensus message.
              */
         }
+        AttnError::TooManySkippedSlots {
+            head_block_slot,
+            attestation_slot,
+        } => {
+            /*
+             * The attestation references a head block that is too far behind the attestation slot.
+             *
+             * The message is not necessarily invalid, but we choose to ignore it.
+             */
+            debug!(
+                log,
+                "Rejected long skip slot attestation";
+                "head_block_slot" => head_block_slot,
+                "attestation_slot" => attestation_slot,
+            )
+        }
         AttnError::BeaconChainError(e) => {
             /*
              * Lighthouse hit an unexpected error whilst processing the attestation. It

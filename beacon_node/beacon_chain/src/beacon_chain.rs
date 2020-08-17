@@ -7,6 +7,7 @@ use crate::block_verification::{
     signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
     IntoFullyVerifiedBlock,
 };
+use crate::chain_config::ChainConfig;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -161,6 +162,8 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
     pub spec: ChainSpec,
+    /// Configuration for `BeaconChain` runtime behaviour.
+    pub config: ChainConfig,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// Database migrator for running background maintenance on the store.
