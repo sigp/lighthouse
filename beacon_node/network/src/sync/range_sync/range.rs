@@ -166,7 +166,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     chain.add_peer(network, peer_id);
 
                     // check if the new peer's addition will favour a new syncing chain.
-                    self.chains.update_finalized(network);
+                    self.chains.update(network);
                     // update the global sync state if necessary
                     self.chains.update_sync_state();
                 } else {
@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         peer_id,
                         self.beacon_processor_send.clone(),
                     );
-                    self.chains.update_finalized(network);
+                    self.chains.update(network);
                     // update the global sync state
                     self.chains.update_sync_state();
                 }
@@ -221,7 +221,6 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                     debug!(self.log, "Creating a new syncing head chain"; "head_root" => format!("{}",remote_info.head_root), "start_epoch" => start_epoch, "head_slot" => remote_info.head_slot, "peer_id" => format!("{:?}", peer_id));
 
                     self.chains.new_head_chain(
-                        network,
                         start_epoch,
                         remote_info.head_root,
                         remote_info.head_slot,
@@ -229,7 +228,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         self.beacon_processor_send.clone(),
                     );
                 }
-                self.chains.update_finalized(network);
+                self.chains.update(network);
                 self.chains.update_sync_state();
             }
         }
@@ -284,7 +283,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                 let chain = self.chains.remove_finalized_chain(index);
                 debug!(self.log, "Finalized chain removed"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
                 // update the state of the collection
-                self.chains.update_finalized(network);
+                self.chains.update(network);
 
                 // the chain is complete, re-status it's peers
                 chain.status_peers(network);
@@ -324,7 +323,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         chain.status_peers(network);
 
                         // update the state of the collection
-                        self.chains.update_finalized(network);
+                        self.chains.update(network);
                         // update the global state and log any change
                         self.chains.update_sync_state();
                     }
@@ -353,7 +352,7 @@ impl<T: BeaconChainTypes> RangeSync<T> {
         self.remove_peer(network, peer_id);
 
         // update the state of the collection
-        self.chains.update_finalized(network);
+        self.chains.update(network);
         // update the global state and inform the user
         self.chains.update_sync_state();
     }

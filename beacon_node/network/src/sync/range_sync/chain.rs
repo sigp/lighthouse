@@ -686,6 +686,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
+    /// Returns true if this chain is currently syncing.
+    pub fn is_syncing(&self) -> bool {
+        match self.state {
+            ChainSyncingState::Syncing => true,
+            ChainSyncingState::Stopped => false,
+        }
+    }
+
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
     fn request_batches(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
