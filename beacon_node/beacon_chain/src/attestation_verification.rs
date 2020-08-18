@@ -549,7 +549,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     {
         // Reject any block that exceeds our limit on skipped slots.
         if let Some(max_skip_slots) = max_skip_slots {
-            if block.slot > attestation.data.slot + max_skip_slots {
+            if attestation.data.slot > block.slot + max_skip_slots {
                 return Err(Error::TooManySkippedSlots {
                     head_block_slot: block.slot,
                     attestation_slot: attestation.data.slot,
