@@ -32,7 +32,7 @@ pub enum ClientGenesis {
     SszBytes { genesis_state_bytes: Vec<u8> },
     /// Loads the first block from a SSZ-encoded representation.  For use in the weak subjectivity
     /// period.
-    TrustedState {
+    WeaklySubjectivePoint {
         state_bytes: Vec<u8>,
         block_bytes: Vec<u8>,
     },

@@ -360,8 +360,8 @@ pub fn get_config<E: EthSpec>(
         client_config.network.boot_nodes_enr.append(&mut boot_nodes)
     }
 
-    if let Some(state_ssz_path) = cli_args.value_of("trusted-state") {
-        if let Some(block_ssz_path) = cli_args.value_of("trusted-block") {
+    if let Some(state_ssz_path) = cli_args.value_of("weakly-subjective-state") {
+        if let Some(block_ssz_path) = cli_args.value_of("weakly-subjective-block") {
             let state_bytes = {
                 let mut state_file = File::open(state_ssz_path)
                     .map_err(|e| format!("Unable to open the state file: {}", e))?;
@@ -380,7 +380,7 @@ pub fn get_config<E: EthSpec>(
                     .map_err(|e| format!("Unable to read the block file: {}", e))?;
                 buffer
             };
-            client_config.genesis = ClientGenesis::TrustedState {
+            client_config.genesis = ClientGenesis::WeaklySubjectivePoint {
                 state_bytes,
                 block_bytes,
             };

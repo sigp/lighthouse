@@ -384,7 +384,7 @@ where
         Ok(self.empty_op_pool())
     }
 
-    pub fn trusted_state(
+    pub fn weakly_subjective_point(
         mut self,
         mut beacon_state: BeaconState<TEthSpec>,
         beacon_block: SignedBeaconBlock<TEthSpec>,
@@ -392,7 +392,7 @@ where
         let store = self
             .store
             .clone()
-            .ok_or_else(|| "trusted_state() requires a store")?;
+            .ok_or_else(|| "weakly_subjective_point() requires a store")?;
 
         beacon_state
             .build_all_caches(&self.spec)
@@ -422,7 +422,7 @@ where
             let pubkey_cache_path = self
                 .pubkey_cache_path
                 .as_ref()
-                .ok_or_else(|| "trusted_state() requires a data_dir".to_string())?;
+                .ok_or_else(|| "weakly_subjective_point() requires a data_dir".to_string())?;
             let pubkey_cache =
                 ValidatorPubkeyCache::create_or_overwrite(&beacon_state, pubkey_cache_path)
                     .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))?;

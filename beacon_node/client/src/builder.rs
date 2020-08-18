@@ -172,7 +172,9 @@ where
             info!(context.log(), "Defaulting to deposit contract genesis");
 
             ClientGenesis::DepositContract
-        } else if chain_exists && !matches!(client_genesis, ClientGenesis::TrustedState { .. }) {
+        } else if chain_exists
+            && !matches!(client_genesis, ClientGenesis::WeaklySubjectivePoint { .. })
+        {
             ClientGenesis::FromStore
         } else {
             client_genesis
@@ -200,7 +202,7 @@ where
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
-            ClientGenesis::TrustedState {
+            ClientGenesis::WeaklySubjectivePoint {
                 state_bytes,
                 block_bytes,
             } => {
@@ -209,14 +211,14 @@ where
                     "Starting from a trusted state";
                 );
 
-                let trusted_state = BeaconState::from_ssz_bytes(&state_bytes)
+                let weakly_subjective_state = BeaconState::from_ssz_bytes(&state_bytes)
                     .map_err(|e| format!("Unable to parse state SSZ: {:?}", e))?;
 
-                let trusted_block = SignedBeaconBlock::from_ssz_bytes(&block_bytes)
+                let weakly_subjective_block = SignedBeaconBlock::from_ssz_bytes(&block_bytes)
                     .map_err(|e| format!("Unable to parse block SSZ: {:?}", e))?;
 
                 builder
-                    .trusted_state(trusted_state, trusted_block)
+                    .weakly_subjective_point(weakly_subjective_state, weakly_subjective_block)
                     .map(|v| (v, None))?
             }
             ClientGenesis::DepositContract => {

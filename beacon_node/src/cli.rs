@@ -263,14 +263,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("700")
         )
         .arg(
-            Arg::with_name("trusted-state")
-                .long("trusted-state")
+            Arg::with_name("weakly-subjective-state")
+                .long("weakly-subjective-state")
                 .value_name("PATH")
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("trusted-block")
-                .long("trusted-block")
+            Arg::with_name("weakly-subjective-block")
+                .long("weakly-subjective-block")
                 .value_name("PATH")
                 .takes_value(true)
         )
