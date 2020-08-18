@@ -322,6 +322,10 @@ impl<T: BeaconChainTypes> RangeSync<T> {
                         // the chain is complete, re-status it's peers and remove it
                         chain.status_peers(network);
 
+                        // Remove non-syncing head chains and re-status the peers
+                        // This removes a build-up of potentially duplicate head chains. Any
+                        // legitimate head chains will be re-established
+                        self.chains.clear_head_chains(network);
                         // update the state of the collection
                         self.chains.update(network);
                         // update the global state and log any change
