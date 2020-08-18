@@ -774,6 +774,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     );
                                     return;
                                 }
+                                Err(BlockError::BlockIsAlreadyKnown) => {
+                                    debug!(
+                                        log,
+                                        "Gossip block is already known";
+                                    );
+                                    return;
+                                }
                                 Err(e) => {
                                     warn!(
                                         log,

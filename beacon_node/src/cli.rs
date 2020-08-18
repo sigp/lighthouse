@@ -260,6 +260,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .value_name("NUM_SLOTS")
                 .takes_value(true)
-                .default_value("320")
+                .default_value("700")
         )
 }

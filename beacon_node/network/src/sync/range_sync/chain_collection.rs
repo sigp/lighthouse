@@ -359,6 +359,22 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         self.state = head_state;
     }
 
+    /// This is called once a head chain has completed syncing. It removes all non-syncing head
+    /// chains and re-status their peers.
+    pub fn clear_head_chains(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
+        let log_ref = &self.log;
+        self.head_chains.retain(|chain| {
+            if !chain.is_syncing()
+                {
+                debug!(log_ref, "Removing old head chain"; "start_epoch" => chain.start_epoch, "end_slot" => chain.target_head_slot);
+                chain.status_peers(network);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     /// Add a new finalized chain to the collection.
     pub fn new_finalized_chain(
         &mut self,
