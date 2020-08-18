@@ -172,10 +172,11 @@ impl Keystore {
                     },
                 },
                 uuid,
-                path,
+                path: Some(path),
                 pubkey: keypair.pk.to_hex_string()[2..].to_string(),
                 version: Version::four(),
                 description: None,
+                name: None,
             },
         })
     }
@@ -218,8 +219,8 @@ impl Keystore {
     /// Returns the path for the keystore.
     ///
     /// Note: the path is not validated, it is simply whatever string the keystore provided.
-    pub fn path(&self) -> &str {
-        &self.json.path
+    pub fn path(&self) -> Option<String> {
+        self.json.path.clone()
     }
 
     /// Returns the pubkey for the keystore.

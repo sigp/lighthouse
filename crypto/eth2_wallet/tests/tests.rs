@@ -225,13 +225,13 @@ fn key_derivation_from_seed() {
             .expect("should generate keystores");
 
         assert_eq!(
-            keystores.voting.path(),
+            keystores.voting.path().unwrap(),
             format!("m/12381/3600/{}/0/0", i),
             "voting path should match"
         );
 
         assert_eq!(
-            keystores.withdrawal.path(),
+            keystores.withdrawal.path().unwrap(),
             format!("m/12381/3600/{}/0", i),
             "withdrawal path should match"
         );
