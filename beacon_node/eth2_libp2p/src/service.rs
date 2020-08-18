@@ -36,6 +36,8 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
     Behaviour(BehaviourEvent<TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
+    /// We reached zero listening addresses.
+    ZeroListeners,
 }
 
 /// The configuration and state of the libp2p components for the beacon node.
@@ -283,9 +285,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     debug!(self.log, "Listen address expired"; "multiaddr" => multiaddr.to_string())
                 }
                 SwarmEvent::ListenerClosed { addresses, reason } => {
-                    crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason))
+                    crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason));
+                    if Swarm::listeners(&self.swarm).count() == 0 {
+                        return Libp2pEvent::ZeroListeners
+                    }
                 }
                 SwarmEvent::ListenerError { error } => {
+                    // this is non fatal
                     warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
                 }
                 SwarmEvent::Dialing(peer_id) => {
