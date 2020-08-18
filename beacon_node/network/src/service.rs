@@ -378,7 +378,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
                         }
                         Libp2pEvent::ZeroListeners => {
-                            let _ = shutdown_sender.send("Unable to listen").await.map_err(|e| {
+                            let _ = shutdown_sender.send("All listeners are closed. Unable to listen").await.map_err(|e| {
                                 warn!(service.log, "failed to send a shutdown signal"; "error" => e.to_string()
                                 )
                             });
