@@ -366,6 +366,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // chain should be dropped and the peer downscored.
                 if self.failed_chains.contains(&block.message.parent_root) {
                     debug!(self.log, "Parent chain ignored due to past failure"; "block" => format!("{:?}", block.message.parent_root), "slot" => block.message.slot);
+                    if !parent_request.downloaded_blocks.is_empty() {
+                        // Add the root block to failed chains
+                        self.failed_chains
+                            .insert(parent_request.downloaded_blocks[0].canonical_root());
+                    } else {
+                        crit!(self.log, "Parent chain has no blocks");
+                    }
                     self.network
                         .report_peer(peer_id, PeerAction::MidToleranceError);
                     return;
