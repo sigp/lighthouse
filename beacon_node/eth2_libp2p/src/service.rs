@@ -287,7 +287,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 SwarmEvent::ListenerClosed { addresses, reason } => {
                     crit!(self.log, "Listener closed"; "addresses" => format!("{:?}", addresses), "reason" => format!("{:?}", reason));
                     if Swarm::listeners(&self.swarm).count() == 0 {
-                        return Libp2pEvent::ZeroListeners
+                        return Libp2pEvent::ZeroListeners;
                     }
                 }
                 SwarmEvent::ListenerError { error } => {

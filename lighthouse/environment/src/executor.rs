@@ -1,6 +1,6 @@
 use crate::metrics;
-use futures::prelude::*;
 use futures::channel::mpsc::Sender;
+use futures::prelude::*;
 use slog::{debug, trace};
 use tokio::runtime::Handle;
 
@@ -25,8 +25,18 @@ impl TaskExecutor {
     ///
     /// Note: this function is mainly useful in tests. A `TaskExecutor` should be normally obtained from
     /// a [`RuntimeContext`](struct.RuntimeContext.html)
-    pub fn new(handle: Handle, exit: exit_future::Exit, log: slog::Logger, signal_tx: Sender<&'static str>) -> Self {
-        Self { handle, exit, signal_tx, log }
+    pub fn new(
+        handle: Handle,
+        exit: exit_future::Exit,
+        log: slog::Logger,
+        signal_tx: Sender<&'static str>,
+    ) -> Self {
+        Self {
+            handle,
+            exit,
+            signal_tx,
+            log,
+        }
     }
 
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
