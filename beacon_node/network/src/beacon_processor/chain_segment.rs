@@ -7,15 +7,15 @@ use eth2_libp2p::PeerId;
 use slog::{debug, error, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Epoch, EthSpec, SignedBeaconBlock};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// Id associated to a block processing request, either a batch or a single block.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProcessId {
     /// Processing Id of a range syncing batch.
     RangeBatchId(ChainId, Epoch),
-    /// Processing Id of the parent lookup of a block
-    ParentLookup(PeerId),
+    /// Processing Id of the parent lookup of a block.
+    ParentLookup(PeerId, Hash256),
 }
 
 pub fn handle_chain_segment<T: BeaconChainTypes>(
@@ -71,7 +71,7 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
             });
         }
         // this a parent lookup request from the sync manager
-        ProcessId::ParentLookup(peer_id) => {
+        ProcessId::ParentLookup(peer_id, chain_head) => {
             debug!(
                 log, "Processing parent lookup";
                 "last_peer_id" => format!("{}", peer_id),
@@ -83,7 +83,7 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
                 (_, Err(e)) => {
                     warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
                     sync_send
-                        .send(SyncMessage::ParentLookupFailed(peer_id))
+                        .send(SyncMessage::ParentLookupFailed{peer_id, chain_head})
                         .unwrap_or_else(|_| {
                             // on failure, inform to downvote the peer
                             debug!(

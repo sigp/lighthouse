@@ -2994,6 +2994,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru_cache"
+version = "0.1.0"
+dependencies = [
+ "fnv",
+]
+
+[[package]]
 name = "lru_time_cache"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3271,6 +3278,7 @@ dependencies = [
  "itertools 0.9.0",
  "lazy_static",
  "lighthouse_metrics",
+ "lru_cache",
  "matches",
  "num_cpus",
  "parking_lot 0.11.0",
