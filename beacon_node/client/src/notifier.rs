@@ -124,13 +124,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let mut display_speed = true;
-
-                if let Some(speed) = speed {
-                    if speed == 0.0 {
-                        display_speed = false;
-                    }
-                }
+                let display_speed = speed.map_or(false, |speed| speed != 0.0);
 
                 if display_speed {
                     info!(
