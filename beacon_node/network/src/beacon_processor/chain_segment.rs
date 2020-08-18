@@ -81,7 +81,7 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
             // reverse
             match process_blocks(chain, downloaded_blocks.iter().rev(), &log) {
                 (_, Err(e)) => {
-                    warn!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
+                    debug!(log, "Parent lookup failed"; "last_peer_id" => format!("{}", peer_id), "error" => e);
                     sync_send
                         .send(SyncMessage::ParentLookupFailed{peer_id, chain_head})
                         .unwrap_or_else(|_| {
