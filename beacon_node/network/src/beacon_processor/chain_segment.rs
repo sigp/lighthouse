@@ -40,19 +40,19 @@ pub fn handle_chain_segment<T: BeaconChainTypes>(
                 0
             };
 
-            debug!(log, "Processing batch"; "batch_epoch" => epoch, "blocks" => downloaded_blocks.len(),  "start_slot" => start_slot, "end_slot" => end_slot);
+            debug!(log, "Processing batch"; "batch_epoch" => epoch, "blocks" => downloaded_blocks.len(),  "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service" => "sync");
             let result = match process_blocks(chain, downloaded_blocks.iter(), &log) {
                 (_, Ok(_)) => {
-                    debug!(log, "Batch processed"; "batch_epoch" => epoch , "start_slot" => start_slot, "end_slot" => end_slot);
+                    debug!(log, "Batch processed"; "batch_epoch" => epoch , "first_block_slot" => start_slot, "last_block_slot" => end_slot, "service"=> "sync");
                     BatchProcessResult::Success
                 }
                 (imported_blocks, Err(e)) if imported_blocks > 0 => {
                     debug!(log, "Batch processing failed but imported some blocks";
-                        "batch_epoch" => epoch, "error" => e, "imported_blocks"=> imported_blocks);
+                        "batch_epoch" => epoch, "error" => e, "imported_blocks"=> imported_blocks, "service" => "sync");
                     BatchProcessResult::Partial
                 }
                 (_, Err(e)) => {
-                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "error" => e);
+                    debug!(log, "Batch processing failed"; "batch_epoch" => epoch, "error" => e, "service" => "sync");
                     BatchProcessResult::Failed
                 }
             };
