@@ -310,6 +310,15 @@ fn is_voting_keystore(file_name: &str) -> bool {
         return true;
     }
 
+    // The format exported by Prysm. I don't have a reference for this, but it was shared via
+    // Discord to Paul H.
+    if Regex::new("keystore-[0-9]+.json")
+        .expect("regex is valid")
+        .is_match(file_name)
+    {
+        return true;
+    }
+
     false
 }
 
@@ -318,8 +327,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn voting_keystore_filename() {
+    fn voting_keystore_filename_lighthouse() {
         assert!(is_voting_keystore(VOTING_KEYSTORE_FILE));
+    }
+
+    #[test]
+    fn voting_keystore_filename_launchpad() {
         assert!(!is_voting_keystore("cats"));
         assert!(!is_voting_keystore(&format!("a{}", VOTING_KEYSTORE_FILE)));
         assert!(!is_voting_keystore(&format!("{}b", VOTING_KEYSTORE_FILE)));
@@ -336,5 +349,15 @@ mod tests {
         assert!(!is_voting_keystore(
             "keystore-m_12381_3600_1_0-1593476250.json"
         ));
+    }
+
+    #[test]
+    fn voting_keystore_filename_prysm() {
+        assert!(is_voting_keystore("keystore-0.json"));
+        assert!(is_voting_keystore("keystore-1.json"));
+        assert!(is_voting_keystore("keystore-101238259.json"));
+        assert!(!is_voting_keystore("keystore-.json"));
+        assert!(!is_voting_keystore("keystore-0a.json"));
+        assert!(!is_voting_keystore("keystore-cats.json"));
     }
 }
