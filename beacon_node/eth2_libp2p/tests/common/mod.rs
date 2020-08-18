@@ -94,8 +94,13 @@ pub async fn build_libp2p_instance(boot_nodes: Vec<Enr>, log: slog::Logger) -> L
     // launch libp2p service
 
     let (signal, exit) = exit_future::signal();
-    let executor =
-        environment::TaskExecutor::new(tokio::runtime::Handle::current(), exit, log.clone());
+    let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+    let executor = environment::TaskExecutor::new(
+        tokio::runtime::Handle::current(),
+        exit,
+        log.clone(),
+        shutdown_tx,
+    );
     Libp2pInstance(
         LibP2PService::new(executor, &config, EnrForkId::default(), &log)
             .await
