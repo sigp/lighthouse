@@ -13,7 +13,7 @@ use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
 };
-use futures::{future, stream::StreamFuture, Future, FutureExt, StreamExt};
+use futures::{future, StreamExt};
 
 pub use executor::TaskExecutor;
 use slog::{info, o, Drain, Level, Logger};
