@@ -300,8 +300,8 @@ fn run<E: EthSpec>(
         return Err("No subcommand supplied.".into());
     }
 
-    // Block this thread until Crtl+C is pressed.
-    environment.block_until_ctrl_c()?;
+    // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
+    environment.block_until_shutdown_requested()?;
     info!(log, "Shutting down..");
 
     environment.fire_signal();
