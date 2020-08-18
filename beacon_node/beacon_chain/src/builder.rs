@@ -386,26 +386,43 @@ where
 
     pub fn weakly_subjective_point(
         mut self,
-        mut beacon_state: BeaconState<TEthSpec>,
+        beacon_state: BeaconState<TEthSpec>,
         beacon_block: SignedBeaconBlock<TEthSpec>,
     ) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or_else(|| "weakly_subjective_point() requires a store")?;
-
-        beacon_state
-            .build_all_caches(&self.spec)
-            .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
-
         let beacon_state_root = beacon_state.canonical_root();
         let beacon_block_root = beacon_block.canonical_root();
 
         if beacon_block.message.state_root != beacon_state_root {
             return Err(format!(
-                "Block {} does not correspond with the state {}",
+                "Block {} does not correspond to the state {}",
                 beacon_block_root, beacon_state_root
             ));
+        }
+
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "weakly_subjective_point() requires a store")?;
+        let split_slot = store.get_split_slot();
+        if beacon_block.slot() < split_slot {
+            let local_state = store
+                .load_cold_state_by_slot(beacon_block.slot())
+                .map_err(|e| {
+                    format!(
+                        "Could not load cold state at slot {}: {:?}",
+                        beacon_block.slot(),
+                        e
+                    )
+                })?;
+            let local_state_hash = local_state.canonical_root();
+            if local_state_hash != beacon_state_root {
+                return Err(format!(
+                    "Weakly subjective state {} conflicts with an existing state {} at slot {}",
+                    beacon_state_root,
+                    local_state_hash,
+                    beacon_block.slot()
+                ));
+            }
         }
 
         store

@@ -206,16 +206,22 @@ where
                 state_bytes,
                 block_bytes,
             } => {
-                info!(
-                    context.log(),
-                    "Starting from a trusted state";
-                );
-
-                let weakly_subjective_state = BeaconState::from_ssz_bytes(&state_bytes)
+                let mut weakly_subjective_state = BeaconState::from_ssz_bytes(&state_bytes)
                     .map_err(|e| format!("Unable to parse state SSZ: {:?}", e))?;
 
                 let weakly_subjective_block = SignedBeaconBlock::from_ssz_bytes(&block_bytes)
                     .map_err(|e| format!("Unable to parse block SSZ: {:?}", e))?;
+
+                weakly_subjective_state
+                    .build_all_caches(&spec)
+                    .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
+
+                info!(
+                    context.log(),
+                    "Starting from a weak subjectivity point";
+                    "block" => format!("{}", weakly_subjective_block.canonical_root()),
+                    "parent" => format!("{}", weakly_subjective_block.parent_root()),
+                );
 
                 builder
                     .weakly_subjective_point(weakly_subjective_state, weakly_subjective_block)
