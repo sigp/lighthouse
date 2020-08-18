@@ -30,7 +30,7 @@ pub enum ClientKind {
     Teku,
     /// A Prysm node.
     Prysm,
-    /// A loadstar node.
+    /// A lodestar node.
     Lodestar,
     /// An unknown client.
     Unknown,
