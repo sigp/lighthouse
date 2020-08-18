@@ -408,15 +408,14 @@ where
             ));
         }
 
-        let genesis_block = genesis_block(&mut beacon_state, &self.spec)?;
-        self.genesis_block_root = Some(genesis_block.canonical_root());
-
         store
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store state: {:?}", e))?;
         store
             .put_item(&beacon_block_root, &beacon_block)
             .map_err(|e| format!("Failed to store block: {:?}", e))?;
+
+        self.genesis_block_root = Some(beacon_block_root);
 
         self.validator_pubkey_cache = {
             let pubkey_cache_path = self
