@@ -8,7 +8,7 @@ mod range_sync;
 
 pub use manager::{BatchProcessResult, SyncMessage};
 pub use peer_sync_info::PeerSyncInfo;
-pub use range_sync::{BatchId, ChainId};
+pub use range_sync::ChainId;
 
 /// Type of id of rpc requests sent by sync
 pub type RequestId = usize;

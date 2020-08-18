@@ -1,6 +1,6 @@
 [package]
 name = "validator_client"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
 edition = "2018"
 
