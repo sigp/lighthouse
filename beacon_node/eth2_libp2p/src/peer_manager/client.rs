@@ -31,7 +31,7 @@ pub enum ClientKind {
     /// A Prysm node.
     Prysm,
     /// A loadstar node.
-    Loadstar,
+    Lodestar,
     /// An unknown client.
     Unknown,
 }
@@ -86,7 +86,7 @@ impl std::fmt::Display for Client {
                 "Prysm: version: {}, os_version: {}",
                 self.version, self.os_version
             ),
-            ClientKind::Loadstar => write!(f, "Loadstar: version: {}", self.version),
+            ClientKind::Lodestar => write!(f, "Lodestar: version: {}", self.version),
             ClientKind::Unknown => {
                 if let Some(agent_string) = &self.agent_string {
                     write!(f, "Unknown: {}", agent_string)
@@ -161,7 +161,7 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
             (kind, version, os_version)
         }
         Some("js-libp2p") => {
-            let kind = ClientKind::Loadstar;
+            let kind = ClientKind::Lodestar;
             let mut version = String::from("unknown");
             let mut os_version = version.clone();
             if let Some(agent_version) = agent_split.next() {
