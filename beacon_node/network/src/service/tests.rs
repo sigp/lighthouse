@@ -40,7 +40,13 @@ mod tests {
         let runtime = Runtime::new().unwrap();
 
         let (signal, exit) = exit_future::signal();
-        let executor = environment::TaskExecutor::new(runtime.handle().clone(), exit, log.clone());
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = environment::TaskExecutor::new(
+            runtime.handle().clone(),
+            exit,
+            log.clone(),
+            shutdown_tx,
+        );
 
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;

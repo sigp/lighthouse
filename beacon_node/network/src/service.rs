@@ -169,6 +169,7 @@ fn spawn_service<T: BeaconChainTypes>(
     mut service: NetworkService<T>,
 ) -> error::Result<()> {
     let mut exit_rx = executor.exit();
+    let mut shutdown_sender = executor.shutdown_sender();
 
     // spawn on the current executor
     executor.spawn_without_exit(async move {
@@ -375,6 +376,12 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
+                        }
+                        Libp2pEvent::ZeroListeners => {
+                            let _ = shutdown_sender.send("All listeners are closed. Unable to listen").await.map_err(|e| {
+                                warn!(service.log, "failed to send a shutdown signal"; "error" => e.to_string()
+                                )
+                            });
                         }
                     }
                 }
