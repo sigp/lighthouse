@@ -310,12 +310,14 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL);
+
         self.propagate_gossip_message(message_id, peer_id);
-        // TODO: metrics.
 
         self.chain.import_voluntary_exit(exit);
-
         debug!(self.log, "Successfully imported voluntary exit");
+
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_IMPORTED_TOTAL);
     }
 
     pub fn process_gossip_proposer_slashing(
@@ -353,11 +355,14 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
+
         self.propagate_gossip_message(message_id, peer_id);
-        // TODO: metrics.
 
         self.chain.import_proposer_slashing(slashing);
         debug!(self.log, "Successfully imported proposer slashing");
+
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_IMPORTED_TOTAL);
     }
 
     pub fn process_gossip_attester_slashing(
@@ -392,12 +397,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         self.propagate_gossip_message(message_id, peer_id);
-        // TODO: metrics.
+
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
             debug!(self.log, "Error importing attester slashing"; "error" => format!("{:?}", e));
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL);
         } else {
             debug!(self.log, "Successfully imported attester slashing");
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
         }
     }
 
