@@ -437,8 +437,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_debounce = TimeLatch::default();
 
-        // Using a LIFO queue for voluntary exits since it prevents exit censoring. I don't have
-        // strong feeling about queue type for exits.
+        // Using a FIFO queue for voluntary exits since it prevents exit censoring. I don't have
+        // a strong feeling about queue type for exits.
         let mut gossip_voluntary_exit_queue = FifoQueue::new(MAX_GOSSIP_EXIT_QUEUE_LEN);
 
         // Using a FIFO queue for slashing to prevent people from flushing their slashings from the
@@ -448,7 +448,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut gossip_attester_slashing_queue =
             FifoQueue::new(MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN);
 
-        // Using a FIFO queue since blocks need to imported sequentially.
+        // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
