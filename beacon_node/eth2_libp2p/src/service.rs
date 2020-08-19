@@ -291,8 +291,11 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     }
                 }
                 SwarmEvent::ListenerError { error } => {
-                    // this is non fatal
-                    warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()))
+                    // this is non fatal, but we still check
+                    warn!(self.log, "Listener error"; "error" => format!("{:?}", error.to_string()));
+                    if Swarm::listeners(&self.swarm).count() == 0 {
+                        return Libp2pEvent::ZeroListeners;
+                    }
                 }
                 SwarmEvent::Dialing(peer_id) => {
                     debug!(self.log, "Dialing peer"; "peer_id" => peer_id.to_string());

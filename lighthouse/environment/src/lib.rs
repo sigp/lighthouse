@@ -326,9 +326,9 @@ impl<E: EthSpec> RuntimeContext<E> {
 /// validator client, or to run tests that involve logging and async task execution.
 pub struct Environment<E: EthSpec> {
     runtime: Runtime,
-    /// TODO: docs
+    /// Receiver side of an internal shutdown signal.
     signal_rx: Option<Receiver<&'static str>>,
-    /// TODO: docs
+    /// Sender to request shutting down.
     signal_tx: Sender<&'static str>,
     signal: Option<exit_future::Signal>,
     exit: exit_future::Exit,
