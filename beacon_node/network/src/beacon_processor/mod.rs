@@ -701,7 +701,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let executor = self.executor.clone();
 
         let worker = Worker {
-            chain: chain.clone(),
+            chain,
             network_tx: self.network_tx.clone(),
             sync_tx: self.sync_tx.clone(),
             log: self.log.clone(),

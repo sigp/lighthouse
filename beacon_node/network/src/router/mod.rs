@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> Router<T> {
             executor.clone(),
             beacon_chain,
             network_globals.clone(),
-            network_send.clone(),
+            network_send,
             &log,
         );
 
