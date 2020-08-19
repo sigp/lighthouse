@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
