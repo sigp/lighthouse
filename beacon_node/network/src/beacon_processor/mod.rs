@@ -374,9 +374,9 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAttestation { .. } => "gossip_attestation",
             Work::GossipAggregate { .. } => "gossip_aggregate",
             Work::GossipBlock { .. } => "gossip_block",
-            Work::GossipVoluntaryExit { .. } => "voluntary_exit",
-            Work::GossipProposerSlashing { .. } => "proposer_slashing",
-            Work::GossipAttesterSlashing { .. } => "attester_slashing",
+            Work::GossipVoluntaryExit { .. } => "gossip_voluntary_exit",
+            Work::GossipProposerSlashing { .. } => "gossip_proposer_slashing",
+            Work::GossipAttesterSlashing { .. } => "gossip_attester_slashing",
             Work::RpcBlock { .. } => "rpc_block",
             Work::ChainSegment { .. } => "chain_segment",
         }
