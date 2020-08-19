@@ -1,6 +1,6 @@
 use crate::peer_manager::{score::PeerAction, PeerManager, PeerManagerEvent};
 use crate::rpc::*;
-use crate::types::{EnrBitfield, GossipEncoding, GossipKind, GossipTopic};
+use crate::types::{EnrBitfield, GossipEncoding, GossipKind, GossipTopic, SubnetDiscovery};
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
@@ -29,7 +29,6 @@ use std::{
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
-    time::Instant,
 };
 use types::{EnrForkId, EthSpec, SignedBeaconBlock, SubnetId};
 
@@ -301,8 +300,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
-        self.peer_manager.discover_subnet_peers(subnet_id, min_ttl)
+    pub fn discover_subnet_peers(&mut self, subnet_subscriptions: Vec<SubnetDiscovery>) {
+        self.peer_manager
+            .discover_subnet_peers(subnet_subscriptions)
     }
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.

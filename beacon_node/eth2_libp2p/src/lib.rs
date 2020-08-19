@@ -14,7 +14,7 @@ pub mod rpc;
 mod service;
 pub mod types;
 
-pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage};
+pub use crate::types::{error, Enr, GossipTopic, NetworkGlobals, PubsubMessage, SubnetDiscovery};
 pub use behaviour::{BehaviourEvent, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};

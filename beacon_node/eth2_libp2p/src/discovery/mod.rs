@@ -8,7 +8,7 @@ pub use enr_ext::{CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::Keypair;
 
 use crate::metrics;
-use crate::{error, Enr, NetworkConfig, NetworkGlobals};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
 use futures::prelude::*;
@@ -305,12 +305,19 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Processes a request to search for more peers on a subnet.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
         // If the discv5 service isn't running, ignore queries
         if !self.started {
             return;
         }
-        self.add_subnet_query(subnet_id, min_ttl, 0);
+        debug!(
+            self.log,
+            "Making discovery query for subnets";
+            "subnets" => format!("{:?}", subnets_to_discover.iter().map(|s| s.subnet_id).collect::<Vec<_>>())
+        );
+        for subnet in subnets_to_discover {
+            self.add_subnet_query(subnet.subnet_id, subnet.min_ttl, 0);
+        }
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.
@@ -514,6 +521,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         // This query is for searching for peers of a particular subnet
                         // Drain subnet_queries so we can re-use it as we continue to process the queue
                         let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
+                        debug!(
+                            self.log,
+                            "Starting grouped subnet query";
+                            "subnets" => format!("{:?}", grouped_queries.iter().map(|q| q.subnet_id).collect::<Vec<_>>()),
+                        );
                         self.start_subnet_query(grouped_queries);
                     }
                 }

@@ -4,7 +4,7 @@ pub use self::peerdb::*;
 use crate::discovery::{Discovery, DiscoveryEvent};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics};
-use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId};
+use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
@@ -19,7 +19,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId};
+use types::EthSpec;
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -213,17 +213,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// A request to find peers on a given subnet.
-    pub fn discover_subnet_peers(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
         // Extend the time to maintain peers if required.
-        if let Some(min_ttl) = min_ttl {
-            self.network_globals
-                .peers
-                .write()
-                .extend_peers_on_subnet(subnet_id, min_ttl);
+        for s in subnets_to_discover.iter() {
+            if let Some(min_ttl) = s.min_ttl {
+                self.network_globals
+                    .peers
+                    .write()
+                    .extend_peers_on_subnet(s.subnet_id, min_ttl);
+            }
         }
 
         // request the subnet query from discovery
-        self.discovery.discover_subnet_peers(subnet_id, min_ttl);
+        self.discovery.discover_subnet_peers(subnets_to_discover);
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
