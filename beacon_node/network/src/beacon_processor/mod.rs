@@ -542,6 +542,18 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(idle_tx.clone(), item);
                         } else if let Some(item) = attestation_queue.pop() {
                             self.spawn_worker(idle_tx.clone(), item);
+                        // Check slashings after all other consensus messages so we prioritize
+                        // following head.
+                        //
+                        // Check attester slashings before proposer slashings since they have the
+                        // potential to slash multiple validators at once.
+                        } else if let Some(item) = gossip_attester_slashing_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
+                        } else if let Some(item) = gossip_proposer_slashing_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
+                        // Check exits last since our validators don't get rewards from them.
+                        } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
+                            self.spawn_worker(idle_tx.clone(), item);
                         }
                     }
                     // There is no new work event and we are unable to spawn a new worker.
@@ -621,6 +633,18 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
                     chain_segment_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_EXIT_QUEUE_TOTAL,
+                    gossip_voluntary_exit_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_QUEUE_TOTAL,
+                    gossip_proposer_slashing_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_QUEUE_TOTAL,
+                    gossip_attester_slashing_queue.len() as i64,
                 );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
