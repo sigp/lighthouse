@@ -155,8 +155,10 @@ pub fn stream_forks<T: BeaconChainTypes>(
                     break;
                 }
             };
-            if let Err(bytes) = block_on(sender.send_data(chunk)) {
-                error!(log, "Couldn't stream piece {:?}", bytes);
+            match block_on(sender.send_data(chunk)) {
+                Err(e) if e.is_closed() => break,
+                Err(e) => error!(log, "Couldn't stream piece {:?}", e),
+                Ok(_) => (),
             }
         }
     });

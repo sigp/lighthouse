@@ -18,8 +18,9 @@ use types::{
 type E = MainnetEthSpec;
 
 // Should ideally be divisible by 3.
-pub const VALIDATOR_COUNT: usize = 24;
-pub const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
+const VALIDATOR_COUNT: usize = 24;
+const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
+const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGTH - 1];
 
 lazy_static! {
     /// A cached set of keys.
@@ -272,17 +273,73 @@ fn chain_segment_non_linear_slots() {
     );
 }
 
+fn assert_invalid_signature(
+    harness: &BeaconChainHarness<HarnessType<E>>,
+    block_index: usize,
+    snapshots: &[BeaconSnapshot<E>],
+    item: &str,
+) {
+    let blocks = snapshots
+        .iter()
+        .map(|snapshot| snapshot.beacon_block.clone())
+        .collect();
+
+    // Ensure the block will be rejected if imported in a chain segment.
+    assert!(
+        matches!(
+            harness
+                .chain
+                .process_chain_segment(blocks)
+                .into_block_error(),
+            Err(BlockError::InvalidSignature)
+        ),
+        "should not import chain segment with an invalid {} signature",
+        item
+    );
+
+    // Ensure the block will be rejected if imported on its own (without gossip checking).
+    let ancestor_blocks = CHAIN_SEGMENT
+        .iter()
+        .take(block_index)
+        .map(|snapshot| snapshot.beacon_block.clone())
+        .collect();
+    // We don't care if this fails, we just call this to ensure that all prior blocks have been
+    // imported prior to this test.
+    let _ = harness.chain.process_chain_segment(ancestor_blocks);
+    assert!(
+        matches!(
+            harness
+                .chain
+                .process_block(snapshots[block_index].beacon_block.clone()),
+            Err(BlockError::InvalidSignature)
+        ),
+        "should not import individual block with an invalid {} signature",
+        item
+    );
+
+    // NOTE: we choose not to check gossip verification here. It only checks one signature
+    // (proposal) and that is already tested elsewhere in this file.
+    //
+    // It's not trivial to just check gossip verification since it will start refusing
+    // blocks as soon as it has seen one valid proposal signature for a given (validator,
+    // slot) tuple.
+}
+
+fn get_invalid_sigs_harness() -> BeaconChainHarness<HarnessType<E>> {
+    let harness = get_harness(VALIDATOR_COUNT);
+    harness
+        .chain
+        .slot_clock
+        .set_slot(CHAIN_SEGMENT.last().unwrap().beacon_block.slot().as_u64());
+    harness
+}
 #[test]
-fn invalid_signatures() {
-    let mut checked_attestation = false;
-
-    for &block_index in &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT.len() - 1] {
-        let harness = get_harness(VALIDATOR_COUNT);
-        harness
-            .chain
-            .slot_clock
-            .set_slot(CHAIN_SEGMENT.last().unwrap().beacon_block.slot().as_u64());
-
+fn invalid_signature_gossip_block() {
+    for &block_index in BLOCK_INDICES {
+        // Ensure the block will be rejected if imported on its own (without gossip checking).
+        let harness = get_invalid_sigs_harness();
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        snapshots[block_index].beacon_block.signature = junk_signature();
         // Import all the ancestors before the `block_index` block.
         let ancestor_blocks = CHAIN_SEGMENT
             .iter()
@@ -294,75 +351,6 @@ fn invalid_signatures() {
             .process_chain_segment(ancestor_blocks)
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
-
-        // For the given snapshots, test the following:
-        //
-        // - The `process_chain_segment` function returns `InvalidSignature`.
-        // - The `process_block` function returns `InvalidSignature` when importing the
-        //    `SignedBeaconBlock` directly.
-        // - The `verify_block_for_gossip` function does _not_ return an error.
-        // - The `process_block` function returns `InvalidSignature` when verifying the
-        //    `GossipVerifiedBlock`.
-        let assert_invalid_signature = |snapshots: &[BeaconSnapshot<E>], item: &str| {
-            let blocks = snapshots
-                .iter()
-                .map(|snapshot| snapshot.beacon_block.clone())
-                .collect();
-
-            // Ensure the block will be rejected if imported in a chain segment.
-            assert!(
-                matches!(
-                    harness
-                        .chain
-                        .process_chain_segment(blocks)
-                        .into_block_error(),
-                    Err(BlockError::InvalidSignature)
-                ),
-                "should not import chain segment with an invalid {} signature",
-                item
-            );
-
-            // Ensure the block will be rejected if imported on its own (without gossip checking).
-            assert!(
-                matches!(
-                    harness
-                        .chain
-                        .process_block(snapshots[block_index].beacon_block.clone()),
-                    Err(BlockError::InvalidSignature)
-                ),
-                "should not import individual block with an invalid {} signature",
-                item
-            );
-
-            // NOTE: we choose not to check gossip verification here. It only checks one signature
-            // (proposal) and that is already tested elsewhere in this file.
-            //
-            // It's not trivial to just check gossip verification since it will start refusing
-            // blocks as soon as it has seen one valid proposal signature for a given (validator,
-            // slot) tuple.
-        };
-
-        /*
-         * Block proposal
-         */
-        let mut snapshots = CHAIN_SEGMENT.clone();
-        snapshots[block_index].beacon_block.signature = junk_signature();
-        let blocks = snapshots
-            .iter()
-            .map(|snapshot| snapshot.beacon_block.clone())
-            .collect();
-        // Ensure the block will be rejected if imported in a chain segment.
-        assert!(
-            matches!(
-                harness
-                    .chain
-                    .process_chain_segment(blocks)
-                    .into_block_error(),
-                Err(BlockError::InvalidSignature)
-            ),
-            "should not import chain segment with an invalid gossip signature",
-        );
-        // Ensure the block will be rejected if imported on its own (without gossip checking).
         assert!(
             matches!(
                 harness
@@ -372,10 +360,37 @@ fn invalid_signatures() {
             ),
             "should not import individual block with an invalid gossip signature",
         );
+    }
+}
 
-        /*
-         * Randao reveal
-         */
+#[test]
+fn invalid_signature_block_proposal() {
+    for &block_index in BLOCK_INDICES {
+        let harness = get_invalid_sigs_harness();
+        let mut snapshots = CHAIN_SEGMENT.clone();
+        snapshots[block_index].beacon_block.signature = junk_signature();
+        let blocks = snapshots
+            .iter()
+            .map(|snapshot| snapshot.beacon_block.clone())
+            .collect::<Vec<_>>();
+        // Ensure the block will be rejected if imported in a chain segment.
+        assert!(
+            matches!(
+                harness
+                    .chain
+                    .process_chain_segment(blocks)
+                    .into_block_error(),
+                Err(BlockError::InvalidSignature)
+            ),
+            "should not import chain segment with an invalid block signature",
+        );
+    }
+}
+
+#[test]
+fn invalid_signature_randao_reveal() {
+    for &block_index in BLOCK_INDICES {
+        let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         snapshots[block_index]
             .beacon_block
@@ -384,11 +399,14 @@ fn invalid_signatures() {
             .randao_reveal = junk_signature();
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        assert_invalid_signature(&snapshots, "randao");
+        assert_invalid_signature(&harness, block_index, &snapshots, "randao");
+    }
+}
 
-        /*
-         * Proposer slashing
-         */
+#[test]
+fn invalid_signature_proposer_slashing() {
+    for &block_index in BLOCK_INDICES {
+        let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         let proposer_slashing = ProposerSlashing {
             signed_header_1: SignedBeaconBlockHeader {
@@ -409,11 +427,14 @@ fn invalid_signatures() {
             .expect("should update proposer slashing");
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        assert_invalid_signature(&snapshots, "proposer slashing");
+        assert_invalid_signature(&harness, block_index, &snapshots, "proposer slashing");
+    }
+}
 
-        /*
-         * Attester slashing
-         */
+#[test]
+fn invalid_signature_attester_slashing() {
+    for &block_index in BLOCK_INDICES {
+        let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         let indexed_attestation = IndexedAttestation {
             attesting_indices: vec![0].into(),
@@ -445,11 +466,16 @@ fn invalid_signatures() {
             .expect("should update attester slashing");
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        assert_invalid_signature(&snapshots, "attester slashing");
+        assert_invalid_signature(&harness, block_index, &snapshots, "attester slashing");
+    }
+}
 
-        /*
-         * Attestation
-         */
+#[test]
+fn invalid_signature_attestation() {
+    let mut checked_attestation = false;
+
+    for &block_index in BLOCK_INDICES {
+        let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         if let Some(attestation) = snapshots[block_index]
             .beacon_block
@@ -461,15 +487,22 @@ fn invalid_signatures() {
             attestation.signature = junk_aggregate_signature();
             update_parent_roots(&mut snapshots);
             update_proposal_signatures(&mut snapshots, &harness);
-            assert_invalid_signature(&snapshots, "attestation");
+            assert_invalid_signature(&harness, block_index, &snapshots, "attestation");
             checked_attestation = true;
         }
+    }
 
-        /*
-         * Deposit
-         *
-         * Note: an invalid deposit signature is permitted!
-         */
+    assert!(
+        checked_attestation,
+        "the test should check an attestation signature"
+    )
+}
+
+#[test]
+fn invalid_signature_deposit() {
+    for &block_index in BLOCK_INDICES {
+        // Note: an invalid deposit signature is permitted!
+        let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         let deposit = Deposit {
             proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1].into(),
@@ -503,10 +536,13 @@ fn invalid_signatures() {
             ),
             "should not throw an invalid signature error for a bad deposit signature"
         );
+    }
+}
 
-        /*
-         * Voluntary exit
-         */
+#[test]
+fn invalid_signature_exit() {
+    for &block_index in BLOCK_INDICES {
+        let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         let epoch = snapshots[block_index].beacon_state.current_epoch();
         snapshots[block_index]
@@ -524,13 +560,8 @@ fn invalid_signatures() {
             .expect("should update deposit");
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        assert_invalid_signature(&snapshots, "voluntary exit");
+        assert_invalid_signature(&harness, block_index, &snapshots, "voluntary exit");
     }
-
-    assert!(
-        checked_attestation,
-        "the test should check an attestation signature"
-    )
 }
 
 fn unwrap_err<T, E>(result: Result<T, E>) -> E {
@@ -639,6 +670,48 @@ fn block_gossip_verification() {
             BlockError::ProposalSignatureInvalid
         ),
         "should not import a block with an invalid proposal signature"
+    );
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.12.2
+     *
+     * The block's parent (defined by block.parent_root) passes validation.
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let parent_root = Hash256::from_low_u64_be(42);
+    block.message.parent_root = parent_root;
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            BlockError::ParentUnknown(block)
+            if block.parent_root() == parent_root
+        ),
+        "should not import a block for an unknown parent"
+    );
+
+    /*
+     * This test ensures that:
+     *
+     * Spec v0.12.2
+     *
+     * The current finalized_checkpoint is an ancestor of block -- i.e. get_ancestor(store,
+     * block.parent_root, compute_start_slot_at_epoch(store.finalized_checkpoint.epoch)) ==
+     * store.finalized_checkpoint.root
+     */
+
+    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let parent_root = CHAIN_SEGMENT[0].beacon_block_root;
+    block.message.parent_root = parent_root;
+    assert!(
+        matches!(
+            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            BlockError::NotFinalizedDescendant { block_parent_root }
+            if block_parent_root == parent_root
+        ),
+        "should not import a block that conflicts with finality"
     );
 
     /*

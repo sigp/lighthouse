@@ -3,9 +3,11 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::block_verification::{
-    check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError,
-    FullyVerifiedBlock, GossipVerifiedBlock, IntoFullyVerifiedBlock,
+    check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
+    signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
+    IntoFullyVerifiedBlock,
 };
+use crate::chain_config::ChainConfig;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::{EventHandler, EventKind};
@@ -70,7 +72,6 @@ pub const ETH1_CACHE_DB_KEY: [u8; 32] = [0; 32];
 pub const FORK_CHOICE_DB_KEY: [u8; 32] = [0; 32];
 
 /// The result of a chain segment processing.
-#[derive(Debug)]
 pub enum ChainSegmentResult<T: EthSpec> {
     /// Processing this chain segment finished successfully.
     Successful { imported_blocks: usize },
@@ -161,6 +162,8 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
     pub spec: ChainSpec,
+    /// Configuration for `BeaconChain` runtime behaviour.
+    pub config: ChainConfig,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// Database migrator for running background maintenance on the store.
@@ -1215,6 +1218,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                // The block has a known parent that does not descend from the finalized block.
+                // There is no need to process this block or any children.
+                Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::NotFinalizedDescendant { block_parent_root },
+                    }
+                }
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
                 Err(BlockError::BeaconChainError(e)) => {
@@ -1310,7 +1321,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 debug!(
                     self.log,
                     "Rejected gossip block";
-                    "error" => format!("{:?}", e),
+                    "error" => e.to_string(),
                     "graffiti" => graffiti_string,
                     "slot" => slot,
                 );
@@ -1393,11 +1404,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 trace!(
                     self.log,
                     "Beacon block rejected";
-                    "reason" => format!("{:?}", other),
+                    "reason" => other.to_string(),
                 );
 
                 let _ = self.event_handler.register(EventKind::BeaconBlockRejected {
-                    reason: format!("Invalid block: {:?}", other),
+                    reason: format!("Invalid block: {}", other),
                     block: Box::new(block),
                 });
 
@@ -1416,7 +1427,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         fully_verified_block: FullyVerifiedBlock<T>,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let signed_block = fully_verified_block.block;
-        let block = &signed_block.message;
         let block_root = fully_verified_block.block_root;
         let state = fully_verified_block.state;
         let parent_block = fully_verified_block.parent_block;
@@ -1428,7 +1438,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
-        for a in &block.body.attestations {
+        for a in &signed_block.message.body.attestations {
             match self.observed_attestations.observe_attestation(a, None) {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
@@ -1477,6 +1487,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let mut fork_choice = self.fork_choice.write();
+
+        // Do not import a block that doesn't descend from the finalized root.
+        let signed_block =
+            check_block_is_finalized_descendant::<T, _>(signed_block, &fork_choice, &self.store)?;
+        let block = &signed_block.message;
 
         // Register the new block with the fork choice service.
         {
@@ -1565,12 +1580,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         randao_reveal: Signature,
         slot: Slot,
+        validator_graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         let state = self
             .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
             .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-        self.produce_block_on_state(state, slot, randao_reveal)
+        self.produce_block_on_state(state, slot, randao_reveal, validator_graffiti)
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -1586,6 +1602,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
+        validator_graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
@@ -1653,6 +1670,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // Override the beacon node's graffiti with graffiti from the validator, if present.
+        let graffiti = match validator_graffiti {
+            Some(graffiti) => graffiti,
+            None => self.graffiti,
+        };
+
         let mut block = SignedBeaconBlock {
             message: BeaconBlock {
                 slot: state.slot,
@@ -1662,7 +1685,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 body: BeaconBlockBody {
                     randao_reveal,
                     eth1_data,
-                    graffiti: self.graffiti,
+                    graffiti,
                     proposer_slashings: proposer_slashings.into(),
                     attester_slashings: attester_slashings.into(),
                     attestations: self

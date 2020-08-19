@@ -1,10 +1,9 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::peer_manager::PeerDB;
-use crate::rpc::methods::MetaData;
 use crate::types::SyncState;
 use crate::Client;
 use crate::EnrExt;
-use crate::{Enr, Eth2Enr, GossipTopic, Multiaddr, PeerId};
+use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -13,8 +12,6 @@ use types::EthSpec;
 pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.
     pub local_enr: RwLock<Enr>,
-    /// The current node's meta-data.
-    pub meta_data: RwLock<MetaData<TSpec>>,
     /// The local peer_id.
     pub peer_id: RwLock<PeerId>,
     /// Listening multiaddrs.
@@ -33,17 +30,8 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     pub fn new(enr: Enr, tcp_port: u16, udp_port: u16, log: &slog::Logger) -> Self {
-        // set up the local meta data of the node
-        let meta_data = RwLock::new(MetaData {
-            seq_number: 0,
-            attnets: enr
-                .bitfield::<TSpec>()
-                .expect("Local ENR must have a bitfield specified"),
-        });
-
         NetworkGlobals {
             local_enr: RwLock::new(enr.clone()),
-            meta_data,
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             listen_port_tcp: AtomicU16::new(tcp_port),

@@ -45,12 +45,14 @@ mod tests {
         let mut config = NetworkConfig::default();
         config.libp2p_port = 21212;
         config.discovery_port = 21212;
-        config.boot_nodes = enrs.clone();
+        config.boot_nodes_enr = enrs.clone();
         runtime.spawn(async move {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _ = NetworkService::start(beacon_chain.clone(), &config, executor).unwrap();
+            let _ = NetworkService::start(beacon_chain.clone(), &config, executor)
+                .await
+                .unwrap();
             drop(signal);
         });
         runtime.shutdown_timeout(tokio::time::Duration::from_millis(300));

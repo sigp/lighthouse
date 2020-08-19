@@ -152,6 +152,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec.clone())
+            .import_max_skip_slots(None)
             .store(store.clone())
             .store_migrator(BlockingMigrator::new(store, log.clone()))
             .data_dir(data_dir.path().to_path_buf())
@@ -190,6 +191,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec)
+            .import_max_skip_slots(None)
             .store(store.clone())
             .store_migrator(<BlockingMigrator<_, _, _> as Migrate<E, _, _>>::new(
                 store,
@@ -520,7 +522,7 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, slot, randao_reveal)
+            .produce_block_on_state(state, slot, randao_reveal, None)
             .expect("should produce block");
 
         let signed_block = block.sign(sk, &state.fork, state.genesis_validators_root, &self.spec);

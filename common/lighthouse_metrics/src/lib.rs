@@ -57,8 +57,8 @@
 use prometheus::{HistogramOpts, HistogramTimer, Opts};
 
 pub use prometheus::{
-    Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec, Result,
-    TextEncoder,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, Result, TextEncoder,
 };
 
 /// Collect all the metrics for reporting.
@@ -66,7 +66,7 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
     prometheus::gather()
 }
 
-/// Attempts to crate an `IntCounter`, returning `Err` if the registry does not accept the counter
+/// Attempts to create an `IntCounter`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     let opts = Opts::new(name, help);
@@ -75,7 +75,7 @@ pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
     Ok(counter)
 }
 
-/// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the counter
+/// Attempts to create an `IntGauge`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     let opts = Opts::new(name, help);
@@ -84,7 +84,7 @@ pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
     Ok(gauge)
 }
 
-/// Attempts to crate a `Gauge`, returning `Err` if the registry does not accept the counter
+/// Attempts to create a `Gauge`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_float_gauge(name: &str, help: &str) -> Result<Gauge> {
     let opts = Opts::new(name, help);
@@ -93,7 +93,7 @@ pub fn try_create_float_gauge(name: &str, help: &str) -> Result<Gauge> {
     Ok(gauge)
 }
 
-/// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
+/// Attempts to create a `Histogram`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     let opts = HistogramOpts::new(name, help);
@@ -102,7 +102,7 @@ pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
     Ok(histogram)
 }
 
-/// Attempts to crate a `HistogramVec`, returning `Err` if the registry does not accept the counter
+/// Attempts to create a `HistogramVec`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram_vec(
     name: &str,
@@ -115,7 +115,7 @@ pub fn try_create_histogram_vec(
     Ok(histogram_vec)
 }
 
-/// Attempts to crate a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// Attempts to create a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge_vec(
     name: &str,
@@ -128,7 +128,7 @@ pub fn try_create_int_gauge_vec(
     Ok(counter_vec)
 }
 
-/// Attempts to crate a `GaugeVec`, returning `Err` if the registry does not accept the gauge
+/// Attempts to create a `GaugeVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_float_gauge_vec(
     name: &str,
@@ -141,6 +141,20 @@ pub fn try_create_float_gauge_vec(
     Ok(counter_vec)
 }
 
+/// Attempts to create a `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
+/// (potentially due to naming conflict).
+pub fn try_create_int_counter_vec(
+    name: &str,
+    help: &str,
+    label_names: &[&str],
+) -> Result<IntCounterVec> {
+    let opts = Opts::new(name, help);
+    let counter_vec = IntCounterVec::new(opts, label_names)?;
+    prometheus::register(Box::new(counter_vec.clone()))?;
+    Ok(counter_vec)
+}
+
+/// If `int_gauge_vec.is_ok()`, returns a gauge with the given `name`.
 pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Option<IntGauge> {
     if let Ok(int_gauge_vec) = int_gauge_vec {
         Some(int_gauge_vec.get_metric_with_label_values(name).ok()?)
@@ -149,12 +163,37 @@ pub fn get_int_gauge(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) -> Opti
     }
 }
 
+/// If `int_counter_vec.is_ok()`, returns a counter with the given `name`.
+pub fn get_int_counter(
+    int_counter_vec: &Result<IntCounterVec>,
+    name: &[&str],
+) -> Option<IntCounter> {
+    if let Ok(int_counter_vec) = int_counter_vec {
+        Some(int_counter_vec.get_metric_with_label_values(name).ok()?)
+    } else {
+        None
+    }
+}
+
+/// Increments the `int_counter_vec` with the given `name`.
+pub fn inc_counter_vec(int_counter_vec: &Result<IntCounterVec>, name: &[&str]) {
+    if let Some(counter) = get_int_counter(int_counter_vec, name) {
+        counter.inc()
+    }
+}
+
+/// If `histogram_vec.is_ok()`, returns a histogram with the given `name`.
 pub fn get_histogram(histogram_vec: &Result<HistogramVec>, name: &[&str]) -> Option<Histogram> {
     if let Ok(histogram_vec) = histogram_vec {
         Some(histogram_vec.get_metric_with_label_values(name).ok()?)
     } else {
         None
     }
+}
+
+/// Starts a timer on `vec` with the given `name`.
+pub fn start_timer_vec(vec: &Result<HistogramVec>, name: &[&str]) -> Option<HistogramTimer> {
+    get_histogram(vec, name).map(|h| h.start_timer())
 }
 
 /// Starts a timer for the given `Histogram`, stopping when it gets dropped or given to `stop_timer(..)`.

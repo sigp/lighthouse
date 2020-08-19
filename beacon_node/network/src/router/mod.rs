@@ -9,14 +9,14 @@ pub mod processor;
 
 use crate::error;
 use crate::service::NetworkMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{RPCError, RequestId},
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use futures::prelude::*;
 use processor::Processor;
-use slog::{debug, info, o, trace, warn};
+use slog::{debug, o, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
@@ -215,46 +215,20 @@ impl<T: BeaconChainTypes> Router<T> {
         match gossip_message {
             // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => {
-                if let Some(gossip_verified) = self
-                    .processor
-                    .verify_aggregated_attestation_for_gossip(peer_id.clone(), *aggregate_and_proof)
-                {
-                    self.propagate_message(id, peer_id.clone());
-                    self.processor
-                        .import_aggregated_attestation(peer_id, gossip_verified);
-                }
+                self.processor
+                    .on_aggregated_attestation_gossip(id, peer_id, *aggregate_and_proof);
             }
             PubsubMessage::Attestation(subnet_attestation) => {
-                if let Some(gossip_verified) =
-                    self.processor.verify_unaggregated_attestation_for_gossip(
-                        peer_id.clone(),
-                        subnet_attestation.1.clone(),
-                        subnet_attestation.0,
-                    )
-                {
-                    self.propagate_message(id, peer_id.clone());
-                    if should_process {
-                        self.processor
-                            .import_unaggregated_attestation(peer_id, gossip_verified);
-                    }
-                }
+                self.processor.on_unaggregated_attestation_gossip(
+                    id,
+                    peer_id,
+                    subnet_attestation.1.clone(),
+                    subnet_attestation.0,
+                    should_process,
+                );
             }
             PubsubMessage::BeaconBlock(block) => {
-                match self.processor.should_forward_block(block) {
-                    Ok(verified_block) => {
-                        info!(self.log, "New block received"; "slot" => verified_block.block.slot(), "hash" => verified_block.block_root.to_string());
-                        self.propagate_message(id, peer_id.clone());
-                        self.processor.on_block_gossip(peer_id, verified_block);
-                    }
-                    Err(BlockError::ParentUnknown(block)) => {
-                        self.processor.on_unknown_parent(peer_id, block);
-                    }
-                    Err(e) => {
-                        // performing a parent lookup
-                        warn!(self.log, "Could not verify block for gossip";
-                            "error" => format!("{:?}", e));
-                    }
-                }
+                self.processor.on_block_gossip(id, peer_id, block);
             }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => format!("{}", peer_id));

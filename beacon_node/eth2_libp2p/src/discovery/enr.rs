@@ -82,6 +82,8 @@ pub fn build_or_load_enr<T: EthSpec>(
                             }
 
                             // same node id, different configuration - update the sequence number
+                            // Note: local_enr is generated with default(0) attnets value,
+                            // so a non default value in persisted enr will also update sequence number.
                             let new_seq_no = disk_enr.seq().checked_add(1).ok_or_else(|| "ENR sequence number on file is too large. Remove it to generate a new NodeId")?;
                             local_enr.set_seq(new_seq_no, &enr_key).map_err(|e| {
                                 format!("Could not update ENR sequence number: {:?}", e)
