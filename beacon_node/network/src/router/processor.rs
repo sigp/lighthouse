@@ -3,14 +3,13 @@ use crate::beacon_processor::{
 };
 use crate::service::NetworkMessage;
 use crate::sync::{PeerSyncInfo, SyncMessage};
-use beacon_chain::{observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{
     MessageId, NetworkGlobals, PeerAction, PeerId, PeerRequestId, Request, Response,
 };
 use itertools::process_results;
 use slog::{debug, error, o, trace, warn};
-use state_processing::SigVerifiedOp;
 use std::cmp;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -585,140 +584,70 @@ impl<T: BeaconChainTypes> Processor<T> {
             })
     }
 
-    /// Verify a voluntary exit before gossiping or processing it.
-    ///
-    /// Errors are logged at debug level.
-    pub fn verify_voluntary_exit_for_gossip(
-        &self,
-        peer_id: &PeerId,
-        voluntary_exit: SignedVoluntaryExit,
-    ) -> Option<SigVerifiedOp<SignedVoluntaryExit>> {
-        let validator_index = voluntary_exit.message.validator_index;
-
-        match self.chain.verify_voluntary_exit_for_gossip(voluntary_exit) {
-            Ok(ObservationOutcome::New(sig_verified_exit)) => Some(sig_verified_exit),
-            Ok(ObservationOutcome::AlreadyKnown) => {
-                debug!(
-                    self.log,
-                    "Dropping exit for already exiting validator";
-                    "validator_index" => validator_index,
-                    "peer" => peer_id.to_string()
-                );
-                None
-            }
-            Err(e) => {
-                debug!(
-                    self.log,
-                    "Dropping invalid exit";
-                    "validator_index" => validator_index,
-                    "peer" => peer_id.to_string(),
-                    "error" => format!("{:?}", e)
-                );
-                None
-            }
-        }
-    }
-
-    /// Import a verified exit into the op pool.
-    pub fn import_verified_voluntary_exit(
-        &self,
-        verified_voluntary_exit: SigVerifiedOp<SignedVoluntaryExit>,
+    pub fn on_voluntary_exit_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        voluntary_exit: Box<SignedVoluntaryExit>,
     ) {
-        self.chain.import_voluntary_exit(verified_voluntary_exit);
-        debug!(self.log, "Successfully imported voluntary exit");
+        self.beacon_processor_send
+            .try_send(BeaconWorkEvent::gossip_voluntary_exit(
+                message_id,
+                peer_id,
+                voluntary_exit,
+            ))
+            .unwrap_or_else(|e| {
+                error!(
+                    &self.log,
+                    "Unable to send to gossip processor";
+                    "type" => "voluntary exit gossip",
+                    "error" => e.to_string(),
+                )
+            })
     }
 
-    /// Verify a proposer slashing before gossiping or processing it.
-    ///
-    /// Errors are logged at debug level.
-    pub fn verify_proposer_slashing_for_gossip(
-        &self,
-        peer_id: &PeerId,
-        proposer_slashing: ProposerSlashing,
-    ) -> Option<SigVerifiedOp<ProposerSlashing>> {
-        let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
-
-        match self
-            .chain
-            .verify_proposer_slashing_for_gossip(proposer_slashing)
-        {
-            Ok(ObservationOutcome::New(verified_slashing)) => Some(verified_slashing),
-            Ok(ObservationOutcome::AlreadyKnown) => {
-                debug!(
-                    self.log,
-                    "Dropping proposer slashing";
-                    "reason" => "Already seen a proposer slashing for that validator",
-                    "validator_index" => validator_index,
-                    "peer" => peer_id.to_string()
-                );
-                None
-            }
-            Err(e) => {
-                debug!(
-                    self.log,
-                    "Dropping invalid proposer slashing";
-                    "validator_index" => validator_index,
-                    "peer" => peer_id.to_string(),
-                    "error" => format!("{:?}", e)
-                );
-                None
-            }
-        }
-    }
-
-    /// Import a verified proposer slashing into the op pool.
-    pub fn import_verified_proposer_slashing(
-        &self,
-        proposer_slashing: SigVerifiedOp<ProposerSlashing>,
+    pub fn on_proposer_slashing_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_slashing: Box<ProposerSlashing>,
     ) {
-        self.chain.import_proposer_slashing(proposer_slashing);
-        debug!(self.log, "Successfully imported proposer slashing");
+        self.beacon_processor_send
+            .try_send(BeaconWorkEvent::gossip_proposer_slashing(
+                message_id,
+                peer_id,
+                proposer_slashing,
+            ))
+            .unwrap_or_else(|e| {
+                error!(
+                    &self.log,
+                    "Unable to send to gossip processor";
+                    "type" => "proposer slashing gossip",
+                    "error" => e.to_string(),
+                )
+            })
     }
 
-    /// Verify an attester slashing before gossiping or processing it.
-    ///
-    /// Errors are logged at debug level.
-    pub fn verify_attester_slashing_for_gossip(
-        &self,
-        peer_id: &PeerId,
-        attester_slashing: AttesterSlashing<T::EthSpec>,
-    ) -> Option<SigVerifiedOp<AttesterSlashing<T::EthSpec>>> {
-        match self
-            .chain
-            .verify_attester_slashing_for_gossip(attester_slashing)
-        {
-            Ok(ObservationOutcome::New(verified_slashing)) => Some(verified_slashing),
-            Ok(ObservationOutcome::AlreadyKnown) => {
-                debug!(
-                    self.log,
-                    "Dropping attester slashing";
-                    "reason" => "Slashings already known for all slashed validators",
-                    "peer" => peer_id.to_string()
-                );
-                None
-            }
-            Err(e) => {
-                debug!(
-                    self.log,
-                    "Dropping invalid attester slashing";
-                    "peer" => peer_id.to_string(),
-                    "error" => format!("{:?}", e)
-                );
-                None
-            }
-        }
-    }
-
-    /// Import a verified attester slashing into the op pool.
-    pub fn import_verified_attester_slashing(
-        &self,
-        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
+    pub fn on_attester_slashing_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
     ) {
-        if let Err(e) = self.chain.import_attester_slashing(attester_slashing) {
-            debug!(self.log, "Error importing attester slashing"; "error" => format!("{:?}", e));
-        } else {
-            debug!(self.log, "Successfully imported attester slashing");
-        }
+        self.beacon_processor_send
+            .try_send(BeaconWorkEvent::gossip_attester_slashing(
+                message_id,
+                peer_id,
+                attester_slashing,
+            ))
+            .unwrap_or_else(|e| {
+                error!(
+                    &self.log,
+                    "Unable to send to gossip processor";
+                    "type" => "attester slashing gossip",
+                    "error" => e.to_string(),
+                )
+            })
     }
 }
 
