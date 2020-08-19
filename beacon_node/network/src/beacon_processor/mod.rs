@@ -44,7 +44,10 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
+use types::{
+    Attestation, AttesterSlashing, EthSpec, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+};
 use worker::Worker;
 
 mod chain_segment;
@@ -74,6 +77,18 @@ const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
 /// The maximum number of queued `SignedBeaconBlock` objects received on gossip that will be stored
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `SignedVoluntaryExit` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_EXIT_QUEUE_LEN: usize = 4_096;
+
+/// The maximum number of queued `ProposerSlashing` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_PROPOSER_SLASHING_QUEUE_LEN: usize = 4_096;
+
+/// The maximum number of queued `AttesterSlashing` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
 /// will be stored before we start dropping them.
@@ -239,6 +254,54 @@ impl<E: EthSpec> WorkEvent<E> {
         }
     }
 
+    /// Create a new `Work` event for some exit.
+    pub fn gossip_voluntary_exit(
+        message_id: MessageId,
+        peer_id: PeerId,
+        voluntary_exit: Box<SignedVoluntaryExit>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipVoluntaryExit {
+                message_id,
+                peer_id,
+                voluntary_exit,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some proposer slashing.
+    pub fn gossip_proposer_slashing(
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_slashing: Box<ProposerSlashing>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipProposerSlashing {
+                message_id,
+                peer_id,
+                proposer_slashing,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some attester slashing.
+    pub fn gossip_attester_slashing(
+        message_id: MessageId,
+        peer_id: PeerId,
+        attester_slashing: Box<AttesterSlashing<E>>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipAttesterSlashing {
+                message_id,
+                peer_id,
+                attester_slashing,
+            },
+        }
+    }
+
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(block: Box<SignedBeaconBlock<E>>) -> (Self, BlockResultReceiver<E>) {
@@ -279,6 +342,21 @@ pub enum Work<E: EthSpec> {
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<E>>,
     },
+    GossipVoluntaryExit {
+        message_id: MessageId,
+        peer_id: PeerId,
+        voluntary_exit: Box<SignedVoluntaryExit>,
+    },
+    GossipProposerSlashing {
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_slashing: Box<ProposerSlashing>,
+    },
+    GossipAttesterSlashing {
+        message_id: MessageId,
+        peer_id: PeerId,
+        attester_slashing: Box<AttesterSlashing<E>>,
+    },
     RpcBlock {
         block: Box<SignedBeaconBlock<E>>,
         result_tx: BlockResultSender<E>,
@@ -296,6 +374,9 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAttestation { .. } => "gossip_attestation",
             Work::GossipAggregate { .. } => "gossip_aggregate",
             Work::GossipBlock { .. } => "gossip_block",
+            Work::GossipVoluntaryExit { .. } => "voluntary_exit",
+            Work::GossipProposerSlashing { .. } => "proposer_slashing",
+            Work::GossipAttesterSlashing { .. } => "attester_slashing",
             Work::RpcBlock { .. } => "rpc_block",
             Work::ChainSegment { .. } => "chain_segment",
         }
@@ -348,17 +429,29 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     pub fn spawn_manager(mut self, mut event_rx: mpsc::Receiver<WorkEvent<T::EthSpec>>) {
         let (idle_tx, mut idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
 
+        // Using LIFO queues for attestations since validator profits rely upon getting fresh
+        // attestations into blocks. Additionally, later attestations contain more information than
+        // earlier ones, so we consider them more valuable.
         let mut aggregate_queue = LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut aggregate_debounce = TimeLatch::default();
-
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_debounce = TimeLatch::default();
 
-        let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
+        // Using a LIFO queue for voluntary exits since it prevents exit censoring. I don't have
+        // strong feeling about queue type for exits.
+        let mut gossip_voluntary_exit_queue = FifoQueue::new(MAX_GOSSIP_EXIT_QUEUE_LEN);
 
+        // Using a FIFO queue for slashing to prevent people from flushing their slashings from the
+        // queues with lots of junk messages.
+        let mut gossip_proposer_slashing_queue =
+            FifoQueue::new(MAX_GOSSIP_PROPOSER_SLASHING_QUEUE_LEN);
+        let mut gossip_attester_slashing_queue =
+            FifoQueue::new(MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN);
+
+        // Using a FIFO queue since blocks need to imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
-
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
+        let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
 
         let executor = self.executor.clone();
 
@@ -487,6 +580,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
+                            }
+                            Work::GossipVoluntaryExit { .. } => {
+                                gossip_voluntary_exit_queue.push(work, work_id, &self.log)
+                            }
+                            Work::GossipProposerSlashing { .. } => {
+                                gossip_proposer_slashing_queue.push(work, work_id, &self.log)
+                            }
+                            Work::GossipAttesterSlashing { .. } => {
+                                gossip_attester_slashing_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
                             Work::ChainSegment { .. } => {
@@ -625,6 +727,38 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         block,
                     } => worker.process_gossip_block(message_id, peer_id, *block),
+                    /*
+                     * Voluntary exits received on gossip.
+                     */
+                    Work::GossipVoluntaryExit {
+                        message_id,
+                        peer_id,
+                        voluntary_exit,
+                    } => worker.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit),
+                    /*
+                     * Proposer slashings received on gossip.
+                     */
+                    Work::GossipProposerSlashing {
+                        message_id,
+                        peer_id,
+                        proposer_slashing,
+                    } => worker.process_gossip_proposer_slashing(
+                        message_id,
+                        peer_id,
+                        *proposer_slashing,
+                    ),
+                    /*
+                     * Attester slashings received on gossip.
+                     */
+                    Work::GossipAttesterSlashing {
+                        message_id,
+                        peer_id,
+                        attester_slashing,
+                    } => worker.process_gossip_attester_slashing(
+                        message_id,
+                        peer_id,
+                        *attester_slashing,
+                    ),
                     /*
                      * Verification for beacon blocks received during syncing via RPC.
                      */

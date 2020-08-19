@@ -4,15 +4,18 @@ use super::{
 };
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
-    attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    BlockError, ForkChoiceError,
+    attestation_verification::Error as AttnError, observed_operations::ObservationOutcome,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
 };
 use eth2_libp2p::{MessageId, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use ssz::Encode;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Attestation, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
+use types::{
+    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+};
 
 /// Contains the context necessary to import blocks, attestations, etc to the beacon chain.
 pub struct Worker<T: BeaconChainTypes> {
@@ -274,6 +277,128 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
             }
         };
+    }
+
+    pub fn process_gossip_voluntary_exit(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        voluntary_exit: SignedVoluntaryExit,
+    ) {
+        let validator_index = voluntary_exit.message.validator_index;
+
+        let exit = match self.chain.verify_voluntary_exit_for_gossip(voluntary_exit) {
+            Ok(ObservationOutcome::New(exit)) => exit,
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Dropping exit for already exiting validator";
+                    "validator_index" => validator_index,
+                    "peer" => peer_id.to_string()
+                );
+                return;
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid exit";
+                    "validator_index" => validator_index,
+                    "peer" => peer_id.to_string(),
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
+        self.propagate_gossip_message(message_id, peer_id);
+        // TODO: metrics.
+
+        self.chain.import_voluntary_exit(exit);
+
+        debug!(self.log, "Successfully imported voluntary exit");
+    }
+
+    pub fn process_gossip_proposer_slashing(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_slashing: ProposerSlashing,
+    ) {
+        let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
+
+        let slashing = match self
+            .chain
+            .verify_proposer_slashing_for_gossip(proposer_slashing)
+        {
+            Ok(ObservationOutcome::New(slashing)) => slashing,
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Dropping proposer slashing";
+                    "reason" => "Already seen a proposer slashing for that validator",
+                    "validator_index" => validator_index,
+                    "peer" => peer_id.to_string()
+                );
+                return;
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid proposer slashing";
+                    "validator_index" => validator_index,
+                    "peer" => peer_id.to_string(),
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
+        self.propagate_gossip_message(message_id, peer_id);
+        // TODO: metrics.
+
+        self.chain.import_proposer_slashing(slashing);
+        debug!(self.log, "Successfully imported proposer slashing");
+    }
+
+    pub fn process_gossip_attester_slashing(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        attester_slashing: AttesterSlashing<T::EthSpec>,
+    ) {
+        let slashing = match self
+            .chain
+            .verify_attester_slashing_for_gossip(attester_slashing)
+        {
+            Ok(ObservationOutcome::New(slashing)) => slashing,
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "Dropping attester slashing";
+                    "reason" => "Slashings already known for all slashed validators",
+                    "peer" => peer_id.to_string()
+                );
+                return;
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid attester slashing";
+                    "peer" => peer_id.to_string(),
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
+        self.propagate_gossip_message(message_id, peer_id);
+        // TODO: metrics.
+
+        if let Err(e) = self.chain.import_attester_slashing(slashing) {
+            debug!(self.log, "Error importing attester slashing"; "error" => format!("{:?}", e));
+        } else {
+            debug!(self.log, "Successfully imported attester slashing");
+        }
     }
 
     /// Attempt to process a block received from a direct RPC request, returning the processing
