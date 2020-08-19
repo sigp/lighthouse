@@ -396,9 +396,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        self.propagate_gossip_message(message_id, peer_id);
-
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
+
+        self.propagate_gossip_message(message_id, peer_id);
 
         if let Err(e) = self.chain.import_attester_slashing(slashing) {
             debug!(self.log, "Error importing attester slashing"; "error" => format!("{:?}", e));
