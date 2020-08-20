@@ -43,6 +43,7 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
         old_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_block_hash: SignedBeaconBlockHash,
         new_finalized_slot: Slot,
+        log: Logger,
     ) -> Result<(), BeaconChainError> {
         // There will never be any blocks to prune if there is only a single head in the chain.
         if head_tracker.heads().len() == 1 {
@@ -152,6 +153,10 @@ pub trait Migrate<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>:
             }
         }
 
+        debug!(log, "Pruning blocks: {:?}", &abandoned_blocks);
+        debug!(log, "Pruning states: {:?}", &abandoned_states);
+        debug!(log, "Pruning heads: {:?}", &abandoned_heads);
+
         let batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
             .map(StoreOp::DeleteBlock)
@@ -184,13 +189,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold> fo
 /// Mostly useful for tests.
 pub struct BlockingMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
+    log: Logger,
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
     for BlockingMigrator<E, Hot, Cold>
 {
-    fn new(db: Arc<HotColdDB<E, Hot, Cold>>, _: Logger) -> Self {
-        BlockingMigrator { db }
+    fn new(db: Arc<HotColdDB<E, Hot, Cold>>, log: Logger) -> Self {
+        BlockingMigrator { db, log }
     }
 
     fn process_finalization(
@@ -208,6 +214,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Migrate<E, Hot, Cold>
             old_finalized_block_hash,
             new_finalized_block_hash,
             new_finalized_state.slot,
+            self.log.clone(),
         ) {
             eprintln!("Pruning error: {:?}", e);
         }
@@ -315,6 +322,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         thread::JoinHandle<()>,
     ) {
         let (tx, rx) = mpsc::channel();
+        let log = log.clone();
         let thread = thread::spawn(move || {
             while let Ok((
                 state_root,
@@ -331,6 +339,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     old_finalized_block_hash,
                     new_finalized_block_hash,
                     new_finalized_slot,
+                    log.clone(),
                 ) {
                     Ok(()) => {}
                     Err(e) => warn!(log, "Block pruning failed: {:?}", e),
