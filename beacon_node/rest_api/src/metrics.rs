@@ -1,10 +1,8 @@
-use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use hyper::{Body, Request};
+use crate::{ApiError, Context};
+use beacon_chain::BeaconChainTypes;
+use hyper::Request;
 use lighthouse_metrics::{Encoder, TextEncoder};
 use rest_types::Health;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use lighthouse_metrics::*;
@@ -77,11 +75,9 @@ lazy_static! {
 ///
 /// This is a HTTP handler method.
 pub fn get_prometheus<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-    db_path: PathBuf,
-    freezer_db_path: PathBuf,
-) -> ApiResult {
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> std::result::Result<String, ApiError> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 
@@ -101,9 +97,9 @@ pub fn get_prometheus<T: BeaconChainTypes>(
     // using `lighthouse_metrics::gather(..)` to collect the global `DEFAULT_REGISTRY` metrics into
     // a string that can be returned via HTTP.
 
-    slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&beacon_chain.slot_clock);
-    store::scrape_for_metrics(&db_path, &freezer_db_path);
-    beacon_chain::scrape_for_metrics(&beacon_chain);
+    slot_clock::scrape_for_metrics::<T::EthSpec, T::SlotClock>(&ctx.beacon_chain.slot_clock);
+    store::scrape_for_metrics(&ctx.db_path, &ctx.freezer_db_path);
+    beacon_chain::scrape_for_metrics(&ctx.beacon_chain);
     eth2_libp2p::scrape_discovery_metrics();
 
     // This will silently fail if we are unable to observe the health. This is desired behaviour
@@ -133,6 +129,5 @@ pub fn get_prometheus<T: BeaconChainTypes>(
         .unwrap();
 
     String::from_utf8(buffer)
-        .map(|string| ResponseBuilder::new(&req)?.body_text(string))
-        .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))?
+        .map_err(|e| ApiError::ServerError(format!("Failed to encode prometheus info: {:?}", e)))
 }

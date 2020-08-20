@@ -1,15 +1,12 @@
-use crate::helpers::{
-    check_content_type_for_json, parse_hex_ssz_bytes, publish_beacon_block_to_network,
-};
-use crate::response_builder::ResponseBuilder;
-use crate::{ApiError, ApiResult, Context, NetworkChannel, UrlQuery};
+use crate::helpers::{parse_hex_ssz_bytes, publish_beacon_block_to_network};
+use crate::{ApiError, Context, NetworkChannel, UrlQuery};
 use beacon_chain::{
     attestation_verification::Error as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     BlockError, ForkChoiceError, StateSkipConfig,
 };
 use bls::PublicKeyBytes;
 use eth2_libp2p::PubsubMessage;
-use hyper::{body::Bytes, Body, Request};
+use hyper::Request;
 use network::NetworkMessage;
 use rayon::prelude::*;
 use rest_types::{ValidatorDutiesRequest, ValidatorDutyBytes, ValidatorSubscription};
@@ -17,8 +14,8 @@ use slog::{error, info, trace, warn, Logger};
 use std::sync::Arc;
 use types::beacon_state::EthSpec;
 use types::{
-    Attestation, AttestationData, BeaconState, Epoch, RelativeEpoch, SelectionProof,
-    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, BeaconBlock
+    Attestation, AttestationData, BeaconBlock, BeaconState, Epoch, RelativeEpoch, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, SubnetId,
 };
 
 /// HTTP Handler to retrieve the duties for a set of validators during a particular epoch. This
@@ -278,7 +275,8 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
         None
     };
 
-    let (new_block, _state) = ctx.beacon_chain
+    let (new_block, _state) = ctx
+        .beacon_chain
         .produce_block(randao_reveal, slot, validator_graffiti)
         .map_err(|e| {
             error!(
@@ -297,7 +295,7 @@ pub fn get_new_beacon_block<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish a SignedBeaconBlock, which has been signed by a validator.
-pub async fn publish_beacon_block<T: BeaconChainTypes>(
+pub fn publish_beacon_block<T: BeaconChainTypes>(
     req: Request<Vec<u8>>,
     ctx: Arc<Context<T>>,
 ) -> Result<(), ApiError> {
@@ -404,7 +402,10 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 
     let attestation_data = query.attestation_data()?;
 
-    match ctx.beacon_chain.get_aggregated_attestation(&attestation_data) {
+    match ctx
+        .beacon_chain
+        .get_aggregated_attestation(&attestation_data)
+    {
         Ok(Some(attestation)) => Ok(attestation),
         Ok(None) => Err(ApiError::NotFound(format!(
             "No matching aggregate attestation for slot {:?} is known in slot {:?}",
@@ -419,7 +420,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.
-pub fn publish_attestations_blocking<T: BeaconChainTypes>(
+pub fn publish_attestations<T: BeaconChainTypes>(
     req: Request<Vec<u8>>,
     ctx: Arc<Context<T>>,
 ) -> Result<(), ApiError> {
@@ -456,55 +457,6 @@ pub fn publish_attestations_blocking<T: BeaconChainTypes>(
         // Note: this will only provide info about the _first_ failure, not all failures.
         .and_then(|processing_results| processing_results.into_iter().try_for_each(|result| result))
         .and_then(|_| Ok(()))
-}
-
-/// HTTP Handler to publish a list of Attestations, which have been signed by a number of validators.
-pub async fn publish_attestations<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-    network_chan: NetworkChannel<T::EthSpec>,
-    log: Logger,
-) -> ApiResult {
-    try_future!(check_content_type_for_json(&req));
-    let response_builder = ResponseBuilder::new(&req);
-
-    let body = req.into_body();
-    let chunk = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
-
-    let chunks = chunk.iter().cloned().collect::<Vec<u8>>();
-    serde_json::from_slice(&chunks.as_slice())
-        .map_err(|e| {
-            ApiError::BadRequest(format!(
-                "Unable to deserialize JSON into a list of attestations: {:?}",
-                e
-            ))
-        })
-        // Process all of the aggregates _without_ exiting early if one fails.
-        .map(
-            move |attestations: Vec<(Attestation<T::EthSpec>, SubnetId)>| {
-                attestations
-                    .into_par_iter()
-                    .enumerate()
-                    .map(|(i, (attestation, subnet_id))| {
-                        process_unaggregated_attestation(
-                            &beacon_chain,
-                            network_chan.clone(),
-                            attestation,
-                            subnet_id,
-                            i,
-                            &log,
-                        )
-                    })
-                    .collect::<Vec<Result<_, _>>>()
-            },
-        )
-        // Iterate through all the results and return on the first `Err`.
-        //
-        // Note: this will only provide info about the _first_ failure, not all failures.
-        .and_then(|processing_results| processing_results.into_iter().try_for_each(|result| result))
-        .and_then(|_| response_builder?.body_no_ssz(&()))
 }
 
 /// Processes an unaggregrated attestation that was included in a list of attestations with the
@@ -577,21 +529,13 @@ fn process_unaggregated_attestation<T: BeaconChainTypes>(
 }
 
 /// HTTP Handler to publish an Attestation, which has been signed by a validator.
-#[allow(clippy::redundant_clone)] // false positives in this function.
-pub async fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-    network_chan: NetworkChannel<T::EthSpec>,
-    log: Logger,
-) -> ApiResult {
-    try_future!(check_content_type_for_json(&req));
-    let response_builder = ResponseBuilder::new(&req);
+pub fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<(), ApiError> {
     let body = req.into_body();
-    let chunk = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
-    let chunks = chunk.iter().cloned().collect::<Vec<u8>>();
-    serde_json::from_slice(&chunks.as_slice())
+
+    serde_json::from_slice(&body)
         .map_err(|e| {
             ApiError::BadRequest(format!(
                 "Unable to deserialize JSON into a list of SignedAggregateAndProof: {:?}",
@@ -606,11 +550,11 @@ pub async fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
                     .enumerate()
                     .map(|(i, signed_aggregate)| {
                         process_aggregated_attestation(
-                            &beacon_chain,
-                            network_chan.clone(),
+                            &ctx.beacon_chain,
+                            ctx.network_chan.clone(),
                             signed_aggregate,
                             i,
-                            &log,
+                            &ctx.log,
                         )
                     })
                     .collect::<Vec<Result<_, _>>>()
@@ -620,7 +564,6 @@ pub async fn publish_aggregate_and_proofs<T: BeaconChainTypes>(
         //
         // Note: this will only provide info about the _first_ failure, not all failures.
         .and_then(|processing_results| processing_results.into_iter().try_for_each(|result| result))
-        .and_then(|_| response_builder?.body_no_ssz(&()))
 }
 
 /// Processes an aggregrated attestation that was included in a list of attestations with the index

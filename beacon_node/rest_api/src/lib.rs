@@ -16,7 +16,6 @@ mod lighthouse;
 mod metrics;
 mod node;
 mod response_builder;
-mod spec;
 mod url_query;
 mod validator;
 
