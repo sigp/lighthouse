@@ -405,40 +405,39 @@ pub async fn route<T: BeaconChainTypes>(
                 .await?
                 .all_encodings(),
             (Method::GET, "/beacon/state/genesis") => handler
-                .in_blocking_task(beacon::get_genesis_state)
+                .in_blocking_task(|_, ctx| beacon::get_genesis_state(ctx))
                 .await?
                 .all_encodings(),
             (Method::GET, "/beacon/committees") => handler
                 .in_blocking_task(beacon::get_committees)
                 .await?
                 .all_encodings(),
+            (Method::POST, "/beacon/proposer_slashing") => handler
+                .in_blocking_task(beacon::proposer_slashing)
+                .await?
+                .serde_encodings(),
+            (Method::POST, "/beacon/attester_slashing") => handler
+                .in_blocking_task(beacon::attester_slashing)
+                .await?
+                .serde_encodings(),
+            (Method::POST, "/validator/duties") => handler
+                .in_blocking_task(validator::post_validator_duties)
+                .await?
+                .serde_encodings(),
+            (Method::POST, "/validator/subscribe") => handler
+                .in_blocking_task(validator::post_validator_subscriptions)
+                .await?
+                .serde_encodings(),
+            (Method::GET, "/validator/duties/all") => handler
+                .in_blocking_task(validator::get_all_validator_duties)
+                .await?
+                .serde_encodings(),
+            (Method::GET, "/validator/duties/active") => handler
+                .in_blocking_task(validator::get_active_validator_duties)
+                .await?
+                .serde_encodings(),
             /*
-
-            // Methods for Beacon Node
-            (&Method::POST, "/beacon/proposer_slashing") => {
-                beacon::proposer_slashing::<T>(req, beacon_chain).await
-            }
-            (&Method::POST, "/beacon/attester_slashing") => {
-                beacon::attester_slashing::<T>(req, beacon_chain).await
-            }
-
-            // Methods for Validator
-            (&Method::POST, "/validator/duties") => {
-                let timer =
-                    metrics::start_timer(&metrics::VALIDATOR_GET_DUTIES_REQUEST_RESPONSE_TIME);
-                let response = validator::post_validator_duties::<T>(req, beacon_chain);
-                drop(timer);
-                response.await
-            }
-            (&Method::POST, "/validator/subscribe") => {
-                validator::post_validator_subscriptions::<T>(req, network_channel).await
-            }
-            (&Method::GET, "/validator/duties/all") => {
-                validator::get_all_validator_duties::<T>(req, beacon_chain)
-            }
-            (&Method::GET, "/validator/duties/active") => {
-                validator::get_active_validator_duties::<T>(req, beacon_chain)
-            }
+             *
             (&Method::GET, "/validator/block") => {
                 let timer =
                     metrics::start_timer(&metrics::VALIDATOR_GET_BLOCK_REQUEST_RESPONSE_TIME);

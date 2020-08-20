@@ -1,7 +1,6 @@
 use crate::helpers::*;
-use crate::response_builder::ResponseBuilder;
-use crate::Context;
 use crate::validator::get_state_for_epoch;
+use crate::Context;
 use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{
     observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
@@ -56,9 +55,7 @@ pub fn get_head<T: BeaconChainTypes>(
 }
 
 /// Return the list of heads of the beacon chain.
-pub fn get_heads<T: BeaconChainTypes>(
-    ctx: Arc<Context<T>>,
-) -> Vec<HeadBeaconBlock> {
+pub fn get_heads<T: BeaconChainTypes>(ctx: Arc<Context<T>>) -> Vec<HeadBeaconBlock> {
     ctx.beacon_chain
         .heads()
         .into_iter()
@@ -350,7 +347,8 @@ pub fn get_committees<T: BeaconChainTypes>(
 
     let epoch = query.epoch()?;
 
-    let mut state = get_state_for_epoch(&ctx.beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
+    let mut state =
+        get_state_for_epoch(&ctx.beacon_chain, epoch, StateSkipConfig::WithoutStateRoots)?;
 
     let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch).map_err(|e| {
         ApiError::ServerError(format!("Failed to get state suitable for epoch: {:?}", e))
@@ -402,7 +400,8 @@ pub fn get_state<T: BeaconChainTypes>(
         ("root", value) => {
             let root = &parse_root(&value)?;
 
-            let state = ctx.beacon_chain
+            let state = ctx
+                .beacon_chain
                 .store
                 .get_state(root, None)?
                 .ok_or_else(|| ApiError::NotFound(format!("No state for root: {:?}", root)))?;
@@ -437,32 +436,28 @@ pub fn get_state_root<T: BeaconChainTypes>(
 /// This is an undocumented convenience method used during testing. For production, simply do a
 /// state request at slot 0.
 pub fn get_genesis_state<T: BeaconChainTypes>(
-    req: Request<Vec<u8>>,
     ctx: Arc<Context<T>>,
 ) -> Result<BeaconState<T::EthSpec>, ApiError> {
     state_at_slot(&ctx.beacon_chain, Slot::new(0)).map(|(_root, state)| state)
 }
 
-pub async fn proposer_slashing<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let response_builder = ResponseBuilder::new(&req);
-
+pub fn proposer_slashing<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<(), ApiError> {
     let body = req.into_body();
-    let chunks = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
 
-    serde_json::from_slice::<ProposerSlashing>(&chunks)
+    serde_json::from_slice::<ProposerSlashing>(&body)
         .map_err(|e| format!("Unable to parse JSON into ProposerSlashing: {:?}", e))
         .and_then(move |proposer_slashing| {
-            if beacon_chain.eth1_chain.is_some() {
-                let obs_outcome = beacon_chain
+            if ctx.beacon_chain.eth1_chain.is_some() {
+                let obs_outcome = ctx
+                    .beacon_chain
                     .verify_proposer_slashing_for_gossip(proposer_slashing)
                     .map_err(|e| format!("Error while verifying proposer slashing: {:?}", e))?;
                 if let ObservationOutcome::New(verified_proposer_slashing) = obs_outcome {
-                    beacon_chain.import_proposer_slashing(verified_proposer_slashing);
+                    ctx.beacon_chain
+                        .import_proposer_slashing(verified_proposer_slashing);
                     Ok(())
                 } else {
                     Err("Proposer slashing for that validator index already known".into())
@@ -472,21 +467,14 @@ pub async fn proposer_slashing<T: BeaconChainTypes>(
             }
         })
         .map_err(ApiError::BadRequest)
-        .and_then(|_| response_builder?.body(&true))
 }
 
-pub async fn attester_slashing<T: BeaconChainTypes>(
-    req: Request<Body>,
-    beacon_chain: Arc<BeaconChain<T>>,
-) -> ApiResult {
-    let response_builder = ResponseBuilder::new(&req);
-
+pub fn attester_slashing<T: BeaconChainTypes>(
+    req: Request<Vec<u8>>,
+    ctx: Arc<Context<T>>,
+) -> Result<(), ApiError> {
     let body = req.into_body();
-    let chunks = hyper::body::to_bytes(body)
-        .await
-        .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
-
-    serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&chunks)
+    serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&body)
         .map_err(|e| {
             ApiError::BadRequest(format!(
                 "Unable to parse JSON into AttesterSlashing: {:?}",
@@ -494,13 +482,13 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
             ))
         })
         .and_then(move |attester_slashing| {
-            if beacon_chain.eth1_chain.is_some() {
-                beacon_chain
+            if ctx.beacon_chain.eth1_chain.is_some() {
+                ctx.beacon_chain
                     .verify_attester_slashing_for_gossip(attester_slashing)
                     .map_err(|e| format!("Error while verifying attester slashing: {:?}", e))
                     .and_then(|outcome| {
                         if let ObservationOutcome::New(verified_attester_slashing) = outcome {
-                            beacon_chain
+                            ctx.beacon_chain
                                 .import_attester_slashing(verified_attester_slashing)
                                 .map_err(|e| {
                                     format!("Error while importing attester slashing: {:?}", e)
@@ -516,5 +504,4 @@ pub async fn attester_slashing<T: BeaconChainTypes>(
                 ))
             }
         })
-        .and_then(|_| response_builder?.body(&true))
 }
