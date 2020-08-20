@@ -6,16 +6,13 @@ extern crate lazy_static;
 mod router;
 extern crate network as client_network;
 
-mod advanced;
 mod beacon;
 pub mod config;
 mod consensus;
-mod error;
 mod helpers;
 mod lighthouse;
 mod metrics;
 mod node;
-mod response_builder;
 mod url_query;
 mod validator;
 
@@ -23,7 +20,6 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bus::Bus;
 use client_network::NetworkMessage;
 pub use config::ApiEncodingFormat;
-use error::{ApiError, ApiResult};
 use eth2_config::Eth2Config;
 use eth2_libp2p::NetworkGlobals;
 use futures::future::TryFutureExt;
@@ -31,6 +27,7 @@ use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server};
 use parking_lot::Mutex;
+use rest_types::{ApiError, ApiResult};
 use slog::{info, warn};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -63,8 +60,6 @@ pub fn start_server<T: BeaconChainTypes>(
     events: Arc<Mutex<Bus<SignedBeaconBlockHash>>>,
 ) -> Result<SocketAddr, hyper::Error> {
     let log = executor.log();
-    let inner_log = log.clone();
-    let rest_api_config = Arc::new(config.clone());
     let eth2_config = Arc::new(eth2_config);
 
     let context = Arc::new(Context {

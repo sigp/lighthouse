@@ -1,6 +1,5 @@
 use crate::{ApiError, Context};
 use beacon_chain::BeaconChainTypes;
-use hyper::Request;
 use lighthouse_metrics::{Encoder, TextEncoder};
 use rest_types::Health;
 use std::sync::Arc;
@@ -75,7 +74,6 @@ lazy_static! {
 ///
 /// This is a HTTP handler method.
 pub fn get_prometheus<T: BeaconChainTypes>(
-    req: Request<Vec<u8>>,
     ctx: Arc<Context<T>>,
 ) -> std::result::Result<String, ApiError> {
     let mut buffer = vec![];
