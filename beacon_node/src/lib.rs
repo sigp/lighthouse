@@ -126,7 +126,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let builder = builder
             .build_beacon_chain()?
-            .network(&client_config.network)?
+            .network(&client_config.network)
+            .await?
             .notifier()?;
 
         let builder = if client_config.rest_api.enabled {

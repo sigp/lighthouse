@@ -8,7 +8,9 @@ mod tests {
         migrate::NullMigrator,
     };
     use eth2_libp2p::discovery::{build_enr, Keypair};
-    use eth2_libp2p::{discovery::CombinedKey, CombinedKeyExt, NetworkConfig, NetworkGlobals};
+    use eth2_libp2p::{
+        discovery::CombinedKey, CombinedKeyExt, NetworkConfig, NetworkGlobals, SubnetDiscovery,
+    };
     use futures::Stream;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use lazy_static::lazy_static;
@@ -120,23 +122,21 @@ mod tests {
         }
     }
 
-    fn _get_subscriptions(
+    fn get_subscriptions(
         validator_count: u64,
         slot: Slot,
         committee_count_at_slot: u64,
     ) -> Vec<ValidatorSubscription> {
-        let mut subscriptions: Vec<ValidatorSubscription> = Vec::new();
-        for validator_index in 0..validator_count {
-            let is_aggregator = true;
-            subscriptions.push(ValidatorSubscription {
-                validator_index,
-                attestation_committee_index: validator_index,
-                slot,
-                committee_count_at_slot,
-                is_aggregator,
-            });
-        }
-        subscriptions
+        (0..validator_count)
+            .map(|validator_index| {
+                get_subscription(
+                    validator_index,
+                    validator_index,
+                    slot,
+                    committee_count_at_slot,
+                )
+            })
+            .collect()
     }
 
     // gets a number of events from the subscription service, or returns none if it times out after a number
@@ -210,14 +210,7 @@ mod tests {
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any1),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -270,14 +263,7 @@ mod tests {
         let events = get_events(attestation_service, no_events_expected, 2).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any1),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any1), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -330,19 +316,15 @@ mod tests {
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
-        let expected = vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
+        let expected = vec![AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+            subnet_id,
+            min_ttl,
+        }])];
 
         let events = get_events(attestation_service, no_events_expected, 1).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -396,21 +378,14 @@ mod tests {
         )
         .unwrap();
         let expected = vec![
-            AttServiceMessage::DiscoverPeers { subnet_id, min_ttl },
+            AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery { subnet_id, min_ttl }]),
             AttServiceMessage::Subscribe(subnet_id),
         ];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -454,14 +429,7 @@ mod tests {
 
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -517,20 +485,16 @@ mod tests {
 
         // expect discover peers because we will enter TARGET_PEER_DISCOVERY_SLOT_LOOK_AHEAD range
         let expected: Vec<AttServiceMessage> =
-            vec![AttServiceMessage::DiscoverPeers { subnet_id, min_ttl }];
+            vec![AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                subnet_id,
+                min_ttl,
+            }])];
 
         let events = get_events(attestation_service, no_events_expected, 5).await;
 
         assert_matches!(
             events[..3],
-            [
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant
-                },
-                AttServiceMessage::Subscribe(_any2),
-                AttServiceMessage::EnrAdd(_any3)
-            ]
+            [AttServiceMessage::DiscoverPeers(_), AttServiceMessage::Subscribe(_any2), AttServiceMessage::EnrAdd(_any3)]
         );
         // if there are fewer events than expected, there's been a collision
         if events.len() == no_events_expected {
@@ -553,7 +517,7 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions = _get_subscriptions(
+        let subscriptions = get_subscriptions(
             subscription_count,
             current_slot + subscription_slot,
             committee_count,
@@ -572,10 +536,9 @@ mod tests {
 
         for event in events {
             match event {
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant,
-                } => discover_peer_count = discover_peer_count + 1,
+                AttServiceMessage::DiscoverPeers(_) => {
+                    discover_peer_count = discover_peer_count + 1
+                }
                 AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,
@@ -605,7 +568,7 @@ mod tests {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions = _get_subscriptions(
+        let subscriptions = get_subscriptions(
             subscription_count,
             current_slot + subscription_slot,
             committee_count,
@@ -624,10 +587,9 @@ mod tests {
 
         for event in events {
             match event {
-                AttServiceMessage::DiscoverPeers {
-                    subnet_id: _any_subnet,
-                    min_ttl: _any_instant,
-                } => discover_peer_count = discover_peer_count + 1,
+                AttServiceMessage::DiscoverPeers(_) => {
+                    discover_peer_count = discover_peer_count + 1
+                }
                 AttServiceMessage::Subscribe(_any_subnet) => subscribe_count = subscribe_count + 1,
                 AttServiceMessage::EnrAdd(_any_subnet) => enr_add_count = enr_add_count + 1,
                 _ => unexpected_msg_count = unexpected_msg_count + 1,
@@ -638,5 +600,41 @@ mod tests {
         assert_eq!(subscribe_count, 64);
         assert_eq!(enr_add_count, 64);
         assert_eq!(unexpected_msg_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_discovery_peers_count() {
+        let subscription_slot = 10;
+        let validator_count = 32;
+        let committee_count = 1;
+        let expected_events = 97;
+
+        // create the attestation service and subscriptions
+        let mut attestation_service = get_attestation_service();
+        let current_slot = attestation_service
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Could not get current slot");
+
+        let subscriptions = get_subscriptions(
+            validator_count,
+            current_slot + subscription_slot,
+            committee_count,
+        );
+
+        // submit sthe subscriptions
+        attestation_service
+            .validator_subscriptions(subscriptions)
+            .unwrap();
+
+        let events = get_events(attestation_service, expected_events, 3).await;
+
+        let event = events.get(96);
+        if let Some(AttServiceMessage::DiscoverPeers(d)) = event {
+            assert_eq!(d.len(), validator_count as usize);
+        } else {
+            panic!("Unexpected event {:?}", event);
+        }
     }
 }

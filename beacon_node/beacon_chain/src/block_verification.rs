@@ -92,6 +92,8 @@ pub enum BlockError<T: EthSpec> {
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
     ParentUnknown(Box<SignedBeaconBlock<T>>),
+    /// The block skips too many slots and is a DoS risk.
+    TooManySkippedSlots { parent_slot: Slot, block_slot: Slot },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -390,8 +392,21 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
+        let block_root = get_block_root(&block);
+
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(&block.message, chain)?;
+
+        // Check if the block is already known. We know it is post-finalization, so it is
+        // sufficient to check the fork choice.
+        //
+        // In normal operation this isn't necessary, however it is useful immediately after a
+        // reboot if the `observed_block_producers` cache is empty. In that case, without this
+        // check, we will load the parent and state from disk only to find out later that we
+        // already know this block.
+        if chain.fork_choice.read().contains_block(&block_root) {
+            return Err(BlockError::BlockIsAlreadyKnown);
+        }
 
         // Check that we have not already received a block with a valid signature for this slot.
         if chain
@@ -415,7 +430,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         )?;
 
         let (mut parent, block) = load_parent(block, chain)?;
-        let block_root = get_block_root(&block);
+
+        // Reject any block that exceeds our limit on skipped slots.
+        check_block_skip_slots(chain, &parent.beacon_block.message, &block.message)?;
 
         let state = cheap_state_advance_to_obtain_committees(
             &mut parent.beacon_state,
@@ -503,6 +520,10 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         let (mut parent, block) = load_parent(block, chain)?;
+
+        // Reject any block that exceeds our limit on skipped slots.
+        check_block_skip_slots(chain, &parent.beacon_block.message, &block.message)?;
+
         let block_root = get_block_root(&block);
 
         let state = cheap_state_advance_to_obtain_committees(
@@ -633,6 +654,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             return Err(BlockError::ParentUnknown(Box::new(block)));
         }
 
+        // Reject any block that exceeds our limit on skipped slots.
+        check_block_skip_slots(chain, &parent.beacon_block.message, &block.message)?;
+
         /*
          *  Perform cursory checks to see if the block is even worth processing.
          */
@@ -672,7 +696,10 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 let state_root = state.update_tree_hash_cache()?;
 
                 let op = if state.slot % T::EthSpec::slots_per_epoch() == 0 {
-                    StoreOp::PutState(state_root.into(), Cow::Owned(state.clone()))
+                    StoreOp::PutState(
+                        state_root.into(),
+                        Cow::Owned(state.clone_with(CloneConfig::committee_caches_only())),
+                    )
                 } else {
                     StoreOp::PutStateSummary(
                         state_root.into(),
@@ -770,6 +797,30 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             intermediate_states,
         })
     }
+}
+
+/// Check that the count of skip slots between the block and its parent does not exceed our maximum
+/// value.
+///
+/// Whilst this is not part of the specification, we include this to help prevent us from DoS
+/// attacks. In times of dire network circumstance, the user can configure the
+/// `import_max_skip_slots` value.
+fn check_block_skip_slots<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    parent: &BeaconBlock<T::EthSpec>,
+    block: &BeaconBlock<T::EthSpec>,
+) -> Result<(), BlockError<T::EthSpec>> {
+    // Reject any block that exceeds our limit on skipped slots.
+    if let Some(max_skip_slots) = chain.config.import_max_skip_slots {
+        if block.slot > parent.slot + max_skip_slots {
+            return Err(BlockError::TooManySkippedSlots {
+                parent_slot: parent.slot,
+                block_slot: block.slot,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Returns `Ok(())` if the block is later than the finalized slot on `chain`.

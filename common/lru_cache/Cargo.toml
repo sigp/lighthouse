@@ -1,0 +1,8 @@
+[package]
+name = "lru_cache"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = "2018"
+
+[dependencies]
+fnv = "1.0.7"

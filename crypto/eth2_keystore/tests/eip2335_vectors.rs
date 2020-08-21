@@ -64,7 +64,7 @@ fn eip2335_test_vector_scrypt() {
         Uuid::parse_str("1d85ae20-35c5-4611-98e8-aa14a633906f").unwrap(),
         "uuid"
     );
-    assert_eq!(keystore.path(), "", "path");
+    assert_eq!(keystore.path().unwrap(), "", "path");
 }
 
 #[test]
@@ -108,5 +108,5 @@ fn eip2335_test_vector_pbkdf() {
         Uuid::parse_str("64625def-3331-4eea-ab6f-782f3ed16a83").unwrap(),
         "uuid"
     );
-    assert_eq!(keystore.path(), "m/12381/60/0/0", "path");
+    assert_eq!(keystore.path().unwrap(), "m/12381/60/0/0", "path");
 }

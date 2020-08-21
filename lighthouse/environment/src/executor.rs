@@ -1,4 +1,5 @@
 use crate::metrics;
+use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use slog::{debug, trace};
 use tokio::runtime::Handle;
@@ -10,6 +11,12 @@ pub struct TaskExecutor {
     pub(crate) handle: Handle,
     /// The receiver exit future which on receiving shuts down the task
     pub(crate) exit: exit_future::Exit,
+    /// Sender given to tasks, so that if they encounter a state in which execution cannot
+    /// continue they can request that everything shuts down.
+    ///
+    /// The task must provide a reason for shutting down.
+    pub(crate) signal_tx: Sender<&'static str>,
+
     pub(crate) log: slog::Logger,
 }
 
@@ -18,8 +25,18 @@ impl TaskExecutor {
     ///
     /// Note: this function is mainly useful in tests. A `TaskExecutor` should be normally obtained from
     /// a [`RuntimeContext`](struct.RuntimeContext.html)
-    pub fn new(handle: Handle, exit: exit_future::Exit, log: slog::Logger) -> Self {
-        Self { handle, exit, log }
+    pub fn new(
+        handle: Handle,
+        exit: exit_future::Exit,
+        log: slog::Logger,
+        signal_tx: Sender<&'static str>,
+    ) -> Self {
+        Self {
+            handle,
+            exit,
+            signal_tx,
+            log,
+        }
     }
 
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
@@ -51,7 +68,7 @@ impl TaskExecutor {
 
     /// Spawn a future on the tokio runtime. This function does not wrap the task in an `exit_future::Exit`
     /// like [spawn](#method.spawn).
-    /// The caller of this function is responsible for wrapping up the task with an `exit_future::Exit` to  
+    /// The caller of this function is responsible for wrapping up the task with an `exit_future::Exit` to
     /// ensure that the task gets canceled appropriately.
     /// This function generates prometheus metrics on number of tasks and task duration.
     ///
@@ -119,6 +136,11 @@ impl TaskExecutor {
     /// Returns a copy of the `exit_future::Exit`.
     pub fn exit(&self) -> exit_future::Exit {
         self.exit.clone()
+    }
+
+    /// Get a channel to request shutting down.
+    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+        self.signal_tx.clone()
     }
 
     /// Returns a reference to the logger.

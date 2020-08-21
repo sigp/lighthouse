@@ -9,7 +9,11 @@
 
 use eth2_config::Eth2Config;
 use eth2_testnet_config::Eth2TestnetConfig;
-use futures::channel::oneshot;
+use futures::channel::{
+    mpsc::{channel, Receiver, Sender},
+    oneshot,
+};
+use futures::{future, StreamExt};
 
 pub use executor::TaskExecutor;
 use slog::{info, o, Drain, Level, Logger};
@@ -260,10 +264,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
         let (signal, exit) = exit_future::signal();
+        let (signal_tx, signal_rx) = channel(1);
         Ok(Environment {
             runtime: self
                 .runtime
                 .ok_or_else(|| "Cannot build environment without runtime".to_string())?,
+            signal_tx,
+            signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
             log: self
@@ -295,6 +302,7 @@ impl<E: EthSpec> RuntimeContext<E> {
         Self {
             executor: TaskExecutor {
                 handle: self.executor.handle.clone(),
+                signal_tx: self.executor.signal_tx.clone(),
                 exit: self.executor.exit.clone(),
                 log: self.executor.log.new(o!("service" => service_name)),
             },
@@ -318,6 +326,10 @@ impl<E: EthSpec> RuntimeContext<E> {
 /// validator client, or to run tests that involve logging and async task execution.
 pub struct Environment<E: EthSpec> {
     runtime: Runtime,
+    /// Receiver side of an internal shutdown signal.
+    signal_rx: Option<Receiver<&'static str>>,
+    /// Sender to request shutting down.
+    signal_tx: Sender<&'static str>,
     signal: Option<exit_future::Signal>,
     exit: exit_future::Exit,
     log: Logger,
@@ -340,6 +352,7 @@ impl<E: EthSpec> Environment<E> {
         RuntimeContext {
             executor: TaskExecutor {
                 exit: self.exit.clone(),
+                signal_tx: self.signal_tx.clone(),
                 handle: self.runtime().handle().clone(),
                 log: self.log.clone(),
             },
@@ -353,6 +366,7 @@ impl<E: EthSpec> Environment<E> {
         RuntimeContext {
             executor: TaskExecutor {
                 exit: self.exit.clone(),
+                signal_tx: self.signal_tx.clone(),
                 handle: self.runtime().handle().clone(),
                 log: self.log.new(o!("service" => service_name)),
             },
@@ -361,8 +375,20 @@ impl<E: EthSpec> Environment<E> {
         }
     }
 
-    /// Block the current thread until Ctrl+C is received.
-    pub fn block_until_ctrl_c(&mut self) -> Result<(), String> {
+    /// Block the current thread until a shutdown signal is received.
+    ///
+    /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
+    pub fn block_until_shutdown_requested(&mut self) -> Result<(), String> {
+        // future of a task requesting to shutdown
+        let mut rx = self
+            .signal_rx
+            .take()
+            .ok_or("Inner shutdown already received")?;
+        let inner_shutdown =
+            async move { rx.next().await.ok_or("Internal shutdown channel exhausted") };
+        futures::pin_mut!(inner_shutdown);
+
+        // setup for handling a Ctrl-C
         let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
         let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
         ctrlc::set_handler(move || {
@@ -372,10 +398,18 @@ impl<E: EthSpec> Environment<E> {
         })
         .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;
 
-        // Block this thread until Crtl+C is pressed.
-        self.runtime()
-            .block_on(ctrlc_oneshot)
-            .map_err(|e| format!("Ctrlc oneshot failed: {:?}", e))
+        // Block this thread until a shutdown signal is received.
+        match self
+            .runtime()
+            .block_on(future::select(inner_shutdown, ctrlc_oneshot))
+        {
+            future::Either::Left((Ok(reason), _)) => {
+                info!(self.log, "Internal shutdown received"; "reason" => reason);
+                Ok(())
+            }
+            future::Either::Left((Err(e), _)) => Err(e.into()),
+            future::Either::Right((x, _)) => x.map_err(|e| format!("Ctrlc oneshot failed: {}", e)),
+        }
     }
 
     /// Shutdown the `tokio` runtime when all tasks are idle.

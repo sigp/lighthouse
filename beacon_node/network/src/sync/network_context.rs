@@ -110,7 +110,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
-        debug!(self.log, "Sync reporting peer"; "peer_id" => peer_id.to_string(), "action"=> action.to_string());
+        debug!(self.log, "Sync reporting peer"; "peer_id" => peer_id.to_string(), "action" => action.to_string());
         self.network_send
             .send(NetworkMessage::ReportPeer { peer_id, action })
             .unwrap_or_else(|_| {

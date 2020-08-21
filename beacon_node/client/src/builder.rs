@@ -135,6 +135,7 @@ where
         let eth_spec_instance = self.eth_spec_instance.clone();
         let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
+        let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
 
         let store =
@@ -153,6 +154,7 @@ where
             .store_migrator(store_migrator)
             .data_dir(data_dir)
             .custom_spec(spec.clone())
+            .chain_config(chain_config)
             .disabled_forks(disabled_forks)
             .graffiti(graffiti);
 
@@ -232,8 +234,8 @@ where
         Ok(self)
     }
 
-    /// Immediately starts the networking stack.
-    pub fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    /// Starts the networking stack.
+    pub async fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -246,6 +248,7 @@ where
 
         let (network_globals, network_send) =
             NetworkService::start(beacon_chain, config, context.executor)
+                .await
                 .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
