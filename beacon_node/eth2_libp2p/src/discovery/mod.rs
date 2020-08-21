@@ -3,7 +3,7 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-pub use enr::{build_enr, CombinedKey, Eth2Enr};
+pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::Keypair;
 

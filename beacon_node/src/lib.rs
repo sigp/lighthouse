@@ -7,7 +7,7 @@ mod config;
 pub use beacon_chain;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_data_dir, get_eth2_testnet_config};
+pub use config::{get_data_dir, get_eth2_testnet_config, set_network_config};
 pub use eth2_config::Eth2Config;
 
 use beacon_chain::events::TeeEventHandler;

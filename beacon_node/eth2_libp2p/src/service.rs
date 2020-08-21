@@ -357,7 +357,7 @@ fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
 /// generated and is then saved to disk.
 ///
 /// Currently only secp256k1 keys are allowed, as these are the only keys supported by discv5.
-fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
+pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
     // check for key from disk
     let network_key_f = config.network_dir.join(NETWORK_KEY_FILENAME);
     if let Ok(mut network_key_file) = File::open(network_key_f.clone()) {
