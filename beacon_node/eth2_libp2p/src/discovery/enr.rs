@@ -49,7 +49,7 @@ impl Eth2Enr for Enr {
     }
 }
 
-/// Either use the given enr or load an ENR from file if it exists and meatches the current NodeId
+/// Either use the given ENR or load an ENR from file if it exists and matches the current NodeId
 /// and sequence number.
 /// If an ENR exists, with the same NodeId, this function checks to see if the loaded ENR from
 /// disk is suitable to use, otherwise we increment the given ENR's sequence number.
