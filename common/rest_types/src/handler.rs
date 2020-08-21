@@ -153,9 +153,9 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
             .map_err(|e| ApiError::ServerError(format!("Unable to get request body: {:?}", e)))?;
 
         if !allow_body && !bytes[..].is_empty() {
-            return Err(ApiError::BadRequest(
+            Err(ApiError::BadRequest(
                 "The request body must be empty".to_string(),
-            ));
+            ))
         } else {
             Ok(bytes.into_iter().collect())
         }
