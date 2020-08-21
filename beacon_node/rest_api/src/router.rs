@@ -155,11 +155,7 @@ async fn route<T: BeaconChainTypes>(
             .await?
             .all_encodings(),
         (Method::GET, "/beacon/fork/stream") => {
-            todo!()
-            /* TODO
-            let reader = events.lock().add_rx();
-            beacon::stream_forks::<T>(log, reader)
-            */
+            handler.sse_stream(|_, ctx| beacon::stream_forks(ctx)).await
         }
         (Method::GET, "/beacon/genesis_time") => handler
             .in_blocking_task(|_, ctx| Ok(ctx.beacon_chain.head_info()?.genesis_time))

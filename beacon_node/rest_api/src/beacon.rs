@@ -5,7 +5,6 @@ use crate::{ApiError, ApiResult, UrlQuery};
 use beacon_chain::{
     observed_operations::ObservationOutcome, BeaconChain, BeaconChainTypes, StateSkipConfig,
 };
-use bus::BusReader;
 use futures::executor::block_on;
 use hyper::body::Bytes;
 use hyper::{Body, Request, Response};
@@ -16,7 +15,7 @@ use rest_types::{
 use std::io::Write;
 use std::sync::Arc;
 
-use slog::{error, Logger};
+use slog::error;
 use types::{
     AttesterSlashing, BeaconState, EthSpec, Hash256, ProposerSlashing, PublicKeyBytes,
     RelativeEpoch, SignedBeaconBlockHash, Slot,
@@ -130,37 +129,27 @@ fn make_sse_response_chunk(new_head_hash: SignedBeaconBlockHash) -> std::io::Res
     Ok(bytes)
 }
 
-pub fn stream_forks<T: BeaconChainTypes>(
-    log: Logger,
-    mut events: BusReader<SignedBeaconBlockHash>,
-) -> ApiResult {
+pub fn stream_forks<T: BeaconChainTypes>(ctx: Arc<Context<T>>) -> Result<Body, ApiError> {
+    let mut events = ctx.events.lock().add_rx();
     let (mut sender, body) = Body::channel();
     std::thread::spawn(move || {
         while let Ok(new_head_hash) = events.recv() {
             let chunk = match make_sse_response_chunk(new_head_hash) {
                 Ok(chunk) => chunk,
                 Err(e) => {
-                    error!(log, "Failed to make SSE chunk"; "error" => e.to_string());
+                    error!(ctx.log, "Failed to make SSE chunk"; "error" => e.to_string());
                     sender.abort();
                     break;
                 }
             };
             match block_on(sender.send_data(chunk)) {
                 Err(e) if e.is_closed() => break,
-                Err(e) => error!(log, "Couldn't stream piece {:?}", e),
+                Err(e) => error!(ctx.log, "Couldn't stream piece {:?}", e),
                 Ok(_) => (),
             }
         }
     });
-    let response = Response::builder()
-        .status(200)
-        .header("Content-Type", "text/event-stream")
-        .header("Connection", "Keep-Alive")
-        .header("Cache-Control", "no-cache")
-        .header("Access-Control-Allow-Origin", "*")
-        .body(body)
-        .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))?;
-    Ok(response)
+    Ok(body)
 }
 
 /// HTTP handler to which accepts a query string of a list of validator pubkeys and maps it to a

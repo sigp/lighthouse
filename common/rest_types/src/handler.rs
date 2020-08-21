@@ -131,6 +131,22 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
         })
     }
 
+    pub async fn sse_stream<F>(self, func: F) -> ApiResult
+    where
+        F: Fn(Request<()>, T) -> Result<Body, ApiError>,
+    {
+        let body = func(self.req, self.ctx)?;
+
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/event-stream")
+            .header("Connection", "Keep-Alive")
+            .header("Cache-Control", "no-cache")
+            .header("Access-Control-Allow-Origin", "*")
+            .body(body)
+            .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
+    }
+
     async fn get_body(body: Body, allow_body: bool) -> Result<Vec<u8>, ApiError> {
         let bytes = hyper::body::to_bytes(body)
             .await
