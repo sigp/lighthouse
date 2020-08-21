@@ -444,7 +444,7 @@ pub fn get_genesis_state<T: BeaconChainTypes>(
 pub fn proposer_slashing<T: BeaconChainTypes>(
     req: Request<Vec<u8>>,
     ctx: Arc<Context<T>>,
-) -> Result<(), ApiError> {
+) -> Result<bool, ApiError> {
     let body = req.into_body();
 
     serde_json::from_slice::<ProposerSlashing>(&body)
@@ -466,13 +466,15 @@ pub fn proposer_slashing<T: BeaconChainTypes>(
                 Err("Cannot insert proposer slashing on node without Eth1 connection.".to_string())
             }
         })
-        .map_err(ApiError::BadRequest)
+        .map_err(ApiError::BadRequest)?;
+
+    Ok(true)
 }
 
 pub fn attester_slashing<T: BeaconChainTypes>(
     req: Request<Vec<u8>>,
     ctx: Arc<Context<T>>,
-) -> Result<(), ApiError> {
+) -> Result<bool, ApiError> {
     let body = req.into_body();
     serde_json::from_slice::<AttesterSlashing<T::EthSpec>>(&body)
         .map_err(|e| {
@@ -503,5 +505,7 @@ pub fn attester_slashing<T: BeaconChainTypes>(
                     "Cannot insert attester slashing on node without Eth1 connection.".to_string(),
                 ))
             }
-        })
+        })?;
+
+    Ok(true)
 }
