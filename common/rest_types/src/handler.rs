@@ -34,6 +34,7 @@ impl From<&str> for ApiEncodingFormat {
     }
 }
 
+/// Provides a HTTP request handler with Lighthouse-specific functionality.
 pub struct Handler<T> {
     executor: TaskExecutor,
     req: Request<()>,
@@ -44,6 +45,7 @@ pub struct Handler<T> {
 }
 
 impl<T: Clone + Send + Sync + 'static> Handler<T> {
+    /// Start handling a new request.
     pub fn new(req: Request<Body>, ctx: T, executor: TaskExecutor) -> Result<Self, ApiError> {
         let (req_parts, body) = req.into_parts();
         let req = Request::from_parts(req_parts, ());
@@ -70,11 +72,16 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
         })
     }
 
+    /// The default behaviour is to return an error if any body is supplied in the request. Calling
+    /// this function disables that error.
     pub fn allow_body(mut self) -> Self {
         self.allow_body = true;
         self
     }
 
+    /// Return a simple static value.
+    ///
+    /// Does not use the blocking executor.
     pub async fn static_value<V>(self, value: V) -> Result<HandledRequest<V>, ApiError> {
         // Always check and disallow a body for a static value.
         let _ = Self::get_body(self.body, false).await?;
@@ -85,6 +92,9 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
         })
     }
 
+    /// Calls `func` in-line, on the core executor.
+    ///
+    /// This should only be used for very fast tasks.
     pub async fn in_core_task<F, V>(self, func: F) -> Result<HandledRequest<V>, ApiError>
     where
         V: Send + Sync + 'static,
@@ -102,6 +112,9 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
         })
     }
 
+    /// Spawns `func` on the blocking executor.
+    ///
+    /// This method is suitable for handling long-running or intensive tasks.
     pub async fn in_blocking_task<F, V>(self, func: F) -> Result<HandledRequest<V>, ApiError>
     where
         V: Send + Sync + 'static,
@@ -131,6 +144,7 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
         })
     }
 
+    /// Call `func`, then return a response that is suitable for an SSE stream.
     pub async fn sse_stream<F>(self, func: F) -> ApiResult
     where
         F: Fn(Request<()>, T) -> Result<Body, ApiError>,
@@ -147,6 +161,7 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
             .map_err(|e| ApiError::ServerError(format!("Failed to build response: {:?}", e)))
     }
 
+    /// Downloads the bytes for `body`.
     async fn get_body(body: Body, allow_body: bool) -> Result<Vec<u8>, ApiError> {
         let bytes = hyper::body::to_bytes(body)
             .await
@@ -162,12 +177,15 @@ impl<T: Clone + Send + Sync + 'static> Handler<T> {
     }
 }
 
+/// A request that has been "handled" and now a result (`value`) needs to be serialize and
+/// returned.
 pub struct HandledRequest<V> {
     encoding: ApiEncodingFormat,
     value: V,
 }
 
 impl HandledRequest<String> {
+    /// Simple encode a string as utf-8.
     pub fn text_encoding(self) -> ApiResult {
         Response::builder()
             .status(StatusCode::OK)
@@ -178,6 +196,7 @@ impl HandledRequest<String> {
 }
 
 impl<V: Serialize + Encode> HandledRequest<V> {
+    /// Suitable for all items which implement `serde` and `ssz`.
     pub fn all_encodings(self) -> ApiResult {
         match self.encoding {
             ApiEncodingFormat::SSZ => Response::builder()
@@ -191,6 +210,7 @@ impl<V: Serialize + Encode> HandledRequest<V> {
 }
 
 impl<V: Serialize> HandledRequest<V> {
+    /// Suitable for items which only implement `serde`.
     pub fn serde_encodings(self) -> ApiResult {
         let (body, content_type) = match self.encoding {
             ApiEncodingFormat::JSON => (
